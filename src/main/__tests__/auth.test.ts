@@ -55,6 +55,9 @@ vi.mock('../cli-adapters/claude', () => ({
 vi.mock('../cli-adapters/codex', () => ({
   CodexAdapter: { isAvailable: vi.fn(() => false) },
 }))
+vi.mock('../cli-adapters/hermes', () => ({
+  HermesAdapter: { isAvailable: vi.fn(() => false) },
+}))
 
 import { registerAuthHandlers, retrieveAuthMode, storeAuthMode } from '../auth'
 
@@ -91,7 +94,7 @@ describe('auth', () => {
       mode: 'byok',
       user: null,
       cliInstalled: false,
-      clis: { claude: false, codex: false },
+      clis: { claude: false, codex: false, hermes: false },
     })
   })
 

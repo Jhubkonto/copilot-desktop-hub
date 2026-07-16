@@ -7,6 +7,7 @@ const {
   safeHandleMock,
   isAvailableClaude,
   isAvailableCodex,
+  isAvailableHermes,
   getCliModelsMock,
   isProviderConfiguredMock,
   retrieveApiKeyMock,
@@ -18,6 +19,7 @@ const {
   safeHandleMock: vi.fn(),
   isAvailableClaude: vi.fn(),
   isAvailableCodex: vi.fn(),
+  isAvailableHermes: vi.fn(),
   getCliModelsMock: vi.fn(),
   isProviderConfiguredMock: vi.fn(),
   retrieveApiKeyMock: vi.fn(),
@@ -30,6 +32,7 @@ const {
 vi.mock('../safe-handle', () => ({ safeHandle: safeHandleMock }))
 vi.mock('../cli-adapters/claude', () => ({ ClaudeAdapter: { isAvailable: isAvailableClaude } }))
 vi.mock('../cli-adapters/codex', () => ({ CodexAdapter: { isAvailable: isAvailableCodex } }))
+vi.mock('../cli-adapters/hermes', () => ({ HermesAdapter: { isAvailable: isAvailableHermes } }))
 vi.mock('../cli-detection', () => ({ getCliModels: getCliModelsMock }))
 vi.mock('../providers', () => ({
   PROVIDERS: [
@@ -52,6 +55,7 @@ import { getAvailableModelGroups, registerModelAvailabilityHandlers } from '../m
 afterEach(() => {
   isAvailableClaude.mockReset()
   isAvailableCodex.mockReset()
+  isAvailableHermes.mockReset()
   getCliModelsMock.mockReset()
   isProviderConfiguredMock.mockReset()
   retrieveApiKeyMock.mockReset()
@@ -66,6 +70,7 @@ describe('getAvailableModelGroups', () => {
   beforeEach(() => {
     isAvailableClaude.mockReturnValue(false)
     isAvailableCodex.mockReturnValue(false)
+    isAvailableHermes.mockReturnValue(false)
     isProviderConfiguredMock.mockReturnValue(false)
   })
 
@@ -90,6 +95,16 @@ describe('getAvailableModelGroups', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].sourceKey).toBe('codex-cli')
     expect(groups[0].sourceType).toBe('cli')
+  })
+
+  it('returns one CLI group for Hermes Agent only', () => {
+    isAvailableHermes.mockReturnValue(true)
+    getCliModelsMock.mockReturnValue([{ id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' }])
+    const groups = getAvailableModelGroups()
+    expect(groups).toHaveLength(1)
+    expect(groups[0].sourceKey).toBe('hermes-cli')
+    expect(groups[0].sourceType).toBe('cli')
+    expect(groups[0].sourceLabel).toBe('Hermes Agent')
   })
 
   it('returns two CLI groups when both CLIs available, claude first', () => {

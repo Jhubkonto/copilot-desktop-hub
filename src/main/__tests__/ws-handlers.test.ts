@@ -158,6 +158,10 @@ vi.mock('../cli-adapters/codex', () => ({
   CodexAdapter: { isAvailable: vi.fn(() => false) },
 }))
 
+vi.mock('../cli-adapters/hermes', () => ({
+  HermesAdapter: { isAvailable: vi.fn(() => false) },
+}))
+
 vi.mock('../ws-server', () => ({
   startWsServer: vi.fn(),
   stopWsServer: vi.fn(),
@@ -217,6 +221,7 @@ import { getAndroidUpdateManifest } from '../android-handlers'
 import { isProviderConfigured } from '../providers'
 import { ClaudeAdapter } from '../cli-adapters/claude'
 import { CodexAdapter } from '../cli-adapters/codex'
+import { HermesAdapter } from '../cli-adapters/hermes'
 
 function sendCommand(command: string, data: Record<string, unknown> = {}) {
   if (!state.commandHandler) throw new Error('WS command handler not registered')
@@ -268,6 +273,7 @@ describe('ws handlers', () => {
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
     vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
+    vi.mocked(HermesAdapter.isAvailable).mockReturnValue(false)
     registerWsHandlers()
   })
 

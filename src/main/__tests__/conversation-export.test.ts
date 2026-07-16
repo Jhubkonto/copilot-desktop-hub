@@ -426,7 +426,7 @@ describe('conversation export', () => {
     ).run('agent-claude', JSON.stringify({ name: 'Claude', backend: 'claude-cli' }), 0, 1700000000200, 1700000000200)
     db.prepare(
       'INSERT INTO agents (id, config_json, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-    ).run('agent-gh', JSON.stringify({ name: 'GitHub Copilot', backend: 'gh-copilot' }), 0, 1700000000200, 1700000000200)
+    ).run('agent-hermes', JSON.stringify({ name: 'Hermes', backend: 'hermes-cli' }), 0, 1700000000200, 1700000000200)
 
     expect(() => forkConversation(db, 'conv-1', {
       model: 'gpt-5.5',
@@ -435,16 +435,16 @@ describe('conversation export', () => {
 
     expect(() => forkConversation(db, 'conv-1', {
       model: 'gpt-5.5',
-      agentId: 'agent-gh',
-    })).toThrow(/manages its own model/)
+      agentId: 'agent-hermes',
+    })).toThrow(/not available for hermes-cli/)
 
-    const ghResult = forkConversation(db, 'conv-1', {
-      model: null,
-      agentId: 'agent-gh',
+    const hermesResult = forkConversation(db, 'conv-1', {
+      model: 'anthropic/claude-sonnet-4-6',
+      agentId: 'agent-hermes',
     })
-    expect(ghResult.conversation).toEqual(expect.objectContaining({
-      agent_id: 'agent-gh',
-      model: null,
+    expect(hermesResult.conversation).toEqual(expect.objectContaining({
+      agent_id: 'agent-hermes',
+      model: 'anthropic/claude-sonnet-4-6',
     }))
   })
 

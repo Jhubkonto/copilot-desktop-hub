@@ -24,6 +24,7 @@ function baseProjectConfig() {
     instructionMode: 'prepend', workflowMode: 'single-agent', orchestrationEnabled: false,
     maxDelegationDepth: 5, showTeamActivity: true, inScope: [], outOfScope: [], milestones: [],
     strategyRetrievalEnabled: false, codingWorkspace: false, workspaceInfo: null, verifyCommands: null,
+    terminalSandboxBypass: false,
   }
 }
 vi.mock('../project-handlers', () => ({

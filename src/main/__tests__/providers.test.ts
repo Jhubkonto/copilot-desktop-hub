@@ -279,6 +279,47 @@ describe('Providers — IPC Handlers', () => {
         messages
       })
     })
+
+    it('requests usage in the stream and reports it via onUsage', async () => {
+      let requestBody = ''
+      mockHttpsRequest.mockImplementationOnce((options: unknown, callback: (res: EventEmitter) => void) => {
+        const req = new EventEmitter() as EventEmitter & {
+          write: (chunk: string) => void
+          end: () => void
+        }
+        const res = new EventEmitter() as EventEmitter & {
+          statusCode?: number
+          headers?: Record<string, string>
+        }
+
+        res.statusCode = 200
+        res.headers = { 'content-type': 'text/event-stream' }
+        req.write = (chunk: string) => {
+          requestBody += chunk
+        }
+        req.end = () => {
+          callback(res)
+          res.emit('data', 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n')
+          res.emit('data', 'data: {"choices":[],"usage":{"prompt_tokens":1203,"completion_tokens":42,"total_tokens":1245}}\n\n')
+          res.emit('data', 'data: [DONE]\n\n')
+          res.emit('end')
+        }
+
+        return req
+      })
+
+      const messages = [{ role: 'user' as const, content: 'who are you?' }] satisfies ProviderMessage[]
+
+      const { sendOpenAIMessage } = await import('../providers')
+      const usageEvents: { inputTokens: number; outputTokens: number }[] = []
+      const result = await sendOpenAIMessage('conv-usage', 'sk-test', 'gpt-4o', messages, () => {}, {
+        onUsage: (usage) => usageEvents.push(usage),
+      })
+
+      expect(result).toBe('hi')
+      expect(usageEvents).toEqual([{ inputTokens: 1203, outputTokens: 42 }])
+      expect(JSON.parse(requestBody)).toMatchObject({ stream_options: { include_usage: true } })
+    })
   })
 
   describe('abortActiveStream', () => {

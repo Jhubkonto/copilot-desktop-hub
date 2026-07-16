@@ -15,7 +15,7 @@ vi.mock('child_process', () => ({
 
 import { ClaudeAdapter } from '../cli-adapters/claude'
 import { CodexAdapter } from '../cli-adapters/codex'
-import { GhCopilotAdapter } from '../cli-adapters/gh-copilot'
+import { HermesAdapter } from '../cli-adapters/hermes'
 import { clearCliPathCache } from '../cli-adapters/utils'
 
 describe('CLI adapters', () => {
@@ -25,7 +25,7 @@ describe('CLI adapters', () => {
     // resolveCliPath calls execSync('where.exe <name>') — return a dummy path by default
     mockExecSync.mockImplementation((cmd: string) => {
       if (String(cmd).includes('where') || String(cmd).includes('which')) {
-        return String(cmd).includes('gh') ? 'C:\\gh.exe\n' : 'C:\\claude.exe\n'
+        return String(cmd).includes('hermes') ? 'C:\\hermes.exe\n' : 'C:\\claude.exe\n'
       }
       return ''
     })
@@ -746,11 +746,11 @@ describe('CLI adapters', () => {
     })
   })
 
-  it('GhCopilotAdapter strips ANSI output', async () => {
-    mockSpawnSync.mockReturnValue({ stdout: '\u001b[31mecho hi\u001b[0m', error: undefined })
+  it('HermesAdapter strips ANSI output', async () => {
+    mockSpawnSync.mockReturnValue({ stdout: '[31mecho hi[0m', status: 0, error: undefined })
 
     const chunks: string[] = []
-    await expect(GhCopilotAdapter.send({} as never, {
+    await expect(HermesAdapter.send({} as never, {
       messages: [{ role: 'assistant', content: 'ignore' }, { role: 'user', content: 'say hi' }],
       cwd: 'C:\\workspace',
       model: 'default',
@@ -760,18 +760,61 @@ describe('CLI adapters', () => {
     })).resolves.toBe('echo hi')
 
     expect(chunks).toEqual(['echo hi'])
-    expect(mockSpawnSync).toHaveBeenCalledWith(expect.stringContaining('gh'), ['copilot', 'suggest', '-t', 'shell', 'say hi'], expect.objectContaining({ cwd: 'C:\\workspace' }))
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      expect.stringContaining('hermes'),
+      ['-z', 'say hi', '--ignore-user-config', '--ignore-rules'],
+      expect.objectContaining({ cwd: 'C:\\workspace' }),
+    )
   })
 
-  it('GhCopilotAdapter rejects spawn errors', async () => {
+  it('HermesAdapter passes -m for a non-default model', async () => {
+    mockSpawnSync.mockReturnValue({ stdout: 'hi there', status: 0, error: undefined })
+
+    await expect(HermesAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'say hi' }],
+      cwd: 'C:\\workspace',
+      model: 'anthropic/claude-sonnet-4-6',
+      conversationId: 'conv-1',
+    }, () => {})).resolves.toBe('hi there')
+
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      expect.stringContaining('hermes'),
+      ['-z', 'say hi', '--ignore-user-config', '--ignore-rules', '-m', 'anthropic/claude-sonnet-4-6'],
+      expect.objectContaining({ cwd: 'C:\\workspace' }),
+    )
+  })
+
+  it('HermesAdapter rejects spawn errors', async () => {
     mockSpawnSync.mockReturnValue({ stdout: '', error: new Error('boom') })
 
-    await expect(GhCopilotAdapter.send({} as never, {
+    await expect(HermesAdapter.send({} as never, {
       messages: [{ role: 'user', content: 'say hi' }],
       cwd: 'C:\\workspace',
       model: 'default',
       conversationId: 'conv-1',
     }, () => {})).rejects.toThrow('boom')
+  })
+
+  it('HermesAdapter rejects on non-zero exit with stderr instead of resolving empty', async () => {
+    mockSpawnSync.mockReturnValue({ stdout: '', stderr: 'auth error: no provider configured', status: 1, error: undefined })
+
+    await expect(HermesAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'say hi' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {})).rejects.toThrow('auth error: no provider configured')
+  })
+
+  it('HermesAdapter rejects when stdout is empty even with a zero exit status', async () => {
+    mockSpawnSync.mockReturnValue({ stdout: '', stderr: 'warning: falling back to default model', status: 0, error: undefined })
+
+    await expect(HermesAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'say hi' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {})).rejects.toThrow('warning: falling back to default model')
   })
 
   describe('skipPermissions flag', () => {

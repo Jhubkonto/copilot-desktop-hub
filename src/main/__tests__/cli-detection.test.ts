@@ -125,11 +125,13 @@ describe('CLI Detection', () => {
       if (cmd.includes('claude') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/claude\n'
       if (cmd.includes('codex') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/codex\n'
       if (cmd.includes('gh') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/gh\n'
+      if (cmd.includes('hermes') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/hermes\n'
       if (cmd.includes('ollama') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/ollama\n'
       if (cmd.includes('github-copilot-cli --version') || cmd.includes('copilot --version')) return '1.0.0'
       if (cmd.includes('claude --version')) return '0.9.1'
       if (cmd.includes('codex --version')) return 'codex 0.1.0'
       if (cmd.includes('gh --version')) return 'gh version 2.0.0\nmore'
+      if (cmd.includes('hermes --version')) return 'hermes 1.0.0'
       if (cmd.includes('ollama --version')) return '0.7.0'
       throw new Error(`unknown command: ${cmd}`)
     })
@@ -141,6 +143,7 @@ describe('CLI Detection', () => {
       claude: { installed: true, path: '/usr/bin/claude', version: '0.9.1' },
       codex: { installed: true, path: '/usr/bin/codex', version: 'codex 0.1.0' },
       gh: { installed: true, path: '/usr/bin/gh', version: 'gh version 2.0.0' },
+      hermes: { installed: true, path: '/usr/bin/hermes', version: 'hermes 1.0.0' },
       ollama: { installed: true, path: '/usr/bin/ollama', version: '0.7.0' },
     })
 
@@ -157,6 +160,7 @@ describe('CLI Detection', () => {
       claude: { installed: false, path: null, version: null },
       codex: { installed: false, path: null, version: null },
       gh: { installed: false, path: null, version: null },
+      hermes: { installed: false, path: null, version: null },
       ollama: { installed: false, path: null, version: null },
     })
   })
@@ -194,6 +198,44 @@ describe('CLI Detection', () => {
     expect(getCliModels('codex-cli')).toEqual([
       { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+    ])
+  })
+
+  it('getCliModels returns static fallback for hermes-cli when config.yaml is missing', () => {
+    expect(getCliModels('hermes-cli')).toEqual([
+      { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
+      { id: 'anthropic/claude-opus-4-8', label: 'Claude Opus 4.8 (Anthropic)' },
+      { id: 'openrouter/auto', label: 'Auto (OpenRouter)' },
+    ])
+  })
+
+  it('getCliModels reads the configured model and fallback chain from config.yaml for hermes-cli', () => {
+    mockReadFileSync.mockImplementation((path: string) => {
+      if (path.includes('config.yaml')) {
+        return [
+          'model:',
+          '  provider: anthropic',
+          '  default: claude-opus-4-8',
+          '  base_url: \'\'',
+          'fallback_providers:',
+          '  - provider: openrouter',
+          '    model: google/gemini-2.5-flash',
+          '  - provider: nous',
+          '    model: anthropic/claude-sonnet-4-6',
+          'auxiliary:',
+          '  vision:',
+          '    provider: auto',
+          '    model: \'\'',
+        ].join('\n')
+      }
+      throw new Error('unexpected path')
+    })
+
+    expect(getCliModels('hermes-cli')).toEqual([
+      { id: 'anthropic/claude-opus-4-8', label: 'claude-opus-4-8 (anthropic)' },
+      { id: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash (openrouter)' },
+      { id: 'anthropic/claude-sonnet-4-6', label: 'anthropic/claude-sonnet-4-6 (nous)' },
+      { id: 'openrouter/auto', label: 'Auto (OpenRouter)' },
     ])
   })
 
