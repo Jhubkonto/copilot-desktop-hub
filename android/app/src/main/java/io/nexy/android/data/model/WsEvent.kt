@@ -307,6 +307,8 @@ sealed class WsEvent {
     data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
     data class ArtifactVersions(val artifactId: String, val versions: List<ArtifactVersionSummary>) : WsEvent()
     data class ArtifactDeleted(val id: String, val deleted: Boolean) : WsEvent()
+    data class ArtifactVersionDeleted(val versionId: String, val deleted: Boolean, val artifactId: String?) : WsEvent()
+    data class ArtifactVersionDeleteError(val message: String) : WsEvent()
     data class ArtifactPromoted(val artifactId: String, val versionId: String, val title: String, val messageId: String?) : WsEvent()
     data class ArtifactPromoteError(val message: String, val messageId: String?) : WsEvent()
     data class ArtifactExportPack(val versionId: String, val files: List<ArtifactExportFile>) : WsEvent()

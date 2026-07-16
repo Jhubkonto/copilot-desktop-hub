@@ -1336,6 +1336,16 @@ fun parseWsEvent(
                 deleted = data?.optBoolean("deleted", false) ?: false,
             )
 
+            "artifact:version-deleted" -> WsEvent.ArtifactVersionDeleted(
+                versionId = data?.optString("versionId") ?: "",
+                deleted = data?.optBoolean("deleted", false) ?: false,
+                artifactId = data?.nullableString("artifactId"),
+            )
+
+            "artifact:version-delete-error" -> WsEvent.ArtifactVersionDeleteError(
+                message = data?.optString("message") ?: "Failed to delete version",
+            )
+
             "chat:active-turn-snapshot" -> {
                 val snapshot = data?.optJSONObject("snapshot")
                 if (snapshot == null) {

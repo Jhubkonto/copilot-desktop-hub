@@ -2222,6 +2222,7 @@ object WsRepository : WsClient {
     fun getArtifact(id: String) { send("artifact:get", mapOf("id" to id)) }
     fun listArtifactVersions(artifactId: String) { send("artifact:list-versions", mapOf("artifactId" to artifactId)) }
     fun deleteArtifact(id: String) { send("artifact:delete", mapOf("id" to id)) }
+    fun deleteArtifactVersion(versionId: String) { send("artifact:delete-version", mapOf("versionId" to versionId)) }
     fun promoteArtifactMessage(
         conversationId: String,
         messageId: String,
