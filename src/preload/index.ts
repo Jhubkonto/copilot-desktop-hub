@@ -935,6 +935,8 @@ const api = {
     typedInvoke('artifact:get-version', versionId),
   artifactDelete: (id: string) =>
     typedInvoke('artifact:delete', id),
+  artifactDeleteVersion: (versionId: string) =>
+    typedInvoke('artifact:delete-version', versionId),
   artifactMoveToProject: (artifactId: string, projectId: string | null) =>
     typedInvoke('artifact:move-to-project', artifactId, projectId),
   artifactPromoteMessage: (input: ArtifactPromotionRequest) =>

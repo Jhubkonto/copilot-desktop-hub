@@ -2216,6 +2216,7 @@ export type IpcReturnMap = {
   'artifact:list-versions': ArtifactVersion[]
   'artifact:get-version': ArtifactVersion | null
   'artifact:delete': { deleted: boolean }
+  'artifact:delete-version': { deleted: boolean }
   'artifact:move-to-project': { ok: boolean }
   'artifact:promote-message': ArtifactPromotionResult
   'artifact:export': { exportPath: string }
@@ -2638,6 +2639,7 @@ export type IpcChannels =
   | 'artifact:list-versions'
   | 'artifact:get-version'
   | 'artifact:delete'
+  | 'artifact:delete-version'
   | 'artifact:export'
   | 'artifact:open-folder'
   | 'artifact:promote-message'

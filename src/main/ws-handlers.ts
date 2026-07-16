@@ -76,7 +76,7 @@ import {
   updateArtifactGeneratorRunRecord,
   getArtifactGeneratorModel,
 } from './artifact-generator'
-import { promoteConversationMessageToArtifact } from './artifacts'
+import { promoteConversationMessageToArtifact, deleteArtifactVersion } from './artifacts'
 import { getActiveChatTurnSnapshot } from './active-chat-turns'
 import {
   getAutomatedWorkflowGeneratorModel,
@@ -2212,6 +2212,85 @@ export function registerWsHandlers(): void {
           })),
         },
       })
+      return
+    }
+
+    if (command === 'artifact:delete-version') {
+      const versionId = typeof data.versionId === 'string' ? data.versionId : ''
+      if (!versionId) return
+      try {
+        const result = deleteArtifactVersion(versionId)
+        reply({ event: 'artifact:version-deleted', data: { versionId, deleted: result.deleted, artifactId: result.artifactId ?? null } })
+        const artifactId = result.artifactId
+        if (artifactId) {
+          const versionRows = db.prepare('SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC').all(artifactId) as Record<string, unknown>[]
+          const versions = versionRows.map((vRow) => {
+            const vId = String(vRow.id)
+            const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(vId) as Record<string, unknown>[]
+            return {
+              id: vId,
+              artifactId: String(vRow.artifact_id),
+              versionNumber: Number(vRow.version_number),
+              title: String(vRow.title),
+              notes: vRow.notes != null ? String(vRow.notes) : null,
+              createdAt: Number(vRow.created_at),
+              files: fileRows.map((f) => ({
+                id: String(f.id),
+                relativePath: String(f.relative_path),
+                mediaType: String(f.media_type),
+                role: String(f.role),
+              })),
+            }
+          })
+          reply({ event: 'artifact:versions', data: { artifactId, versions } })
+
+          const aRow = db.prepare('SELECT * FROM artifacts WHERE id = ?').get(artifactId) as Record<string, unknown> | undefined
+          if (aRow) {
+            const currentVersionId = aRow.current_version_id != null ? String(aRow.current_version_id) : null
+            let currentVersion = null
+            if (currentVersionId) {
+              const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(currentVersionId) as Record<string, unknown> | undefined
+              if (vRow) {
+                const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(currentVersionId) as Record<string, unknown>[]
+                currentVersion = {
+                  id: String(vRow.id),
+                  artifactId: String(vRow.artifact_id),
+                  versionNumber: Number(vRow.version_number),
+                  title: String(vRow.title),
+                  notes: vRow.notes != null ? String(vRow.notes) : null,
+                  createdAt: Number(vRow.created_at),
+                  files: fileRows.map((f) => ({
+                    id: String(f.id),
+                    relativePath: String(f.relative_path),
+                    mediaType: String(f.media_type),
+                    role: String(f.role),
+                  })),
+                }
+              }
+            }
+            reply({
+              event: 'artifact:detail',
+              data: {
+                artifact: {
+                  id: String(aRow.id),
+                  projectId: aRow.project_id != null ? String(aRow.project_id) : null,
+                  title: String(aRow.title),
+                  kind: String(aRow.kind),
+                  description: aRow.description != null ? String(aRow.description) : null,
+                  storageRoot: aRow.storage_root != null ? String(aRow.storage_root) : null,
+                  status: String(aRow.status),
+                  currentVersionId,
+                  createdAt: Number(aRow.created_at),
+                  updatedAt: Number(aRow.updated_at),
+                  currentVersion,
+                },
+              },
+            })
+          }
+        }
+      } catch (err) {
+        reply({ event: 'artifact:version-delete-error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 
