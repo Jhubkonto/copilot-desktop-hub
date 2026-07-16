@@ -131,7 +131,7 @@ export function SettingsTab({
           <option value="">Auto (BYOK key, or Claude CLI if no key)</option>
           <option value="claude-cli">Force Claude CLI (claude --print)</option>
           <option value="codex-cli">OpenAI Codex CLI (codex)</option>
-          <option value="gh-copilot">GitHub Copilot CLI (gh copilot suggest)</option>
+          <option value="hermes-cli">Hermes Agent (hermes -z)</option>
         </select>
         {config.backend && (
           <div className="flex items-start justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">

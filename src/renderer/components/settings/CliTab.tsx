@@ -4,6 +4,7 @@ import { TabHeader } from './TabHeader'
 interface InstalledClis {
   claude: boolean
   codex: boolean
+  hermes?: boolean
 }
 
 interface Props {
@@ -78,6 +79,38 @@ export function CliTab({ installedClis, cliRefreshing, onRefresh }: Props) {
         <div className="space-y-1.5">
           <p className="text-xs text-gray-500">Authenticate (run once)</p>
           <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">codex login</pre>
+        </div>
+      </div>
+
+      {/* Hermes Agent */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-800 dark:text-gray-100">Hermes Agent</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+              installedClis.hermes
+                ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
+            }`}>
+              {installedClis.hermes ? '✓ Installed' : 'Not installed'}
+            </span>
+          </div>
+          <button
+            disabled={cliRefreshing}
+            onClick={onRefresh}
+            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${cliRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-500">Install</p>
+          <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash</pre>
+        </div>
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-500">Authenticate (run once)</p>
+          <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">hermes setup</pre>
         </div>
       </div>
     </>

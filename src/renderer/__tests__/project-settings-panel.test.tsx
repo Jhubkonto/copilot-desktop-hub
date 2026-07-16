@@ -26,6 +26,7 @@ const BASE_CONFIG: ProjectConfig = {
   milestones: [],
   verifyCommands: null,
   strategyRetrievalEnabled: false,
+  terminalSandboxBypass: false,
 }
 
 const PROJECT = { id: 'proj-1', name: 'My Project', color: 'blue', created_at: 0, default_model: null }

@@ -283,6 +283,14 @@ export function ContextInspector({
                       <StatCard label="Retained" value={`${compressionPreview.retained_message_count}`} />
                       <StatCard label="Omitted" value={`${compressionPreview.omitted_message_count}`} />
                     </div>
+                    {compressionPreview.has_summary && (
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-gray-500">Tokens before → after</span>
+                        <span className="font-medium text-gray-700 dark:text-gray-200 tabular-nums">
+                          {fmtTokens(compressionPreview.estimated_tokens_before)} → {fmtTokens(compressionPreview.estimated_tokens_after)}
+                        </span>
+                      </div>
+                    )}
                     <Button
                       className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                       onClick={() => setShowCompression((value) => !value)}
@@ -314,13 +322,20 @@ export function ContextInspector({
                 </div>
                 <Button
                   variant="primary"
-                  disabled={!conversationId || isPreparingCompression}
+                  disabled={!conversationId || isPreparingCompression || historyMessages.length <= 6}
                   onClick={prepareManualCompression}
                 >
                   <FileText className="w-3.5 h-3.5" />
                   {isPreparingCompression ? 'Preparing...' : 'Compress now'}
                 </Button>
               </div>
+
+              {historyMessages.length <= 6 && (
+                <p className="text-xs text-gray-500">
+                  Manual compression is a forced preview/edit tool — it works below the automatic threshold too,
+                  but needs at least 7 messages in this chat to have something worth summarizing.
+                </p>
+              )}
 
               {compressionError && (
                 <div className="rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-600 dark:text-red-300">
@@ -330,10 +345,11 @@ export function ContextInspector({
 
               {compressionDraft && (
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950/30 p-4 space-y-4">
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <StatCard label="Will summarize" value={`${compressionDraft.summarized_message_count}`} />
                     <StatCard label="Will retain" value={`${compressionDraft.retained_message_count}`} />
                     <StatCard label="Original" value={`${fmtTokens(compressionDraft.estimated_tokens_before)} tok`} />
+                    <StatCard label="After" value={`${fmtTokens(compressionDraft.estimated_tokens_after)} tok`} />
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     {SUMMARY_SECTION_LABELS.map(([key, label]) => (
@@ -398,6 +414,17 @@ export function ContextInspector({
 export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot }) {
   const [expanded, setExpanded] = useState(false)
 
+  const modelChanged = Boolean(snapshot.serverModel && snapshot.serverModel !== snapshot.model)
+  const hasRealUsage = typeof snapshot.serverInputTokens === 'number'
+  const isInteresting =
+    snapshot.historyLength > 0 ||
+    snapshot.contextRefs.length > 0 ||
+    snapshot.attachments.length > 0 ||
+    Boolean(snapshot.serverCompression) ||
+    modelChanged ||
+    hasRealUsage
+  if (!isInteresting) return null
+
   return (
     <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
       <button
@@ -432,8 +459,26 @@ export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot }
           <div className="flex gap-3">
             <span><span className="font-medium">History:</span> {snapshot.historyLength} messages</span>
             <span><span className="font-medium">Model:</span> {snapshot.model}</span>
-            <span><span className="font-medium">~{snapshot.estimatedTokens}</span> tok total</span>
+            {!hasRealUsage && <span><span className="font-medium">~{snapshot.estimatedTokens}</span> tok total (estimate)</span>}
           </div>
+          {hasRealUsage && (
+            <div>
+              <span className="font-medium">Actual usage:</span>{' '}
+              {snapshot.serverInputTokens} input{typeof snapshot.serverOutputTokens === 'number' ? ` / ${snapshot.serverOutputTokens} output` : ''} tok
+              <span className="text-gray-400 dark:text-gray-500"> (estimate was ~{snapshot.estimatedTokens})</span>
+            </div>
+          )}
+          {modelChanged && (
+            <div className="text-amber-600 dark:text-amber-400">
+              Actually sent to <span className="font-medium">{snapshot.serverModel}</span> (routing overrode the requested model)
+            </div>
+          )}
+          {snapshot.serverCompression && (
+            <div>
+              <span className="font-medium">Rolling compression:</span>{' '}
+              {snapshot.serverCompression.compressedMessageCount} messages summarized, {snapshot.serverCompression.retainedMessageCount} kept verbatim
+            </div>
+          )}
         </div>
       )}
     </div>

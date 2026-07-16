@@ -42,6 +42,7 @@ interface Props {
   rootDirectory: string
   codingWorkspace: boolean
   strategyRetrievalEnabled: boolean
+  terminalSandboxBypass: boolean
   workspaceInfo: ProjectConfig['workspaceInfo']
   instructions: string
   instructionMode: ProjectConfig['instructionMode']
@@ -61,6 +62,7 @@ interface Props {
   onBrowseDir: () => void
   onCodingWorkspaceToggle: () => void
   onStrategyRetrievalToggle: () => void
+  onTerminalSandboxBypassToggle: () => void
   onSetShowModeDropdown: (v: boolean) => void
   onAddVariable: () => void
   onRemoveVariable: (idx: number) => void
@@ -68,12 +70,12 @@ interface Props {
 }
 
 export function GeneralTab({
-  isDraft, name, color, rootDirectory, codingWorkspace, strategyRetrievalEnabled, workspaceInfo,
+  isDraft, name, color, rootDirectory, codingWorkspace, strategyRetrievalEnabled, terminalSandboxBypass, workspaceInfo,
   instructions, instructionMode, instructionsEnabled,
   variables, varErrors, showModeDropdown, hasVarErrors,
   onSetName, onSetColor, onNameBlur, onConfirm,
   onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onCodingWorkspaceToggle,
-  onStrategyRetrievalToggle, onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
+  onStrategyRetrievalToggle, onTerminalSandboxBypassToggle, onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
 }: Props) {
   const selectedModeLabel = INSTRUCTION_MODES.find((m) => m.value === instructionMode)?.label ?? instructionMode
   const highlightParts = resolveVarHighlights(instructions, variables)
@@ -320,6 +322,30 @@ export function GeneralTab({
             aria-checked={strategyRetrievalEnabled}
           >
             <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${strategyRetrievalEnabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Terminal sandbox bypass */}
+      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5 dark:border-amber-900 dark:bg-amber-950/20">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Allow terminal commands outside project root</p>
+            <p className="mt-1 text-[10px] text-amber-700/80 dark:text-amber-400/80">
+              Lets the agent's terminal tool run commands with a working directory outside this project's root
+              directory. Off by default — enabling this lets agent-run shell commands read/write anywhere on this
+              machine. Can be overridden per-chat.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onTerminalSandboxBypassToggle}
+            className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${terminalSandboxBypass ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+            aria-label={terminalSandboxBypass ? 'Disable terminal sandbox bypass' : 'Enable terminal sandbox bypass'}
+            role="switch"
+            aria-checked={terminalSandboxBypass}
+          >
+            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${terminalSandboxBypass ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
           </button>
         </div>
       </div>

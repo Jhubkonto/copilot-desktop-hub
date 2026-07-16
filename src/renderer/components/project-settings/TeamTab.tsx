@@ -40,7 +40,7 @@ export function TeamTab({
     if (!config?.backend) return !(authState.authenticated || authState.cliInstalled)
     if (config.backend === 'claude-cli') return !installedClis.claude
     if (config.backend === 'codex-cli') return !installedClis.codex
-    if (config.backend === 'gh-copilot') return false
+    if (config.backend === 'hermes-cli') return !installedClis.hermes
     return false
   })
   const hasPrimaryMember = members.some((member) => member.isPrimary)

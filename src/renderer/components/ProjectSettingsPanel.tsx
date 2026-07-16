@@ -76,6 +76,7 @@ export function ProjectSettingsPanel(props: Props) {
   const [rootDirectory, setRootDirectory] = useState(cfg?.rootDirectory ?? '')
   const [codingWorkspace, setCodingWorkspace] = useState(cfg?.codingWorkspace ?? false)
   const [strategyRetrievalEnabled, setStrategyRetrievalEnabled] = useState(cfg?.strategyRetrievalEnabled ?? false)
+  const [terminalSandboxBypass, setTerminalSandboxBypass] = useState(cfg?.terminalSandboxBypass ?? false)
   const [inspectedWorkspaceInfo, setInspectedWorkspaceInfo] = useState<ProjectConfig['workspaceInfo']>(cfg?.workspaceInfo ?? null)
   const [instructionMode, setInstructionMode] = useState<ProjectConfig['instructionMode']>(cfg?.instructionMode ?? 'prepend')
   const [instructionsEnabled, setInstructionsEnabled] = useState(cfg?.instructionsEnabled ?? true)
@@ -236,6 +237,12 @@ export function ProjectSettingsPanel(props: Props) {
     const next = !strategyRetrievalEnabled
     setStrategyRetrievalEnabled(next)
     immediateSave({ strategyRetrievalEnabled: next })
+  }
+
+  const handleTerminalSandboxBypassToggle = () => {
+    const next = !terminalSandboxBypass
+    setTerminalSandboxBypass(next)
+    immediateSave({ terminalSandboxBypass: next })
   }
 
   const handleAddVariable = () => {
@@ -460,6 +467,7 @@ export function ProjectSettingsPanel(props: Props) {
             rootDirectory={rootDirectory}
             codingWorkspace={codingWorkspace}
             strategyRetrievalEnabled={strategyRetrievalEnabled}
+            terminalSandboxBypass={terminalSandboxBypass}
             workspaceInfo={inspectedWorkspaceInfo ?? projectConfig.workspaceInfo}
             instructions={instructions}
             instructionMode={instructionMode}
@@ -479,6 +487,7 @@ export function ProjectSettingsPanel(props: Props) {
             onBrowseDir={handleBrowseDir}
             onCodingWorkspaceToggle={handleCodingWorkspaceToggle}
             onStrategyRetrievalToggle={handleStrategyRetrievalToggle}
+            onTerminalSandboxBypassToggle={handleTerminalSandboxBypassToggle}
             onSetShowModeDropdown={setShowModeDropdown}
             onAddVariable={handleAddVariable}
             onRemoveVariable={handleRemoveVariable}
