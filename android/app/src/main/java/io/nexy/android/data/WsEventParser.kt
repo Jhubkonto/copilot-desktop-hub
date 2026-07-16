@@ -768,12 +768,19 @@ fun parseWsEvent(
                 val fullAutoApproveOverride = if (data != null && data.has("fullAutoApproveOverride") && !data.isNull("fullAutoApproveOverride")) {
                     data.optInt("fullAutoApproveOverride") != 0
                 } else null
+                val terminalSandboxOverride = if (data != null && data.has("terminalSandboxOverride") && !data.isNull("terminalSandboxOverride")) {
+                    data.optInt("terminalSandboxOverride") != 0
+                } else null
                 conversations.value = conversations.value.map { conversation ->
                     if (conversation.id == conversationId) {
-                        conversation.copy(thinking_effort_override = thinkingEffortOverride, full_auto_approve_override = fullAutoApproveOverride)
+                        conversation.copy(
+                            thinking_effort_override = thinkingEffortOverride,
+                            full_auto_approve_override = fullAutoApproveOverride,
+                            terminal_sandbox_override = terminalSandboxOverride,
+                        )
                     } else conversation
                 }
-                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride)
+                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride)
             }
 
             "conversation:messages" -> {
@@ -2813,6 +2820,7 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             completed_at = if (row.has("completed_at") && !row.isNull("completed_at")) row.optLong("completed_at") else null,
             thinking_effort_override = row.nullableString("thinking_effort_override"),
             full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
+            terminal_sandbox_override = if (row.has("terminal_sandbox_override") && !row.isNull("terminal_sandbox_override")) row.optInt("terminal_sandbox_override") != 0 else null,
             rating = if (row.has("rating") && !row.isNull("rating")) row.optInt("rating") else null,
             kind = row.nullableString("kind"),
         )

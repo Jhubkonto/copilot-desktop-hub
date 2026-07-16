@@ -17,6 +17,7 @@ data class Conversation(
     val completed_at: Long? = null,
     val thinking_effort_override: String? = null,
     val full_auto_approve_override: Boolean? = null,
+    val terminal_sandbox_override: Boolean? = null,
     val rating: Int? = null,
     val kind: String? = null, // 'chat' (default) or 'code-change' for wizard mode
 )

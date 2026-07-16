@@ -266,7 +266,7 @@ sealed class WsEvent {
     data class CodeChangeStaged(val ok: Boolean, val error: String?) : WsEvent()
     data class CodeChangeUnstaged(val ok: Boolean, val error: String?) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
-    data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?) : WsEvent()
+    data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?, val terminalSandboxOverride: Boolean?) : WsEvent()
     data class ConversationCreated(
         val id: String,
         val agentId: String?,
