@@ -19,6 +19,10 @@ export interface CliAdapterRequest {
   conversationId: string
   thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
   skipPermissions?: boolean
+  // Directories the CLI's own built-in sandbox should be allowed to touch beyond `cwd` — set
+  // when the project/conversation's terminal sandbox bypass is enabled. Not all adapters honor
+  // this (currently Claude CLI only, via --add-dir); adapters that don't support it ignore it.
+  extraAllowedDirs?: string[]
 }
 
 export type CliStreamEvent =

@@ -1,12 +1,12 @@
 import type { CliAgentAdapter } from './types'
 import { ClaudeAdapter } from './claude'
 import { CodexAdapter } from './codex'
-import { GhCopilotAdapter } from './gh-copilot'
+import { HermesAdapter } from './hermes'
 
 const adapters = new Map<string, CliAgentAdapter>([
   ['claude-cli', ClaudeAdapter],
   ['codex-cli', CodexAdapter],
-  ['gh-copilot', GhCopilotAdapter],
+  ['hermes-cli', HermesAdapter],
 ])
 
 export function getAdapter(backend: string): CliAgentAdapter | undefined {

@@ -148,11 +148,71 @@ function findCli(command: string): CliInstallStatus {
   }
 }
 
+const HERMES_DEFAULT_MODELS: CliModelOption[] = [
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
+  { id: 'anthropic/claude-opus-4-8', label: 'Claude Opus 4.8 (Anthropic)' },
+  { id: 'openrouter/auto', label: 'Auto (OpenRouter)' },
+]
+
+/**
+ * Extracts a top-level YAML block's raw text (from `key:` up to the next line starting at
+ * column 0) without a full YAML parser — Hermes's config.yaml nests `default`/`provider` under
+ * `model:`, `auxiliary:`, etc. and a flat regex over the whole file would grab the wrong section.
+ */
+function extractYamlBlock(content: string, key: string): string | null {
+  const match = new RegExp(`^${key}:\\n((?:[ \\t]+.*\\n?)*)`, 'm').exec(content)
+  return match?.[1] ?? null
+}
+
+function readYamlScalar(block: string, key: string): string | null {
+  const match = new RegExp(`^\\s*${key}:\\s*["']?([^"'\\n#]+?)["']?\\s*(?:#.*)?$`, 'm').exec(block)
+  return match?.[1]?.trim() || null
+}
+
+/**
+ * Hermes has no model-listing command (unlike Claude's PTY probe or Codex's models_cache.json) —
+ * `~/.hermes/config.yaml`'s `model.default`/`model.provider` and `fallback_providers` chain are
+ * the only on-disk signal of what the user actually has configured, so this is the closest
+ * equivalent to `readCodexConfigModel()`/`readCodexCachedModels()`.
+ */
+function readHermesConfigModels(): CliModelOption[] {
+  try {
+    const yamlPath = join(homedir(), '.hermes', 'config.yaml')
+    const content = readFileSync(yamlPath, 'utf8')
+    const models: CliModelOption[] = []
+    const seen = new Set<string>()
+    const addModel = (provider: string | null, model: string | null) => {
+      if (!model) return
+      const id = provider && !model.includes('/') ? `${provider}/${model}` : model
+      if (seen.has(id)) return
+      seen.add(id)
+      models.push({ id, label: provider ? `${model} (${provider})` : model })
+    }
+
+    const modelBlock = extractYamlBlock(content, 'model')
+    if (modelBlock) {
+      addModel(readYamlScalar(modelBlock, 'provider'), readYamlScalar(modelBlock, 'default'))
+    }
+
+    const fallbackBlock = extractYamlBlock(content, 'fallback_providers')
+    if (fallbackBlock) {
+      for (const entryBlock of fallbackBlock.split(/^\s*-\s*/m).slice(1)) {
+        addModel(readYamlScalar(entryBlock, 'provider'), readYamlScalar(entryBlock, 'model'))
+      }
+    }
+
+    return models
+  } catch {
+    return []
+  }
+}
+
 export function detectAllClis(): Record<string, CliInstallStatus> {
   return {
     copilot: findCopilotCli(),
     claude: findCli('claude'),
     codex: findCli('codex'),
+    hermes: findCli('hermes'),
     gh: findCli('gh'),
     ollama: findCli('ollama')
   }
@@ -175,6 +235,11 @@ export function getCliModels(backend: string): CliModelOption[] {
     const anthropicApi = getCachedAnthropicModels()
     if (anthropicApi.length > 0) return anthropicApi
     return CLAUDE_DEFAULT_MODELS
+  }
+  if (backend === 'hermes-cli') {
+    const configuredModels = readHermesConfigModels()
+    if (configuredModels.length === 0) return HERMES_DEFAULT_MODELS
+    return [...configuredModels, ...HERMES_DEFAULT_MODELS.filter((m) => !configuredModels.some((c) => c.id === m.id))]
   }
   return []
 }
