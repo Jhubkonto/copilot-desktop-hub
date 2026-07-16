@@ -16,6 +16,7 @@ import {
 import {
   buildStructuredSummary,
   estimateMessageTokens,
+  estimateTokens,
   renderStructuredSummary,
   resolveContextWindow,
 } from "./context-compression";
@@ -82,6 +83,20 @@ function getCompressionSourceMessages(db: Database.Database, conversationId: str
     .all(conversationId) as CompressionSourceMessage[];
 }
 
+function getRetainedTailTokens(db: Database.Database, conversationId: string, retainedCount: number): number {
+  if (retainedCount <= 0) return 0;
+  const rows = db
+    .prepare(
+      `SELECT content
+       FROM messages
+       WHERE conversation_id = ? AND role != 'system'
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+    )
+    .all(conversationId, retainedCount) as { content: string }[];
+  return rows.reduce((sum, row) => sum + estimateTokens(row.content), 0);
+}
+
 function getConversationCompressionModel(db: Database.Database, conversationId: string): string | null {
   const row = db
     .prepare(
@@ -106,6 +121,7 @@ export function prepareConversationCompressionSummary(
       retained_message_count: 0,
       omitted_message_count: 0,
       estimated_tokens_before: 0,
+      estimated_tokens_after: 0,
       target_budget: 0,
       strategy: "manual-structured-summary-plus-recent-turns",
       sections: emptyCompressionSections(),
@@ -137,15 +153,22 @@ export function prepareConversationCompressionSummary(
     ));
   }
 
+  const normalizedSections = normalizeCompressionSections(sections);
+  const retainedMessages = messages.slice(summarizedCount);
+  const estimatedTokensAfter =
+    estimateTokens(renderStructuredSummary(normalizedSections)) +
+    retainedMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+
   return {
     conversation_id: conversationId,
     summarized_message_count: summarizedCount,
     retained_message_count: messages.length - summarizedCount,
     omitted_message_count: 0,
     estimated_tokens_before: estimatedTokensBefore,
+    estimated_tokens_after: estimatedTokensAfter,
     target_budget: targetBudget,
     strategy: "manual-structured-summary-plus-recent-turns",
-    sections: normalizeCompressionSections(sections),
+    sections: normalizedSections,
   };
 }
 
@@ -211,6 +234,7 @@ export function getConversationCompressionPreview(
       retained_message_count: total,
       omitted_message_count: 0,
       estimated_tokens_before: 0,
+      estimated_tokens_after: 0,
       target_budget: 0,
       strategy: null,
       updated_at: null,
@@ -220,6 +244,7 @@ export function getConversationCompressionPreview(
 
   const summarized = row.source_message_count;
   const retained = row.retained_message_count;
+  const estimatedTokensAfter = estimateTokens(row.summary) + getRetainedTailTokens(db, conversationId, retained);
   return {
     conversation_id: conversationId,
     has_summary: true,
@@ -227,6 +252,7 @@ export function getConversationCompressionPreview(
     retained_message_count: retained,
     omitted_message_count: Math.max(0, total - summarized - retained),
     estimated_tokens_before: row.estimated_tokens_before,
+    estimated_tokens_after: estimatedTokensAfter,
     target_budget: row.target_budget,
     strategy: row.strategy,
     updated_at: row.updated_at,

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, statSync } from 'fs'
 import { basename, relative, resolve, isAbsolute } from 'path'
+import { spawn } from 'child_process'
 import { nativeImage } from 'electron'
 import type { WebContents } from 'electron'
 import type { Database } from 'better-sqlite3'
@@ -37,6 +38,7 @@ export type ChatContextOptions = {
   projectId?: string
   conversationModel?: string
   fullAutoApprove?: boolean
+  terminalSandboxBypass?: boolean
 }
 
 export type BuiltContext = {
@@ -143,7 +145,7 @@ export async function buildChatContext(
   webContents: WebContents,
   sendActivity: (a: MobileChatActivity) => void,
 ): Promise<BuiltContext> {
-  const { attachments, images: pastedImages = [], agentId, projectId, fullAutoApprove } = options
+  const { attachments, images: pastedImages = [], agentId, projectId, fullAutoApprove, terminalSandboxBypass } = options
 
   // ── Attachment and image processing ────────────────────────────────────────
   const attachedImages: { id: string; name: string; dataUrl: string }[] = [...pastedImages]
@@ -688,6 +690,110 @@ export async function buildChatContext(
         return { success: false, error: err instanceof Error ? err.message : 'Failed to write file' }
       }
     })
+
+    // ── Terminal tool (cwd scoped to the project root unless sandbox bypass is on) ──
+    const terminalCfg = (effectiveAgentId ? getAgentConfig(effectiveAgentId) : null)?.tools as {
+      terminal?: { enabled?: boolean; approval?: 'auto' | 'always-ask' | 'disabled' }
+    } | null
+    if (terminalCfg?.terminal?.enabled && terminalCfg.terminal.approval !== 'disabled') {
+      const capturedTerminalApprovalAuto = terminalCfg.terminal.approval === 'auto'
+      const capturedTerminalSandboxBypass = terminalSandboxBypass === true
+
+      fileToolDefs.push({
+        type: 'function' as const,
+        function: {
+          name: 'run_terminal_command',
+          description:
+            'Run a shell command. By default the working directory is confined to the project root directory (or a subdirectory of it); commands targeting a directory outside the project root are rejected unless sandbox bypass has been enabled for this chat/project. Always requires explicit user approval before running, unless the tool is configured for auto-approval.',
+          parameters: {
+            type: 'object',
+            properties: {
+              command: { type: 'string', description: 'The shell command to execute' },
+              cwd: {
+                type: 'string',
+                description: 'Working directory for the command, relative to the project root (defaults to the project root)',
+              },
+            },
+            required: ['command'],
+          },
+        },
+      })
+
+      fileInlineHandlers.set('run_terminal_command', async (args) => {
+        const command = typeof args.command === 'string' ? args.command : String(args.command ?? '')
+        if (!command.trim()) return { success: false, error: 'No command provided' }
+        const requestedCwd = typeof args.cwd === 'string' && args.cwd.trim() ? args.cwd : '.'
+
+        const withinRoot = resolveWithinRoot(capturedRoot, requestedCwd)
+        let resolvedCwd: string
+        if (withinRoot) {
+          resolvedCwd = withinRoot
+        } else if (capturedTerminalSandboxBypass) {
+          resolvedCwd = isAbsolute(requestedCwd) ? resolve(requestedCwd) : resolve(capturedRoot, requestedCwd)
+        } else {
+          return {
+            success: false,
+            error: `Working directory "${requestedCwd}" is outside the project root. Sandbox bypass is not enabled for this chat/project.`,
+          }
+        }
+        if (!existsSync(resolvedCwd) || !statSync(resolvedCwd).isDirectory()) {
+          return { success: false, error: `Working directory not found: ${requestedCwd}` }
+        }
+
+        if (capturedWebContentsForFiles.isDestroyed())
+          return { success: false, error: 'Window closed — cannot request approval' }
+        sendActivity({ state: 'approval', label: 'Waiting for terminal command approval', toolName: 'run_terminal_command' })
+        const approved = await requestApproval(
+          capturedWebContentsForFiles,
+          'run_terminal_command',
+          { command, cwd: resolvedCwd },
+          `Run command: ${command}`,
+          { noRemember: true, autoApprove: capturedFullAutoApprove || capturedTerminalApprovalAuto },
+        )
+        if (!approved) return { success: false, error: 'User declined command execution' }
+        sendActivity({ state: 'tool', label: `Running: ${command}`, toolName: 'run_terminal_command' })
+
+        const MAX_OUTPUT_CHARS = 100_000
+        const TIMEOUT_MS = 120_000
+        return await new Promise<{ success: boolean; result?: string; error?: string }>((resolvePromise) => {
+          let output = ''
+          let truncated = false
+          let settled = false
+          const proc = spawn(command, { shell: true, cwd: resolvedCwd, windowsHide: true })
+          const timer = setTimeout(() => {
+            if (settled) return
+            settled = true
+            proc.kill()
+            resolvePromise({
+              success: false,
+              error: `Command timed out after ${TIMEOUT_MS / 1000}s and was killed.\n\nOutput so far:\n${output}`,
+            })
+          }, TIMEOUT_MS)
+          const appendOutput = (chunk: Buffer) => {
+            if (truncated) return
+            output += chunk.toString('utf-8')
+            if (output.length > MAX_OUTPUT_CHARS) {
+              output = output.slice(0, MAX_OUTPUT_CHARS) + '\n\n... (output truncated)'
+              truncated = true
+            }
+          }
+          proc.stdout?.on('data', appendOutput)
+          proc.stderr?.on('data', appendOutput)
+          proc.on('error', (err) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolvePromise({ success: false, error: err.message })
+          })
+          proc.on('close', (code) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolvePromise({ success: code === 0, result: `Exit code: ${code}\n\n${output || '(no output)'}` })
+          })
+        })
+      })
+    }
   }
 
   return {

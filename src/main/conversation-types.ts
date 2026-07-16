@@ -42,7 +42,7 @@ export type CompressionPlan = {
   compressedCount: number;
 };
 
-export type AgentBackend = "claude-cli" | "codex-cli" | "gh-copilot";
+export type AgentBackend = "claude-cli" | "codex-cli" | "hermes-cli";
 
 export type AgentBackendConfig = {
   backend: AgentBackend | null;
@@ -50,6 +50,7 @@ export type AgentBackendConfig = {
 };
 
 export type ConversationSummaryRow = {
+  summary: string;
   summary_json: string;
   source_message_count: number;
   retained_message_count: number;

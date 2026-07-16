@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import path from 'path'
+import { homedir } from 'os'
 import { getDatabase } from './database'
 import {
   DEFAULT_PROVIDER_MODEL,
@@ -23,6 +24,7 @@ import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendChatCompleteNotification, generateSpokenSummary } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
+import { HermesAdapter } from './cli-adapters/hermes'
 import { getCliModels } from './cli-detection'
 import { retrieveAuthMode } from './auth'
 import { resolveEffectiveBackend } from './backend-routing'
@@ -30,6 +32,7 @@ import { applyRollingContextCompression } from './context-compression'
 import { getAgentConfig } from './agents'
 import { isFullAutoApprove } from './agentic-policy'
 import { buildChatContext, buildStoredAttachments } from './chat-context-builder'
+import { parseProjectConfig } from './project-handlers'
 import { getWorkingDirectory } from './file-handlers'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './remote-edit/fix-agent'
@@ -44,6 +47,51 @@ import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 export { clearDirListingCache } from './chat-context-builder'
 
 type ThinkingBlockEntry = { blockId: string; content: string; done: boolean }
+
+/**
+ * Merges fields into a just-saved user message's context_snapshot — the client-side snapshot
+ * only records what it *intended* to send, before compression, model routing, or the provider's
+ * own tokenizer could tell us what actually happened.
+ */
+function patchContextSnapshot(
+  db: ReturnType<typeof getDatabase>,
+  messageId: string | null,
+  patch: Record<string, unknown>,
+): void {
+  if (!messageId) return
+  const row = db.prepare('SELECT context_snapshot FROM messages WHERE id = ?').get(messageId) as
+    | { context_snapshot: string | null }
+    | undefined
+  if (!row?.context_snapshot) return
+  let snapshot: Record<string, unknown>
+  try {
+    snapshot = JSON.parse(row.context_snapshot)
+  } catch {
+    return
+  }
+  Object.assign(snapshot, patch)
+  db.prepare('UPDATE messages SET context_snapshot = ? WHERE id = ?').run(JSON.stringify(snapshot), messageId)
+}
+
+function recordServerContextFacts(
+  db: ReturnType<typeof getDatabase>,
+  messageId: string | null,
+  model: string | null,
+  compression: { compressedMessageCount: number; retainedMessageCount: number } | null,
+): void {
+  patchContextSnapshot(db, messageId, { serverModel: model, serverCompression: compression })
+}
+
+/** Real, provider-reported token usage for the request this user message triggered. */
+function recordServerUsage(
+  db: ReturnType<typeof getDatabase>,
+  messageId: string | null,
+  inputTokens: number,
+  outputTokens: number,
+): void {
+  if (inputTokens <= 0 && outputTokens <= 0) return
+  patchContextSnapshot(db, messageId, { serverInputTokens: inputTokens, serverOutputTokens: outputTokens })
+}
 
 function persistAssistantMessage(
   db: ReturnType<typeof getDatabase>,
@@ -87,12 +135,15 @@ type ChatSendOptions = {
   regenerate?: boolean
   agentId?: string
   model?: string
-  cliBackend?: 'claude-cli' | 'codex-cli'
+  cliBackend?: 'claude-cli' | 'codex-cli' | 'hermes-cli'
   messageId?: string
   projectId?: string
   contextSnapshot?: string
   displayContent?: string
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
+  thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
+  fullAutoApproveOverride?: boolean | null
+  terminalSandboxOverride?: boolean | null
 }
 
 type AgentToolPolicy = { enabled?: boolean; approval?: string }
@@ -150,8 +201,10 @@ const CLAUDE_FILE_EDIT_TOOL_NAMES = new Set(
 // the normal case for these built-in item types.
 const CODEX_FILE_EDIT_TOOL_NAMES = new Set(['Edit File'])
 
-function isFileEditToolCall(backend: 'claude-cli' | 'codex-cli', toolName: string): boolean {
-  return backend === 'claude-cli' ? CLAUDE_FILE_EDIT_TOOL_NAMES.has(toolName) : CODEX_FILE_EDIT_TOOL_NAMES.has(toolName)
+function isFileEditToolCall(backend: 'claude-cli' | 'codex-cli' | 'hermes-cli', toolName: string): boolean {
+  if (backend === 'claude-cli') return CLAUDE_FILE_EDIT_TOOL_NAMES.has(toolName)
+  if (backend === 'codex-cli') return CODEX_FILE_EDIT_TOOL_NAMES.has(toolName)
+  return false
 }
 
 function resolveMaybeRelativePath(cwd: string, candidate: string): string {
@@ -320,7 +373,7 @@ export async function dispatchChatSend(
   const projectId = options?.projectId
   const contextSnapshot = options?.contextSnapshot ?? null
   const toolPolicy = options?.toolPolicy ?? null
-
+  let newUserMsgId: string | null = null
 
   debugLog('chat', `dispatch: conv=${conversationId} agent=${agentId ?? 'none'} regenerate=${regenerate} cliBackend=${cliBackend ?? 'none'} model=${options?.model ?? 'default'} content="${content.slice(0, 60)}${content.length > 60 ? '…' : ''}"`)
   sendActivity({ state: 'thinking', label: 'Preparing context' })
@@ -341,9 +394,29 @@ export async function dispatchChatSend(
       db.prepare(
         'INSERT INTO conversations (id, agent_id, project_id, title, cli_backend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ).run(conversationId, agentId ?? null, validProjectId, title, cliBackend ?? null, now, now)
+
+      if (options?.thinkingEffortOverride !== undefined && options.thinkingEffortOverride !== null) {
+        db.prepare('UPDATE conversations SET thinking_effort_override = ? WHERE id = ?').run(
+          options.thinkingEffortOverride,
+          conversationId,
+        )
+      }
+      if (options?.fullAutoApproveOverride !== undefined && options.fullAutoApproveOverride !== null) {
+        db.prepare('UPDATE conversations SET full_auto_approve_override = ? WHERE id = ?').run(
+          options.fullAutoApproveOverride ? 1 : 0,
+          conversationId,
+        )
+      }
+      if (options?.terminalSandboxOverride !== undefined && options.terminalSandboxOverride !== null) {
+        db.prepare('UPDATE conversations SET terminal_sandbox_override = ? WHERE id = ?').run(
+          options.terminalSandboxOverride ? 1 : 0,
+          conversationId,
+        )
+      }
     }
 
     const userMsgId = options?.messageId ?? randomUUID()
+    newUserMsgId = userMsgId
     const storedAttachments = buildStoredAttachments(attachments, pastedImages)
     const attachmentsJson = storedAttachments.length > 0 ? JSON.stringify(storedAttachments) : null
     const persistedUserContent = options?.displayContent ?? content
@@ -371,13 +444,14 @@ export async function dispatchChatSend(
 
   // ── Provider resolution ────────────────────────────────────────────────────
   const convRow = db
-    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override FROM conversations WHERE id = ?')
+    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, terminal_sandbox_override FROM conversations WHERE id = ?')
     .get(conversationId) as {
       agent_id: string | null
       model: string | null
       cli_backend: string | null
       thinking_effort_override: string | null
       full_auto_approve_override: number | null
+      terminal_sandbox_override: number | null
     } | undefined
   // Auto-heal: if cli_backend is missing but the stored model is a known CLI model, infer and persist it.
   // Skip healing if the model is in the OpenRouter cache — it's a BYOK model, not a CLI one.
@@ -390,11 +464,13 @@ export async function dispatchChatSend(
       convRow.cli_backend = null
       debugLog('chat', `reverse-healed cli_backend cleared for conv=${conversationId} model=${convRow.model} (OpenRouter model)`)
     } else if (!isOpenRouterModel && convRow.cli_backend == null) {
-      let healedBackend: 'claude-cli' | 'codex-cli' | null = null
+      let healedBackend: 'claude-cli' | 'codex-cli' | 'hermes-cli' | null = null
       if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === convRow.model)) {
         healedBackend = 'claude-cli'
       } else if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === convRow.model)) {
         healedBackend = 'codex-cli'
+      } else if (HermesAdapter.isAvailable() && getCliModels('hermes-cli').some((m) => m.id === convRow.model)) {
+        healedBackend = 'hermes-cli'
       }
       if (healedBackend) {
         db.prepare('UPDATE conversations SET cli_backend = ? WHERE id = ?').run(healedBackend, conversationId)
@@ -416,6 +492,20 @@ export async function dispatchChatSend(
     convRow?.full_auto_approve_override === 1 ? true
     : convRow?.full_auto_approve_override === 0 ? false
     : (agentCfg2 ? isFullAutoApprove(agentCfg2) : false)
+  const terminalSandboxProjectId =
+    projectId ??
+    (db.prepare('SELECT project_id FROM conversations WHERE id = ?').get(conversationId) as { project_id: string | null } | undefined)?.project_id ??
+    null
+  const terminalSandboxProjectRow = terminalSandboxProjectId
+    ? (db.prepare('SELECT config_json FROM projects WHERE id = ?').get(terminalSandboxProjectId) as { config_json: string | null } | undefined)
+    : undefined
+  const terminalSandboxProjectDefault = terminalSandboxProjectRow
+    ? parseProjectConfig(terminalSandboxProjectRow.config_json ?? null).terminalSandboxBypass
+    : false
+  const effectiveTerminalSandboxBypass =
+    convRow?.terminal_sandbox_override === 1 ? true
+    : convRow?.terminal_sandbox_override === 0 ? false
+    : terminalSandboxProjectDefault
   const generationOptions = {
     temperature: Number.isFinite(temperatureSetting) ? Math.min(2, Math.max(0, temperatureSetting)) : 0.7,
     maxTokens: Number.isFinite(maxTokensSetting) ? Math.min(16384, Math.max(256, maxTokensSetting)) : 4096,
@@ -451,7 +541,7 @@ export async function dispatchChatSend(
       db,
       conversationId,
       content,
-      { attachments, images: pastedImages, agentId, projectId, conversationModel, fullAutoApprove: effectiveFullAutoApprove },
+      { attachments, images: pastedImages, agentId, projectId, conversationModel, fullAutoApprove: effectiveFullAutoApprove, terminalSandboxBypass: effectiveTerminalSandboxBypass },
       window.webContents,
       sendActivity,
     )
@@ -652,6 +742,10 @@ export async function dispatchChatSend(
         })),
         selectedModel ?? null,
       )
+      recordServerContextFacts(db, newUserMsgId, selectedModel ?? null, compressedContext.summary && {
+        compressedMessageCount: compressedContext.summary.compressedMessageCount,
+        retainedMessageCount: compressedContext.summary.retainedMessageCount,
+      })
       const effectiveContextMessages = compressedContext.messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -853,7 +947,7 @@ export async function dispatchChatSend(
               sessionId: cliAuditSessionId,
               projectId: auditTarget.projectId,
               conversationId,
-              title: `${effectiveBackend === 'claude-cli' ? 'Claude CLI' : 'Codex CLI'} edits`,
+              title: `${effectiveBackend === 'claude-cli' ? 'Claude CLI' : effectiveBackend === 'codex-cli' ? 'Codex CLI' : 'Hermes Agent'} edits`,
               source: 'cli-tool',
               relativePath: auditTarget.relativePath,
               status: before === null ? 'created' : 'modified',
@@ -878,6 +972,9 @@ export async function dispatchChatSend(
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
             thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
             skipPermissions: effectiveFullAutoApprove,
+            extraAllowedDirs: effectiveTerminalSandboxBypass
+              ? [path.parse(homedir()).root]
+              : undefined,
           },
           sendChunk,
           (event) => {
@@ -885,7 +982,7 @@ export async function dispatchChatSend(
             if (event.type === 'tool_start') {
               debugLog('chat', `cli-tool-start: id=${event.id} name=${event.name}`)
               pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
-              if (isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli', event.name)) {
+              if (isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli' | 'hermes-cli', event.name)) {
                 for (const absPath of extractCliEditedPaths(event.input as Record<string, unknown>, cliCwd)) {
                   if (!cliFileContentBeforeEdit.has(absPath)) {
                     cliFileContentBeforeEdit.set(absPath, existsSync(absPath) ? readFileSync(absPath, 'utf8') : null)
@@ -905,7 +1002,7 @@ export async function dispatchChatSend(
               if (pending) {
                 completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
                 pendingTools.delete(event.id)
-                if (!event.isError && isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli', pending.name)) {
+                if (!event.isError && isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli' | 'hermes-cli', pending.name)) {
                   for (const absPath of extractCliEditedPaths(pending.input, cliCwd)) {
                     recordCliFileEditAudit(absPath, cliFileContentBeforeEdit.get(absPath) ?? null)
                   }
@@ -919,6 +1016,7 @@ export async function dispatchChatSend(
               sendActivity({ state: 'thinking', label: 'Processing tool result' })
             } else if (event.type === 'cost') {
               turnEmitter.cost(event.inputTokens, event.outputTokens, event.totalCostUsd)
+              recordServerUsage(db, newUserMsgId, event.inputTokens, event.outputTokens)
             } else if (event.type === 'thinking_chunk') {
               turnEmitter.thinkingDelta(event.blockId, event.chunk)
               const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false }
@@ -990,6 +1088,10 @@ export async function dispatchChatSend(
     })),
     selectedModel ?? null,
   )
+  recordServerContextFacts(db, newUserMsgId, selectedModel ?? null, compressedContext.summary && {
+    compressedMessageCount: compressedContext.summary.compressedMessageCount,
+    retainedMessageCount: compressedContext.summary.retainedMessageCount,
+  })
   const effectiveContextMessages = compressedContext.messages.map((m) => ({
     role: m.role,
     content: m.content,
@@ -1133,6 +1235,7 @@ export async function dispatchChatSend(
       sendChunk,
       sendActivity,
       onModel: handleStreamModel,
+      onUsage: (usage) => recordServerUsage(db, newUserMsgId, usage.inputTokens, usage.outputTokens),
       systemPrompt,
       toolPolicy: toolPolicy ?? undefined,
       fullAutoApprove: effectiveFullAutoApprove,

@@ -45,6 +45,7 @@ export type ProviderDispatchOptions = {
   sendChunk: (chunk: string) => void
   sendActivity: (a: MobileChatActivity) => void
   onModel?: (model: string) => void
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   systemPrompt: string
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
@@ -81,6 +82,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     sendChunk,
     sendActivity,
     onModel,
+    onUsage,
     onThinkingChunk: callerOnThinkingChunk,
     onThinkingEnd: callerOnThinkingEnd,
     onToolFinished,
@@ -232,6 +234,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     return sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, {
       ...effectiveGenerationOptions,
       ...thinkingCallbacks,
+      onUsage,
     })
   }
 
@@ -252,12 +255,12 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
           if (!(err instanceof Error)) throw err
           if (err.message.includes('No endpoints found that support tool use')) {
             debugLog('provider', `${providerName}: tool-use not supported by endpoint — retrying without tools model=${providerModel}`)
-            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, effectiveGenerationOptions, baseUrl)
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, { ...effectiveGenerationOptions, onUsage }, baseUrl)
             return { content: text, toolCalls: [] }
           }
           if (err.message.includes('No endpoints found that support image input')) {
             debugLog('provider', `${providerName}: image input not supported by endpoint — retrying with text-only model=${providerModel}`)
-            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, effectiveGenerationOptions, baseUrl)
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, { ...effectiveGenerationOptions, onUsage }, baseUrl)
             return { content: text, toolCalls: [] }
           }
           throw err
@@ -289,10 +292,11 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       return await sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, {
         ...effectiveGenerationOptions,
         ...thinkingCallbacks,
+        onUsage,
       }, baseUrl)
     } catch (err) {
       if (err instanceof Error && err.message.includes('No endpoints found that support image input')) {
-        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, effectiveGenerationOptions, baseUrl)
+        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, { ...effectiveGenerationOptions, onUsage }, baseUrl)
       }
       throw err
     }

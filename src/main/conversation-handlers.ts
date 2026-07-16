@@ -209,22 +209,29 @@ export function registerConversationHandlers(): void {
     (
       _event,
       id: string,
-      mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null },
+      mode: {
+        thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null;
+        fullAutoApproveOverride?: boolean | null;
+        terminalSandboxOverride?: boolean | null;
+      },
     ) => {
       // Only the field(s) actually present in `mode` are touched — a caller updating just one
-      // of the two overrides must not silently clear the other back to "inherit agent default".
+      // of the overrides must not silently clear the others back to "inherit agent/project default".
       const existing = db
-        .prepare("SELECT thinking_effort_override, full_auto_approve_override FROM conversations WHERE id = ?")
-        .get(id) as { thinking_effort_override: string | null; full_auto_approve_override: number | null } | undefined;
+        .prepare("SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override FROM conversations WHERE id = ?")
+        .get(id) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null } | undefined;
       const thinkingEffortOverride = "thinkingEffortOverride" in mode
         ? (mode.thinkingEffortOverride ?? null)
         : (existing?.thinking_effort_override ?? null);
       const fullAutoApproveOverride = "fullAutoApproveOverride" in mode
         ? (mode.fullAutoApproveOverride === true ? 1 : mode.fullAutoApproveOverride === false ? 0 : null)
         : (existing?.full_auto_approve_override ?? null);
+      const terminalSandboxOverride = "terminalSandboxOverride" in mode
+        ? (mode.terminalSandboxOverride === true ? 1 : mode.terminalSandboxOverride === false ? 0 : null)
+        : (existing?.terminal_sandbox_override ?? null);
       db.prepare(
-        "UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, updated_at = ? WHERE id = ?",
-      ).run(thinkingEffortOverride, fullAutoApproveOverride, Date.now(), id);
+        "UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, updated_at = ? WHERE id = ?",
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, Date.now(), id);
       return true;
     },
   );

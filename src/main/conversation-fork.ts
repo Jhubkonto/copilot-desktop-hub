@@ -17,7 +17,7 @@ import { roleLabel } from "./conversation-formatters";
 import { getCliModels } from "./cli-detection";
 import { estimateMessageTokens, resolveContextWindow } from "./context-compression";
 
-type AgentBackend = "claude-cli" | "codex-cli" | "gh-copilot";
+type AgentBackend = "claude-cli" | "codex-cli" | "hermes-cli";
 
 function getAgentBackendConfig(db: Database.Database, agentId: string | null) {
   if (!agentId) return { backend: null as AgentBackend | null, cliModel: null as string | null };
@@ -26,7 +26,7 @@ function getAgentBackendConfig(db: Database.Database, agentId: string | null) {
     .get(agentId) as { config_json: string } | undefined;
   if (!row) throw new Error("Target agent not found");
   const config = parseJson<Record<string, unknown>>(row.config_json, {});
-  const backend = config.backend === "claude-cli" || config.backend === "codex-cli" || config.backend === "gh-copilot"
+  const backend = config.backend === "claude-cli" || config.backend === "codex-cli" || config.backend === "hermes-cli"
     ? config.backend
     : null;
   return {
@@ -37,11 +37,7 @@ function getAgentBackendConfig(db: Database.Database, agentId: string | null) {
 
 function validateForkTarget(db: Database.Database, agentId: string | null, model: string | null): string | null {
   const { backend, cliModel } = getAgentBackendConfig(db, agentId);
-  if (backend === "gh-copilot") {
-    if (model) throw new Error("GitHub Copilot CLI manages its own model; do not set a conversation model for this backend");
-    return null;
-  }
-  if (backend === "claude-cli" || backend === "codex-cli") {
+  if (backend === "claude-cli" || backend === "codex-cli" || backend === "hermes-cli") {
     const availableModels = getCliModels(backend).map((entry) => entry.id);
     const resolvedModel = model ?? cliModel ?? availableModels[0] ?? null;
     if (resolvedModel && !availableModels.includes(resolvedModel)) {
