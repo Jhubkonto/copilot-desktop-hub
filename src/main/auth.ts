@@ -2,6 +2,7 @@ import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
+import { HermesAdapter } from './cli-adapters/hermes'
 import type { AuthMode } from '../shared/types'
 
 export function storeAuthMode(mode: AuthMode): void {
@@ -23,14 +24,16 @@ export function registerAuthHandlers(): void {
     const mode = retrieveAuthMode()
     const claudeInstalled = ClaudeAdapter.isAvailable()
     const codexInstalled = CodexAdapter.isAvailable()
+    const hermesInstalled = HermesAdapter.isAvailable()
     return {
       authenticated: mode === 'byok',
       mode,
       user: null,
-      cliInstalled: claudeInstalled || codexInstalled,
+      cliInstalled: claudeInstalled || codexInstalled || hermesInstalled,
       clis: {
         claude: claudeInstalled,
         codex: codexInstalled,
+        hermes: hermesInstalled,
       },
     }
   })

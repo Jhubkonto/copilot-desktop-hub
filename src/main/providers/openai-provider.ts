@@ -36,6 +36,7 @@ export async function sendOpenAIMessage(
     thinkingEffort?: string
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {},
   baseUrl?: string
 ): Promise<string> {
@@ -43,6 +44,7 @@ export async function sendOpenAIMessage(
     model,
     messages,
     stream: true,
+    stream_options: { include_usage: true },
     max_tokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7,
   }
@@ -117,6 +119,10 @@ export async function sendOpenAIMessage(
         parseSseStream(res, (data) => {
           try {
             const parsed = JSON.parse(data)
+            const usage = parsed.usage
+            if (usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number') {
+              options.onUsage?.({ inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens })
+            }
             const choice = parsed.choices?.[0]
             const delta = choice?.delta
             const finishReason = choice?.finish_reason
