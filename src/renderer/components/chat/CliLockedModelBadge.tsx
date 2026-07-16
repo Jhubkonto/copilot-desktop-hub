@@ -9,7 +9,7 @@ const MENU_MAX_HEIGHT = 280
 const MENU_MARGIN = 4
 
 interface CliLockedModelBadgeProps {
-  backend: 'claude-cli' | 'codex-cli'
+  backend: 'claude-cli' | 'codex-cli' | 'hermes-cli'
   modelId: string | null
   models: AvailableModelEntry[]
   catalogModels: CatalogModel[]
@@ -23,7 +23,7 @@ export function CliLockedModelBadge({
   catalogModels,
   onSelectModel,
 }: CliLockedModelBadgeProps) {
-  const backendLabel = backend === 'claude-cli' ? 'Claude CLI' : 'Codex CLI'
+  const backendLabel = backend === 'claude-cli' ? 'Claude CLI' : backend === 'codex-cli' ? 'Codex CLI' : 'Hermes Agent'
   const modelLabel = modelId ? getModelLabel(modelId, catalogModels) : 'default'
 
   const buttonRef = useRef<HTMLButtonElement>(null)

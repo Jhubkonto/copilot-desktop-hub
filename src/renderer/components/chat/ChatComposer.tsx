@@ -77,7 +77,12 @@ interface ChatComposerProps {
   lockModelToAgentBackend?: boolean
   conversationThinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   conversationFullAutoApproveOverride?: boolean | null
-  onSetConversationMode?: (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null }) => void
+  conversationTerminalSandboxOverride?: boolean | null
+  onSetConversationMode?: (mode: {
+    thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
+    fullAutoApproveOverride?: boolean | null
+    terminalSandboxOverride?: boolean | null
+  }) => void
 }
 
 export function ChatComposer({
@@ -141,14 +146,14 @@ export function ChatComposer({
   lockModelToAgentBackend = false,
   conversationThinkingEffortOverride = null,
   conversationFullAutoApproveOverride = null,
+  conversationTerminalSandboxOverride = null,
   onSetConversationMode,
 }: ChatComposerProps) {
   const [showModePicker, setShowModePicker] = useState(false)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
   const agentBackend = activeAgent?.backend
-  const isGhCopilot = agentBackend === 'gh-copilot'
-  const isCliLocked = lockModelToAgentBackend && (agentBackend === 'claude-cli' || agentBackend === 'codex-cli')
+  const isCliLocked = lockModelToAgentBackend && (agentBackend === 'claude-cli' || agentBackend === 'codex-cli' || agentBackend === 'hermes-cli')
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-700/80 relative">
@@ -333,16 +338,9 @@ export function ChatComposer({
                 </button>
               )}
               <div className="relative flex items-center">
-                {isGhCopilot ? (
-                  <span
-                    className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 cursor-default"
-                    title="Model is determined by the CLI tool"
-                  >
-                    gh copilot
-                  </span>
-                ) : isCliLocked ? (
+                {isCliLocked ? (
                   <CliLockedModelBadge
-                    backend={agentBackend as 'claude-cli' | 'codex-cli'}
+                    backend={agentBackend as 'claude-cli' | 'codex-cli' | 'hermes-cli'}
                     modelId={effectiveModel === 'default' ? null : effectiveModel}
                     models={cliLockedModels ?? []}
                     catalogModels={catalogModels}
@@ -366,12 +364,13 @@ export function ChatComposer({
                     onSelectAvailableModel={onSelectAvailableModel}
                   />
                 )}
-                {conversationId && onSetConversationMode && (
+                {onSetConversationMode && (
                   <ChatModePicker
                     open={showModePicker}
                     onOpenChange={setShowModePicker}
                     thinkingEffortOverride={conversationThinkingEffortOverride}
                     fullAutoApproveOverride={conversationFullAutoApproveOverride}
+                    terminalSandboxOverride={conversationTerminalSandboxOverride}
                     onChange={onSetConversationMode}
                   />
                 )}

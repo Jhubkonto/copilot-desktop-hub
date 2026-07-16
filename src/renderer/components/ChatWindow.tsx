@@ -34,6 +34,12 @@ const FALLBACK_CODEX_MODELS = [
   { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
 ]
 
+const FALLBACK_HERMES_MODELS = [
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
+  { id: 'anthropic/claude-opus-4-8', label: 'Claude Opus 4.8 (Anthropic)' },
+  { id: 'openrouter/auto', label: 'Auto (OpenRouter)' },
+]
+
 const PROMOTABLE_ARTIFACT_KINDS: ArtifactPromotionRequest['kind'][] = ['document', 'prompt', 'plan', 'code', 'other']
 
 function deriveArtifactPromotionTitle(messageContent: string, conversationTitle?: string | null): string {
@@ -102,6 +108,11 @@ export function ChatWindow() {
   const pendingComposerPrefill = useAppStore((state) => state.pendingComposerPrefill)
   const setPendingComposerPrefill = useAppStore((state) => state.setPendingComposerPrefill)
   const [pendingModel, setPendingModel] = useState<string | null>(null)
+  const [pendingThinkingEffortOverride, setPendingThinkingEffortOverride] = useState<
+    'low' | 'medium' | 'high' | 'max' | 'disabled' | null
+  >(null)
+  const [pendingFullAutoApproveOverride, setPendingFullAutoApproveOverride] = useState<boolean | null>(null)
+  const [pendingTerminalSandboxOverride, setPendingTerminalSandboxOverride] = useState<boolean | null>(null)
   const [input, setInput] = useState('')
 
   useEffect(() => {
@@ -239,8 +250,7 @@ export function ChatWindow() {
     [catalogModels, continueAgentNeedsTools, effectiveModel],
   )
   const continueModelOptions = useMemo(() => {
-    if (continueBackend === 'gh-copilot') return []
-    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli') {
+    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli' || continueBackend === 'hermes-cli') {
       return continueCliModels.map((model) => ({ id: model.id, label: model.label }))
     }
     return continueProviderModelIds.map((model) => ({
@@ -540,6 +550,8 @@ export function ChatWindow() {
 
   useEffect(() => {
     setPendingModel(null)
+    setPendingThinkingEffortOverride(null)
+    setPendingFullAutoApproveOverride(null)
   }, [conversationId])
 
   useEffect(() => {
@@ -762,7 +774,7 @@ export function ChatWindow() {
     setIsForking(true)
     try {
       const result = await window.api.forkConversation(conversationId, {
-        model: continueBackend === 'gh-copilot' ? null : continueModel,
+        model: continueModel,
         agentId: continueAgentId,
       })
       await loadConversations()
@@ -787,13 +799,13 @@ export function ChatWindow() {
 
   useEffect(() => {
     if (!menuContinueOpen) return
-    if (continueBackend !== 'claude-cli' && continueBackend !== 'codex-cli') {
+    if (continueBackend !== 'claude-cli' && continueBackend !== 'codex-cli' && continueBackend !== 'hermes-cli') {
       setContinueCliModels([])
       return
     }
 
     const backend = continueBackend
-    const fallbackModels = backend === 'codex-cli' ? FALLBACK_CODEX_MODELS : FALLBACK_CLAUDE_MODELS
+    const fallbackModels = backend === 'codex-cli' ? FALLBACK_CODEX_MODELS : backend === 'hermes-cli' ? FALLBACK_HERMES_MODELS : FALLBACK_CLAUDE_MODELS
     let cancelled = false
     setContinueCliModels(fallbackModels)
     window.api.getCliModels(backend)
@@ -810,11 +822,7 @@ export function ChatWindow() {
 
   useEffect(() => {
     if (!menuContinueOpen) return
-    if (continueBackend === 'gh-copilot') {
-      setContinueModel('default')
-      return
-    }
-    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli') {
+    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli' || continueBackend === 'hermes-cli') {
       if (continueModelOptions.length === 0) return
       const preferred = continueAgent?.cliModel && continueModelOptions.some((model) => model.id === continueAgent.cliModel)
         ? continueAgent.cliModel
@@ -1049,32 +1057,30 @@ export function ChatWindow() {
       azure: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300',
     }
 
+    const cliChip: Record<string, { label: string; cls: string }> = {
+      'codex-cli': { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' },
+      'claude-cli': { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' },
+      'hermes-cli': { label: 'Hermes Agent', cls: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300' },
+    }
+
     const agentBackend = chatAgent?.backend
-    if (agentBackend === 'gh-copilot') {
-      return { label: 'gh copilot', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400' }
-    }
-    if (agentBackend === 'codex-cli' && cliInstalled) {
-      return { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
-    }
-    if (agentBackend === 'claude-cli' && cliInstalled) {
-      return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
+    if (agentBackend && cliChip[agentBackend] && cliInstalled) {
+      return cliChip[agentBackend]
     }
     if (!agentBackend && authMode === 'none' && cliInstalled && !hasByok) {
-      return installedClis.codex && !installedClis.claude
-        ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
-        : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
+      if (installedClis.claude) return cliChip['claude-cli']
+      if (installedClis.codex) return cliChip['codex-cli']
+      return cliChip['hermes-cli']
     }
     if (byokGroup) {
       const cls = providerColorMap[byokGroup.sourceKey] ?? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300'
       return { label: byokGroup.sourceLabel, cls }
     }
-    if (cliGroup) {
-      return cliGroup.sourceKey === 'codex-cli'
-        ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
-        : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
+    if (cliGroup && cliChip[cliGroup.sourceKey]) {
+      return cliChip[cliGroup.sourceKey]
     }
     return { label: 'No provider', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400' }
-  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups, hasByok])
+  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, installedClis.hermes, effectiveModel, availableGroups, hasByok])
 
   const workflowModeInfo = projectWorkflowMode === 'orchestrated'
     ? { label: 'Orchestrated', Icon: Users, title: 'This project delegates tasks across the team automatically.' }
@@ -1165,11 +1171,12 @@ export function ChatWindow() {
     </div>
   )
 
-  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null }) => {
-    if (!conversationId) return
-    await window.api.setConversationMode(conversationId, mode)
-    await loadConversations()
-  }, [conversationId, loadConversations])
+  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null }) => {
+    if (mode.thinkingEffortOverride !== undefined) setPendingThinkingEffortOverride(mode.thinkingEffortOverride)
+    if (mode.fullAutoApproveOverride !== undefined) setPendingFullAutoApproveOverride(mode.fullAutoApproveOverride)
+    if (mode.terminalSandboxOverride !== undefined) setPendingTerminalSandboxOverride(mode.terminalSandboxOverride)
+    await actions.handleSetConversationMode(mode)
+  }, [actions])
 
   const composer = (
     <ChatComposer
@@ -1230,11 +1237,22 @@ export function ChatWindow() {
       onCloseAtMenu={atMenu.closeAtMenu}
       onSetConversationModel={actions.handleSetConversationModel}
       onSetPendingModel={setPendingModel}
-      conversationThinkingEffortOverride={currentConversation?.thinking_effort_override ?? null}
+      conversationThinkingEffortOverride={
+        currentConversation ? (currentConversation.thinking_effort_override ?? null) : pendingThinkingEffortOverride
+      }
       conversationFullAutoApproveOverride={
-        currentConversation?.full_auto_approve_override === 1 ? true
-          : currentConversation?.full_auto_approve_override === 0 ? false
-          : null
+        currentConversation
+          ? currentConversation.full_auto_approve_override === 1 ? true
+            : currentConversation.full_auto_approve_override === 0 ? false
+            : null
+          : pendingFullAutoApproveOverride
+      }
+      conversationTerminalSandboxOverride={
+        currentConversation
+          ? currentConversation.terminal_sandbox_override === 1 ? true
+            : currentConversation.terminal_sandbox_override === 0 ? false
+            : null
+          : pendingTerminalSandboxOverride
       }
       onSetConversationMode={handleSetConversationMode}
       availableGroups={availableGroups}
@@ -1363,17 +1381,22 @@ export function ChatWindow() {
               </div>
             )}
             {authMode === 'none' && cliInstalled && !hasByok && (() => {
-              const both = installedClis.claude && installedClis.codex
+              const installedCount = [installedClis.claude, installedClis.codex, installedClis.hermes].filter(Boolean).length
+              const both = installedCount > 1
               const label = both
-                ? 'Claude CLI + Codex CLI ready — start typing'
+                ? 'CLI tools ready — start typing'
                 : installedClis.codex
                   ? 'Codex CLI is installed — just start typing to chat'
-                  : 'Claude CLI is installed — just start typing to chat'
+                  : installedClis.hermes
+                    ? 'Hermes Agent is installed — just start typing to chat'
+                    : 'Claude CLI is installed — just start typing to chat'
               const cls = both
                 ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
                 : installedClis.codex
                   ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
-                  : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                  : installedClis.hermes
+                    ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                    : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
               return (
                 <div className="mb-4">
                   <div className={`rounded-lg border px-4 py-3 text-sm ${cls}`}>{label}</div>
@@ -1568,28 +1591,25 @@ export function ChatWindow() {
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">Fork this chat into a new conversation.</div>
                         <label className="block mb-2">
                           <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Model</span>
-                          {continueBackend === 'gh-copilot' ? (
-                            <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-500 dark:text-gray-400">
-                              Managed by GitHub Copilot CLI
-                            </div>
-                          ) : (
-                            <select
-                              value={continueModel}
-                              onChange={(event) => setContinueModel(event.target.value)}
-                              className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500"
-                            >
-                              {continueModelOptions.map((model) => (
-                                <option key={model.id} value={model.id}>
-                                  {model.label}
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          <select
+                            value={continueModel}
+                            onChange={(event) => setContinueModel(event.target.value)}
+                            className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500"
+                          >
+                            {continueModelOptions.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.label}
+                              </option>
+                            ))}
+                          </select>
                           {continueBackend === 'claude-cli' && (
                             <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Showing Claude CLI models only.</div>
                           )}
                           {continueBackend === 'codex-cli' && (
                             <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Showing Codex CLI models only.</div>
+                          )}
+                          {continueBackend === 'hermes-cli' && (
+                            <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Showing Hermes Agent models only.</div>
                           )}
                         </label>
                         <label className="block mb-2">
