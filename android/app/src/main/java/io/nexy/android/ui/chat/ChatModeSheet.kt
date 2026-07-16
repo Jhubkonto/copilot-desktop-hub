@@ -37,8 +37,10 @@ private val approveOptions = listOf<Pair<Boolean?, String>>(
 fun ChatModeSheet(
     thinkingEffortOverride: String?,
     fullAutoApproveOverride: Boolean?,
+    terminalSandboxOverride: Boolean?,
     onSetThinkingEffort: (String?) -> Unit,
     onSetFullAutoApprove: (Boolean?) -> Unit,
+    onSetTerminalSandboxOverride: (Boolean?) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Chat mode", style = MaterialTheme.typography.titleMedium)
@@ -83,6 +85,32 @@ fun ChatModeSheet(
             }
             Text(
                 "Overrides the agent's saved default for this conversation only.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "Terminal sandbox bypass (this chat)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                approveOptions.forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = terminalSandboxOverride == value,
+                        onClick = { onSetTerminalSandboxOverride(value) },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = approveOptions.size),
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+            Text(
+                "Overrides the project's sandbox-bypass default for this conversation only.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

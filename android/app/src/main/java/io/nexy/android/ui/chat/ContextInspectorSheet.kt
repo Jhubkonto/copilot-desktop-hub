@@ -44,8 +44,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.local.ConversationSummaryEntity
 import io.nexy.android.data.model.ContextInspectorAttachmentSnapshot
 import io.nexy.android.data.model.ContextInspectorRefSnapshot
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.min
 
 private fun fmtTokens(n: Int): String = if (n >= 1000) "~${"%.1f".format(n / 1000.0)}k" else "~$n"
@@ -82,6 +85,12 @@ fun ContextInspectorSheet(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (state.isStandalone) {
+                item { StandaloneCompressionCard(loading = state.loading, summary = state.localSummary) }
+                item { Spacer(Modifier.height(8.dp)) }
+                return@LazyColumn
+            }
+
             item {
                 if (state.loading && state.snapshot == null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -255,6 +264,44 @@ private fun ExpandableTextSection(label: String, tokenLabel: String, body: Strin
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(12.dp),
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Standalone-mode equivalent of [CompressionCard]. There's no desktop to ask for a snapshot or
+ * preview from, so this reads whatever [io.nexy.android.data.StandaloneChatService] already
+ * wrote to the local `conversation_summaries` Room table — the same rolling summary it feeds
+ * back into future requests. Compression there runs automatically (character-threshold trigger,
+ * LLM-authored summary) rather than on demand, so there's no "Compress now" action to offer.
+ */
+@Composable
+private fun StandaloneCompressionCard(loading: Boolean, summary: ConversationSummaryEntity?) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.Compress, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Compression (standalone)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            }
+            when {
+                loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Text("Loading…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                summary == null -> Text(
+                    "No summary yet. Standalone mode summarizes older turns automatically once this chat's " +
+                        "history grows past ~120k characters.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                else -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatCard("Summarized", "${summary.sourceMessageCount}", Modifier.weight(1f))
+                        StatCard("Updated", DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(summary.updatedAt)), Modifier.weight(1f))
+                    }
+                    ExpandableTextSection(label = "Rolling summary", tokenLabel = "${summary.summary.length / 4}", body = summary.summary)
+                }
             }
         }
     }

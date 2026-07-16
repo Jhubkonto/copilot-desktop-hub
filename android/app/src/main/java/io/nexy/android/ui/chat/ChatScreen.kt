@@ -221,6 +221,7 @@ fun ChatScreen(
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatThinkingEffortOverride = conversation?.thinking_effort_override
     val chatFullAutoApproveOverride = conversation?.full_auto_approve_override
+    val chatTerminalSandboxOverride = conversation?.terminal_sandbox_override
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val chatBackend = chatAgent?.backend
@@ -715,8 +716,10 @@ fun ChatScreen(
             ChatModeSheet(
                 thinkingEffortOverride = chatThinkingEffortOverride,
                 fullAutoApproveOverride = chatFullAutoApproveOverride,
+                terminalSandboxOverride = chatTerminalSandboxOverride,
                 onSetThinkingEffort = { vm.setThinkingEffortOverride(it) },
                 onSetFullAutoApprove = { vm.setFullAutoApproveOverride(it) },
+                onSetTerminalSandboxOverride = { vm.setTerminalSandboxOverride(it) },
             )
         }
     }
@@ -1051,7 +1054,7 @@ fun ChatScreen(
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Chat mode settings",
-                            tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null)
+                            tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null || chatTerminalSandboxOverride != null)
                                 MaterialTheme.colorScheme.primary
                             else
                                 MaterialTheme.colorScheme.onSurfaceVariant,

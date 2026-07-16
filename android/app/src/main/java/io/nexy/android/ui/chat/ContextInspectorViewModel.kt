@@ -3,7 +3,10 @@ package io.nexy.android.ui.chat
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.local.ConversationSummaryEntity
+import io.nexy.android.data.local.LocalDataRepository
 import io.nexy.android.data.model.CompressionDraft
 import io.nexy.android.data.model.CompressionPreview
 import io.nexy.android.data.model.ContextInspectorSnapshot
@@ -23,6 +26,10 @@ data class ContextInspectorState(
     val compressionPreview: CompressionPreview? = null,
     val compressionDraft: CompressionDraft? = null,
     val showCompressionDetails: Boolean = false,
+    // Standalone mode has no desktop to fetch a live snapshot/preview from — compression there
+    // runs entirely on-device (StandaloneChatService), so we read its local Room record instead.
+    val isStandalone: Boolean = false,
+    val localSummary: ConversationSummaryEntity? = null,
 )
 
 class ContextInspectorViewModel(app: Application) : AndroidViewModel(app) {
@@ -65,7 +72,15 @@ class ContextInspectorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun load(conversationId: String) {
-        _state.value = _state.value.copy(loading = true, error = null)
+        if (WsRepository.effectiveMode.value == EffectiveConnectionMode.STANDALONE_BY_CHOICE) {
+            _state.value = _state.value.copy(isStandalone = true, loading = true, error = null)
+            viewModelScope.launch {
+                val summary = LocalDataRepository.get(getApplication()).getConversationSummary(conversationId)
+                _state.value = _state.value.copy(loading = false, localSummary = summary)
+            }
+            return
+        }
+        _state.value = _state.value.copy(isStandalone = false, loading = true, error = null)
         WsRepository.getInspectorSnapshot(conversationId)
         _state.value = _state.value.copy(compressionPreviewLoading = true)
         WsRepository.getCompressionPreview(conversationId)

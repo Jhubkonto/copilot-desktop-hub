@@ -1077,6 +1077,16 @@ class ChatViewModel(
         )
     }
 
+    fun setTerminalSandboxOverride(value: Boolean?) {
+        wsClient.send(
+            "conversation:set-mode",
+            mapOf(
+                "conversationId" to conversationId,
+                "terminalSandboxOverride" to (value ?: JSONObject.NULL),
+            ),
+        )
+    }
+
     fun sendMessage(text: String) {
         sendMessage(text, null)
     }
