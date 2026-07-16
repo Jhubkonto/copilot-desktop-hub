@@ -52,7 +52,7 @@ fun agentBackendLockDetail(agent: Agent?): String? {
 
 fun emptyModelListDetail(source: ModelListSource?): String =
     when (source?.type) {
-        "none" -> "Configure Claude CLI, Codex CLI, or an API provider on desktop to choose models here."
+        "none" -> "Configure Claude CLI, Codex CLI, Hermes Agent, or an API provider on desktop to choose models here."
         null -> "Model options have not loaded yet. Refresh models or check the desktop connection."
         else -> "No selectable models were returned for ${modelSourceTitle(source)}."
     }
@@ -61,12 +61,13 @@ private fun modelCountLabel(count: Int): String =
     if (count == 1) "1 model" else "$count models"
 
 private fun forcedCliBackend(agent: Agent?): String? =
-    agent?.backend?.takeIf { it == "claude-cli" || it == "codex-cli" }
+    agent?.backend?.takeIf { it == "claude-cli" || it == "codex-cli" || it == "hermes-cli" }
 
 private fun backendDisplayName(backend: String?): String =
     when (backend) {
         "claude-cli" -> "Claude CLI"
         "codex-cli" -> "Codex CLI"
+        "hermes-cli" -> "Hermes Agent"
         null, "" -> "the selected backend"
         else -> backend
     }

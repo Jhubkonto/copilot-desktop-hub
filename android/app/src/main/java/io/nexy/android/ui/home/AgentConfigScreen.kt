@@ -92,7 +92,7 @@ private val backendOptions = listOf(
     null to "Default (BYOK providers)",
     "claude-cli" to "Claude CLI",
     "codex-cli" to "Codex CLI",
-    "gh-copilot" to "GitHub Copilot",
+    "hermes-cli" to "Hermes Agent",
 )
 
 private val responseFormatOptions = listOf(

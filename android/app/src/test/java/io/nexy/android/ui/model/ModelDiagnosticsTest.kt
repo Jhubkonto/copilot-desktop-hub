@@ -24,7 +24,7 @@ class ModelDiagnosticsTest {
             modelSourceDetail(source, 0),
         )
         assertEquals(
-            "Configure Claude CLI, Codex CLI, or an API provider on desktop to choose models here.",
+            "Configure Claude CLI, Codex CLI, Hermes Agent, or an API provider on desktop to choose models here.",
             emptyModelListDetail(source),
         )
     }
@@ -69,5 +69,21 @@ class ModelDiagnosticsTest {
             agentBackendLockDetail(agent),
         )
         assertEquals(null, agentBackendLockLabel(agent.copy(backend = null)))
+    }
+
+    @Test
+    fun explainsAgentLockedToHermes() {
+        val agent = Agent(
+            id = "agent-2",
+            name = "Researcher",
+            backend = "hermes-cli",
+            cliModel = "anthropic/claude-sonnet-4-6",
+        )
+
+        assertEquals("Agent locked to Hermes Agent", agentBackendLockLabel(agent))
+        assertEquals(
+            "Researcher locks this chat to Hermes Agent. Only models for that backend are shown.",
+            agentBackendLockDetail(agent),
+        )
     }
 }
