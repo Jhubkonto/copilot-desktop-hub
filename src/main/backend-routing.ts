@@ -13,11 +13,12 @@ import type { ProviderName } from './provider-core-types'
 import { getApiKey, getOpenRouterModels } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
+import { HermesAdapter } from './cli-adapters/hermes'
 import { getCliModels } from './cli-detection'
 import { retrieveAuthMode } from './auth'
 import { getDatabase } from './database'
 
-export type EffectiveCliBackend = 'claude-cli' | 'codex-cli' | undefined
+export type EffectiveCliBackend = 'claude-cli' | 'codex-cli' | 'hermes-cli' | undefined
 
 /**
  * Resolves the model a request should route on when no explicit model was sent — mirrors
@@ -39,6 +40,7 @@ export function inferCliBackendFromModel(model: string | undefined): EffectiveCl
   if (!model) return undefined
   if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === model)) return 'codex-cli'
   if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === model)) return 'claude-cli'
+  if (HermesAdapter.isAvailable() && getCliModels('hermes-cli').some((m) => m.id === model)) return 'hermes-cli'
   return undefined
 }
 
@@ -59,17 +61,23 @@ export function resolveEffectiveBackend(opts: {
 
   if (opts.cliBackend === 'codex-cli' && CodexAdapter.isAvailable()) return 'codex-cli'
   if (opts.cliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) return 'claude-cli'
+  if (opts.cliBackend === 'hermes-cli' && HermesAdapter.isAvailable()) return 'hermes-cli'
   if (opts.agentBackend === 'codex-cli' && CodexAdapter.isAvailable()) return 'codex-cli'
   if (opts.agentBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) return 'claude-cli'
+  if (opts.agentBackend === 'hermes-cli' && HermesAdapter.isAvailable()) return 'hermes-cli'
   if (!selectedModelIsOpenRouter && opts.convCliBackend === 'codex-cli' && CodexAdapter.isAvailable()) {
     return 'codex-cli'
   }
   if (!selectedModelIsOpenRouter && opts.convCliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
     return 'claude-cli'
   }
+  if (!selectedModelIsOpenRouter && opts.convCliBackend === 'hermes-cli' && HermesAdapter.isAvailable()) {
+    return 'hermes-cli'
+  }
   if (retrieveAuthMode() === 'none' && !byokKeyForModel) {
     if (ClaudeAdapter.isAvailable()) return 'claude-cli'
     if (CodexAdapter.isAvailable()) return 'codex-cli'
+    if (HermesAdapter.isAvailable()) return 'hermes-cli'
   }
   return undefined
 }

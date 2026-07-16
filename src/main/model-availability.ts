@@ -1,5 +1,6 @@
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
+import { HermesAdapter } from './cli-adapters/hermes'
 import { getCliModels } from './cli-detection'
 import { PROVIDERS, isProviderConfigured, getOpenRouterModels, fetchAndCacheOpenRouterModels, retrieveApiKey } from './providers'
 import { fetchAndCacheAnthropicModels, getCachedAnthropicModels } from './anthropic-models'
@@ -21,6 +22,13 @@ export function getAvailableModelGroups(): AvailableModelGroup[] {
     const models = getCliModels('codex-cli')
     if (models.length > 0) {
       groups.push({ sourceKey: 'codex-cli', sourceLabel: 'Codex CLI', sourceType: 'cli', models })
+    }
+  }
+
+  if (HermesAdapter.isAvailable()) {
+    const models = getCliModels('hermes-cli')
+    if (models.length > 0) {
+      groups.push({ sourceKey: 'hermes-cli', sourceLabel: 'Hermes Agent', sourceType: 'cli', models })
     }
   }
 

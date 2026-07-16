@@ -107,6 +107,7 @@ import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
+import { HermesAdapter } from './cli-adapters/hermes'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
 import { generateQuizForWs, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
@@ -1131,32 +1132,33 @@ export function registerWsHandlers(): void {
       const getProviderModelIds = (provider: (typeof PROVIDERS)[number]) =>
         provider.name === 'openrouter' ? getOpenRouterModels() : provider.models
 
+      const cliBackendLabels: Record<string, string> = {
+        'codex-cli': 'Codex CLI',
+        'claude-cli': 'Claude CLI',
+        'hermes-cli': 'Hermes Agent',
+      }
+
       if (backend) {
         // Explicit backend requested — return just that source (existing per-chat model picker behaviour)
         const resolvedBackend = backend
-        const source =
-          resolvedBackend === 'codex-cli'
-            ? { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' }
-            : resolvedBackend === 'claude-cli'
-              ? { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' }
-              : configuredProviders.length > 0
-                ? {
-                    type: 'provider',
-                    label: `Configured ${configuredProviders.map((provider) => provider.label).join(', ')} models`,
-                  }
-                : { type: 'none', label: 'No configured model backend' }
+        const cliLabel = cliBackendLabels[resolvedBackend]
+        const source = cliLabel
+          ? { type: 'cli', label: `${cliLabel} models`, backend: resolvedBackend }
+          : configuredProviders.length > 0
+            ? {
+                type: 'provider',
+                label: `Configured ${configuredProviders.map((provider) => provider.label).join(', ')} models`,
+              }
+            : { type: 'none', label: 'No configured model backend' }
 
-        const models =
-          resolvedBackend === 'codex-cli'
-            ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI', isCliSourced: true }))
-            : resolvedBackend === 'claude-cli'
-              ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI', isCliSourced: true }))
-              : configuredProviders
-                  .flatMap((provider) => getProviderModelIds(provider).map((model) => ({
-                    id: provider.name === 'azure' ? `azure:${model}` : model,
-                    label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
-                    vendor: provider.label,
-                  })))
+        const models = cliLabel
+          ? getCliModels(resolvedBackend).map((model) => ({ ...model, vendor: cliLabel, isCliSourced: true }))
+          : configuredProviders
+              .flatMap((provider) => getProviderModelIds(provider).map((model) => ({
+                id: provider.name === 'azure' ? `azure:${model}` : model,
+                label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
+                vendor: provider.label,
+              })))
 
         for (const model of models) {
           if (!byId.has(model.id)) byId.set(model.id, model)
@@ -1176,6 +1178,11 @@ export function registerWsHandlers(): void {
           if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Codex CLI', isCliSourced: true })
         }
       }
+      if (HermesAdapter.isAvailable()) {
+        for (const model of getCliModels('hermes-cli')) {
+          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Hermes Agent', isCliSourced: true })
+        }
+      }
       for (const provider of configuredProviders) {
         for (const model of getProviderModelIds(provider)) {
           const id = provider.name === 'azure' ? `azure:${model}` : model
@@ -1190,10 +1197,11 @@ export function registerWsHandlers(): void {
       }
 
       const hasAnySources =
-        ClaudeAdapter.isAvailable() || CodexAdapter.isAvailable() || configuredProviders.length > 0
+        ClaudeAdapter.isAvailable() || CodexAdapter.isAvailable() || HermesAdapter.isAvailable() || configuredProviders.length > 0
       const sourceLabel = [
         ClaudeAdapter.isAvailable() ? 'Claude CLI' : null,
         CodexAdapter.isAvailable() ? 'Codex CLI' : null,
+        HermesAdapter.isAvailable() ? 'Hermes Agent' : null,
         ...configuredProviders.map((p) => p.label),
       ]
         .filter(Boolean)
@@ -1239,7 +1247,7 @@ export function registerWsHandlers(): void {
       // routes through that CLI instead of falling through to a BYOK provider.
       // When Android sends no model or "default", resolve against the desktop's
       // default_model setting so CLI-default setups work correctly.
-      let inferredCliBackend: 'codex-cli' | 'claude-cli' | undefined
+      let inferredCliBackend: 'codex-cli' | 'claude-cli' | 'hermes-cli' | undefined
       const effectiveModel = (model && model !== 'default')
         ? model
         : (() => {
@@ -1248,6 +1256,7 @@ export function registerWsHandlers(): void {
           })()
       const codexModels = CodexAdapter.isAvailable() ? getCliModels('codex-cli').map((m) => m.id) : []
       const claudeModels = ClaudeAdapter.isAvailable() ? getCliModels('claude-cli').map((m) => m.id) : []
+      const hermesModels = HermesAdapter.isAvailable() ? getCliModels('hermes-cli').map((m) => m.id) : []
       const routeLog = (msg: string): void => {
         debugLog('ws', msg)
         broadcastToMobile({ event: 'android:log', data: { tag: 'WsRoute', message: msg, ts: Date.now() } })
@@ -1255,11 +1264,14 @@ export function registerWsHandlers(): void {
       routeLog(`chat:send model=${model ?? 'none'} effectiveModel=${effectiveModel ?? 'none'}`)
       routeLog(`codexAvail=${CodexAdapter.isAvailable()} codexModels=[${codexModels.join(',')}]`)
       routeLog(`claudeAvail=${ClaudeAdapter.isAvailable()} claudeModels=[${claudeModels.join(',')}]`)
+      routeLog(`hermesAvail=${HermesAdapter.isAvailable()} hermesModels=[${hermesModels.join(',')}]`)
       if (effectiveModel && effectiveModel !== 'default') {
         if (CodexAdapter.isAvailable() && codexModels.some((id) => id === effectiveModel)) {
           inferredCliBackend = 'codex-cli'
         } else if (ClaudeAdapter.isAvailable() && claudeModels.some((id) => id === effectiveModel)) {
           inferredCliBackend = 'claude-cli'
+        } else if (HermesAdapter.isAvailable() && hermesModels.some((id) => id === effectiveModel)) {
+          inferredCliBackend = 'hermes-cli'
         }
       }
       routeLog(`inferredCliBackend=${inferredCliBackend ?? 'none'}`)
@@ -1294,6 +1306,7 @@ export function registerWsHandlers(): void {
             c.completed_at,
             c.thinking_effort_override,
             c.full_auto_approve_override,
+            c.terminal_sandbox_override,
             c.kind,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
@@ -1328,8 +1341,8 @@ export function registerWsHandlers(): void {
       // Only the field(s) actually present in the payload are touched — see the matching
       // Electron-IPC handler in conversation-handlers.ts for why this can't just default to null.
       const existing = db
-        .prepare('SELECT thinking_effort_override, full_auto_approve_override FROM conversations WHERE id = ?')
-        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null } | undefined
+        .prepare('SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override FROM conversations WHERE id = ?')
+        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null } | undefined
       const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
       const thinkingEffortOverride = 'thinkingEffortOverride' in data
         ? (typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride) ? data.thinkingEffortOverride : null)
@@ -1337,10 +1350,13 @@ export function registerWsHandlers(): void {
       const fullAutoApproveOverride = 'fullAutoApproveOverride' in data
         ? (data.fullAutoApproveOverride === true ? 1 : data.fullAutoApproveOverride === false ? 0 : null)
         : (existing?.full_auto_approve_override ?? null)
+      const terminalSandboxOverride = 'terminalSandboxOverride' in data
+        ? (data.terminalSandboxOverride === true ? 1 : data.terminalSandboxOverride === false ? 0 : null)
+        : (existing?.terminal_sandbox_override ?? null)
       db.prepare(
-        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, updated_at = ? WHERE id = ?'
-      ).run(thinkingEffortOverride, fullAutoApproveOverride, Date.now(), conversationId)
-      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride } })
+        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, updated_at = ? WHERE id = ?'
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, Date.now(), conversationId)
+      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride } })
       return
     }
 
@@ -1509,6 +1525,7 @@ export function registerWsHandlers(): void {
       if (Array.isArray(data.inScope)) patch.inScope = data.inScope
       if (Array.isArray(data.outOfScope)) patch.outOfScope = data.outOfScope
       if (Array.isArray(data.milestones)) patch.milestones = data.milestones
+      if (typeof data.terminalSandboxBypass === 'boolean') patch.terminalSandboxBypass = data.terminalSandboxBypass
       const merged = { ...current, ...patch }
       if (typeof patch.rootDirectory === 'string') {
         merged.workspaceInfo = detectProjectWorkspaceMetadata(patch.rootDirectory)

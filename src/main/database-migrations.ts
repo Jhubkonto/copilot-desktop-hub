@@ -1413,6 +1413,16 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON automated_workflow_runs(template_id);
     `,
   },
+  {
+    // Per-conversation override for the terminal tool's sandbox bypass (run_terminal_command
+    // working directories outside the project root). Same tri-state convention as
+    // full_auto_approve_override from migration 64: NULL means "inherit the project's
+    // terminalSandboxBypass default".
+    version: 76,
+    sql: `
+      ALTER TABLE conversations ADD COLUMN terminal_sandbox_override INTEGER;
+    `,
+  },
 ];
 
 

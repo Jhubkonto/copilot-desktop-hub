@@ -138,17 +138,31 @@ function classifyMessage(summary: StructuredConversationSummary, message: Compre
   uniquePush(summary.recentContextNotes, `${roleLabel(message.role)}: ${preview}`, 12);
 }
 
-export function buildStructuredSummary(messages: CompressibleMessage[]): StructuredConversationSummary {
-  const summary: StructuredConversationSummary = {
-    goals: [],
-    decisions: [],
-    constraints: [],
-    filesTouched: [],
-    commandsRun: [],
-    openQuestions: [],
-    nextActions: [],
-    recentContextNotes: [],
-  };
+export function buildStructuredSummary(
+  messages: CompressibleMessage[],
+  seed?: StructuredConversationSummary,
+): StructuredConversationSummary {
+  const summary: StructuredConversationSummary = seed
+    ? {
+        goals: [...seed.goals],
+        decisions: [...seed.decisions],
+        constraints: [...seed.constraints],
+        filesTouched: [...seed.filesTouched],
+        commandsRun: [...seed.commandsRun],
+        openQuestions: [...seed.openQuestions],
+        nextActions: [...seed.nextActions],
+        recentContextNotes: [...seed.recentContextNotes],
+      }
+    : {
+        goals: [],
+        decisions: [],
+        constraints: [],
+        filesTouched: [],
+        commandsRun: [],
+        openQuestions: [],
+        nextActions: [],
+        recentContextNotes: [],
+      };
   for (const message of messages) {
     classifyMessage(summary, message);
   }
@@ -218,9 +232,27 @@ export function applyRollingContextCompression(
   const compressed = messages.slice(0, messages.length - retained.length);
   if (compressed.length === 0) return { messages, summary: null };
 
+  const existingRow = db
+    .prepare(`SELECT summary_json, source_message_count FROM conversation_summaries WHERE conversation_id = ?`)
+    .get(conversationId) as { summary_json: string; source_message_count: number } | undefined;
+  const existingSummary = existingRow
+    ? parseJson<StructuredConversationSummary | null>(existingRow.summary_json, null)
+    : null;
+  const existingCount = existingRow?.source_message_count ?? 0;
+
   const now = Date.now();
   const summaryId = randomUUID();
-  const structuredSummary = buildStructuredSummary(compressed);
+  let structuredSummary: StructuredConversationSummary;
+  if (existingSummary && existingCount >= compressed.length) {
+    // A prior summary (possibly hand-edited via "Compress now") already covers this span — keep it untouched
+    // rather than silently regenerating and discarding manual edits on every message send.
+    structuredSummary = existingSummary;
+  } else if (existingSummary && existingCount > 0) {
+    // Fold only the newly aged-out messages into the existing summary so earlier (possibly manual) content survives.
+    structuredSummary = buildStructuredSummary(compressed.slice(existingCount), existingSummary);
+  } else {
+    structuredSummary = buildStructuredSummary(compressed);
+  }
   if (structuredSummary.recentContextNotes.length === 0) {
     structuredSummary.recentContextNotes.push(summarizeMessages(compressed, Math.max(2_000, Math.floor(targetBudget * 1.2))));
   }
