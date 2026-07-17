@@ -10,6 +10,7 @@ import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.nullableString
 import org.json.JSONObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
@@ -42,6 +43,13 @@ data class ChatMessage(
     val text: String,
     val isUser: Boolean,
     val isStreaming: Boolean,
+    // True for a text segment that finished streaming because a tool call interrupted it
+    // (see freezeCurrentStreamingMessage) — the turn itself isn't done yet, more text or
+    // tool calls may still follow. Distinct from isStreaming=false, which MessageBubble
+    // otherwise treats as "this is the final settled answer" and decorates with a model
+    // label, timestamp, and copy/share/etc action row — none of which make sense on an
+    // intermediate fragment the model was still mid-turn on.
+    val isFrozenMidTurn: Boolean = false,
     val timestamp: Long = 0L,
     val attachments: List<AttachmentMeta> = emptyList(),
     val isToolCall: Boolean = false,
@@ -52,6 +60,10 @@ data class ChatMessage(
     val toolSuccess: Boolean = true,
     val sendFailed: Boolean = false,
     val thinkingBlocks: List<ThinkingBlock> = emptyList(),
+    // Ordered response-text bursts when the reply was interrupted by a tool call — used
+    // to interleave earlier narration with the tool calls it surrounded, the same way
+    // thinkingBlocks are. `text` remains the full concatenated content regardless.
+    val textSegments: List<ThinkingBlock> = emptyList(),
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val toolCalls: List<ChatMessage> = emptyList(),
@@ -243,7 +255,7 @@ class ChatViewModel(
         if (streamingIdx < 0) return current
         textSegmentStart = lastAnimationDisplayedLength
         return current.toMutableList().also {
-            it[streamingIdx] = it[streamingIdx].copy(isStreaming = false)
+            it[streamingIdx] = it[streamingIdx].copy(isStreaming = false, isFrozenMidTurn = true)
         }
     }
 
@@ -473,10 +485,106 @@ class ChatViewModel(
                             lastAnimationDisplayedLength = 0
                             currentLiveMessageId = UUID.randomUUID().toString()
                         }
+                        if (event.type == "tool_started") {
+                            // Insert an in-progress placeholder the moment the tool call starts,
+                            // rather than waiting for chat:tool-call-event (which only arrives once
+                            // the tool has *finished*). Without this, every tool call on Android
+                            // appeared already-completed the instant it showed up — no equivalent of
+                            // desktop's pulsing blue "running" bubble ever rendered. The matching
+                            // ChatToolCallEvent handler below upserts this same message by id once
+                            // the result comes back, instead of appending a second one.
+                            //
+                            // Guarded by an existence check because tool_started can arrive more
+                            // than once for the same id (e.g. a redelivered/duplicated event) —
+                            // appending unconditionally crashed LazyColumn with "Key ... was
+                            // already used" the instant a second tool_started for the same id
+                            // landed, since two ChatMessage entries then shared one id/key.
+                            val payload = org.json.JSONObject(event.payloadJson)
+                            val id = payload.nullableString("id")
+                            val alreadyPresent = id != null && _messages.value.any { it.id == id && it.isToolCall }
+                            if (!alreadyPresent) {
+                                _messages.value = freezeCurrentStreamingMessage() + ChatMessage(
+                                    id = id ?: UUID.randomUUID().toString(),
+                                    text = "",
+                                    isUser = false,
+                                    isStreaming = true,
+                                    isToolCall = true,
+                                    toolName = payload.optString("name", "Tool call"),
+                                    serverName = payload.nullableString("serverName"),
+                                    toolArgs = payload.optJSONObject("input")?.toString(),
+                                )
+                            }
+                        }
                         if (event.type == "turn_completed" || event.type == "turn_failed") {
                             _drainActive.value = false
                             stopActiveHistoryPolling()
                         }
+                    }
+                    event is WsEvent.ChatActiveTurnSnapshot && event.conversationId == conversationId && event.status == "active" -> {
+                        // Requested by refreshMessages() on load — restores tool calls that
+                        // already ran (and the current activity) when re-entering a chat
+                        // mid-generation. Without this, only tool calls that happened to start
+                        // *after* re-entry ever appeared; everything from before was invisible
+                        // until the whole turn settled, since neither WsRepository's own
+                        // client-accumulated activeChatSnapshots (only populated while actively
+                        // connected) nor liveTurnState carried it. Insert-if-absent, same as the
+                        // tool_started handler above — a tool call already promoted (from a live
+                        // tool_started/ChatToolCallEvent that raced ahead of this response) must
+                        // not be duplicated.
+                        if (!isTurnTerminal) {
+                            _liveTurnState.value = _liveTurnState.value.copy(status = ChatTurnStatus.Active)
+                            if (event.activity != null) {
+                                _liveTurnState.value = _liveTurnState.value.copy(
+                                    activity = ChatTurnActivity(
+                                        state = event.activity.state,
+                                        label = event.activity.label,
+                                        toolName = event.activity.toolName,
+                                        serverName = event.activity.serverName,
+                                    ),
+                                )
+                            }
+                        }
+                        val current = _messages.value
+                        val toInsert = mutableListOf<ChatMessage>()
+                        // The restored lead-in text was written *before* any of the restored
+                        // tool calls, so it must be inserted first — pre-registering it under
+                        // currentLiveMessageId means the separate ChatAnimationRepository-driven
+                        // observer (which owns the actual reveal animation) finds streamingIdx
+                        // already >= 0 once it catches up and patches this entry in place,
+                        // instead of racing to append its own copy of the text *after* the tool
+                        // calls below, which left it stuck at the bottom looking like the newest
+                        // thing generated instead of the oldest.
+                        if (event.assistantText.isNotEmpty() && current.none { it.id == currentLiveMessageId }) {
+                            toInsert.add(
+                                ChatMessage(
+                                    id = currentLiveMessageId,
+                                    text = event.assistantText,
+                                    isUser = false,
+                                    isStreaming = true,
+                                ),
+                            )
+                            textSegmentStart = event.assistantText.length
+                        }
+                        val missing = event.toolCalls.filter { tc ->
+                            tc.id == null || current.none { it.id == tc.id && it.isToolCall }
+                        }
+                        toInsert.addAll(
+                            missing.map { tc ->
+                                ChatMessage(
+                                    id = tc.id ?: UUID.randomUUID().toString(),
+                                    text = "",
+                                    isUser = false,
+                                    isStreaming = tc.inProgress,
+                                    isToolCall = true,
+                                    toolName = tc.toolName,
+                                    serverName = tc.serverName,
+                                    toolArgs = tc.argsJson,
+                                    toolResult = tc.result,
+                                    toolSuccess = tc.success,
+                                )
+                            },
+                        )
+                        if (toInsert.isNotEmpty()) _messages.value = current + toInsert
                     }
                     event is WsEvent.ChatActivity && event.conversationId == conversationId -> {
                         if (event.state == "complete" || event.state == "error") {
@@ -519,25 +627,47 @@ class ChatViewModel(
                         // tool calls, that meant each reasoning bubble visibly vanished the
                         // moment the next tool call fired, then "came back" once the *next*
                         // reasoning phase started accumulating from scratch. Removed.
-                        _messages.value = freezeCurrentStreamingMessage() + ChatMessage(
-                            // A stable id (not the default "") so ChatRenderItem.ToolCall's key
-                            // stays fixed for this tool call's whole life in the live-tracked
-                            // list — otherwise its key derived from position among tool-call
-                            // messages, which shifts (and forces a Compose remount) whenever a
-                            // history-sync reconciliation changes how many/which tool calls
-                            // precede it. Same bug class as the streaming-text key instability
-                            // fixed via currentLiveMessageId, just for tool calls.
-                            id = UUID.randomUUID().toString(),
-                            text = "",
-                            isUser = false,
-                            isStreaming = false,
-                            isToolCall = true,
-                            toolName = event.toolName,
-                            serverName = event.serverName,
-                            toolArgs = event.args,
-                            toolResult = event.result,
-                            toolSuccess = event.success,
-                        )
+                        //
+                        // If tool_started already inserted an in-progress placeholder for this
+                        // same id (see the ChatTurnEvent branch above), update it in place instead
+                        // of appending a second bubble — otherwise every tool call would render
+                        // twice, once running and once completed. A transport that never sent
+                        // tool_started (or a dropped event) falls back to the old append-only
+                        // behavior via the -1 branch.
+                        val current = _messages.value
+                        val placeholderIdx = event.id?.let { id -> current.indexOfLast { it.id == id && it.isToolCall } } ?: -1
+                        _messages.value = if (placeholderIdx >= 0) {
+                            current.toMutableList().also {
+                                it[placeholderIdx] = it[placeholderIdx].copy(
+                                    isStreaming = false,
+                                    toolName = event.toolName,
+                                    serverName = event.serverName,
+                                    toolArgs = event.args ?: it[placeholderIdx].toolArgs,
+                                    toolResult = event.result,
+                                    toolSuccess = event.success,
+                                )
+                            }
+                        } else {
+                            freezeCurrentStreamingMessage() + ChatMessage(
+                                // A stable id (not the default "") so ChatRenderItem.ToolCall's key
+                                // stays fixed for this tool call's whole life in the live-tracked
+                                // list — otherwise its key derived from position among tool-call
+                                // messages, which shifts (and forces a Compose remount) whenever a
+                                // history-sync reconciliation changes how many/which tool calls
+                                // precede it. Same bug class as the streaming-text key instability
+                                // fixed via currentLiveMessageId, just for tool calls.
+                                id = event.id ?: UUID.randomUUID().toString(),
+                                text = "",
+                                isUser = false,
+                                isStreaming = false,
+                                isToolCall = true,
+                                toolName = event.toolName,
+                                serverName = event.serverName,
+                                toolArgs = event.args,
+                                toolResult = event.result,
+                                toolSuccess = event.success,
+                            )
+                        }
                     }
                     event is WsEvent.ChatTeamActivity && event.conversationId == conversationId -> {
                         val title = listOf(event.agentIcon, event.agentName).filter { it.isNotBlank() }.joinToString(" ")

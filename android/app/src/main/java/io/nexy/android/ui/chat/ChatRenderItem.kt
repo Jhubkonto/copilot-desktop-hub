@@ -14,6 +14,11 @@ sealed class ChatRenderItem {
     data class AssistantMessage(
         val message: ChatMessage,
         val liveThinkingBlocks: List<ThinkingBlock> = emptyList(),
+        // Overrides what MessageBubble actually displays (the tail text segment) while
+        // message.text (the full concatenated reply) still goes to copy/share/etc — set
+        // when an earlier segment of this reply already rendered as its own
+        // TextSegmentItem above and repeating it here would duplicate it on screen.
+        val displayText: String? = null,
     ) : ChatRenderItem() {
         override val key: String get() = message.id.ifBlank { "asst_${message.timestamp}" }
     }
@@ -58,6 +63,24 @@ sealed class ChatRenderItem {
         override val key: String get() = "thinking_${messageId}_${block.blockId}_$index"
     }
 
+    /**
+     * A single settled response-text segment (a burst of reply text that was interrupted by
+     * a tool call) from a completed assistant turn, positioned as its own top-level item
+     * chronologically alongside ThinkingBlockItem/ToolCall — the same rationale as
+     * ThinkingBlockItem (per-item LazyColumn virtualization) plus true ordering: without this,
+     * a lead-in sentence the model wrote before calling a tool would always render bunched
+     * together with the rest of the reply, below every tool call, instead of ahead of the
+     * tool call it actually preceded. The most recent segment is never wrapped here — it's
+     * the tail, rendered as the owning AssistantMessage's own displayed text instead.
+     */
+    data class TextSegmentItem(
+        val block: ThinkingBlock,
+        val messageId: String,
+        val index: Int,
+    ) : ChatRenderItem() {
+        override val key: String get() = "textseg_${messageId}_${block.blockId}_$index"
+    }
+
     data class LiveThinking(
         val blocks: List<ThinkingBlock>,
     ) : ChatRenderItem() {
@@ -80,6 +103,13 @@ sealed class ChatRenderItem {
 
 }
 
+// The most recent text segment (by firstSeenAt) is excluded from the interleaved timeline —
+// it becomes the owning message's own displayed text (see AssistantMessage/MessageBubble's
+// displayText) instead of an inline item, so the reply reads as "narration, tool calls,
+// narration, ..., final answer" rather than repeating the final segment's text twice.
+fun tailTextSegment(textSegments: List<ThinkingBlock>): ThinkingBlock? =
+    textSegments.maxByOrNull { it.firstSeenAt ?: 0L }
+
 fun buildChatRenderItems(
     messages: List<ChatMessage>,
     liveThinkingBlocks: List<ThinkingBlock>,
@@ -89,40 +119,71 @@ fun buildChatRenderItems(
     generationStartedAt: Long?,
 ): List<ChatRenderItem> {
     val result = mutableListOf<ChatRenderItem>()
-    val pendingToolCalls = mutableListOf<ChatMessage>()
+    var pendingToolCalls = mutableListOf<ChatMessage>()
     var toolCallListIdx = 0
+
+    fun flushDanglingToolCalls() {
+        for (tc in pendingToolCalls) result.add(ChatRenderItem.ToolCall(tc, toolCallListIdx++))
+        pendingToolCalls = mutableListOf()
+    }
 
     for (msg in messages) {
         if (msg.artifactRef != null) {
+            flushDanglingToolCalls()
             result.add(ChatRenderItem.ArtifactCard(msg.artifactRef, msg.id))
         } else if (msg.isToolCall) {
-            result.add(ChatRenderItem.ToolCall(msg, toolCallListIdx++))
+            pendingToolCalls.add(msg)
         } else if (msg.isUser) {
-            pendingToolCalls.clear()
+            flushDanglingToolCalls()
             result.add(ChatRenderItem.UserMessage(msg))
         } else {
-            // Assistant message — attach any preceding tool calls
+            // Assistant message — thinking blocks, text segments (all but the tail, which
+            // becomes this message's own displayed text), and the tool calls that preceded
+            // it are separate collections with their own real timestamps; interleave them by
+            // actual chronological order instead of always grouping every block ahead of
+            // every tool call. Ties (blocks with no firstSeenAt, from before that field
+            // existed) fall back to a stable sort that keeps blocks before tool calls,
+            // matching the historical grouped-rendering behavior.
             val committedBlockIds = msg.thinkingBlocks.map { it.blockId }.toSet()
             val visibleLiveThinking = if (msg.isStreaming && liveThinkingBlocks.isNotEmpty()) {
                 liveThinkingBlocks.filter { it.blockId !in committedBlockIds }
             } else {
                 emptyList()
             }
+            val tail = tailTextSegment(msg.textSegments)
+            data class Entry(val ts: Long, val add: () -> Unit)
+            val entries = mutableListOf<Entry>()
             // Historical thinking blocks precede the message as their own items — see
             // ThinkingBlockItem's doc. Skipped when live blocks already cover the same
             // content, mirroring the prior bundled-rendering condition exactly.
             if (visibleLiveThinking.isEmpty()) {
                 for ((index, block) in msg.thinkingBlocks.withIndex()) {
-                    result.add(ChatRenderItem.ThinkingBlockItem(block, msg.id, index))
+                    entries.add(Entry(block.firstSeenAt ?: Long.MIN_VALUE) {
+                        result.add(ChatRenderItem.ThinkingBlockItem(block, msg.id, index))
+                    })
                 }
             }
+            for ((index, block) in msg.textSegments.withIndex()) {
+                if (block === tail) continue
+                entries.add(Entry(block.firstSeenAt ?: Long.MIN_VALUE) {
+                    result.add(ChatRenderItem.TextSegmentItem(block, msg.id, index))
+                })
+            }
+            for (tc in pendingToolCalls) {
+                entries.add(Entry(tc.timestamp) { result.add(ChatRenderItem.ToolCall(tc, toolCallListIdx++)) })
+            }
+            entries.sortBy { it.ts }
+            for (entry in entries) entry.add()
+
             result.add(ChatRenderItem.AssistantMessage(
                 message = msg,
                 liveThinkingBlocks = visibleLiveThinking,
+                displayText = tail?.content,
             ))
-            pendingToolCalls.clear()
+            pendingToolCalls = mutableListOf()
         }
     }
+    flushDanglingToolCalls()
 
     // Awaiting section: live thinking + activity bubble (only when not streaming text)
     if (isAwaitingResponse && !isStreaming) {

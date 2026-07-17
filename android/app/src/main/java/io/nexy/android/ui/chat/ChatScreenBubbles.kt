@@ -427,9 +427,58 @@ private fun ThinkingFullscreenDialog(
     }
 }
 
+/**
+ * A single settled response-text segment, rendered plainly (Markwon-parsed markdown, no
+ * box/border/model-label/action-row) — the Android counterpart of desktop's inline
+ * live-text-segment item. Always fully settled (never streaming): a text segment only
+ * gets promoted to its own ChatRenderItem.TextSegmentItem once it's already closed.
+ */
+@Composable
+fun TextSegmentBubble(content: String) {
+    if (content.isBlank()) return
+    val textColor = MaterialTheme.colorScheme.onSurface
+    val textColorArgb = textColor.toArgb()
+    val markwon = LocalMarkwon.current
+    val segments = remember(content) { splitCodeBlocks(content) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        segments.forEachIndexed { index, segment ->
+            key(index) {
+                when (segment) {
+                    is MessageSegment.Text -> {
+                        if (segment.markdown.isNotBlank()) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxWidth(),
+                                factory = { ctx ->
+                                    TextView(ctx).also { tv ->
+                                        tv.setTextColor(textColorArgb)
+                                        tv.textSize = 14f
+                                        tv.setTextIsSelectable(true)
+                                    }
+                                },
+                                update = { tv ->
+                                    tv.setTextColor(textColorArgb)
+                                    markwon.setMarkdown(tv, segment.markdown)
+                                },
+                            )
+                        }
+                    }
+                    is MessageSegment.Code -> {
+                        CodeBlockWebView(language = segment.language, code = segment.code)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun MessageBubble(
     msg: ChatMessage,
+    // Overrides what's actually rendered in the bubble body while msg.text (the full
+    // reply) still goes to onCopy/onShare/etc below — set when an earlier part of the
+    // reply already rendered as its own TextSegmentItem above, so repeating it here
+    // would duplicate it on screen. Null renders msg.text as before.
+    displayText: String? = null,
     onCopy: () -> Unit,
     onEdit: (() -> Unit)?,
     onResend: (() -> Unit)?,
@@ -447,6 +496,9 @@ fun MessageBubble(
 ) {
     val isUser = msg.isUser
     val timeLabel = relativeTime(msg.timestamp)
+    // What's actually rendered in the bubble body — msg.text (the full reply) unless a
+    // tail-only override was supplied (see the `displayText` param doc above).
+    val effectiveText = displayText ?: msg.text
 
     if (!isUser) {
         // --- Assistant: full-width, no bubble, left-border accent ---
@@ -483,7 +535,7 @@ fun MessageBubble(
                     Box(
                         modifier = Modifier
                             .width(2.dp)
-                            .height(if (msg.text.isBlank()) 20.dp else 36.dp)
+                            .height(if (effectiveText.isBlank()) 20.dp else 36.dp)
                             .background(
                                 MaterialTheme.colorScheme.outlineVariant,
                                 RoundedCornerShape(1.dp),
@@ -495,12 +547,12 @@ fun MessageBubble(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        if (msg.text.isNotBlank()) {
+                        if (effectiveText.isNotBlank()) {
                             // Fenced code blocks are pulled out of the markdown before Markwon
                             // ever sees it and rendered by a dedicated composable (plain text
                             // while streaming, a syntax-highlighted WebView island once
                             // settled) — everything else still goes through Markwon/TextView.
-                            val segments = remember(msg.text) { splitCodeBlocks(msg.text) }
+                            val segments = remember(effectiveText) { splitCodeBlocks(effectiveText) }
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 segments.forEachIndexed { index, segment ->
                                     key(index) {
@@ -570,7 +622,7 @@ fun MessageBubble(
                                 }
                             }
                         }
-                        if (!msg.isStreaming && (!msg.model.isNullOrBlank() || msg.inputTokens > 0 || msg.outputTokens > 0)) {
+                        if (!msg.isStreaming && !msg.isFrozenMidTurn && (!msg.model.isNullOrBlank() || msg.inputTokens > 0 || msg.outputTokens > 0)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (!msg.model.isNullOrBlank()) {
                                     Text(
@@ -591,7 +643,7 @@ fun MessageBubble(
                     }
                 }
             }
-            if (!msg.isStreaming && msg.text.isNotBlank()) {
+            if (!msg.isStreaming && !msg.isFrozenMidTurn && msg.text.isNotBlank()) {
                 Row(
                     modifier = Modifier.padding(start = 12.dp, top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -625,7 +677,7 @@ fun MessageBubble(
                     }
                 }
             }
-            if (timeLabel != null && !msg.isStreaming) {
+            if (timeLabel != null && !msg.isStreaming && !msg.isFrozenMidTurn) {
                 Text(
                     timeLabel,
                     style = MaterialTheme.typography.labelSmall,

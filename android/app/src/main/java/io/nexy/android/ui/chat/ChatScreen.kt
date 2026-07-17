@@ -1245,6 +1245,7 @@ fun ChatScreen(
                                 is ChatRenderItem.LiveActivity -> 4
                                 is ChatRenderItem.ArtifactCard -> 5
                                 is ChatRenderItem.ThinkingBlockItem -> 6
+                                is ChatRenderItem.TextSegmentItem -> 7
                             }
                         },
                     ) { item ->
@@ -1269,14 +1270,18 @@ fun ChatScreen(
                         ) {
                         when (item) {
                             is ChatRenderItem.ToolCall -> {
+                                val inProgress = item.message.isStreaming
                                 if (isCodexToolCall(item.message.serverName)) {
                                     ChatTimelineGroup {
-                                        ChatTimelineEntry(beadColor = toolCallBeadColor(inProgress = false, success = item.message.toolSuccess)) {
-                                            CodexToolActionLine(item.message, inProgress = false)
+                                        ChatTimelineEntry(
+                                            beadColor = toolCallBeadColor(inProgress = inProgress, success = item.message.toolSuccess),
+                                            pulse = inProgress,
+                                        ) {
+                                            CodexToolActionLine(item.message, inProgress = inProgress)
                                         }
                                     }
                                 } else {
-                                    ChatTimelineGroup { ToolCallBubble(item.message, inProgress = false) }
+                                    ChatTimelineGroup { ToolCallBubble(item.message, inProgress = inProgress) }
                                 }
                             }
                             is ChatRenderItem.ThinkingBlockItem -> {
@@ -1288,6 +1293,13 @@ fun ChatScreen(
                                     }
                                 } else {
                                     ChatTimelineGroup { ThinkingHistoryBubble(listOf(item.block), isLive = false) }
+                                }
+                            }
+                            is ChatRenderItem.TextSegmentItem -> {
+                                ChatTimelineGroup {
+                                    ChatTimelineEntry(beadColor = Gray400) {
+                                        TextSegmentBubble(item.block.content)
+                                    }
                                 }
                             }
                             is ChatRenderItem.LiveThinking -> {
@@ -1406,6 +1418,7 @@ fun ChatScreen(
                                     }
                                     MessageBubble(
                                         msg = msg,
+                                        displayText = item.displayText,
                                         onCopy = { copyMessage(clipboardManager, msg.text) },
                                         onEdit = null,
                                         onResend = null,
