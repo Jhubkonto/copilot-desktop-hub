@@ -46,7 +46,7 @@ import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 
 export { clearDirListingCache } from './chat-context-builder'
 
-type ThinkingBlockEntry = { blockId: string; content: string; done: boolean }
+type ThinkingBlockEntry = { blockId: string; content: string; done: boolean; firstSeenAt: number }
 
 /**
  * Merges fields into a just-saved user message's context_snapshot — the client-side snapshot
@@ -99,14 +99,21 @@ function persistAssistantMessage(
   content: string,
   model: string | null,
   thinkingBlocks?: Map<string, ThinkingBlockEntry>,
+  textSegments?: Map<string, ThinkingBlockEntry>,
 ): string {
   const msgId = randomUUID()
   const thinkingJson = thinkingBlocks && thinkingBlocks.size > 0
     ? JSON.stringify(Array.from(thinkingBlocks.values()))
     : null
+  // Only worth persisting when there's more than one segment — a single segment means
+  // the response text was never interrupted by a tool call, so there's nothing to
+  // re-interleave and `content` alone (already the full text) covers it.
+  const textSegmentsJson = textSegments && textSegments.size > 1
+    ? JSON.stringify(Array.from(textSegments.values()))
+    : null
   db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(msgId, conversationId, 'assistant', content, null, Date.now(), model, thinkingJson)
+    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks, text_segments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(msgId, conversationId, 'assistant', content, null, Date.now(), model, thinkingJson, textSegmentsJson)
   return msgId
 }
 
@@ -326,8 +333,8 @@ export async function dispatchChatSend(
   const sendActivity = (activity: MobileChatActivity) => {
     turnEmitter.activity(activity)
   }
-  const sendChunk = (chunk: string) => {
-    turnEmitter.assistantTextDelta(chunk)
+  const sendChunk = (chunk: string, blockId?: string) => {
+    turnEmitter.assistantTextDelta(chunk, blockId)
   }
   const sendStreamEnd = () => {
     turnEmitter.streamEnd()
@@ -812,7 +819,18 @@ export async function dispatchChatSend(
           )
         }
       }
-      const cliThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
+      const cliThinkingBuffer = new Map<string, ThinkingBlockEntry>()
+      // Mirrors cliThinkingBuffer, but for the response text itself — the adapter tags
+      // each chunk with which contiguous burst it belongs to (a burst ends whenever a
+      // tool call interrupts it), so bursts can be persisted and later re-interleaved
+      // with the tool calls that separated them instead of collapsing into one blob.
+      const cliTextBuffer = new Map<string, ThinkingBlockEntry>()
+      const cliSendChunk = (chunk: string, blockId?: string) => {
+        sendChunk(chunk, blockId)
+        if (!blockId) return
+        const existing = cliTextBuffer.get(blockId) ?? { blockId, content: '', done: false, firstSeenAt: Date.now() }
+        cliTextBuffer.set(blockId, { ...existing, content: existing.content + chunk })
+      }
 
       try {
         turnEmitter.model(cliModelForRequest || effectiveBackend)
@@ -976,7 +994,7 @@ export async function dispatchChatSend(
               ? [path.parse(homedir()).root]
               : undefined,
           },
-          sendChunk,
+          cliSendChunk,
           (event) => {
             if (window.webContents.isDestroyed()) return
             if (event.type === 'tool_start') {
@@ -1019,12 +1037,16 @@ export async function dispatchChatSend(
               recordServerUsage(db, newUserMsgId, event.inputTokens, event.outputTokens)
             } else if (event.type === 'thinking_chunk') {
               turnEmitter.thinkingDelta(event.blockId, event.chunk)
-              const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false }
+              const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false, firstSeenAt: Date.now() }
               cliThinkingBuffer.set(event.blockId, { ...existing, content: existing.content + event.chunk })
             } else if (event.type === 'thinking_end') {
               turnEmitter.thinkingEnd(event.blockId)
               const existing = cliThinkingBuffer.get(event.blockId)
               if (existing) cliThinkingBuffer.set(event.blockId, { ...existing, done: true })
+            } else if (event.type === 'text_end') {
+              turnEmitter.textSegmentDone(event.blockId)
+              const existing = cliTextBuffer.get(event.blockId)
+              if (existing) cliTextBuffer.set(event.blockId, { ...existing, done: true })
             } else if (event.type === 'activity') {
               sendActivity({ state: 'thinking', label: event.label })
             }
@@ -1039,6 +1061,7 @@ export async function dispatchChatSend(
           db, conversationId, cliResponseContent,
           (cliModelForRequest || null) as string | null,
           cliThinkingBuffer,
+          cliTextBuffer,
         )
         broadcastConversationMessages(conversationId)
         sendStreamEnd()
@@ -1205,7 +1228,7 @@ export async function dispatchChatSend(
     turnEmitter.model(m)
   }
 
-  const byokThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
+  const byokThinkingBuffer = new Map<string, ThinkingBlockEntry>()
 
   let responseContent: string
   let completionActivity: MobileChatActivity = { state: 'complete', label: 'Complete' }
@@ -1241,7 +1264,7 @@ export async function dispatchChatSend(
       fullAutoApprove: effectiveFullAutoApprove,
       forceFirstToolChoice,
       onThinkingChunk: (blockId, chunk) => {
-        const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
+        const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false, firstSeenAt: Date.now() }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
         turnEmitter.thinkingDelta(blockId, chunk)
       },

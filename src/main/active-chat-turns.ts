@@ -1,4 +1,4 @@
-import type { ActiveChatTurnSnapshot, ChatTurnEvent } from '../shared/chat-turn-types'
+import type { ActiveChatTurnSnapshot, ActiveChatTurnToolCallSnapshot, ChatTurnEvent } from '../shared/chat-turn-types'
 import { ChatAnimationDiagnostics } from '../shared/chat-animation-diagnostics'
 
 const TERMINAL_TTL_MS = 30_000
@@ -19,6 +19,8 @@ export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
       latestSequence: event.sequence,
       assistantText: '',
       status: 'active',
+      toolCalls: [],
+      activity: null,
     })
     return
   }
@@ -28,9 +30,44 @@ export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
   if (event.sequence <= current.latestSequence) return
   current.latestSequence = event.sequence
   if (event.type === 'assistant_text_delta') current.assistantText += event.chunk
+  if (event.type === 'tool_started') {
+    upsertToolCall(current.toolCalls, {
+      id: event.id,
+      toolName: event.name,
+      serverName: event.serverName,
+      args: event.input,
+      result: '',
+      success: true,
+      inProgress: true,
+    })
+    current.activity = { state: 'tool', label: `Running ${event.name}`, toolName: event.name, serverName: event.serverName }
+  }
+  if (event.type === 'tool_finished') {
+    upsertToolCall(current.toolCalls, {
+      id: event.id,
+      toolName: event.toolName,
+      serverName: event.serverName,
+      args: event.args,
+      result: event.result,
+      success: event.success,
+      inProgress: false,
+    })
+  }
+  if (event.type === 'activity_changed') {
+    current.activity = { state: event.state, label: event.label, toolName: event.toolName, serverName: event.serverName }
+  }
   if (event.type === 'turn_completed' || event.type === 'turn_failed') {
     current.status = event.type === 'turn_completed' ? 'completed' : 'failed'
     current.terminalAt = Date.now()
+  }
+}
+
+function upsertToolCall(toolCalls: ActiveChatTurnToolCallSnapshot[], next: ActiveChatTurnToolCallSnapshot): void {
+  const index = next.id ? toolCalls.findIndex((tc) => tc.id === next.id) : -1
+  if (index === -1) {
+    toolCalls.push(next)
+  } else {
+    toolCalls[index] = next
   }
 }
 
@@ -43,6 +80,8 @@ export function getActiveChatTurnSnapshot(conversationId: string): ActiveChatTur
     latestSequence: turn.latestSequence,
     assistantText: turn.assistantText,
     status: turn.status,
+    toolCalls: turn.toolCalls,
+    activity: turn.activity,
   } : null
 }
 

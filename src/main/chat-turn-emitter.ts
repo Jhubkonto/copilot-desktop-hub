@@ -59,14 +59,18 @@ export class ChatTurnEmitter {
     return this.emit({ type: 'user_message_committed', messageId })
   }
 
-  assistantTextDelta(chunk: string): ChatTurnEvent {
-    const event = this.emit({ type: 'assistant_text_delta', chunk })
+  assistantTextDelta(chunk: string, blockId?: string): ChatTurnEvent {
+    const event = this.emit({ type: 'assistant_text_delta', chunk, ...(blockId ? { blockId } : {}) })
     this.sinks.sendDesktop?.('chat:stream-response', chunk)
     this.sinks.broadcastMobile?.({
       event: 'chat:stream-chunk',
       data: this.withMeta({ conversationId: this.conversationId, chunk }, event),
     })
     return event
+  }
+
+  textSegmentDone(blockId: string): ChatTurnEvent {
+    return this.emit({ type: 'text_segment_done', blockId })
   }
 
   activity(activity: MobileChatActivityPayload): ChatTurnEvent {
