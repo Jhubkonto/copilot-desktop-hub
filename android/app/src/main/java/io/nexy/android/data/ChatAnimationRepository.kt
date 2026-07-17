@@ -75,6 +75,30 @@ object ChatAnimationRepository {
                 )
                 ensureDrain(event.conversationId, flow)
             }
+            "text_segment_done" -> {
+                // A text segment just closed (a tool call is about to interrupt it, or the
+                // turn is wrapping up) — snap the reveal forward to cover it completely
+                // *right now*, rather than continuing to trickle it out at the normal pace.
+                // Without this, freezeCurrentStreamingMessage() (called right before the
+                // next tool-call/team-activity message is inserted) reads displayedText's
+                // length as "where this segment ends", but the throttled drain loop is
+                // usually still lagging behind authoritativeText at that moment — especially
+                // for a tool like ToolSearch that resolves almost instantly. The freeze then
+                // lands mid-sentence at wherever the animation happened to have reached, and
+                // the remainder of the (already-complete) segment gets wrongly treated as the
+                // start of a brand new one. Segments this closes are, by construction, never
+                // written to again, so jumping straight to full is not a "cheat forward" the
+                // way it would be mid-segment — only the still-open next segment continues to
+                // reveal at the normal typewriter pace.
+                flow.value = current.copy(
+                    turnId = event.turnId,
+                    displayedText = current.authoritativeText,
+                    lastSequence = event.sequence,
+                    sequenceGaps = sequenceGaps,
+                    revealLagMs = 0L,
+                    oldestPendingAt = null,
+                )
+            }
             "turn_completed", "turn_failed" -> {
                 // Mark terminal but do NOT snap displayedText to the full authoritativeText
                 // or cancel the drain job here — that would cut the reveal animation short

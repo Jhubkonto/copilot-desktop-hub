@@ -193,6 +193,7 @@ fun parseWsEvent(
 
             "chat:tool-call-event" -> WsEvent.ChatToolCallEvent(
                 conversationId = data?.optString("conversationId") ?: "",
+                id = data?.nullableString("id"),
                 toolName = data?.optString("toolName") ?: "Tool call",
                 serverName = data?.nullableString("serverName"),
                 args = data?.optJSONObject("args")?.toString(),
@@ -795,6 +796,7 @@ fun parseWsEvent(
                         timestamp = m.optLong("timestamp"),
                         attachments = attachmentsFromJson(m.nullableString("attachments")),
                         thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
+                        textSegments = parseThinkingBlocks(m.nullableString("text_segments")),
                         model = m.nullableString("model"),
                     )
                 }
@@ -1364,12 +1366,41 @@ fun parseWsEvent(
                         status = "completed",
                     )
                 } else {
+                    val toolCallsJson = snapshot.optJSONArray("toolCalls")
+                    val toolCalls = mutableListOf<WsEvent.ActiveTurnToolCall>()
+                    if (toolCallsJson != null) {
+                        for (i in 0 until toolCallsJson.length()) {
+                            val tc = toolCallsJson.optJSONObject(i) ?: continue
+                            toolCalls.add(
+                                WsEvent.ActiveTurnToolCall(
+                                    id = tc.nullableString("id"),
+                                    toolName = tc.optString("toolName", "Tool call"),
+                                    serverName = tc.nullableString("serverName"),
+                                    argsJson = tc.optJSONObject("args")?.toString(),
+                                    result = tc.optString("result"),
+                                    success = tc.optBoolean("success", true),
+                                    inProgress = tc.optBoolean("inProgress", false),
+                                ),
+                            )
+                        }
+                    }
+                    val activityJson = snapshot.optJSONObject("activity")
+                    val activity = activityJson?.let {
+                        WsEvent.ActiveTurnActivity(
+                            state = it.optString("state", "thinking"),
+                            label = it.optString("label", "Assistant is thinking"),
+                            toolName = it.nullableString("toolName"),
+                            serverName = it.nullableString("serverName"),
+                        )
+                    }
                     WsEvent.ChatActiveTurnSnapshot(
                         conversationId = snapshot.optString("conversationId"),
                         turnId = snapshot.optString("turnId"),
                         latestSequence = snapshot.optLong("latestSequence"),
                         assistantText = snapshot.optString("assistantText"),
                         status = snapshot.optString("status", "active"),
+                        toolCalls = toolCalls,
+                        activity = activity,
                     )
                 }
             }
@@ -2796,6 +2827,7 @@ private fun parseThinkingBlocks(json: String?): List<ThinkingBlock> {
                 blockId = obj.optString("blockId"),
                 content = obj.optString("content"),
                 done = obj.optBoolean("done", true),
+                firstSeenAt = if (obj.has("firstSeenAt") && !obj.isNull("firstSeenAt")) obj.optLong("firstSeenAt") else null,
             )
         }
     } catch (_: Exception) { emptyList() }

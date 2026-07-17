@@ -59,6 +59,7 @@ sealed class WsEvent {
     ) : WsEvent()
     data class ChatToolCallEvent(
         val conversationId: String,
+        val id: String? = null,
         val toolName: String,
         val serverName: String?,
         val args: String?,
@@ -85,12 +86,32 @@ sealed class WsEvent {
         val timestamp: Long,
         val payloadJson: String,
     ) : WsEvent()
+    data class ActiveTurnToolCall(
+        val id: String?,
+        val toolName: String,
+        val serverName: String?,
+        val argsJson: String?,
+        val result: String,
+        val success: Boolean,
+        val inProgress: Boolean,
+    )
+    data class ActiveTurnActivity(
+        val state: String,
+        val label: String,
+        val toolName: String?,
+        val serverName: String?,
+    )
     data class ChatActiveTurnSnapshot(
         val conversationId: String,
         val turnId: String,
         val latestSequence: Long,
         val assistantText: String,
         val status: String,
+        // Tool calls that already ran (or are still running) as of this snapshot — lets a
+        // client that re-fetches this after missing the live events (e.g. re-entering a
+        // chat mid-generation) restore ones that already happened, not just the flat text.
+        val toolCalls: List<ActiveTurnToolCall> = emptyList(),
+        val activity: ActiveTurnActivity? = null,
     ) : WsEvent()
     data class ChatTeamActivity(
         val conversationId: String,
@@ -682,10 +703,25 @@ data class HistoryMessage(
     val timestamp: Long,
     val attachments: List<AttachmentMeta> = emptyList(),
     val thinkingBlocks: List<ThinkingBlock> = emptyList(),
+    // Ordered response-text bursts when the reply was interrupted by a tool call (e.g.
+    // "I'll check X." -> tool call -> "Here's the answer.") — reuses ThinkingBlock's
+    // shape (blockId/content/done) since the data is structurally identical. `content`
+    // remains the full concatenated text regardless; this is purely a rendering aid for
+    // interleaving with tool-call messages, mirroring desktop's text_segments column.
+    val textSegments: List<ThinkingBlock> = emptyList(),
     val model: String? = null,
 )
 
-data class ThinkingBlock(val blockId: String, val content: String, val done: Boolean)
+data class ThinkingBlock(
+    val blockId: String,
+    val content: String,
+    val done: Boolean,
+    // Wall-clock ms when this block's first chunk arrived — lets historical rendering
+    // interleave thinking/text blocks with the tool-call rows that actually separated
+    // them (via real timestamps) instead of always grouping every block together ahead
+    // of the tool calls. Null for blocks persisted before this field existed.
+    val firstSeenAt: Long? = null,
+)
 
 data class AttachmentMeta(
     val id: String,

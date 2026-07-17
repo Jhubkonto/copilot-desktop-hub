@@ -106,6 +106,29 @@ class ChatAnimationRepositoryTest {
     }
 
     @Test
+    fun textSegmentDoneSnapsDisplayedTextToTheTrueSegmentBoundary() = runTest {
+        // Reproduces the reported bug: a lead-in sentence streams in, the backend closes
+        // it (text_segment_done) because a tool call is about to interrupt it, but the
+        // throttled reveal drain hasn't caught up to the full sentence yet — especially
+        // likely for a tool like ToolSearch that resolves almost instantly. Without
+        // snapping forward here, ChatViewModel.freezeCurrentStreamingMessage() (which
+        // reads displayedText's length right when the tool call arrives) would treat
+        // wherever the animation happened to have reached as the segment boundary,
+        // slicing the sentence in half instead of at its real end.
+        ChatAnimationRepository.clear("conv-animation")
+        ChatAnimationRepository.accept(event(1, "turn_started", "{}"))
+        ChatAnimationRepository.accept(
+            event(2, "assistant_text_delta", """{"chunk":"I'll run an actual web search on this topic and report only what genuinely comes back."}"""),
+        )
+        // No awaitDisplayedText here — the point is to catch it while the drain is
+        // still lagging, not after it settles.
+        ChatAnimationRepository.accept(event(3, "text_segment_done", """{"blockId":"text-0"}"""))
+        val state = ChatAnimationRepository.observe("conv-animation").value
+        assertEquals(state.authoritativeText, state.displayedText)
+        assertEquals(0, state.backlogLength)
+    }
+
+    @Test
     fun olderHistoryCannotReplaceANewerActiveTurn() = runTest {
         ChatAnimationRepository.clear("conv-animation")
         ChatAnimationRepository.restore(
