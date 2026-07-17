@@ -10,37 +10,52 @@ describe('ToolCallBlock', () => {
     expect(screen.getByText(/Playwright \(Chromium\)/)).toBeInTheDocument()
   })
 
-  it('shows success icon when success=true', () => {
-    render(<ToolCallBlock toolName="browser_navigate" success={true} />)
+  it('folds scalar args into the title instead of a raw key/value dump', () => {
+    render(<ToolCallBlock toolName="browser_click" args={{ selector: 'button[type="submit"]' }} />)
 
-    expect(screen.getByRole('button')).toBeInTheDocument()
+    expect(screen.getByText(/browser_click selector: button/)).toBeInTheDocument()
   })
 
-  it('shows error icon when success=false', () => {
-    render(<ToolCallBlock toolName="browser_click" success={false} result="Error: element not found" />)
+  it('never renders raw JSON braces for object-valued args', () => {
+    render(<ToolCallBlock toolName="some_tool" args={{ config: { retries: 3 } }} />)
 
-    expect(screen.getByRole('button')).toBeInTheDocument()
+    expect(screen.queryByText(/\{/)).not.toBeInTheDocument()
   })
 
-  it('shows args and a short result immediately, with nothing to expand', () => {
-    const args = { selector: 'button[type="submit"]' }
+  it('summarizes an Edit tool call as added/removed lines, not raw args', () => {
+    render(
+      <ToolCallBlock
+        toolName="Edit"
+        args={{ file_path: 'src/foo.ts', old_string: 'a', new_string: 'a\nb\nc' }}
+        result="The file has been updated."
+      />
+    )
+
+    expect(screen.getByText('Edit src/foo.ts')).toBeInTheDocument()
+    expect(screen.getByText('Added 2 lines')).toBeInTheDocument()
+    // The tool's raw result text is redundant once the summary is shown.
+    expect(screen.queryByText(/file has been updated/)).not.toBeInTheDocument()
+  })
+
+  it('shows a line range for a Read call with offset/limit', () => {
+    render(<ToolCallBlock toolName="Read" args={{ file_path: 'src/foo.ts', offset: 10, limit: 5 }} />)
+
+    expect(screen.getByText('Read src/foo.ts (lines 10-14)')).toBeInTheDocument()
+  })
+
+  it('shows a short result immediately when there is nothing to expand', () => {
     const result = 'Clicked successfully'
+    render(<ToolCallBlock toolName="browser_click" result={result} />)
 
-    render(<ToolCallBlock toolName="browser_click" args={args} result={result} />)
-
-    // A short (single-line, under the char cap) result is already fully shown in the
-    // always-visible preview — no click needed, and there's nothing left to expand.
     const button = screen.getByRole('button')
     expect(button).toBeDisabled()
     expect(button).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByText(/selector/)).toBeInTheDocument()
-    // Once in the header's compact status text, once in the always-visible preview.
-    expect(screen.getAllByText('Clicked successfully')).toHaveLength(2)
+    expect(screen.getByText('Clicked successfully')).toBeInTheDocument()
   })
 
   it('reveals the rest of a long multi-line result when clicked, and hides it again on a second click', () => {
     const lines = Array.from({ length: 6 }, (_, i) => `line ${i + 1}`)
-    render(<ToolCallBlock toolName="browser_click" args={{ x: 1 }} result={lines.join('\n')} />)
+    render(<ToolCallBlock toolName="browser_click" result={lines.join('\n')} />)
     const button = screen.getByRole('button')
 
     // The remainder stays mounted at all times (just visually collapsed via a CSS grid

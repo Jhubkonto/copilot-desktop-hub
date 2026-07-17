@@ -106,6 +106,41 @@ describe('buildChatRenderItems', () => {
     expect(items.filter((item) => item.type === 'live-tool-call').map((item) => item.id)).toEqual(['tool-2'])
   })
 
+  it('does not dedupe a live block against an OLDER message that happens to reuse the same blockId', () => {
+    // thinking-N / text-N blockIds reset to 0 for every new CLI process — they're only
+    // unique within a turn, not across the whole conversation. A much earlier turn in
+    // this same conversation already used 'reasoning-1' and 'text-0'; the current live
+    // turn's own fresh 'reasoning-1'/'text-0' must not be mistaken for that old, already-
+    // committed content and silently dropped from the live render.
+    const oldThinking = new Map([['reasoning-1', { blockId: 'reasoning-1', content: 'old reasoning', done: true }]])
+    const oldTextSegments = new Map([
+      ['text-0', { blockId: 'text-0', content: 'old segment', done: true, firstSeenAt: 1 }],
+      ['text-1', { blockId: 'text-1', content: 'old tail', done: true, firstSeenAt: 2 }],
+    ])
+    const state = liveTurn({
+      status: 'active',
+      thinkingBlocks: new Map([['reasoning-1', { blockId: 'reasoning-1', content: 'fresh reasoning', done: false }]]),
+      textBlocks: new Map([['text-0', { blockId: 'text-0', content: 'fresh segment', done: true }]]),
+      toolCalls: [{ id: 'tool-9', toolName: 'Read', result: '', success: true, inProgress: true }],
+    })
+
+    const items = buildChatRenderItems([
+      message({ id: 'old-user', role: 'user', content: 'earlier question', timestamp: 1 }),
+      message({
+        id: 'old-assistant',
+        role: 'assistant',
+        content: 'old segment old tail',
+        timestamp: 2,
+        thinkingBlocks: oldThinking,
+        textSegments: oldTextSegments,
+      }),
+      message({ id: 'new-user', role: 'user', content: 'new question', timestamp: 3 }),
+    ], state)
+
+    expect(items.some((item) => item.type === 'live-thinking-block' && item.block.content === 'fresh reasoning')).toBe(true)
+    expect(items.some((item) => item.type === 'live-text-segment' && item.text === 'fresh segment')).toBe(true)
+  })
+
   it('uses live activity when no text has arrived yet', () => {
     const state = liveTurn({
       status: 'active',

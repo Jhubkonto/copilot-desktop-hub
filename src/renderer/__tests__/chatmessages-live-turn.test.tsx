@@ -118,11 +118,8 @@ describe('ChatMessages normalized live turn fallback', () => {
       liveTurnState: state,
     })
 
-    expect(screen.getByText('read_file')).toBeInTheDocument()
-    // Appears twice by design: the header's compact result preview, plus the full
-    // result in the (collapsed-by-default, always-mounted for a smooth expand
-    // transition) details section below it.
-    expect(screen.getAllByText('contents')).toHaveLength(2)
+    expect(screen.getByText('read_file path: README.md')).toBeInTheDocument()
+    expect(screen.getByText('contents')).toBeInTheDocument()
 
     rerender(
       <ChatMessagesBase
@@ -157,9 +154,97 @@ describe('ChatMessages normalized live turn fallback', () => {
       />,
     )
 
-    expect(screen.getAllByText('read_file')).toHaveLength(1)
-    // Still 2 (header preview + hidden detail pre) — confirms exactly one ToolCallBlock
-    // rendered, not both the live and the now-committed historical version.
-    expect(screen.getAllByText('contents')).toHaveLength(2)
+    // Still exactly one — confirms exactly one ToolCallBlock rendered, not both the
+    // live and the now-committed historical version.
+    expect(screen.getAllByText('read_file path: README.md')).toHaveLength(1)
+  })
+
+  it('positions a lead-in text segment above the tool call it preceded, during active generation (not just after the turn settles)', () => {
+    const state = {
+      ...createEmptyChatTurnState('conv-1'),
+      turnId: 'turn-1',
+      status: 'active' as const,
+      text: "I'll search online for user feedback.Here's what I found so far",
+      // text-0 is already closed (the tool call interrupted it) — text-1 is the one
+      // still being typed. Ordering must be driven by `done`, not map-insertion-order,
+      // since text-0 was for a while the *only* entry yet was never "the open one".
+      textBlocks: new Map([
+        ['text-0', { blockId: 'text-0', content: "I'll search online for user feedback.", done: true, firstSeenSequence: 1 }],
+        ['text-1', { blockId: 'text-1', content: 'Here\'s what I found so far', done: false, firstSeenSequence: 3 }],
+      ]),
+      toolCalls: [{
+        id: 'tool-1',
+        toolName: 'WebSearch',
+        args: { query: 'Hermes Agent feedback' },
+        result: '',
+        success: true,
+        inProgress: true,
+        firstSeenSequence: 2,
+      }],
+    }
+
+    renderChatMessages({
+      isGenerating: true,
+      streamingContent: state.text,
+      liveTurnState: state,
+    })
+
+    const container = screen.getByRole('log')
+    const text = container.textContent ?? ''
+    const leadInIndex = text.indexOf("I'll search online for user feedback.")
+    const toolIndex = text.indexOf('Search "Hermes Agent feedback"')
+    const trailingIndex = text.indexOf('Here\'s what I found so far')
+
+    expect(leadInIndex).toBeGreaterThan(-1)
+    expect(toolIndex).toBeGreaterThan(-1)
+    expect(trailingIndex).toBeGreaterThan(-1)
+    // Chronological order: lead-in text, then the tool call, then the still-open
+    // trailing segment — not all bunched together after the tool call.
+    expect(leadInIndex).toBeLessThan(toolIndex)
+    expect(toolIndex).toBeLessThan(trailingIndex)
+    // The lead-in text appears exactly once — not repeated in the trailing block too.
+    expect(screen.getAllByText("I'll search online for user feedback.")).toHaveLength(1)
+  })
+
+  it('interleaves a single already-closed text segment above the tool call it preceded, instead of deferring it to the bottom as if still being typed', () => {
+    // The exact reported bug: a lead-in sentence is written, a tool call interrupts it
+    // (closing it — done: true), and no new text has started yet. Since it's the ONLY
+    // entry in textBlocks, naively treating "last in the map" as "still open" would wrongly
+    // defer it below the (still-running) tool call.
+    const state = {
+      ...createEmptyChatTurnState('conv-1'),
+      turnId: 'turn-1',
+      status: 'active' as const,
+      text: 'I want to flag something before running this search.',
+      textBlocks: new Map([
+        ['text-0', { blockId: 'text-0', content: 'I want to flag something before running this search.', done: true, firstSeenSequence: 1 }],
+      ]),
+      toolCalls: [{
+        id: 'tool-1',
+        toolName: 'WebSearch',
+        args: { query: 'Hermes Agent feedback' },
+        result: '',
+        success: true,
+        inProgress: true,
+        firstSeenSequence: 2,
+      }],
+    }
+
+    renderChatMessages({
+      isGenerating: true,
+      streamingContent: state.text,
+      liveTurnState: state,
+    })
+
+    const text = screen.getByRole('log').textContent ?? ''
+    const leadInIndex = text.indexOf('I want to flag something before running this search.')
+    const toolIndex = text.indexOf('Search "Hermes Agent feedback"')
+
+    expect(leadInIndex).toBeGreaterThan(-1)
+    expect(toolIndex).toBeGreaterThan(-1)
+    expect(leadInIndex).toBeLessThan(toolIndex)
+    // Nothing is currently open, so there's no trailing "current response" block —
+    // the sentence appears exactly once, as an inline segment above the tool call.
+    expect(screen.getAllByText('I want to flag something before running this search.')).toHaveLength(1)
   })
 })

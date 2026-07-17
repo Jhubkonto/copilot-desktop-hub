@@ -95,6 +95,115 @@ describe('useChat', () => {
     expect(result.current.messages[0]).toEqual(expect.objectContaining({ role: 'tool-call', toolResult: 'real' }))
   })
 
+  it('promotes a closed text segment into messages interleaved before the tool call that followed it (not stuck at the end)', () => {
+    // Reproduces the reported bug: a lead-in sentence, closed by a tool call, used to stay
+    // invisible in the live-only render area until the whole turn settled — because only
+    // tool calls were eagerly promoted into `messages` mid-turn, never text segments, so
+    // a tool call always visually "jumped the queue" ahead of text that actually preceded it.
+    const addToast = vi.fn()
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations: vi.fn().mockResolvedValue(undefined),
+        conversationCreated: vi.fn(),
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      emitChatTurnEvent({ type: 'turn_started', conversationId: 'conv-1', turnId: 'turn-1', sequence: 1, timestamp: 1 })
+      emitChatTurnEvent({
+        type: 'assistant_text_delta', conversationId: 'conv-1', turnId: 'turn-1', sequence: 2, timestamp: 2,
+        chunk: "I'll check that.", blockId: 'text-0',
+      })
+      emitChatTurnEvent({
+        type: 'text_segment_done', conversationId: 'conv-1', turnId: 'turn-1', sequence: 3, timestamp: 3,
+        blockId: 'text-0',
+      })
+      emitChatTurnEvent({
+        type: 'tool_started', conversationId: 'conv-1', turnId: 'turn-1', sequence: 4, timestamp: 4,
+        id: 'call-1', name: 'Read', input: {},
+      })
+      emitChatTurnEvent({
+        type: 'tool_finished', conversationId: 'conv-1', turnId: 'turn-1', sequence: 5, timestamp: 5,
+        id: 'call-1', toolName: 'Read', args: {}, result: 'contents', success: true,
+      })
+      // A second text segment starts — this is what actually demotes text-0 from "the
+      // tail" (reserved for the live/final display) to "an earlier, now-promotable
+      // segment", matching the real bug: only a turn with >1 segment ever exercises this.
+      emitChatTurnEvent({
+        type: 'assistant_text_delta', conversationId: 'conv-1', turnId: 'turn-1', sequence: 6, timestamp: 6,
+        chunk: 'Confirmed.', blockId: 'text-1',
+      })
+    })
+
+    expect(result.current.messages.map((m) => ({ role: m.role, content: m.content }))).toEqual([
+      { role: 'assistant', content: "I'll check that." },
+      { role: 'tool-call', content: 'contents' },
+    ])
+    expect(result.current.messages[0]).toEqual(expect.objectContaining({ isFrozenMidTurn: true }))
+  })
+
+  it('promotes a closed lead-in segment the moment the FIRST tool call starts, without waiting for a second text segment', () => {
+    // The actual residual bug found via the render-order log: when a lead-in segment
+    // is the ONLY segment so far, it used to be treated as "the tail" purely because it
+    // was the highest-sequence text block — even though a tool call with a HIGHER
+    // sequence had already started. Since eagerly-promoted tool calls always render
+    // before anything still only in the live area, that tool call would jump ahead of
+    // this earlier segment and stay ahead of it for as long as no second segment
+    // appeared (which, for a turn with several tool calls in a row before more text,
+    // could be many tool calls). The fix: "is this promotable" must compare against the
+    // newest known sequence across BOTH tool calls and text segments, not just other
+    // text segments.
+    const addToast = vi.fn()
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations: vi.fn().mockResolvedValue(undefined),
+        conversationCreated: vi.fn(),
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      emitChatTurnEvent({ type: 'turn_started', conversationId: 'conv-1', turnId: 'turn-1', sequence: 1, timestamp: 1 })
+      emitChatTurnEvent({
+        type: 'assistant_text_delta', conversationId: 'conv-1', turnId: 'turn-1', sequence: 2, timestamp: 2,
+        chunk: "I'll run an actual web search.", blockId: 'text-0',
+      })
+      emitChatTurnEvent({
+        type: 'text_segment_done', conversationId: 'conv-1', turnId: 'turn-1', sequence: 3, timestamp: 3,
+        blockId: 'text-0',
+      })
+      // No second text segment yet — just the first tool call.
+      emitChatTurnEvent({
+        type: 'tool_started', conversationId: 'conv-1', turnId: 'turn-1', sequence: 4, timestamp: 4,
+        id: 'call-1', name: 'ToolSearch', input: {},
+      })
+    })
+
+    // text-0 must already be promoted (and therefore positioned ahead of the tool call
+    // in `messages`) the instant the tool call starts — not stuck live until some later
+    // segment happens to arrive.
+    expect(result.current.messages.map((m) => ({ role: m.role, content: m.content }))).toEqual([
+      { role: 'assistant', content: "I'll run an actual web search." },
+      { role: 'tool-call', content: '' },
+    ])
+    expect(result.current.messages[0]).toEqual(expect.objectContaining({ isFrozenMidTurn: true }))
+  })
+
   it('starts with empty messages and not generating', () => {
     const addToast = vi.fn()
     const loadConversations = vi.fn().mockResolvedValue(undefined)
@@ -390,5 +499,118 @@ describe('useChat', () => {
       }),
     ])
     expect(result.current.isGenerating).toBe(true)
+  })
+
+  it('does not replay the already-restored text when re-entering a chat mid-generation', async () => {
+    // Reproduces the reported bug: leaving a chat mid-generation and coming back showed
+    // the already-accumulated sentence twice, re-animated from scratch — because
+    // liveTurnState.text got restored from the active-turn snapshot (see
+    // useChatLiveTurn's restore action) while enqueuedTextLenRef still started at 0,
+    // so the text-delta effect treated the whole restored string as brand-new and
+    // enqueued it a second time on top of what the snapshot had already shown.
+    const addToast = vi.fn()
+    const loadConversations = vi.fn().mockResolvedValue(undefined)
+    const conversationCreated = vi.fn()
+    const restoredText = "I'll search for AliExpress desktop PC user feedback and reviews in 2026."
+    mockApi.getActiveChatTurn.mockResolvedValue({
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      latestSequence: 5,
+      assistantText: restoredText,
+      status: 'active',
+      toolCalls: [],
+      activity: null,
+    })
+
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations,
+        conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
+      }),
+    )
+
+    await waitFor(() => expect(result.current.liveTurnState.turnId).toBe('turn-1'))
+    expect(result.current.displayedContent).toBe(restoredText)
+
+    act(() => {
+      emitChatTurnEvent({
+        type: 'assistant_text_delta',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        sequence: 6,
+        timestamp: 2000,
+        chunk: ' More info.',
+      })
+    })
+
+    expect(result.current.displayedContent).toBe(`${restoredText} More info.`)
+  })
+
+  it('shows tool calls that already ran before re-entering a chat mid-generation, not just ones started afterward', async () => {
+    // Reproduces the reported follow-up: after the flat-text restore fix, re-entering a
+    // chat mid-generation still showed only the lead-in sentence plus whatever tool call
+    // happened to start *after* re-entry — every tool call that already ran before the
+    // user left stayed invisible until the whole turn settled, since the eager tool-call
+    // promotion effect only ever looked at liveTurnState.toolCalls going forward and the
+    // restored snapshot never populated it (see useChatLiveTurn's restore action).
+    const addToast = vi.fn()
+    const loadConversations = vi.fn().mockResolvedValue(undefined)
+    const conversationCreated = vi.fn()
+    mockApi.getActiveChatTurn.mockResolvedValue({
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      latestSequence: 5,
+      assistantText: "I'll search for AliExpress desktop PC user feedback.",
+      status: 'active',
+      toolCalls: [
+        { id: 'call-1', toolName: 'WebSearch', args: { query: 'a' }, result: 'first results', success: true, inProgress: false },
+      ],
+      activity: { state: 'tool', label: 'Running WebSearch', toolName: 'WebSearch' },
+    })
+
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations,
+        conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
+      }),
+    )
+
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.role === 'tool-call' && m.toolCallId === 'call-1')).toBe(true),
+    )
+    expect(result.current.messages.find((m) => m.toolCallId === 'call-1')).toEqual(
+      expect.objectContaining({ toolResult: 'first results', toolInProgress: false }),
+    )
+
+    // The restored lead-in text was written *before* the restored tool call — it must be
+    // promoted ahead of it, not stuck at the end of the chat as if it were the newest
+    // thing (see useChatLiveTurn's restore action: the restored text now gets its own
+    // closed textBlocks entry with sequence 0, below every restored tool call's sequence,
+    // instead of only living in flat liveTurnState.text where buildChatRenderItems always
+    // renders it as the trailing item after every tool call regardless of when it was
+    // actually written).
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.role === 'assistant' && m.isFrozenMidTurn)).toBe(true),
+    )
+    const textIndex = result.current.messages.findIndex((m) => m.role === 'assistant' && m.isFrozenMidTurn)
+    const toolIndex = result.current.messages.findIndex((m) => m.toolCallId === 'call-1')
+    expect(textIndex).toBeGreaterThanOrEqual(0)
+    expect(textIndex).toBeLessThan(toolIndex)
   })
 })
