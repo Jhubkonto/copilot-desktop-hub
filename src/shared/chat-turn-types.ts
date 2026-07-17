@@ -2,6 +2,7 @@ export type ChatTurnEventType =
   | 'turn_started'
   | 'user_message_committed'
   | 'assistant_text_delta'
+  | 'text_segment_done'
   | 'thinking_delta'
   | 'thinking_done'
   | 'tool_started'
@@ -35,6 +36,17 @@ export interface ChatUserMessageCommittedEvent extends ChatTurnEventBase {
 export interface ChatAssistantTextDeltaEvent extends ChatTurnEventBase {
   type: 'assistant_text_delta'
   chunk: string
+  // Identifies which contiguous text burst this chunk belongs to — a turn that says
+  // something, calls a tool, then says more, produces two different blockIds so the
+  // two bursts can be positioned on either side of the tool call instead of merged
+  // into one blob at the end. Omitted by backends that don't segment text yet, in
+  // which case the whole turn's text is treated as a single legacy block.
+  blockId?: string
+}
+
+export interface ChatTextSegmentDoneEvent extends ChatTurnEventBase {
+  type: 'text_segment_done'
+  blockId: string
 }
 
 export interface ChatThinkingDeltaEvent extends ChatTurnEventBase {
@@ -108,6 +120,7 @@ export type ChatTurnEvent =
   | ChatTurnStartedEvent
   | ChatUserMessageCommittedEvent
   | ChatAssistantTextDeltaEvent
+  | ChatTextSegmentDoneEvent
   | ChatThinkingDeltaEvent
   | ChatThinkingDoneEvent
   | ChatToolStartedEvent
@@ -119,10 +132,34 @@ export type ChatTurnEvent =
   | ChatTurnFailedEvent
   | ChatHistorySnapshotReceivedEvent
 
+export interface ActiveChatTurnToolCallSnapshot {
+  id?: string
+  toolName: string
+  serverName?: string
+  args?: Record<string, unknown>
+  result: string
+  success: boolean
+  inProgress: boolean
+}
+
+export interface ActiveChatTurnActivitySnapshot {
+  state: string
+  label: string
+  toolName?: string
+  serverName?: string
+}
+
 export interface ActiveChatTurnSnapshot {
   conversationId: string
   turnId: string
   latestSequence: number
   assistantText: string
   status: 'active' | 'completed' | 'failed'
+  // Tool calls that have started (and possibly finished) so far this turn — lets a client
+  // that re-fetches this snapshot after missing the live events (e.g. re-entering a chat
+  // mid-generation) restore ones that already ran, not just whatever's still in flight.
+  toolCalls: ActiveChatTurnToolCallSnapshot[]
+  // The most recent activity_changed/tool_started label, so a re-fetching client can show
+  // "Running X" / "Thinking" instead of a bare status with no explanation.
+  activity: ActiveChatTurnActivitySnapshot | null
 }

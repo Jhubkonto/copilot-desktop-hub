@@ -1140,6 +1140,7 @@ export interface MessageRow {
   attachments: string | null
   context_snapshot: string | null
   thinking_blocks: string | null
+  text_segments: string | null
 }
 
 export interface ConversationExportAttachment {
