@@ -80,6 +80,15 @@ interface MessageBubbleProps {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  // Overrides what's rendered in the bubble body while `content` (the full text)
+  // still goes to onCopy/onSaveToWiki/etc. below — used when part of the reply
+  // already rendered inline above this bubble (see ChatMessages' text-segment
+  // timeline) and repeating it here would duplicate it on screen.
+  displayContent?: string
+  // True for a text segment optimistically promoted mid-turn (see ChatMessages'
+  // isFrozenMidTurn) — the turn isn't done yet, so the model/timestamp/action-button
+  // chrome that implies a finished final answer must not show.
+  isFrozenMidTurn?: boolean
   isEdited?: boolean
   modelLabel?: string
   attachments?: Attachment[]
@@ -111,6 +120,8 @@ export function MessageBubbleBase({
   id,
   role,
   content,
+  displayContent,
+  isFrozenMidTurn,
   isEdited,
   modelLabel,
   attachments,
@@ -179,33 +190,35 @@ export function MessageBubbleBase({
         <div className={`relative w-full pl-3 border-l-2 text-sm text-gray-900 dark:text-gray-100 transition-shadow ${
           isHighlighted ? 'border-blue-400/70 dark:border-blue-300/70' : 'border-gray-200 dark:border-gray-700'
         }`}>
-          <MarkdownRenderer content={content} />
+          <MarkdownRenderer content={displayContent ?? content} />
           {isStopped && (
             <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
               <StopCircle className="w-3 h-3" />
               Generation stopped
             </div>
           )}
-          <div className="flex items-center justify-between gap-2 mt-2">
-            {modelLabel ? (
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">Model: {modelLabel}</span>
-            ) : (
-              <span />
-            )}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {hasWikiEntry && (
-                <span title="Saved to wiki" aria-label="Saved to wiki">
-                  <BookOpen className="w-3 h-3 text-blue-400 dark:text-blue-500" />
-                </span>
+          {!isFrozenMidTurn && (
+            <div className="flex items-center justify-between gap-2 mt-2">
+              {modelLabel ? (
+                <span className="text-[11px] text-gray-400 dark:text-gray-500">Model: {modelLabel}</span>
+              ) : (
+                <span />
               )}
-              {timestamp != null && (
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                  {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {hasWikiEntry && (
+                  <span title="Saved to wiki" aria-label="Saved to wiki">
+                    <BookOpen className="w-3 h-3 text-blue-400 dark:text-blue-500" />
+                  </span>
+                )}
+                {timestamp != null && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                    {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-          {!isGenerating && (
+          )}
+          {!isGenerating && !isFrozenMidTurn && (
             <div className="mt-2 flex items-center gap-1.5">
               <IconActionButton
                 icon={copied ? CheckCircle : Copy}

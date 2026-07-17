@@ -100,6 +100,55 @@ function thinkingDotColor(done: boolean): string {
   return done ? 'bg-purple-500' : 'bg-purple-400'
 }
 
+type TextSegmentBlock = NonNullable<ChatMessage['textSegments']> extends Map<string, infer V> ? V : never
+
+// Historical thinking blocks, text segments (both persisted on the assistant message)
+// and tool-call messages (persisted as their own rows) are separate collections once
+// reloaded from the DB — interleave them by when each actually happened so a tool call
+// sandwiched between two reasoning bursts, or between two pieces of response text,
+// doesn't get pushed below both. Ties (e.g. blocks with no firstSeenAt, from before
+// that field existed) fall back to a stable sort that keeps thinking/text before tool
+// calls, matching prior behavior.
+type HistoricalTimelineItem =
+  | { kind: 'thinking'; ts: number; block: NonNullable<ChatMessage['thinkingBlocks']> extends Map<string, infer V> ? V : never }
+  | { kind: 'text'; ts: number; block: TextSegmentBlock }
+  | { kind: 'tool'; ts: number; message: ChatMessage }
+
+// The most recent text segment isn't included in the timeline — it becomes the
+// content of the message's own MessageBubble below the timeline instead of an inline
+// item, so the reply reads as "narration, tool calls, narration, ..., final answer
+// bubble" rather than repeating the final segment's text twice.
+function tailTextSegment(textSegments: ChatMessage['textSegments']): TextSegmentBlock | null {
+  if (!textSegments || textSegments.size === 0) return null
+  const blocks = Array.from(textSegments.values())
+  return blocks.reduce((latest, block) => (block.firstSeenAt ?? 0) >= (latest.firstSeenAt ?? 0) ? block : latest)
+}
+
+function buildHistoricalTimeline(
+  thinkingBlocks: ChatMessage['thinkingBlocks'],
+  textSegments: ChatMessage['textSegments'],
+  toolCalls: ChatMessage[],
+): HistoricalTimelineItem[] {
+  const items: HistoricalTimelineItem[] = []
+  if (thinkingBlocks) {
+    for (const block of thinkingBlocks.values()) {
+      items.push({ kind: 'thinking', ts: block.firstSeenAt ?? -Infinity, block })
+    }
+  }
+  const tail = tailTextSegment(textSegments)
+  if (textSegments) {
+    for (const block of textSegments.values()) {
+      if (block === tail) continue
+      items.push({ kind: 'text', ts: block.firstSeenAt ?? -Infinity, block })
+    }
+  }
+  for (const message of toolCalls) {
+    items.push({ kind: 'tool', ts: message.timestamp, message })
+  }
+  items.sort((a, b) => a.ts - b.ts)
+  return items
+}
+
 function getRequestPreview(content: string): string {
   return stripInjectedBlocks(content).replace(/\s+/g, ' ').trim()
 }
@@ -139,10 +188,25 @@ export function ChatMessagesBase({
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const generationElapsedSec = useGenerationTimer(isGenerating, generationStartedAt)
+  // `streamingContent` is the whole turn's cumulative text (needed elsewhere, e.g. to
+  // persist the right thing on Stop) — but once a tool call has interrupted the reply,
+  // any earlier segment already renders as its own live-text-segment item above, so the
+  // trailing "current" text block below must show only the segment still being written,
+  // not the full cumulative string (which would repeat the earlier segment here).
+  const liveTrailingText = useMemo(() => {
+    if (!liveTurnState || liveTurnState.textBlocks.size === 0) return streamingContent
+    // The still-open segment, found via `done` — NOT "whichever is last in the map",
+    // since a lead-in segment that already closed (a tool call interrupted it) can
+    // still be the only entry recorded so far and must not be mistaken for the one
+    // currently being typed. If every recorded segment has already closed, nothing is
+    // currently being written (the model is mid-tool-call) — show nothing here.
+    const open = Array.from(liveTurnState.textBlocks.values()).find((block) => !block.done)
+    return open?.content ?? ''
+  }, [liveTurnState, streamingContent])
   // ReactMarkdown + rehype-highlight re-parse their entire input on every render, which is
   // too expensive (and visually flickery on incomplete code fences) to run at the reveal
   // animation's ~60fps cadence — throttle what's handed to MarkdownRenderer while streaming.
-  const throttledStreamingContent = useThrottledValue(streamingContent, CHAT_MARKDOWN_THROTTLE_MS, isGenerating)
+  const throttledStreamingContent = useThrottledValue(liveTrailingText, CHAT_MARKDOWN_THROTTLE_MS, isGenerating)
   const messageElementsRef = useRef(new Map<string, HTMLDivElement>())
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [visibleMessageIds, setVisibleMessageIds] = useState<Set<string>>(new Set())
@@ -434,6 +498,18 @@ export function ChatMessagesBase({
           }
 
           // Normal message (user / assistant) — tool calls that preceded it are grouped in.
+          const isAssistant = main.role === 'assistant'
+          const historicalTimeline = buildHistoricalTimeline(
+            isAssistant ? main.thinkingBlocks : undefined,
+            isAssistant ? main.textSegments : undefined,
+            toolCalls,
+          )
+          // The most recent text segment (if the reply was ever interrupted by a tool
+          // call) becomes the bubble's displayed text instead of the full `content` —
+          // the earlier segment(s) already render inline in the timeline above, and
+          // showing the full text again here would repeat them. `content` (the full,
+          // unsplit text) is still what's passed to onCopy/wiki-save/etc. below.
+          const bubbleDisplayContent = isAssistant ? tailTextSegment(main.textSegments)?.content : undefined
           return (
             <div
               key={main.id}
@@ -442,55 +518,74 @@ export function ChatMessagesBase({
               data-message-id={main.id}
               data-message-role={main.role}
             >
-              {((main.role === 'assistant' && main.thinkingBlocks && main.thinkingBlocks.size > 0) || toolCalls.length > 0) && (
-                // One shared left-border thread for the whole sequence — reasoning and
-                // tool calls read as chained steps rather than separately-bordered blocks,
-                // with generous spacing between them along it.
+              {historicalTimeline.length > 0 && (
+                // One shared left-border thread for the whole sequence — reasoning,
+                // interim response text, and tool calls read as chained steps rather
+                // than separately-bordered blocks, with generous spacing between them
+                // along it. Interleaved chronologically (see buildHistoricalTimeline)
+                // rather than all-thinking-then-all-tools.
                 <div className="mb-2 pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-3">
-                  {main.role === 'assistant' && main.thinkingBlocks && Array.from(main.thinkingBlocks.values()).map((block) => (
-                    <TimelineEntry key={block.blockId} colorClass={thinkingDotColor(block.done)} pulse={!block.done}>
-                      {isCodexThinkingBlock(block.blockId) ? (
-                        <CodexActionLine kind="reasoning" content={block.content} />
-                      ) : (
-                        <ThinkingBlock
-                          content={block.content}
-                          done={block.done}
-                          label={getThinkingBlockLabel(block.blockId)}
-                        />
-                      )}
-                    </TimelineEntry>
-                  ))}
-                  {toolCalls.map((tc) => (
-                    <TimelineEntry key={tc.id} colorClass={toolCallDotColor(tc.toolInProgress, tc.toolSuccess ?? true)} pulse={tc.toolInProgress}>
-                      {isCodexToolCall(tc.serverName) ? (
-                        <CodexActionLine
-                          kind="tool"
-                          toolName={tc.toolName ?? tc.content}
-                          args={tc.toolArgs}
-                          result={tc.toolResult}
-                          success={tc.toolSuccess ?? true}
-                          inProgress={tc.toolInProgress}
-                        />
-                      ) : (
-                        <ToolCallBlock
-                          toolName={tc.toolName ?? tc.content}
-                          serverName={tc.serverName}
-                          args={tc.toolArgs}
-                          result={tc.toolResult}
-                          success={tc.toolSuccess ?? true}
-                          inProgress={tc.toolInProgress}
-                          resultImages={tc.toolResultImages}
-                          onUseImageAsContext={onUseImageAsContext}
-                        />
-                      )}
-                    </TimelineEntry>
-                  ))}
+                  {historicalTimeline.map((item) => {
+                    if (item.kind === 'thinking') {
+                      const block = item.block
+                      return (
+                        <TimelineEntry key={block.blockId} colorClass={thinkingDotColor(block.done)} pulse={!block.done}>
+                          {isCodexThinkingBlock(block.blockId) ? (
+                            <CodexActionLine kind="reasoning" content={block.content} />
+                          ) : (
+                            <ThinkingBlock
+                              content={block.content}
+                              done={block.done}
+                              label={getThinkingBlockLabel(block.blockId)}
+                            />
+                          )}
+                        </TimelineEntry>
+                      )
+                    }
+                    if (item.kind === 'text') {
+                      return (
+                        <TimelineEntry key={item.block.blockId} colorClass="bg-gray-400 dark:bg-gray-500">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            <MarkdownRenderer content={item.block.content} />
+                          </div>
+                        </TimelineEntry>
+                      )
+                    }
+                    const tc = item.message
+                    return (
+                      <TimelineEntry key={tc.id} colorClass={toolCallDotColor(tc.toolInProgress, tc.toolSuccess ?? true)} pulse={tc.toolInProgress}>
+                        {isCodexToolCall(tc.serverName) ? (
+                          <CodexActionLine
+                            kind="tool"
+                            toolName={tc.toolName ?? tc.content}
+                            args={tc.toolArgs}
+                            result={tc.toolResult}
+                            success={tc.toolSuccess ?? true}
+                            inProgress={tc.toolInProgress}
+                          />
+                        ) : (
+                          <ToolCallBlock
+                            toolName={tc.toolName ?? tc.content}
+                            serverName={tc.serverName}
+                            args={tc.toolArgs}
+                            result={tc.toolResult}
+                            success={tc.toolSuccess ?? true}
+                            inProgress={tc.toolInProgress}
+                            resultImages={tc.toolResultImages}
+                            onUseImageAsContext={onUseImageAsContext}
+                          />
+                        )}
+                      </TimelineEntry>
+                    )
+                  })}
                 </div>
               )}
               <MessageBubble
                 id={main.id}
                 role={main.role as 'user' | 'assistant' | 'system'}
                 content={main.content}
+                displayContent={bubbleDisplayContent}
+                isFrozenMidTurn={main.isFrozenMidTurn}
                 isEdited={main.isEdited}
                 modelLabel={
                   main.role === 'assistant' && main.model
@@ -597,8 +692,19 @@ export function ChatMessagesBase({
                   </TimelineEntry>
                 )
               }
+              if (item.type === 'live-text-segment') {
+                return (
+                  <div className="message-enter text-sm text-gray-900 dark:text-gray-100" key={item.id}>
+                    <MarkdownRenderer content={item.text} />
+                  </div>
+                )
+              }
               if (item.type === 'live-assistant-text') {
                 if (!isGenerating) return null
+                // throttledStreamingContent is derived from liveTrailingText above, which
+                // is already just this segment's own content (not the full cumulative
+                // reply) — so this can't repeat text already shown via a live-text-segment
+                // item earlier in the timeline.
                 return (
                   <div className={`message-enter text-sm text-gray-900 dark:text-gray-100 transition-opacity duration-150 ease-out ${isDraining ? 'opacity-95' : 'opacity-100'}`} key={item.id}>
                     <MarkdownRenderer content={throttledStreamingContent} />
