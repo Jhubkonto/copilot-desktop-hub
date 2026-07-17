@@ -838,6 +838,7 @@ class LocalDataRepository private constructor(
                 timestamp = row.optLong("timestamp", System.currentTimeMillis()),
                 attachmentsJson = row.jsonArrayOrString("attachments")?.toString() ?: "[]",
                 thinkingBlocksJson = row.jsonArrayOrString("thinking_blocks")?.toString() ?: "[]",
+                textSegmentsJson = row.jsonArrayOrString("text_segments")?.toString() ?: "[]",
                 inputTokens = row.optInt("input_tokens", 0),
                 outputTokens = row.optInt("output_tokens", 0),
                 remoteVersion = remoteVersion,
@@ -1481,6 +1482,7 @@ private fun MessageEntity.toModel() = HistoryMessage(
     timestamp = timestamp,
     attachments = attachmentsJson.toAttachments(),
     thinkingBlocks = thinkingBlocksJson.toThinkingBlocks(),
+    textSegments = textSegmentsJson.toThinkingBlocks(),
 )
 
 private fun HistoryMessage.toEntity(conversationId: String) = MessageEntity(
@@ -1491,6 +1493,7 @@ private fun HistoryMessage.toEntity(conversationId: String) = MessageEntity(
     timestamp = timestamp,
     attachmentsJson = attachments.toAttachmentsJson(),
     thinkingBlocksJson = thinkingBlocks.toThinkingBlocksJson(),
+    textSegmentsJson = textSegments.toThinkingBlocksJson(),
     remoteVersion = 1,
 )
 

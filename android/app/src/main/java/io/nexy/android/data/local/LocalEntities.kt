@@ -60,6 +60,9 @@ data class MessageEntity(
     val timestamp: Long,
     val attachmentsJson: String = "[]",
     val thinkingBlocksJson: String = "[]",
+    // Ordered response-text bursts when the reply was interrupted by a tool call — mirrors
+    // thinkingBlocksJson's shape/purpose but for response text (see HistoryMessage.textSegments).
+    val textSegmentsJson: String = "[]",
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val partial: Boolean = false,

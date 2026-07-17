@@ -64,6 +64,17 @@ class NexyDatabaseMigrationTest {
         ).close()
     }
 
+    @Test
+    fun migratesVersionSixToVersionSeven() {
+        helper.createDatabase(DATABASE_NAME, 6).close()
+        helper.runMigrationsAndValidate(
+            DATABASE_NAME,
+            7,
+            true,
+            NexyDatabase.MIGRATION_6_7,
+        ).close()
+    }
+
     companion object {
         private const val DATABASE_NAME = "migration-test"
     }
