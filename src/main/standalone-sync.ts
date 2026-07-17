@@ -399,7 +399,7 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     ORDER BY c.updated_at, c.id
   `).all() as Record<string, unknown>[]
   const messages = db.prepare(`
-    SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks,
+    SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
            input_tokens, output_tokens, timestamp
     FROM messages ORDER BY timestamp, id
   `).all() as Record<string, unknown>[]
@@ -747,6 +747,7 @@ function readEntityPayload(db: Database.Database, type: string, id: string): Rec
         model: row.model,
         attachments: parseJsonValue(row.attachments, []),
         thinkingBlocks: parseJsonValue(row.thinking_blocks, []),
+        textSegments: parseJsonValue(row.text_segments, []),
         inputTokens: row.input_tokens,
         outputTokens: row.output_tokens,
         timestamp: row.timestamp,

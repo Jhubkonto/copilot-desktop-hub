@@ -1423,6 +1423,15 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE conversations ADD COLUMN terminal_sandbox_override INTEGER;
     `,
   },
+  {
+    // Ordered response-text bursts for a CLI turn whose text was interrupted by tool
+    // calls (e.g. "I'll check X." -> tool call -> "Here's the answer.") — lets the
+    // historical render interleave them with the tool-call rows the same way
+    // thinking_blocks (migration 36) are interleaved. `content` still holds the full,
+    // concatenated text; this is purely a rendering aid.
+    version: 77,
+    sql: `ALTER TABLE messages ADD COLUMN text_segments TEXT`,
+  },
 ];
 
 

@@ -1379,7 +1379,7 @@ export function registerWsHandlers(): void {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
       const rows = db.prepare(
-        `SELECT id, role, content, model, attachments, timestamp, thinking_blocks FROM messages
+        `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
            WHERE conversation_id = ? ORDER BY timestamp ASC`
       ).all(conversationId)
       reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })
