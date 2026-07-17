@@ -60,7 +60,19 @@ export interface ChatMessage {
   toolSuccess?: boolean
   toolInProgress?: boolean
   toolResultImages?: { dataUrl: string }[]
-  thinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean }>
+  thinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean; firstSeenAt?: number }>
+  // Ordered response-text bursts when the reply was interrupted by tool calls (e.g.
+  // "I'll check X." -> tool call -> "Here's the answer.") — used to interleave the
+  // narration with the tool calls it surrounded instead of showing it all at once.
+  // `content` remains the full concatenated text regardless. Undefined/empty when the
+  // reply text was never interrupted (the common case).
+  textSegments?: Map<string, { blockId: string; content: string; done: boolean; firstSeenAt?: number }>
+  // True for a text segment optimistically promoted into `messages` mid-turn (as soon as
+  // it closes) so it interleaves with tool-call messages in true chronological order
+  // instead of staying stuck in the live-only render area until the whole turn settles.
+  // The turn isn't done yet when this is true — MessageBubble must not show the
+  // model/timestamp/action chrome that implies a finished, final answer.
+  isFrozenMidTurn?: boolean
 }
 
 export interface CliCostSummary {

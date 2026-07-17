@@ -79,6 +79,9 @@ export function useChat({
   // ChatMessage.id already inserted for it, so later updates patch in place instead of
   // re-appending.
   const toolCallMessageIdsRef = useRef<Map<string, string>>(new Map())
+  // Text-segment blockIds already promoted into `messages` mid-turn (see the tool-call/
+  // text-segment promotion effect below) — promoted once, never re-promoted or rewritten.
+  const promotedTextSegmentIdsRef = useRef<Set<string>>(new Set())
   // Guards the terminal-turn effect against re-running for a turn it already handled.
   const handledTurnRef = useRef<string | null>(null)
   const justCreatedConversationRef = useRef(false)
@@ -200,8 +203,14 @@ export function useChat({
               }
               if (message.role === 'assistant' && message.thinking_blocks) {
                 try {
-                  const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean }>
+                  const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean; firstSeenAt?: number }>
                   base.thinkingBlocks = new Map(blocks.map((b) => [b.blockId, b]))
+                } catch { /* malformed — ignore */ }
+              }
+              if (message.role === 'assistant' && message.text_segments) {
+                try {
+                  const segments = JSON.parse(message.text_segments) as Array<{ blockId: string; content: string; done: boolean; firstSeenAt?: number }>
+                  base.textSegments = new Map(segments.map((s) => [s.blockId, s]))
                 } catch { /* malformed — ignore */ }
               }
               if (message.role === 'tool-call') {
@@ -266,6 +275,7 @@ export function useChat({
     liveToolCallsRef.current = []
     enqueuedTextLenRef.current = 0
     toolCallMessageIdsRef.current.clear()
+    promotedTextSegmentIdsRef.current.clear()
     handledTurnRef.current = null
     setLoadingFailed(false)
   }, [conversationId, addToast, snapQueue])
@@ -296,8 +306,14 @@ export function useChat({
           }
           if (message.role === 'assistant' && message.thinking_blocks) {
             try {
-              const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean }>
+              const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean; firstSeenAt?: number }>
               base.thinkingBlocks = new Map(blocks.map((b) => [b.blockId, b]))
+            } catch { /* malformed — ignore */ }
+          }
+          if (message.role === 'assistant' && message.text_segments) {
+            try {
+              const segments = JSON.parse(message.text_segments) as Array<{ blockId: string; content: string; done: boolean; firstSeenAt?: number }>
+              base.textSegments = new Map(segments.map((s) => [s.blockId, s]))
             } catch { /* malformed — ignore */ }
           }
           if (message.role === 'tool-call') {
@@ -431,6 +447,37 @@ export function useChat({
     })
   }, [loadConversations, markConversationDoneGenerating])
 
+  // Resets the per-turn tracking refs whenever a new turn begins (turnId changes) —
+  // declared (and therefore runs) BEFORE the text-delta effect below, which depends on
+  // enqueuedTextLenRef already reflecting the right baseline for this turnId by the
+  // time it reads it in the same commit.
+  //
+  // A turnId transition means one of two things: a genuine fresh turn (liveTurnState.text
+  // is '' — the reducer resets state on turn_started), or re-entering a chat mid-generation,
+  // where useChatLiveTurn's restore action seeds turnId AND text together from an
+  // ActiveChatTurnSnapshot. In the restore case, treat the already-accumulated text as an
+  // already-displayed baseline rather than something to animate in: prime
+  // enqueuedTextLenRef to its full length (so the text-delta effect only enqueues
+  // whatever arrives *after* this point) and snap the reveal queue to it directly.
+  // Without this, that restored text would get diffed against enqueuedTextLenRef's stale
+  // value from the previous turn/mount and re-enqueued for animation on top of the
+  // separate getActiveChatTurn snapshot restore elsewhere in this hook (which already
+  // snapped displayedContent to the same text), producing a doubled, replayed-from-scratch
+  // sentence.
+  const lastTurnIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (liveTurnState.turnId === lastTurnIdRef.current) return
+    lastTurnIdRef.current = liveTurnState.turnId
+    toolCallMessageIdsRef.current.clear()
+    promotedTextSegmentIdsRef.current.clear()
+    enqueuedTextLenRef.current = liveTurnState.text.length
+    if (liveTurnState.text) {
+      streamingContentRef.current = liveTurnState.text
+      setStreamingContent(liveTurnState.text)
+      snapQueue(liveTurnState.text)
+    }
+  }, [liveTurnState.turnId, liveTurnState.text, snapQueue])
+
   // Feeds the reveal animation from liveTurnState.text (cumulative) by enqueuing only
   // the newly-arrived suffix on each update — replaces the old per-chunk IPC channel.
   useEffect(() => {
@@ -455,27 +502,32 @@ export function useChat({
     if (liveTurnState.model) streamModelRef.current = liveTurnState.model
   }, [liveTurnState.conversationId, liveTurnState.model])
 
-  // Resets the per-turn tracking refs whenever a new turn begins (turnId changes).
-  const lastTurnIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (liveTurnState.turnId === lastTurnIdRef.current) return
-    lastTurnIdRef.current = liveTurnState.turnId
-    enqueuedTextLenRef.current = 0
-    toolCallMessageIdsRef.current.clear()
-  }, [liveTurnState.turnId])
-
-  // Derives tool-call messages from liveTurnState.toolCalls: appends a new message the
-  // first time a tool call (keyed by id, or array index for id-less BYOK calls) appears,
-  // and patches it in place on subsequent updates (e.g. CLI in-progress → finished).
+  // Derives tool-call messages from liveTurnState.toolCalls (appends the first time a
+  // tool call appears, patches in place on later updates e.g. CLI in-progress → finished)
+  // AND promotes closed text segments from liveTurnState.textBlocks the same way, the
+  // moment each one closes. Both kinds of new inserts are interleaved by firstSeenSequence
+  // before insertion — without this, tool calls (which used to be the only thing eagerly
+  // promoted into `messages`) would always land ahead of any text segment that actually
+  // preceded them, since eager-inserted tool calls jump straight into the historical
+  // section while text segments sat in the live-only render area until the whole turn
+  // settled. Promoted text segments are marked isFrozenMidTurn so MessageBubble doesn't
+  // decorate them with final-answer chrome (model/timestamp/actions) — the turn isn't
+  // done yet. The still-open (not yet closed) segment is deliberately left alone here; it
+  // continues to render via the live area until it closes or the turn ends.
   useEffect(() => {
     if (liveTurnState.conversationId !== activeConversationRef.current) return
-    if (liveTurnState.toolCalls.length === 0) return
-    const seen = toolCallMessageIdsRef.current
+    if (liveTurnState.toolCalls.length === 0 && liveTurnState.textBlocks.size === 0) return
+    const seenTools = toolCallMessageIdsRef.current
+    const seenText = promotedTextSegmentIdsRef.current
     const toUpdate: { msgId: string; result: string; success: boolean; args?: Record<string, unknown>; inProgress: boolean; resultImages?: { dataUrl: string }[] }[] = []
-    const toInsert: { key: string; tc: (typeof liveTurnState.toolCalls)[number] }[] = []
+    type PendingInsert =
+      | { kind: 'tool'; seq: number; key: string; tc: (typeof liveTurnState.toolCalls)[number] }
+      | { kind: 'text'; seq: number; blockId: string; content: string }
+    const toInsert: PendingInsert[] = []
+
     liveTurnState.toolCalls.forEach((tc, index) => {
       const key = tc.id ?? `idx-${index}`
-      const existingMsgId = seen.get(key)
+      const existingMsgId = seenTools.get(key)
       if (existingMsgId) {
         toUpdate.push({
           msgId: existingMsgId,
@@ -486,10 +538,38 @@ export function useChat({
           resultImages: tc.resultImages,
         })
       } else {
-        toInsert.push({ key, tc })
+        toInsert.push({ kind: 'tool', seq: tc.firstSeenSequence ?? 0, key, tc })
       }
     })
+    // A closed segment is safe to promote as soon as something newer (another text
+    // segment OR a tool call) is already known to exist — at that point it's definitely
+    // not the presumptive "most recent thing said" anymore, whether or not the turn is
+    // done. Comparing only against other TEXT segments (the earlier version of this
+    // check) was the actual bug: buildChatRenderItems always renders every already-
+    // promoted (historical) item before every still-live one, as two sequential blocks
+    // rather than one true interleaved timeline — so a single lead-in segment that
+    // stayed the *only* segment for a long stretch (many tool calls happening before the
+    // next segment ever started) stayed un-promoted that whole time, while every one of
+    // those tool calls got eagerly promoted and so jumped ahead of it. Only the segment
+    // that is CURRENTLY the newest known thing overall (no tool call and no other text
+    // segment has a higher sequence yet) is held back — it's either still open (the live
+    // "currently being typed" trailing item) or, once the turn ends, becomes the final
+    // settled bubble's content (see the finalize effect below). Promoting it early would
+    // show its text twice.
+    const textBlockValues = Array.from(liveTurnState.textBlocks.values())
+    const newestKnownSeq = Math.max(
+      -Infinity,
+      ...liveTurnState.toolCalls.map((tc) => tc.firstSeenSequence ?? 0),
+      ...textBlockValues.map((b) => b.firstSeenSequence ?? 0),
+    )
+    for (const block of textBlockValues) {
+      if (!block.done || !block.content || seenText.has(block.blockId)) continue
+      if ((block.firstSeenSequence ?? 0) >= newestKnownSeq) continue
+      toInsert.push({ kind: 'text', seq: block.firstSeenSequence ?? 0, blockId: block.blockId, content: block.content })
+    }
+
     if (toUpdate.length === 0 && toInsert.length === 0) return
+    toInsert.sort((a, b) => a.seq - b.seq)
     if (toInsert.length > 0) {
       // Flush pending streamed text before inserting the tool block so the text
       // always appears before the tool call in the DOM (C2).
@@ -514,30 +594,45 @@ export function useChat({
         })
       }
       if (toInsert.length > 0) {
-        const newMessages = toInsert.map(({ key, tc }) => {
+        const newToolCallMessages: ChatMessage[] = []
+        const newMessages = toInsert.map((item): ChatMessage => {
+          if (item.kind === 'tool') {
+            const { key, tc } = item
+            const msg: ChatMessage = {
+              id: crypto.randomUUID(),
+              role: 'tool-call',
+              content: tc.result,
+              timestamp: Date.now(),
+              toolCallId: tc.id,
+              toolName: tc.toolName,
+              serverName: tc.serverName,
+              toolArgs: tc.args,
+              toolResult: tc.result,
+              toolSuccess: tc.success,
+              toolInProgress: tc.inProgress === true,
+              ...(tc.resultImages?.length ? { toolResultImages: tc.resultImages } : {}),
+            }
+            seenTools.set(key, msg.id)
+            newToolCallMessages.push(msg)
+            return msg
+          }
           const msg: ChatMessage = {
             id: crypto.randomUUID(),
-            role: 'tool-call',
-            content: tc.result,
+            role: 'assistant',
+            content: item.content,
             timestamp: Date.now(),
-            toolCallId: tc.id,
-            toolName: tc.toolName,
-            serverName: tc.serverName,
-            toolArgs: tc.args,
-            toolResult: tc.result,
-            toolSuccess: tc.success,
-            toolInProgress: tc.inProgress === true,
-            ...(tc.resultImages?.length ? { toolResultImages: tc.resultImages } : {}),
+            isFrozenMidTurn: true,
+            textSegments: new Map([[item.blockId, { blockId: item.blockId, content: item.content, done: true, firstSeenAt: Date.now() }]]),
           }
-          seen.set(key, msg.id)
+          seenText.add(item.blockId)
           return msg
         })
-        liveToolCallsRef.current = [...liveToolCallsRef.current, ...newMessages]
+        liveToolCallsRef.current = [...liveToolCallsRef.current, ...newToolCallMessages]
         next = [...next, ...newMessages]
       }
       return next
     })
-  }, [liveTurnState.conversationId, liveTurnState.toolCalls, flush])
+  }, [liveTurnState.conversationId, liveTurnState.toolCalls, liveTurnState.textBlocks, flush])
 
   // Reacts to a turn reaching a terminal state (completed/failed) for the active
   // conversation — the single place that now handles stream-end bookkeeping, regen
@@ -602,8 +697,20 @@ export function useChat({
     }
 
     // completed
-    const finalContent = liveTurnState.text
     const hadToolCalls = liveTurnState.toolCalls.length > 0
+    // All-but-the-tail segment has already been promoted into `messages` as its own
+    // frozen fragment by the promotion effect above (as soon as each one closed) — this
+    // optimistic message only needs to cover the tail, or it would repeat the earlier
+    // segments' text a second time here. Not scoped down further with a `textSegments`
+    // map of its own: this is a single (tail-only) segment, which needs none (mirrors the
+    // same "single segment doesn't need one" rule persistAssistantMessage applies on the
+    // DB side). The upcoming reloadMessages() DB refresh replaces this transient object
+    // with the authoritative full-content version within the same tick regardless.
+    const textBlockValues = Array.from(liveTurnState.textBlocks.values())
+    const tailBlock = textBlockValues.length > 0
+      ? textBlockValues.reduce((latest, b) => (b.firstSeenSequence ?? 0) >= (latest.firstSeenSequence ?? 0) ? b : latest)
+      : null
+    const finalContent = tailBlock ? tailBlock.content : liveTurnState.text
     const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
     const frozenThinking = liveTurnState.thinkingBlocks.size > 0
       ? new Map(liveTurnState.thinkingBlocks)

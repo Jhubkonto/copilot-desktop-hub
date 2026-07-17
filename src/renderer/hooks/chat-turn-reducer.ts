@@ -41,6 +41,11 @@ export interface ChatTurnState {
   text: string
   thinkingBlocks: Map<string, ChatTurnThinkingBlock>
   pendingThinkingEnds: Set<string>
+  // Ordered response-text bursts, keyed by blockId — populated only when the backend
+  // tags assistant_text_delta chunks with one (currently claude-cli). Empty for
+  // backends that don't segment text; `text` (the flat cumulative string) always
+  // reflects the full reply either way.
+  textBlocks: Map<string, ChatTurnThinkingBlock>
   toolCalls: ChatTurnToolCall[]
   activity: ChatTurnActivity | null
   cost: CliCostSummary | null
@@ -57,6 +62,7 @@ export function createEmptyChatTurnState(conversationId: string | null = null): 
     text: '',
     thinkingBlocks: new Map(),
     pendingThinkingEnds: new Set(),
+    textBlocks: new Map(),
     toolCalls: [],
     activity: null,
     cost: null,
@@ -91,8 +97,29 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
     case 'user_message_committed':
       return { ...base, status: 'active' }
 
-    case 'assistant_text_delta':
-      return { ...base, status: 'streaming', text: state.text + event.chunk }
+    case 'assistant_text_delta': {
+      if (!event.blockId) return { ...base, status: 'streaming', text: state.text + event.chunk }
+      const existing = state.textBlocks.get(event.blockId) ?? {
+        blockId: event.blockId,
+        content: '',
+        done: false,
+        firstSeenSequence: event.sequence,
+      }
+      const textBlocks = new Map(state.textBlocks).set(event.blockId, {
+        ...existing,
+        content: existing.content + event.chunk,
+      })
+      return { ...base, status: 'streaming', text: state.text + event.chunk, textBlocks }
+    }
+
+    case 'text_segment_done': {
+      const existing = state.textBlocks.get(event.blockId)
+      if (!existing) return base
+      return {
+        ...base,
+        textBlocks: new Map(state.textBlocks).set(event.blockId, { ...existing, done: true }),
+      }
+    }
 
     case 'thinking_delta': {
       const existing = state.thinkingBlocks.get(event.blockId) ?? {
@@ -194,6 +221,7 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
         status: 'completed',
         thinkingBlocks: markThinkingDone(state.thinkingBlocks),
         pendingThinkingEnds: new Set(),
+        textBlocks: markThinkingDone(state.textBlocks),
       }
 
     case 'turn_failed':
@@ -202,6 +230,7 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
         status: 'failed',
         thinkingBlocks: markThinkingDone(state.thinkingBlocks),
         pendingThinkingEnds: new Set(),
+        textBlocks: markThinkingDone(state.textBlocks),
         error: {
           type: event.errorType,
           message: event.message,
