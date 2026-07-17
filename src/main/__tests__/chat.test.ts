@@ -248,7 +248,7 @@ describe('chat handlers', () => {
     })
     const assistantMessage = state.messages.find((message) => message.role === 'assistant')
     expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
-      { blockId: 'reasoning-0', content: 'Checking context.', done: true },
+      { blockId: 'reasoning-0', content: 'Checking context.', done: true, firstSeenAt: expect.any(Number) },
     ])
   })
 
@@ -455,7 +455,7 @@ describe('chat handlers', () => {
     })
     const assistantMessage = state.messages.find((message) => message.role === 'assistant')
     expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
-      { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true },
+      { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true, firstSeenAt: expect.any(Number) },
     ])
   })
 
@@ -614,7 +614,7 @@ describe('chat handlers', () => {
     expect(state.send).toHaveBeenCalledWith('chat:thinking-end', { blockId: 'codex-activity' })
     const assistantMessage = state.messages.find((message) => message.role === 'assistant')
     expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
-      { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true },
+      { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true, firstSeenAt: expect.any(Number) },
     ])
     expect(state.messages.some((message) => message.content.includes('No provider configured'))).toBe(false)
   })

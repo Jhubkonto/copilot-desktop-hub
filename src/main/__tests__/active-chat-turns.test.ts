@@ -59,6 +59,22 @@ describe('active chat turns', () => {
     expect(getActiveChatTurnSnapshot('conv-1')?.assistantText).toBe('shared')
   })
 
+  it('tracks tool calls (upserted by id) and the latest activity so a re-fetching client can restore what already ran', () => {
+    recordActiveChatTurnEvent(event('turn_started', 1))
+    recordActiveChatTurnEvent(event('tool_started', 2, { id: 'call-1', name: 'WebSearch', input: { query: 'a' } }))
+    recordActiveChatTurnEvent(event('tool_finished', 3, {
+      id: 'call-1', toolName: 'WebSearch', args: { query: 'a' }, result: 'results', success: true,
+    }))
+    recordActiveChatTurnEvent(event('tool_started', 4, { id: 'call-2', name: 'WebSearch', input: { query: 'b' } }))
+
+    const snapshot = getActiveChatTurnSnapshot('conv-1')
+    expect(snapshot?.toolCalls).toEqual([
+      { id: 'call-1', toolName: 'WebSearch', serverName: undefined, args: { query: 'a' }, result: 'results', success: true, inProgress: false },
+      { id: 'call-2', toolName: 'WebSearch', serverName: undefined, args: { query: 'b' }, result: '', success: true, inProgress: true },
+    ])
+    expect(snapshot?.activity).toEqual({ state: 'tool', label: 'Running WebSearch', toolName: 'WebSearch', serverName: undefined })
+  })
+
   it('cleans persisted and expired terminal turns', () => {
     recordActiveChatTurnEvent(event('turn_started', 1))
     clearActiveChatTurn('conv-1', 'other-turn')

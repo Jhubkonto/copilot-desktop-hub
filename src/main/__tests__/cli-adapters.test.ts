@@ -85,19 +85,20 @@ describe('CLI adapters', () => {
 
     await expect(sendPromise).resolves.toBe('Hello world')
     expect(chunks).toEqual(['Hello world'])
-    expect(onEvent).toHaveBeenNthCalledWith(1, {
+    expect(onEvent).toHaveBeenNthCalledWith(1, { type: 'text_end', blockId: 'text-0' })
+    expect(onEvent).toHaveBeenNthCalledWith(2, {
       type: 'tool_start',
       id: 'toolu_abc',
       name: 'Read',
       input: { file_path: 'src/main.ts' },
     })
-    expect(onEvent).toHaveBeenNthCalledWith(2, {
+    expect(onEvent).toHaveBeenNthCalledWith(3, {
       type: 'tool_end',
       id: 'toolu_abc',
       content: 'file contents here...',
       isError: false,
     })
-    expect(onEvent).toHaveBeenNthCalledWith(3, {
+    expect(onEvent).toHaveBeenNthCalledWith(4, {
       type: 'cost',
       totalCostUsd: 0.0123,
       inputTokens: 1500,
@@ -109,6 +110,40 @@ describe('CLI adapters', () => {
       expect.objectContaining({ cwd: 'C:\\workspace' })
     )
     expect(proc.stdin.end).toHaveBeenCalledWith('[User]: hello', 'utf8')
+  })
+
+  it('ClaudeAdapter tags text chunks with a new blockId each time a tool call interrupts the response text', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const chunks: Array<{ chunk: string; blockId?: string }> = []
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, (chunk: string, blockId?: string) => chunks.push({ chunk, blockId }))
+
+    const leadIn = JSON.stringify({
+      type: 'assistant',
+      message: { content: [
+        { type: 'text', text: "I'll look at the key config files." },
+        { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'README.md' } },
+      ] },
+    })
+    const toolResult = JSON.stringify({ type: 'tool_result', tool_use_id: 'toolu_1', content: [{ type: 'text', text: 'contents' }], is_error: false })
+    const tailText = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: "Here's the fuller picture." }] },
+    })
+    proc.stdout.emit('data', Buffer.from(`${leadIn}\n${toolResult}\n${tailText}\n`))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe("I'll look at the key config files.Here's the fuller picture.")
+    expect(chunks).toEqual([
+      { chunk: "I'll look at the key config files.", blockId: 'text-0' },
+      { chunk: "Here's the fuller picture.", blockId: 'text-1' },
+    ])
   })
 
   it('ClaudeAdapter falls back to content_block_delta format', async () => {
@@ -162,13 +197,14 @@ describe('CLI adapters', () => {
     proc.emit('close', 0)
 
     await sendPromise
-    expect(onEvent).toHaveBeenNthCalledWith(1, {
+    expect(onEvent).toHaveBeenNthCalledWith(1, { type: 'text_end', blockId: 'text-0' })
+    expect(onEvent).toHaveBeenNthCalledWith(2, {
       type: 'tool_start',
       id: 'toolu_mcp',
       name: 'mcp__playwright_chromium__browser_navigate',
       input: { url: 'https://www.google.com' },
     })
-    expect(onEvent).toHaveBeenNthCalledWith(2, {
+    expect(onEvent).toHaveBeenNthCalledWith(3, {
       type: 'tool_end',
       id: 'toolu_mcp',
       content: 'Navigated to Google',
