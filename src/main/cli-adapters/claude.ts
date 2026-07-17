@@ -83,7 +83,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
   send(
     _window: BrowserWindow,
     req: CliAdapterRequest,
-    onChunk: (chunk: string) => void,
+    onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: Parameters<CliAgentAdapter['send']>[3],
     signal?: AbortSignal
   ): Promise<string> {
@@ -180,6 +180,27 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
       const interruptReasoning = () => { openReasoningBlockId = null }
 
+      // Same "open block" tracking as reasoning, but for plain response text — a turn
+      // that says something, calls a tool, then says more, produces two separate text
+      // bursts so the caller can position them on either side of the tool call instead
+      // of concatenating them into one blob shown only once the whole turn is done.
+      let textBlockSeq = 0
+      let openTextBlockId: string | null = null
+      const nextTextBlockId = (): string => {
+        if (!openTextBlockId) openTextBlockId = `text-${textBlockSeq++}`
+        return openTextBlockId
+      }
+      // Unlike reasoning, the caller actually needs to know a text block just closed —
+      // without an explicit signal, a renderer watching the live stream can't tell "this
+      // is the only segment so far, but it's finished" from "this is still being typed",
+      // and would wrongly keep deferring an already-closed lead-in sentence to the very
+      // end of the turn instead of showing it ahead of the tool call that interrupted it.
+      const interruptText = () => {
+        if (!openTextBlockId) return
+        onEvent?.({ type: 'text_end', blockId: openTextBlockId })
+        openTextBlockId = null
+      }
+
       proc.stderr?.on('data', (chunk: Buffer) => {
         stderrText += chunk.toString('utf8')
       })
@@ -210,11 +231,16 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 // This block resolved atomically (chunk + end emitted together above), so
                 // any further thinking — even later in this same message — is a new burst.
                 interruptReasoning()
+                interruptText()
               }
               if (block.type === 'text' && block.text) {
                 if (!receivedDeltas) {
-                  onChunk(block.text)
+                  // Same atomic-block reasoning as thinking above: each batch text block
+                  // is a complete, standalone burst.
+                  const blockId = nextTextBlockId()
+                  onChunk(block.text, blockId)
                   fullText += block.text
+                  interruptText()
                 }
                 interruptReasoning()
               }
@@ -227,6 +253,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                   input: 'input' in block ? (block.input ?? {}) : {},
                 })
                 interruptReasoning()
+                interruptText()
               }
             }
           }
@@ -242,6 +269,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 isError: !!block.is_error,
               })
               interruptReasoning()
+              interruptText()
             }
           }
           if (obj.type === 'tool_result') {
@@ -254,6 +282,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 isError: !!obj.is_error,
               })
               interruptReasoning()
+              interruptText()
             }
           }
           if (obj.type === 'result') {
@@ -274,9 +303,11 @@ export const ClaudeAdapter: CliAgentAdapter = {
               receivedThinkingDeltas = true
               const blockId = nextReasoningBlockId()
               onEvent?.({ type: 'thinking_chunk', blockId, chunk: delta.thinking })
+              interruptText()
             } else if (typeof delta.text === 'string') {
               receivedDeltas = true
-              onChunk(delta.text)
+              const blockId = nextTextBlockId()
+              onChunk(delta.text, blockId)
               fullText += delta.text
               interruptReasoning()
             }
@@ -289,6 +320,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
               onEvent?.({ type: 'thinking_end', blockId: openReasoningBlockId })
               interruptReasoning()
             }
+            // Whatever content block just stopped — text or otherwise — any open text
+            // burst is done; the next text delta (if any) starts a new one.
+            interruptText()
           }
         } catch {
           // non-JSON lines — ignore
@@ -319,6 +353,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
           onEvent?.({ type: 'thinking_end', blockId: openReasoningBlockId })
           openReasoningBlockId = null
         }
+        interruptText()
         for (const id of openToolIds) {
           onEvent?.({
             type: 'tool_end',

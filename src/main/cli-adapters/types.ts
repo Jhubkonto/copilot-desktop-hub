@@ -31,6 +31,11 @@ export type CliStreamEvent =
   | { type: 'cost'; totalCostUsd: number; inputTokens: number; outputTokens: number }
   | { type: 'thinking_chunk'; blockId: string; chunk: string }
   | { type: 'thinking_end'; blockId: string }
+  // Marks a response-text burst (see onChunk's blockId) as closed — without this, a
+  // renderer watching the live stream can't distinguish "only one text burst so far,
+  // still being typed" from "that burst already finished, a tool call interrupted it"
+  // and would defer an already-closed lead-in sentence to the very end of the turn.
+  | { type: 'text_end'; blockId: string }
   // A transient status update (e.g. CLI lifecycle narration) — surfaced as the live
   // "Thinking…" activity line, never persisted into message history. Distinct from
   // thinking_chunk/thinking_end, which accumulate into a reasoning block that sticks
@@ -42,7 +47,11 @@ export interface CliAgentAdapter {
   send(
     window: BrowserWindow,
     req: CliAdapterRequest,
-    onChunk: (chunk: string) => void,
+    // blockId identifies which contiguous text burst this chunk belongs to (see
+    // ChatAssistantTextDeltaEvent) — adapters that segment text around tool calls pass
+    // it; adapters that don't (or callers of adapters that don't) omit it, and the
+    // whole response is treated as one legacy block.
+    onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: (event: CliStreamEvent) => void,
     signal?: AbortSignal
   ): Promise<string>
