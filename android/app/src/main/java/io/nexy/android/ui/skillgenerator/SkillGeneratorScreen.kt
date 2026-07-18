@@ -1,5 +1,6 @@
 package io.nexy.android.ui.skillgenerator
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,15 +84,15 @@ fun SkillGeneratorScreen(
     // generation survives leaving and re-entering this screen instead of losing all state.
     vm: SkillGeneratorViewModel = viewModel(LocalContext.current as ComponentActivity),
 ) {
-    val uiState by vm.uiState.collectAsState()
-    val models by WsRepository.models.collectAsState()
+    val uiState by vm.uiState.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
     val promptSheetState = rememberModalBottomSheetState()
     val modelSheetState = rememberModalBottomSheetState()
-    val promptEntries by WsRepository.promptEntries.collectAsState()
+    val promptEntries by WsRepository.promptEntries.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var input by remember { mutableStateOf("") }

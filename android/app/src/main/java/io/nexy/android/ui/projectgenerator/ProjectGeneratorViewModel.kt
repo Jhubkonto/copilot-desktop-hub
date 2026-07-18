@@ -1,26 +1,26 @@
 package io.nexy.android.ui.projectgenerator
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProjectGeneratorSpec
 import io.nexy.android.data.model.WsEvent
-import kotlinx.coroutines.flow.MutableStateFlow
+import io.nexy.android.ui.generator.GenEvent
+import io.nexy.android.ui.generator.GenMessage
+import io.nexy.android.ui.generator.GenPhase
+import io.nexy.android.ui.generator.GeneratorViewModel
+import io.nexy.android.ui.generator.mapState
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import java.util.UUID
 
-data class ProjectGenMessage(val role: String, val content: String)
+typealias ProjectGenMessage = GenMessage
 
-enum class ProjectGenPhase { CHAT, SPEC_REVIEW, DONE }
+typealias ProjectGenPhase = GenPhase
 
 private const val GREETING = "Let's create a new project. Tell me what you're building or working on, and I'll help configure the perfect setup."
 
 data class ProjectGeneratorUiState(
-    val phase: ProjectGenPhase = ProjectGenPhase.CHAT,
-    val messages: List<ProjectGenMessage> = listOf(ProjectGenMessage("assistant", GREETING)),
+    val phase: ProjectGenPhase = GenPhase.CHAT,
+    val messages: List<ProjectGenMessage> = listOf(GenMessage("assistant", GREETING)),
     val streamingText: String = "",
     val pendingSpec: ProjectGeneratorSpec? = null,
     val isLoading: Boolean = false,
@@ -35,120 +35,41 @@ data class ProjectGeneratorUiState(
 )
 
 class ProjectGeneratorViewModel(
-    private val wsClient: WsClient = WsRepository,
-) : ViewModel() {
+    wsClient: WsClient = WsRepository,
+) : GeneratorViewModel<ProjectGeneratorSpec>(wsClient, "project-generator", "project-spec", GREETING) {
 
-    private val _uiState = MutableStateFlow(ProjectGeneratorUiState())
-    val uiState: StateFlow<ProjectGeneratorUiState> = _uiState.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            wsClient.events.collect { event ->
-                when (event) {
-                    is WsEvent.ProjectGeneratorModel -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })
-                    }
-                    is WsEvent.ProjectGeneratorToken -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            streamingText = _uiState.value.streamingText + event.chunk,
-                        )
-                    }
-                    is WsEvent.ProjectGeneratorTurnComplete -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        commitAssistantTurn(event.content, event.hasSpec)
-                    }
-                    is WsEvent.ProjectGeneratorSpecReady -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        val current = _uiState.value
-                        _uiState.value = current.copy(
-                            streamingText = "",
-                            pendingSpec = event.spec,
-                            phase = ProjectGenPhase.SPEC_REVIEW,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.ProjectGeneratorCreated -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            phase = ProjectGenPhase.DONE,
-                            createdProjectName = event.name,
-                            createdProjectId = event.projectId,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.ProjectGeneratorError -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            error = event.message,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.ProjectGeneratorCancelled -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = ProjectGeneratorUiState()
-                    }
-                    else -> {}
-                }
-            }
-        }
+    val uiState: StateFlow<ProjectGeneratorUiState> = state.mapState { s ->
+        ProjectGeneratorUiState(
+            phase = s.phase,
+            messages = s.messages,
+            streamingText = s.streamingText,
+            pendingSpec = s.pendingSpec,
+            isLoading = s.isLoading,
+            missedSpec = s.missedSpec,
+            error = s.error,
+            createdProjectName = s.createdName,
+            createdProjectId = s.createdId,
+            activeSessionId = s.activeSessionId,
+            promptInsert = s.promptInsert,
+            selectedModel = s.selectedModel,
+            resolvedModel = s.resolvedModel,
+        )
     }
 
-    fun sendMessage(content: String) {
-        val current = _uiState.value
-        val userMsg = ProjectGenMessage("user", content)
-        val next = current.messages + userMsg
-        _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
-        val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
-        val baseData = buildMap<String, Any> {
-            put("sessionId", current.activeSessionId)
-            put("messages", payload)
-            current.selectedModel?.let { put("model", it) }
-        }
-        if (current.messages.size <= 1) {
-            wsClient.send("project-generator:start", baseData)
-        } else {
-            wsClient.send("project-generator:message", baseData)
-        }
-    }
-
-    fun setModel(modelId: String?) {
-        _uiState.value = _uiState.value.copy(selectedModel = modelId)
-    }
-
-    private var promptInsertCounter = 0
-
-    fun insertPromptText(body: String) {
-        _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
-    }
-
-    fun confirmSpec() {
-        val spec = _uiState.value.pendingSpec ?: return
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-        wsClient.send("project-generator:confirm", mapOf(
-            "sessionId" to _uiState.value.activeSessionId,
-            "spec" to spec.toPayload(),
-        ))
-    }
-
-    fun reset() {
-        wsClient.send("project-generator:cancel", mapOf("sessionId" to _uiState.value.activeSessionId))
-        _uiState.value = ProjectGeneratorUiState()
-    }
-
-    fun updateSpec(spec: ProjectGeneratorSpec) {
-        _uiState.value = _uiState.value.copy(pendingSpec = spec)
-    }
-
-    fun backToChat() {
-        _uiState.value = _uiState.value.copy(phase = ProjectGenPhase.CHAT, error = null)
+    override fun mapEvent(event: WsEvent): GenEvent<ProjectGeneratorSpec>? = when (event) {
+        is WsEvent.ProjectGeneratorModel -> GenEvent.Model(event.sessionId, event.modelId)
+        is WsEvent.ProjectGeneratorToken -> GenEvent.Token(event.sessionId, event.chunk)
+        is WsEvent.ProjectGeneratorTurnComplete -> GenEvent.TurnComplete(event.sessionId, event.content, event.hasSpec)
+        is WsEvent.ProjectGeneratorSpecReady -> GenEvent.SpecReady(event.sessionId, event.spec)
+        is WsEvent.ProjectGeneratorCreated -> GenEvent.Created(event.sessionId, event.projectId, event.name)
+        is WsEvent.ProjectGeneratorError -> GenEvent.Error(event.sessionId, event.message)
+        is WsEvent.ProjectGeneratorCancelled -> GenEvent.Cancelled(event.sessionId)
+        else -> null
     }
 
     fun setupManually() {
-        _uiState.value = _uiState.value.copy(
-            phase = ProjectGenPhase.SPEC_REVIEW,
-            pendingSpec = ProjectGeneratorSpec(
+        enterSpecReview(
+            ProjectGeneratorSpec(
                 name = "",
                 color = "#6366f1",
                 instructions = "",
@@ -165,33 +86,7 @@ class ProjectGeneratorViewModel(
         )
     }
 
-    fun retryLastMessage() {
-        val lastUserMsg = _uiState.value.messages.lastOrNull { it.role == "user" }?.content ?: return
-        _uiState.value = _uiState.value.copy(error = null)
-        sendMessage(lastUserMsg)
-    }
-
-    fun dismissError() {
-        _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    private fun isActiveSession(sessionId: String?): Boolean =
-        sessionId == null || sessionId == _uiState.value.activeSessionId
-
-    private fun commitAssistantTurn(content: String, hasSpec: Boolean = false) {
-        val current = _uiState.value
-        val clean = content.ifBlank { current.streamingText }
-            .replace(Regex("<project-spec>[\\s\\S]*?</project-spec>"), "")
-            .trim()
-        _uiState.value = current.copy(
-            streamingText = "",
-            messages = if (clean.isBlank()) current.messages else current.messages + ProjectGenMessage("assistant", clean),
-            isLoading = false,
-            missedSpec = !hasSpec && clean.isBlank(),
-        )
-    }
-
-    private fun ProjectGeneratorSpec.toPayload(): Map<String, Any> {
+    override fun specPayload(spec: ProjectGeneratorSpec): Map<String, Any> = with(spec) {
         val agentsList = agents.map { agent ->
             val map = mutableMapOf<String, Any>(
                 "role" to agent.role,
@@ -230,6 +125,6 @@ class ProjectGeneratorViewModel(
         rootDirectory?.let { payload["rootDirectory"] = it }
         instructionMode?.let { payload["instructionMode"] = it }
         defaultModel?.let { payload["defaultModel"] = it }
-        return payload
+        payload
     }
 }

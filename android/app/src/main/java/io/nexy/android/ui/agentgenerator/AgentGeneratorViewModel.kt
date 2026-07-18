@@ -1,27 +1,27 @@
 package io.nexy.android.ui.agentgenerator
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AgentGeneratorSpec
 import io.nexy.android.data.model.AgentGeneratorTools
 import io.nexy.android.data.model.WsEvent
-import kotlinx.coroutines.flow.MutableStateFlow
+import io.nexy.android.ui.generator.GenEvent
+import io.nexy.android.ui.generator.GenMessage
+import io.nexy.android.ui.generator.GenPhase
+import io.nexy.android.ui.generator.GeneratorViewModel
+import io.nexy.android.ui.generator.mapState
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import java.util.UUID
 
-data class AgentGenMessage(val role: String, val content: String)
+typealias AgentGenMessage = GenMessage
 
-enum class AgentGenPhase { CHAT, SPEC_REVIEW, DONE }
+typealias AgentGenPhase = GenPhase
 
 private const val GREETING = "Let's create a new agent. Describe what you want it to do, its personality, and any tools it should use."
 
 data class AgentGeneratorUiState(
-    val phase: AgentGenPhase = AgentGenPhase.CHAT,
-    val messages: List<AgentGenMessage> = listOf(AgentGenMessage("assistant", GREETING)),
+    val phase: AgentGenPhase = GenPhase.CHAT,
+    val messages: List<AgentGenMessage> = listOf(GenMessage("assistant", GREETING)),
     val streamingText: String = "",
     val pendingSpec: AgentGeneratorSpec? = null,
     val isLoading: Boolean = false,
@@ -36,113 +36,41 @@ data class AgentGeneratorUiState(
 )
 
 class AgentGeneratorViewModel(
-    private val wsClient: WsClient = WsRepository,
-) : ViewModel() {
+    wsClient: WsClient = WsRepository,
+) : GeneratorViewModel<AgentGeneratorSpec>(wsClient, "agent-generator", "agent-spec", GREETING) {
 
-    private val _uiState = MutableStateFlow(AgentGeneratorUiState())
-    val uiState: StateFlow<AgentGeneratorUiState> = _uiState.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            wsClient.events.collect { event ->
-                when (event) {
-                    is WsEvent.AgentGeneratorModel -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })
-                    }
-                    is WsEvent.AgentGeneratorToken -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            streamingText = _uiState.value.streamingText + event.chunk,
-                        )
-                    }
-                    is WsEvent.AgentGeneratorTurnComplete -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        commitAssistantTurn(event.content, event.hasSpec)
-                    }
-                    is WsEvent.AgentGeneratorSpecReady -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            streamingText = "",
-                            pendingSpec = event.spec,
-                            phase = AgentGenPhase.SPEC_REVIEW,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.AgentGeneratorCreated -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            phase = AgentGenPhase.DONE,
-                            createdAgentName = event.name,
-                            createdAgentId = event.agentId,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.AgentGeneratorError -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            error = event.message,
-                            isLoading = false,
-                        )
-                    }
-                                    is WsEvent.AgentGeneratorCancelled -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = AgentGeneratorUiState()
-                    }
-                    else -> {}
-                }
-            }
-        }
+    val uiState: StateFlow<AgentGeneratorUiState> = state.mapState { s ->
+        AgentGeneratorUiState(
+            phase = s.phase,
+            messages = s.messages,
+            streamingText = s.streamingText,
+            pendingSpec = s.pendingSpec,
+            isLoading = s.isLoading,
+            missedSpec = s.missedSpec,
+            error = s.error,
+            createdAgentName = s.createdName,
+            createdAgentId = s.createdId,
+            activeSessionId = s.activeSessionId,
+            promptInsert = s.promptInsert,
+            selectedModel = s.selectedModel,
+            resolvedModel = s.resolvedModel,
+        )
     }
 
-    fun sendMessage(content: String) {
-        val current = _uiState.value
-        val userMsg = AgentGenMessage("user", content)
-        val next = current.messages + userMsg
-        _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
-        val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
-        val baseData = buildMap<String, Any> {
-            put("sessionId", current.activeSessionId)
-            put("messages", payload)
-            current.selectedModel?.let { put("model", it) }
-        }
-        if (current.messages.size <= 1) {
-            wsClient.send("agent-generator:start", baseData)
-        } else {
-            wsClient.send("agent-generator:message", baseData)
-        }
-    }
-
-    fun setModel(modelId: String?) {
-        _uiState.value = _uiState.value.copy(selectedModel = modelId)
-    }
-
-    fun confirmSpec() {
-        val spec = _uiState.value.pendingSpec ?: return
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-        wsClient.send("agent-generator:confirm", mapOf(
-            "sessionId" to _uiState.value.activeSessionId,
-            "spec" to spec.toPayload(),
-        ))
-    }
-
-    fun reset() {
-        wsClient.send("agent-generator:cancel", mapOf("sessionId" to _uiState.value.activeSessionId))
-        _uiState.value = AgentGeneratorUiState()
-    }
-
-    fun updateSpec(spec: AgentGeneratorSpec) {
-        _uiState.value = _uiState.value.copy(pendingSpec = spec)
-    }
-
-    fun backToChat() {
-        _uiState.value = _uiState.value.copy(phase = AgentGenPhase.CHAT, error = null)
+    override fun mapEvent(event: WsEvent): GenEvent<AgentGeneratorSpec>? = when (event) {
+        is WsEvent.AgentGeneratorModel -> GenEvent.Model(event.sessionId, event.modelId)
+        is WsEvent.AgentGeneratorToken -> GenEvent.Token(event.sessionId, event.chunk)
+        is WsEvent.AgentGeneratorTurnComplete -> GenEvent.TurnComplete(event.sessionId, event.content, event.hasSpec)
+        is WsEvent.AgentGeneratorSpecReady -> GenEvent.SpecReady(event.sessionId, event.spec)
+        is WsEvent.AgentGeneratorCreated -> GenEvent.Created(event.sessionId, event.agentId, event.name)
+        is WsEvent.AgentGeneratorError -> GenEvent.Error(event.sessionId, event.message)
+        is WsEvent.AgentGeneratorCancelled -> GenEvent.Cancelled(event.sessionId)
+        else -> null
     }
 
     fun setupManually() {
-        _uiState.value = _uiState.value.copy(
-            phase = AgentGenPhase.SPEC_REVIEW,
-            pendingSpec = AgentGeneratorSpec(
+        enterSpecReview(
+            AgentGeneratorSpec(
                 name = "",
                 icon = "🤖",
                 systemPrompt = "",
@@ -157,39 +85,7 @@ class AgentGeneratorViewModel(
         )
     }
 
-    fun retryLastMessage() {
-        val lastUserMsg = _uiState.value.messages.lastOrNull { it.role == "user" }?.content ?: return
-        _uiState.value = _uiState.value.copy(error = null)
-        sendMessage(lastUserMsg)
-    }
-
-    fun dismissError() {
-        _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    private var promptInsertCounter = 0
-
-    fun insertPromptText(body: String) {
-        _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
-    }
-
-    private fun isActiveSession(sessionId: String?): Boolean =
-        sessionId == null || sessionId == _uiState.value.activeSessionId
-
-    private fun commitAssistantTurn(content: String, hasSpec: Boolean = false) {
-        val current = _uiState.value
-        val clean = content.ifBlank { current.streamingText }
-            .replace(Regex("<agent-spec>[\\s\\S]*?</agent-spec>"), "")
-            .trim()
-        _uiState.value = current.copy(
-            streamingText = "",
-            messages = if (clean.isBlank()) current.messages else current.messages + AgentGenMessage("assistant", clean),
-            isLoading = false,
-            missedSpec = !hasSpec && clean.isBlank(),
-        )
-    }
-
-    private fun AgentGeneratorSpec.toPayload(): Map<String, Any> {
+    override fun specPayload(spec: AgentGeneratorSpec): Map<String, Any> = with(spec) {
         val payload = mutableMapOf<String, Any>(
             "name" to name,
             "icon" to icon,
@@ -206,6 +102,6 @@ class AgentGeneratorViewModel(
         )
         rootDirectory?.let { payload["rootDirectory"] = it }
         memory?.let { payload["memory"] = it }
-        return payload
+        payload
     }
 }

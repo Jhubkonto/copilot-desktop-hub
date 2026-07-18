@@ -1,5 +1,6 @@
 package io.nexy.android.ui.schedulegenerator
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardOptions
@@ -76,8 +77,8 @@ fun ScheduleGeneratorScreen(
     // generation survives leaving and re-entering this screen instead of losing all state.
     viewModel: ScheduleGeneratorViewModel = viewModel(LocalContext.current as ComponentActivity),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val models by WsRepository.models.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }

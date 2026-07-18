@@ -1,26 +1,27 @@
 package io.nexy.android.ui.skillgenerator
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.SkillGeneratorSpec
+import io.nexy.android.data.model.SkillGeneratorTools
 import io.nexy.android.data.model.WsEvent
-import kotlinx.coroutines.flow.MutableStateFlow
+import io.nexy.android.ui.generator.GenEvent
+import io.nexy.android.ui.generator.GenMessage
+import io.nexy.android.ui.generator.GenPhase
+import io.nexy.android.ui.generator.GeneratorViewModel
+import io.nexy.android.ui.generator.mapState
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import java.util.UUID
 
-data class SkillGenMessage(val role: String, val content: String)
+typealias SkillGenMessage = GenMessage
 
-enum class SkillGenPhase { CHAT, SPEC_REVIEW, DONE }
+typealias SkillGenPhase = GenPhase
 
 private const val GREETING = "Let's create a new skill. Describe what you want it to do, which tools it should use, and any approval or instruction details."
 
 data class SkillGeneratorUiState(
-    val phase: SkillGenPhase = SkillGenPhase.CHAT,
-    val messages: List<SkillGenMessage> = listOf(SkillGenMessage("assistant", GREETING)),
+    val phase: SkillGenPhase = GenPhase.CHAT,
+    val messages: List<SkillGenMessage> = listOf(GenMessage("assistant", GREETING)),
     val streamingText: String = "",
     val pendingSpec: SkillGeneratorSpec? = null,
     val isLoading: Boolean = false,
@@ -35,152 +36,51 @@ data class SkillGeneratorUiState(
 )
 
 class SkillGeneratorViewModel(
-    private val wsClient: WsClient = WsRepository,
-) : ViewModel() {
+    wsClient: WsClient = WsRepository,
+) : GeneratorViewModel<SkillGeneratorSpec>(wsClient, "skill-generator", "skill-spec", GREETING) {
 
-    private val _uiState = MutableStateFlow(SkillGeneratorUiState())
-    val uiState: StateFlow<SkillGeneratorUiState> = _uiState.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            wsClient.events.collect { event ->
-                when (event) {
-                    is WsEvent.SkillGeneratorModel -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })
-                    }
-                    is WsEvent.SkillGeneratorToken -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            streamingText = _uiState.value.streamingText + event.chunk,
-                        )
-                    }
-                    is WsEvent.SkillGeneratorTurnComplete -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        commitAssistantTurn(event.content, event.hasSpec)
-                    }
-                    is WsEvent.SkillGeneratorSpecReady -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            streamingText = "",
-                            pendingSpec = event.spec,
-                            phase = SkillGenPhase.SPEC_REVIEW,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.SkillGeneratorCreated -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            phase = SkillGenPhase.DONE,
-                            createdSkillName = event.name,
-                            createdSkillId = event.skillId,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.SkillGeneratorError -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = _uiState.value.copy(
-                            error = event.message,
-                            isLoading = false,
-                        )
-                    }
-                    is WsEvent.SkillGeneratorCancelled -> {
-                        if (!isActiveSession(event.sessionId)) return@collect
-                        _uiState.value = SkillGeneratorUiState()
-                    }
-                    else -> {}
-                }
-            }
-        }
+    val uiState: StateFlow<SkillGeneratorUiState> = state.mapState { s ->
+        SkillGeneratorUiState(
+            phase = s.phase,
+            messages = s.messages,
+            streamingText = s.streamingText,
+            pendingSpec = s.pendingSpec,
+            isLoading = s.isLoading,
+            missedSpec = s.missedSpec,
+            error = s.error,
+            createdSkillName = s.createdName,
+            createdSkillId = s.createdId,
+            activeSessionId = s.activeSessionId,
+            promptInsert = s.promptInsert,
+            selectedModel = s.selectedModel,
+            resolvedModel = s.resolvedModel,
+        )
     }
 
-    fun sendMessage(content: String) {
-        val current = _uiState.value
-        val userMsg = SkillGenMessage("user", content)
-        val next = current.messages + userMsg
-        _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
-        val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
-        val baseData = buildMap<String, Any> {
-            put("sessionId", current.activeSessionId)
-            put("messages", payload)
-            current.selectedModel?.let { put("model", it) }
-        }
-        if (current.messages.size <= 1) {
-            wsClient.send("skill-generator:start", baseData)
-        } else {
-            wsClient.send("skill-generator:message", baseData)
-        }
-    }
-
-    fun setModel(modelId: String?) {
-        _uiState.value = _uiState.value.copy(selectedModel = modelId)
-    }
-
-    private var promptInsertCounter = 0
-
-    fun insertPromptText(body: String) {
-        _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
-    }
-
-    fun confirmSpec() {
-        val spec = _uiState.value.pendingSpec ?: return
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-        wsClient.send("skill-generator:confirm", mapOf("sessionId" to _uiState.value.activeSessionId, "spec" to spec.toPayload()))
-    }
-
-    fun reset() {
-        wsClient.send("skill-generator:cancel", mapOf("sessionId" to _uiState.value.activeSessionId))
-        _uiState.value = SkillGeneratorUiState()
-    }
-
-    fun updateSpec(spec: SkillGeneratorSpec) {
-        _uiState.value = _uiState.value.copy(pendingSpec = spec)
-    }
-
-    fun backToChat() {
-        _uiState.value = _uiState.value.copy(phase = SkillGenPhase.CHAT, error = null)
+    override fun mapEvent(event: WsEvent): GenEvent<SkillGeneratorSpec>? = when (event) {
+        is WsEvent.SkillGeneratorModel -> GenEvent.Model(event.sessionId, event.modelId)
+        is WsEvent.SkillGeneratorToken -> GenEvent.Token(event.sessionId, event.chunk)
+        is WsEvent.SkillGeneratorTurnComplete -> GenEvent.TurnComplete(event.sessionId, event.content, event.hasSpec)
+        is WsEvent.SkillGeneratorSpecReady -> GenEvent.SpecReady(event.sessionId, event.spec)
+        is WsEvent.SkillGeneratorCreated -> GenEvent.Created(event.sessionId, event.skillId, event.name)
+        is WsEvent.SkillGeneratorError -> GenEvent.Error(event.sessionId, event.message)
+        is WsEvent.SkillGeneratorCancelled -> GenEvent.Cancelled(event.sessionId)
+        else -> null
     }
 
     fun setupManually() {
-        _uiState.value = _uiState.value.copy(
-            phase = SkillGenPhase.SPEC_REVIEW,
-            pendingSpec = SkillGeneratorSpec(
+        enterSpecReview(
+            SkillGeneratorSpec(
                 name = "",
                 icon = "🔧",
                 description = "",
                 instructions = "",
-                tools = io.nexy.android.data.model.SkillGeneratorTools(fileEdit = false, terminal = false, webFetch = false),
+                tools = SkillGeneratorTools(fileEdit = false, terminal = false, webFetch = false),
             ),
         )
     }
 
-    fun retryLastMessage() {
-        val lastUserMsg = _uiState.value.messages.lastOrNull { it.role == "user" }?.content ?: return
-        _uiState.value = _uiState.value.copy(error = null)
-        sendMessage(lastUserMsg)
-    }
-
-    fun dismissError() {
-        _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    private fun isActiveSession(sessionId: String?): Boolean =
-        sessionId == null || sessionId == _uiState.value.activeSessionId
-
-    private fun commitAssistantTurn(content: String, hasSpec: Boolean = false) {
-        val current = _uiState.value
-        val clean = content.ifBlank { current.streamingText }
-            .replace(Regex("<skill-spec>[\\s\\S]*?</skill-spec>"), "")
-            .trim()
-        _uiState.value = current.copy(
-            streamingText = "",
-            messages = if (clean.isBlank()) current.messages else current.messages + SkillGenMessage("assistant", clean),
-            isLoading = false,
-            missedSpec = !hasSpec && clean.isBlank(),
-        )
-    }
-
-    private fun SkillGeneratorSpec.toPayload(): Map<String, Any> =
+    override fun specPayload(spec: SkillGeneratorSpec): Map<String, Any> = with(spec) {
         mapOf(
             "name" to name,
             "icon" to icon,
@@ -198,4 +98,5 @@ class SkillGeneratorViewModel(
             "knowledge" to knowledge.map { mapOf("title" to it.title, "content" to it.content) },
             "suggestedAgents" to suggestedAgents,
         )
+    }
 }

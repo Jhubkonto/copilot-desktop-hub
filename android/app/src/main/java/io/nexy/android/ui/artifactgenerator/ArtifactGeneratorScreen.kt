@@ -1,5 +1,6 @@
 package io.nexy.android.ui.artifactgenerator
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -85,15 +86,15 @@ fun ArtifactGeneratorScreen(
     // generation survives leaving and re-entering this screen instead of losing all state.
     vm: ArtifactGeneratorViewModel = viewModel(LocalContext.current as ComponentActivity),
 ) {
-    val uiState by vm.uiState.collectAsState()
-    val models by WsRepository.models.collectAsState()
+    val uiState by vm.uiState.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
     val promptSheetState = rememberModalBottomSheetState()
     val modelSheetState = rememberModalBottomSheetState()
-    val promptEntries by WsRepository.promptEntries.collectAsState()
+    val promptEntries by WsRepository.promptEntries.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var input by remember { mutableStateOf("") }
@@ -518,7 +519,7 @@ private fun DonePhase(
     onMoveToProject: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val projects by WsRepository.projects.collectAsState()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
     var showProjectPicker by remember { mutableStateOf(false) }
     val projectSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
