@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks use stable store functions and refs across conversations. */
 import { useCallback, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
-import type { AgentConfig, CatalogModel } from '../../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel } from '../../shared/types'
 import type { Theme } from '../store/types'
 import {
   executeSlashCommand,
@@ -17,10 +17,6 @@ import type {
   TeamActivityStep,
   ToastType,
 } from './chat-types'
-
-function hasIpcError(result: unknown): result is { error: string } {
-  return typeof result === 'object' && result !== null && 'error' in result
-}
 
 interface UseChatWindowActionsParams {
   conversationId: string | null
@@ -195,11 +191,11 @@ export function useChatWindowActions({
         const result = kind === 'debrief'
           ? await window.api.startDebriefGeneration(conversationId, projectId, opts?.model)
           : await window.api.startQuizGeneration(conversationId, projectId, opts?.model)
-        if (hasIpcError(result)) return { error: result.error }
+        if (isApiError(result)) return { error: result.error }
 
         const content = `__artifact-ref:${JSON.stringify({ artifactId: result.artifactId, kind, pending: true })}`
         const inserted = await window.api.insertConversationMessage(conversationId, 'system', content)
-        if (hasIpcError(inserted)) return { error: 'Failed to attach artifact card.' }
+        if (isApiError(inserted)) return { error: 'Failed to attach artifact card.' }
         setMessages((prev) => [...prev, {
           id: inserted.id,
           role: inserted.role as ChatMessage['role'],
@@ -224,7 +220,7 @@ export function useChatWindowActions({
       const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
       if (!projectId) return { error: 'This action requires the conversation to be in a project.' }
       const result = await window.api.resolveCodeChangeRepo(projectId, repoArg)
-      if (hasIpcError(result)) return result
+      if (isApiError(result)) return result
       if (result.ok) return { repoRoot: result.repoRoot, relativePath: result.relativePath }
       if (result.reason === 'ambiguous') {
         const candidates = result.candidates ?? []
@@ -247,7 +243,7 @@ export function useChatWindowActions({
   const appendPersistedSystemMessage = useCallback(
     async (targetConversationId: string, content: string) => {
       const inserted = await window.api.insertConversationMessage(targetConversationId, 'system', content)
-      if (hasIpcError(inserted)) return
+      if (isApiError(inserted)) return
       if (activeConversationRef.current === targetConversationId) {
         setMessages((prev) => [...prev, {
           id: inserted.id,
@@ -265,7 +261,7 @@ export function useChatWindowActions({
     if (!conversationId) return { error: 'No active conversation.' }
     try {
       const report = await window.api.getCodeChangeReportForConversation(conversationId)
-      if (hasIpcError(report)) return report
+      if (isApiError(report)) return report
       if (!report) return { error: 'No code change in this conversation yet. Run /code-change first.' }
       return report.id
     } catch (error) {
@@ -885,7 +881,7 @@ export function useChatWindowActions({
         fullAutoApproveOverride: effectiveFullAutoApproveOverride,
         terminalSandboxOverride: effectiveTerminalSandboxOverride,
       }) as unknown
-      if (hasIpcError(sendResult)) throw new Error(sendResult.error)
+      if (isApiError(sendResult)) throw new Error(sendResult.error)
       void loadConversations()
       clearConversationPending(conversation)
       onAfterSend?.()
@@ -1029,7 +1025,7 @@ export function useChatWindowActions({
       const value = model === 'default' ? null : model
       try {
         const result = await window.api.setConversationModel(conversationId, value)
-        if (hasIpcError(result)) throw new Error(result.error)
+        if (isApiError(result)) throw new Error(result.error)
         await loadConversations()
         addToast(`Model set to ${getModelLabel(model, catalogModels, globalDefaultModel ?? undefined)}`, 'success')
       } catch {
@@ -1049,7 +1045,7 @@ export function useChatWindowActions({
         }
         try {
           const result = await window.api.setConversationModel(conversationId, model)
-          if (hasIpcError(result)) throw new Error(result.error)
+          if (isApiError(result)) throw new Error(result.error)
           await loadConversations()
         } catch {
           addToast('Failed to set model', 'error')
@@ -1058,7 +1054,7 @@ export function useChatWindowActions({
       }
       try {
         const result = await window.api.updateAgent(activeAgent.id, { ...activeAgent, cliModel: model })
-        if (hasIpcError(result)) throw new Error(result.error)
+        if (isApiError(result)) throw new Error(result.error)
         await loadAgents()
       } catch {
         addToast('Failed to update CLI model', 'error')
@@ -1072,7 +1068,7 @@ export function useChatWindowActions({
       if (conversationId) {
         try {
           const result = await window.api.setConversationModel(conversationId, modelId, backend)
-          if (hasIpcError(result)) throw new Error(result.error)
+          if (isApiError(result)) throw new Error(result.error)
           await loadConversations()
         } catch {
           addToast('Failed to set model', 'error')
@@ -1095,7 +1091,7 @@ export function useChatWindowActions({
       }
       try {
         const result = await window.api.setConversationMode(conversationId, mode)
-        if (hasIpcError(result)) throw new Error(result.error)
+        if (isApiError(result)) throw new Error(result.error)
         await loadConversations()
       } catch {
         addToast('Failed to set chat mode', 'error')

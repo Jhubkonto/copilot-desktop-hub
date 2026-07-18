@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- subscriptions use refs to avoid resubscribing during active streams. */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
-import type { CatalogModel } from '../../shared/types'
+import { isApiError, type CatalogModel } from '../../shared/types'
 import type {
   ChatMessage,
   TeamActivityStep,
@@ -9,10 +9,6 @@ import type {
 } from './chat-types'
 import { useChatLiveTurn } from './useChatLiveTurn'
 import { useStreamingQueue } from './useStreamingQueue'
-
-function hasIpcError(result: unknown): result is { error: string } {
-  return typeof result === 'object' && result !== null && 'error' in result
-}
 
 interface UseChatParams {
   conversationId: string | null
@@ -124,7 +120,7 @@ export function useChat({
     if (!activeId) return
     const content = `__artifact-ref:${JSON.stringify({ artifactId, versionId })}`
     const inserted = await window.api.insertConversationMessage(activeId, 'system', content)
-    if (hasIpcError(inserted)) {
+    if (isApiError(inserted)) {
       addToastRef.current('Failed to attach artifact', 'error')
       return
     }
@@ -863,7 +859,7 @@ export function useChat({
         if (fileAttachments?.length) options.attachments = fileAttachments
 
         const regenResult = await window.api.sendMessage(String(conversationId), String(lastUser.content), options) as unknown
-        if (hasIpcError(regenResult)) throw new Error(regenResult.error)
+        if (isApiError(regenResult)) throw new Error(regenResult.error)
       } catch (error) {
         console.error('Regenerate failed:', error)
         streamingConversationRef.current = null

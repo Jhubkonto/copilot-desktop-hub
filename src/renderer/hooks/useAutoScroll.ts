@@ -130,12 +130,23 @@ export function useAutoScroll({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentSignal])
 
-  // Force scroll to bottom whenever generation begins. Double rAF: a single rAF can still read
-  // scrollHeight from before the content change has actually been painted.
+  // Follow to bottom when generation begins — but only if the user is already there.
+  // Unconditional here (no isUserScrolledUpRef check) used to mean *any* turn starting —
+  // including a background/remote-initiated one (e.g. from the mobile companion) while the
+  // user was mid-scroll reading earlier history in this exact conversation — yanked them
+  // back down regardless, and since isGenerating can flip true independently of anything
+  // the viewing user did, this was the main way "auto-scroll always wins, can't scroll up"
+  // reproduced. Sending your own message already leaves the view at the bottom (that's
+  // where the composer is), so gating this doesn't lose the "snap to bottom on send" feel.
+  // Double rAF: a single rAF can still read scrollHeight from before the content change has
+  // actually been painted.
   useEffect(() => {
     if (!isGenerating) return
+    if (isUserScrolledUpRef.current) return
     const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => scrollToBottom('auto'))
+      requestAnimationFrame(() => {
+        if (!isUserScrolledUpRef.current) scrollToBottom('auto')
+      })
     })
     return () => cancelAnimationFrame(raf1)
   }, [isGenerating, scrollToBottom])
