@@ -341,7 +341,11 @@ export const createUiSlice: StateCreator<
 
   markConversationDoneGenerating: (id) => {
     set((s) => {
-      s.generatingConversationIds = s.generatingConversationIds.filter((cid) => cid !== id)
+      // Membership guard mirrors markConversationRead: reassigning a new array for an id
+      // that isn't present re-renders every by-reference subscriber for nothing.
+      if (s.generatingConversationIds.includes(id)) {
+        s.generatingConversationIds = s.generatingConversationIds.filter((cid) => cid !== id)
+      }
       delete s.generatingStartTimes[id]
     })
   },
@@ -356,7 +360,9 @@ export const createUiSlice: StateCreator<
 
   clearConversationPending: (id) => {
     set((s) => {
-      s.pendingConversationIds = s.pendingConversationIds.filter((cid) => cid !== id)
+      if (s.pendingConversationIds.includes(id)) {
+        s.pendingConversationIds = s.pendingConversationIds.filter((cid) => cid !== id)
+      }
     })
   },
 })

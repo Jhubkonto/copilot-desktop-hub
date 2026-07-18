@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { getAvailableModelIds, getModelLabel } from '../shared/models'
-import type { AgentConfig, CatalogModel, ErrorReportEntry } from '../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel, type ErrorReportEntry } from '../shared/types'
 
 interface Attachment {
   id: string
@@ -100,10 +100,6 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/code-stage', usage: '/code-stage <file> [repo]', description: 'Stage a changed file so it will be included in the next commit' },
   { name: '/code-unstage', usage: '/code-unstage <file> [repo]', description: 'Unstage a file without discarding its changes' },
 ]
-
-function hasIpcError(result: unknown): result is { error: string } {
-  return typeof result === 'object' && result !== null && 'error' in result
-}
 
 /**
  * `investigation_markdown` is generated with a leading YAML front-matter block (confidence,
@@ -417,7 +413,7 @@ export async function executeSlashCommand(
       }
       const value = argText === 'default' ? null : argText
       const result = await window.api.setConversationModel(ctx.conversationId, value)
-      if (hasIpcError(result)) {
+      if (isApiError(result)) {
         ctx.pushSystemMessage(`Failed to set model: ${result.error}`)
         return 'handled'
       }
@@ -645,7 +641,7 @@ export async function executeSlashCommand(
         return 'handled'
       }
       const report = await window.api.getCodeChangeReportForConversation(ctx.conversationId ?? '')
-      if (!hasIpcError(report) && report?.investigation_markdown) {
+      if (!isApiError(report) && report?.investigation_markdown) {
         await ctx.pushPersistentMessage(`**Plan ready:**\n\n${formatPlanMessage(report)}`)
       } else {
         await ctx.pushPersistentMessage('Plan generation finished, but no plan text was found. Run /code-status for details.')
@@ -658,7 +654,7 @@ export async function executeSlashCommand(
         return 'handled'
       }
       const report = await window.api.getCodeChangeReportForConversation(ctx.conversationId)
-      if (hasIpcError(report)) {
+      if (isApiError(report)) {
         ctx.pushSystemMessage(`Failed to fetch plan: ${report.error}`)
       } else if (!report || !report.investigation_markdown) {
         ctx.pushSystemMessage('No code change plan yet in this conversation. Run /code-change first.')
