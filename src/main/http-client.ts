@@ -43,6 +43,32 @@ export async function httpsRequestWithResponse(options: RequestOptions, body?: s
   return requestWithResponse(options, body)
 }
 
+/** URL-based https request returning status + raw body (shared by the provider layer). */
+export function httpsRequestUrl(
+  url: string,
+  options: RequestOptions,
+  body?: string,
+): Promise<HttpsResponse> {
+  const urlObj = new URL(url)
+  return requestWithResponse(
+    { hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, ...options },
+    body,
+  )
+}
+
+/**
+ * Builds the Error for a >=400 provider response: uses the API's own
+ * `error.message` when the body parses, otherwise a labeled HTTP fallback.
+ */
+export function providerHttpError(label: string, status: number | undefined, data: string): Error {
+  let message = `${label} API error (HTTP ${status})`
+  try {
+    const parsed = JSON.parse(data)
+    if (parsed.error?.message) message = parsed.error.message
+  } catch { /* use default */ }
+  return new Error(message)
+}
+
 /** Low-level POST returning raw response body */
 export function httpsPost(url: string, headers: Record<string, string | number>, body: string): Promise<string> {
   const urlObj = new URL(url)

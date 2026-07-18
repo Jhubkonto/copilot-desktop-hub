@@ -13,14 +13,13 @@ import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { startFeedServer, getFeedLanUrl } from './local-feed-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
+import { runBuildProcess, cancelBuildProcess, mapBuildRecord } from './build-runner'
 import type {
   AndroidBuildCommandName,
   AndroidWorkspaceInfo,
   AndroidSigningConfig,
   AndroidUpdateManifest,
   AdbDevice,
-  BuildRecord,
-  BuildStatus,
   PreflightCheck,
 } from '../shared/types'
 import { saveFcmServiceAccount, getFcmConfigStatus } from './fcm-sender'
@@ -178,26 +177,6 @@ function getLocalIp(): string {
   return candidates[0] ?? '127.0.0.1'
 }
 
-function rowToRecord(row: Record<string, unknown>): BuildRecord {
-  return {
-    id: row.id as string,
-    workspacePath: row.workspace_path as string,
-    commitSha: (row.commit_sha as string | null) ?? null,
-    branch: (row.branch as string | null) ?? null,
-    version: (row.version as string | null) ?? null,
-    versionCode: (row.version_code as number | null) ?? null,
-    platform: row.platform as string,
-    command: row.command as AndroidBuildCommandName,
-    status: row.status as BuildStatus,
-    exitCode: (row.exit_code as number | null) ?? null,
-    artifactPaths: JSON.parse((row.artifact_paths as string | null) ?? '[]') as string[],
-    artifactChecksums: JSON.parse((row.artifact_checksums as string | null) ?? '{}') as Record<string, string>,
-    logTail: (row.log_tail as string | null) ?? '',
-    startedAt: row.started_at as number,
-    finishedAt: (row.finished_at as number | null) ?? null,
-    mobileInitiated: Boolean(row.mobile_initiated),
-  }
-}
 
 const ANDROID_COMMANDS: Record<AndroidBuildCommandName, string[]> = {
   test: ['test'],
@@ -242,7 +221,9 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   safeHandle('android:start-command', async (_event, command: AndroidBuildCommandName) => {
     const buildId = randomUUID()
     const workspacePath = getAndroidWorkspacePath(db)
-    if (!workspacePath) return { buildId, error: 'Android workspace path not configured' }
+    // Thrown so safeHandle returns the standard { error } shape instead of a
+    // success-shaped object carrying an error field.
+    if (!workspacePath) throw new Error('Android workspace path not configured')
 
     const wsInfo = await getAndroidWorkspaceInfo(db)
     const now = Date.now()
@@ -259,91 +240,46 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     const signingConfig = useSigningEnv ? getSigningConfig(db) : null
     const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
 
-    const child = spawn(gradlew, args, { shell: true, cwd: workspacePath, env })
-    activeAndroidProcesses.set(buildId, child)
-
-    const logLines: string[] = []
-    const MAX_LOG_CHARS = 4096
-    let lastUniqueLine = ''
-    let repeatCount = 0
-
-    function appendLog(line: string, stream: 'stdout' | 'stderr'): void {
-      if (line === lastUniqueLine) {
-        repeatCount++
-        const summary = `  [repeated ${repeatCount + 1}×]`
-        logLines[logLines.length - 1] = summary
-        mainWindow?.webContents.send('android:log-chunk', { buildId, line: summary, stream, replace: true })
-        return
-      }
-      lastUniqueLine = line
-      repeatCount = 0
-      logLines.push(line)
-      mainWindow?.webContents.send('android:log-chunk', { buildId, line, stream })
-    }
-
-    function buildLogTail(): string {
-      const joined = logLines.join('\n')
-      return joined.length > MAX_LOG_CHARS ? joined.slice(-MAX_LOG_CHARS) : joined
-    }
-
-    child.stdout?.on('data', (data: Buffer) => {
-      for (const line of data.toString().split('\n')) {
-        if (line) appendLog(line, 'stdout')
-      }
-    })
-
-    child.stderr?.on('data', (data: Buffer) => {
-      for (const line of data.toString().split('\n')) {
-        if (line) appendLog(line, 'stderr')
-      }
-    })
-
-    child.on('close', async (code) => {
-      activeAndroidProcesses.delete(buildId)
-      const exitCode = code ?? -1
-      const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
-      const finishedAt = Date.now()
-      const logTail = buildLogTail()
-
-      const artifactDir = getArtifactDir(workspacePath, command)
-      let artifactPaths: string[] = []
-      if (artifactDir && existsSync(artifactDir)) {
-        try {
-          artifactPaths = readdirSync(artifactDir)
-            .map((f) => path.join(artifactDir, f))
-            .filter((f) => {
-              try { return statSync(f).isFile() && statSync(f).mtimeMs >= now } catch { return false }
-            })
-        } catch { /* ignore */ }
-      }
-      const artifactChecksums: Record<string, string> = {}
-      await Promise.all(artifactPaths.map(async (artifactPath) => {
-        try {
-          artifactChecksums[artifactPath] = await computeSha256(artifactPath)
-        } catch {
-          // Leave checksum absent for files that disappear before hashing.
+    runBuildProcess({
+      db,
+      buildId,
+      spawnCmd: gradlew,
+      spawnArgs: args,
+      cwd: workspacePath,
+      env,
+      logEvent: 'android:log-chunk',
+      doneEvent: 'android:command-done',
+      window: mainWindow,
+      registry: activeAndroidProcesses,
+      collectArtifacts: async () => {
+        const artifactDir = getArtifactDir(workspacePath, command)
+        let artifactPaths: string[] = []
+        if (artifactDir && existsSync(artifactDir)) {
+          try {
+            artifactPaths = readdirSync(artifactDir)
+              .map((f) => path.join(artifactDir, f))
+              .filter((f) => {
+                try { return statSync(f).isFile() && statSync(f).mtimeMs >= now } catch { return false }
+              })
+          } catch { /* ignore */ }
         }
-      }))
-
-      db.prepare(
-        `UPDATE build_records
-         SET status = ?, exit_code = ?, finished_at = ?, log_tail = ?, artifact_paths = ?, artifact_checksums = ?
-         WHERE id = ?`
-      ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), JSON.stringify(artifactChecksums), buildId)
-
-      mainWindow?.webContents.send('android:command-done', { buildId, status, exitCode })
+        const artifactChecksums: Record<string, string> = {}
+        await Promise.all(artifactPaths.map(async (artifactPath) => {
+          try {
+            artifactChecksums[artifactPath] = await computeSha256(artifactPath)
+          } catch {
+            // Leave checksum absent for files that disappear before hashing.
+          }
+        }))
+        return { artifactPaths, artifactChecksums }
+      },
     })
 
     return { buildId }
   })
 
   safeHandle('android:cancel-command', (_event, buildId: string) => {
-    const child = activeAndroidProcesses.get(buildId)
-    if (!child) return false
-    child.kill('SIGTERM')
-    activeAndroidProcesses.delete(buildId)
-    db.prepare(`UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`).run(Date.now(), buildId)
-    return true
+    return cancelBuildProcess({ db, buildId, registry: activeAndroidProcesses })
   })
 
   safeHandle('android:get-records', (_event, limit?: number) => {
@@ -351,7 +287,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     const rows = db.prepare(
       `SELECT * FROM build_records WHERE platform = 'android' ORDER BY started_at DESC LIMIT ?`
     ).all(limit ?? 20) as Record<string, unknown>[]
-    const r = rows.map(rowToRecord)
+    const r = rows.map(mapBuildRecord)
     debugTimeEnd('android:get-records')
     return r
   })
