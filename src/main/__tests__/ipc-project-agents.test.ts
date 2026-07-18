@@ -86,6 +86,7 @@ vi.mock('../voice-handlers', () => ({ registerVoiceHandlers: vi.fn() }))
 vi.mock('../scheduler-handlers', () => ({ registerSchedulerHandlers: vi.fn() }))
 vi.mock('../debrief-handlers', () => ({ registerDebriefHandlers: vi.fn() }))
 vi.mock('../quiz-handlers', () => ({ registerQuizHandlers: vi.fn() }))
+vi.mock('../teachback-handlers', () => ({ registerTeachbackHandlers: vi.fn() }))
 vi.mock('../screen-capture', () => ({
   cacheExternalWindowLabel: vi.fn().mockResolvedValue(undefined),
   consumeSuppressFocusEvent: vi.fn(() => false),

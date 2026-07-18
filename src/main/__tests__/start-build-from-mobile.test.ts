@@ -86,6 +86,10 @@ function makeChild() {
   return child
 }
 
+async function closeChild(child: ReturnType<typeof makeChild>, code: number): Promise<void> {
+  await Promise.all(child.listeners('close').map((listener) => Promise.resolve(listener(code))))
+}
+
 afterEach(() => {
   while (openDatabases.length > 0) openDatabases.pop()?.close()
   vi.restoreAllMocks()
@@ -139,7 +143,7 @@ describe('startBuildFromMobile', () => {
     const { startBuildFromMobile } = await import('../build-handlers')
     const { buildId } = await startBuildFromMobile('typecheck')
 
-    child.emit('close', 0)
+    await closeChild(child, 0)
 
     const row = db.prepare('SELECT status, exit_code FROM build_records WHERE id = ?').get(buildId) as {
       status: string
@@ -156,7 +160,7 @@ describe('startBuildFromMobile', () => {
     const { startBuildFromMobile } = await import('../build-handlers')
     const { buildId } = await startBuildFromMobile('test')
 
-    child.emit('close', 1)
+    await closeChild(child, 1)
 
     const row = db.prepare('SELECT status FROM build_records WHERE id = ?').get(buildId) as { status: string }
     expect(row.status).toBe('failed')
@@ -174,7 +178,7 @@ describe('startBuildFromMobile', () => {
     const { buildId } = await startBuildFromMobile('typecheck')
 
     child.stdout.emit('data', Buffer.from('line one\nline two\n'))
-    child.emit('close', 0)
+    await closeChild(child, 0)
 
     const chunkCalls = broadcastMock.mock.calls.filter((c) => c[0].event === 'build:log-chunk')
     expect(chunkCalls.length).toBeGreaterThanOrEqual(2)

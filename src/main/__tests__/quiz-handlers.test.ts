@@ -187,24 +187,68 @@ describe('quiz-handlers', () => {
       expect(result.questions).toHaveLength(2)
     })
 
-    it('transparently generates a debrief first when the conversation has none yet', async () => {
+    it('uses the conversation directly when no debrief exists', async () => {
       state.db!.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('no-debrief', 'Fresh', 1, 1)").run()
       state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m3', 'no-debrief', 'user', 'Hello', 1)").run()
       state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m4', 'no-debrief', 'assistant', 'Hi', 2)").run()
 
       mockSendProviderNonStreaming.mockClear()
-      mockSendProviderNonStreaming
-        .mockResolvedValueOnce({ content: DEBRIEF_JSON })
-        .mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+      mockSendProviderNonStreaming.mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
 
       const result = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'no-debrief', null)
       expect(result.questions).toHaveLength(2)
-      expect(mockSendProviderNonStreaming).toHaveBeenCalledTimes(2)
+      expect(mockSendProviderNonStreaming).toHaveBeenCalledTimes(1)
 
       const debriefArtifact = state.db!.prepare(
         `SELECT a.* FROM artifacts a JOIN artifact_chat_refs r ON r.artifact_id = a.id WHERE r.conversation_id = ? AND a.kind = 'debrief'`
       ).get('no-debrief')
-      expect(debriefArtifact).toBeTruthy()
+      expect(debriefArtifact).toBeFalsy()
+    })
+  })
+
+  describe('conversation:start-quiz-generation', () => {
+    it('creates independent artifacts for consecutive chat commands', async () => {
+      mockSendProviderNonStreaming
+        .mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+        .mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+
+      const first = await invoke<{ artifactId: string }>('conversation:start-quiz-generation', 'conv-1', null)
+      const second = await invoke<{ artifactId: string }>('conversation:start-quiz-generation', 'conv-1', null)
+
+      expect(first.artifactId).not.toBe(second.artifactId)
+      await vi.waitFor(() => {
+        const rows = state.db!.prepare(
+          "SELECT id, status, current_version_id FROM artifacts WHERE conversation_id = ? AND kind = 'quiz' ORDER BY created_at",
+        ).all('conv-1') as Array<{ id: string; status: string; current_version_id: string | null }>
+        expect(rows).toHaveLength(2)
+        expect(rows.map((row) => row.id)).toEqual(expect.arrayContaining([first.artifactId, second.artifactId]))
+        expect(rows.every((row) => row.status === 'ready' && Boolean(row.current_version_id))).toBe(true)
+      })
+    })
+
+    it('adds a version to the targeted artifact for an in-card retry', async () => {
+      mockSendProviderNonStreaming.mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+      const first = await invoke<{ artifactId: string }>('conversation:start-quiz-generation', 'conv-1', null)
+      await vi.waitFor(() => {
+        const row = state.db!.prepare('SELECT status FROM artifacts WHERE id = ?').get(first.artifactId) as { status: string }
+        expect(row.status).toBe('ready')
+      })
+
+      mockSendProviderNonStreaming.mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+      const retried = await invoke<{ artifactId: string }>(
+        'conversation:start-quiz-generation',
+        'conv-1',
+        null,
+        undefined,
+        {},
+        first.artifactId,
+      )
+
+      expect(retried.artifactId).toBe(first.artifactId)
+      await vi.waitFor(() => {
+        const count = state.db!.prepare('SELECT COUNT(*) as c FROM artifact_versions WHERE artifact_id = ?').get(first.artifactId) as { c: number }
+        expect(count.c).toBe(2)
+      })
     })
   })
 })

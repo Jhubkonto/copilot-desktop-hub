@@ -70,6 +70,7 @@ vi.mock('../scheduler-generator', () => ({ registerScheduleGeneratorHandlers: vi
 vi.mock('../scheduler-handlers', () => ({ registerSchedulerHandlers: vi.fn() }))
 vi.mock('../debrief-handlers', () => ({ registerDebriefHandlers: vi.fn() }))
 vi.mock('../quiz-handlers', () => ({ registerQuizHandlers: vi.fn() }))
+vi.mock('../teachback-handlers', () => ({ registerTeachbackHandlers: vi.fn() }))
 vi.mock('../screen-capture', () => ({
   cacheExternalWindowLabel: mockCacheExternalWindowLabel,
   consumeSuppressFocusEvent: mockConsumeSuppressFocusEvent,

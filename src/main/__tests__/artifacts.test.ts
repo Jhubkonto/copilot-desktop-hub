@@ -31,7 +31,7 @@ const { mockDb, ipcHandlers, mockIpcMain } = vi.hoisted(() => {
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: () => '/tmp' },
-  BrowserWindow: class {},
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
   shell: { showItemInFolder: vi.fn() },
 }))
 
@@ -153,6 +153,11 @@ describe('artifact:delete', () => {
   })
 
   it('returns { deleted: false } when artifact does not exist', () => {
+    mockDb.prepare.mockImplementationOnce(() => ({
+      run: vi.fn(() => ({ changes: 1 })),
+      get: vi.fn(() => undefined),
+      all: vi.fn(() => []),
+    }))
     mockDb.prepare.mockImplementationOnce(() => ({
       run: vi.fn(() => ({ changes: 0 })),
       get: vi.fn(() => undefined),
