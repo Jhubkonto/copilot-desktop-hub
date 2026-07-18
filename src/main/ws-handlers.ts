@@ -111,6 +111,8 @@ import { HermesAdapter } from './cli-adapters/hermes'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
 import { generateQuizForWs, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
+import { generateTeachbackForWs, getTeachbackForWs, getTeachbackByArtifactIdForWs, gradeTeachbackForWs, listTeachbackAttempts } from './teachback-handlers'
+import type { QuizSpec, QuizSource, QuizDifficulty } from '../shared/types'
 import {
   submitRatingForConversation,
   getRatingForConversation,
@@ -164,6 +166,19 @@ import {
 let resolveApprovalFn: ((requestId: string, approved: boolean) => boolean) | null = null
 export function registerApprovalResolver(fn: (requestId: string, approved: boolean) => boolean): void {
   resolveApprovalFn = fn
+}
+
+/** Defensively parses a QuizSpec from an untrusted WS payload (Android companion). */
+function parseQuizSpec(raw: unknown): QuizSpec {
+  if (!raw || typeof raw !== 'object') return {}
+  const obj = raw as Record<string, unknown>
+  const spec: QuizSpec = {}
+  if (obj.source === 'conversation' || obj.source === 'debrief' || obj.source === 'project') spec.source = obj.source as QuizSource
+  if (typeof obj.topic === 'string' && obj.topic.trim()) spec.topic = obj.topic.trim()
+  if (obj.difficulty === 'easy' || obj.difficulty === 'medium' || obj.difficulty === 'hard') spec.difficulty = obj.difficulty as QuizDifficulty
+  if (typeof obj.questionCount === 'number' && Number.isFinite(obj.questionCount)) spec.questionCount = obj.questionCount
+  if (Array.isArray(obj.focusQuestions)) spec.focusQuestions = obj.focusQuestions.filter((q): q is string => typeof q === 'string')
+  return spec
 }
 
 function mobilePromptEntry(entry: PromptLibraryEntry): Record<string, unknown> {
@@ -3547,7 +3562,8 @@ export function registerWsHandlers(): void {
       const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const model = typeof data.model === 'string' ? data.model : undefined
       if (!conversationId) return
-      void generateQuizForWs(conversationId, projectId, model)
+      const spec = parseQuizSpec(data.spec)
+      void generateQuizForWs(conversationId, projectId, model, spec)
         .then((result) => reply({ event: 'quiz:ready', data: { ...result, conversationId } }))
         .catch((err: unknown) => reply({ event: 'quiz:error', data: { message: String(err) } }))
       return
@@ -3567,6 +3583,50 @@ export function registerWsHandlers(): void {
       if (!conversationId || !artifactId) return
       const result = getQuizByArtifactIdForWs(artifactId)
       reply({ event: 'quiz:loaded', data: { conversationId, questions: result?.questions ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
+      return
+    }
+
+    if (command === 'conversation:generate-teachback') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
+      const model = typeof data.model === 'string' ? data.model : undefined
+      const topic = typeof data.topic === 'string' ? data.topic.trim() : ''
+      if (!conversationId) return
+      void generateTeachbackForWs(conversationId, projectId, model, topic ? { topic } : {})
+        .then((result) => reply({ event: 'teachback:ready', data: { ...result, conversationId } }))
+        .catch((err: unknown) => reply({ event: 'teachback:error', data: { message: err instanceof Error ? err.message : String(err) } }))
+      return
+    }
+
+    if (command === 'conversation:get-teachback' || command === 'teachback:get-by-artifact') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const artifactId = typeof data.artifactId === 'string' ? data.artifactId : ''
+      if (!conversationId) return
+      const result = command === 'teachback:get-by-artifact' && artifactId
+        ? getTeachbackByArtifactIdForWs(artifactId)
+        : getTeachbackForWs(conversationId)
+      reply({ event: 'teachback:loaded', data: { conversationId, ...result } })
+      return
+    }
+
+    if (command === 'teachback:grade') {
+      const artifactId = typeof data.artifactId === 'string' ? data.artifactId : ''
+      const versionId = typeof data.versionId === 'string' ? data.versionId : ''
+      const transcript = typeof data.transcript === 'string' ? data.transcript : ''
+      const prompt = typeof data.prompt === 'string' ? data.prompt : undefined
+      const parentAttemptId = typeof data.parentAttemptId === 'string' ? data.parentAttemptId : undefined
+      const turnNumber = typeof data.turnNumber === 'number' ? data.turnNumber : 0
+      if (!artifactId || !versionId || !transcript) return
+      void gradeTeachbackForWs(artifactId, versionId, transcript, prompt, parentAttemptId, turnNumber)
+        .then((feedback) => reply({ event: 'teachback:graded', data: { artifactId, versionId, feedback } }))
+        .catch((err: unknown) => reply({ event: 'teachback:error', data: { message: err instanceof Error ? err.message : String(err) } }))
+      return
+    }
+
+    if (command === 'teachback:get-attempts') {
+      const artifactId = typeof data.artifactId === 'string' ? data.artifactId : ''
+      if (!artifactId) return
+      reply({ event: 'teachback:attempts', data: { artifactId, attempts: listTeachbackAttempts(artifactId) } })
       return
     }
 

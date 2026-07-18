@@ -40,6 +40,7 @@ import { registerVoiceHandlers } from './voice-handlers'
 import { registerSchedulerHandlers } from './scheduler-handlers'
 import { registerDebriefHandlers } from './debrief-handlers'
 import { registerQuizHandlers } from './quiz-handlers'
+import { registerTeachbackHandlers } from './teachback-handlers'
 import { registerRatingHandlers } from './rating-handlers'
 import { registerProjectAuditHandlers } from './project-audit'
 import { registerActivityHandlers } from './activity-tracker'
@@ -92,6 +93,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSchedulerHandlers()
   registerDebriefHandlers()
   registerQuizHandlers()
+  registerTeachbackHandlers()
   registerRatingHandlers()
   registerActivityHandlers()
   if (mainWindow) {

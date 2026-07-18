@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
-import type { QuizArtifactResult, QuizQuestion } from '../shared/types'
+import type { QuizArtifactResult, QuizQuestion, QuizSpec, QuizAttempt, QuizAttemptInput } from '../shared/types'
 import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
@@ -18,19 +18,40 @@ import {
   readArtifactVersionFile,
   writeArtifactVersionForConversation,
 } from './artifacts'
-import { generateDebriefForWs, type DebriefSectionData } from './debrief-handlers'
+import { buildConversationTranscript, type DebriefSectionData } from './debrief-handlers'
 import { startActivity, endActivity } from './activity-tracker'
 
-const QUIZ_SYSTEM_PROMPT = `You are a quiz generator for a technical learning tool. You receive a structured debrief of a completed AI chat session and must produce multiple-choice questions that test the user's understanding.
+const SOURCE_CHAR_LIMIT = 12_000
 
-Return ONLY a JSON array with 5-8 objects. Each object MUST have:
+export function buildQuizSystemPrompt(spec: QuizSpec): string {
+  const count = typeof spec.questionCount === 'number'
+    ? `exactly ${Math.min(12, Math.max(3, Math.round(spec.questionCount)))}`
+    : '5-8'
+  const difficulty = spec.difficulty ?? 'medium'
+  const difficultyGuidance: Record<string, string> = {
+    easy: 'Keep questions approachable — test recall of the main facts and terms. Distractors may be clearly distinguishable.',
+    medium: 'Test genuine understanding, not just recall. Make distractors plausible — related-but-wrong commands, partial truths, or common misconceptions.',
+    hard: 'Test deep understanding and edge cases. Distractors should be subtle and require careful reasoning to rule out.',
+  }
+  const focus = spec.topic
+    ? `\n\nFOCUS: Concentrate the questions specifically on: "${spec.topic}". If the source material barely covers this, generate the best questions you can from what is relevant and ignore unrelated parts.`
+    : ''
+  const missed = spec.focusQuestions && spec.focusQuestions.length > 0
+    ? `\n\nThe learner previously got these questions wrong — re-test the same underlying concepts from fresh angles (do not copy them verbatim):\n${spec.focusQuestions.map((q) => `- ${q}`).join('\n')}`
+    : ''
+
+  return `You are a quiz generator for a technical learning tool. You receive source material from a work session (a chat transcript, a structured debrief, or notes across a project) and must produce multiple-choice questions that test the user's understanding.
+
+Return ONLY a JSON array with ${count} objects. Each object MUST have:
 - "question": string — clear and specific
 - "options": exactly 4 strings — all plausible (no obviously wrong answers)
 - "correctIndex": integer 0-3 (zero-based index into options)
 - "explanation": 2-4 sentences teaching WHY the answer is correct
 - "category": one of "command", "concept", "sequence", "approach"
 
-Cover all four categories. Make distractors plausible — use related-but-wrong commands, partial truths, or common misconceptions.`
+Difficulty: ${difficulty}. ${difficultyGuidance[difficulty]}
+Cover a spread of the four categories where the material supports it.${focus}${missed}`
+}
 
 function isValidQuestion(q: unknown): q is Omit<QuizQuestion, 'id'> {
   if (!q || typeof q !== 'object') return false
@@ -46,45 +67,88 @@ function isValidQuestion(q: unknown): q is Omit<QuizQuestion, 'id'> {
   )
 }
 
-export async function generateQuizForWs(conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> {
+/**
+ * Assembles the source material a quiz should be generated from, honouring spec.source:
+ * - 'conversation' (default): the raw chat transcript.
+ * - 'debrief': the conversation's existing debrief, if one has been generated. No longer
+ *   generated silently — falls back to the transcript so /quiz always works standalone.
+ * - 'project': debriefs + transcripts across every conversation in the project.
+ * Returns a human-readable label of what was actually used plus the text (char-capped).
+ */
+export function buildQuizSourceContent(
+  db: ReturnType<typeof getDatabase>,
+  conversationId: string,
+  projectId: string | null,
+  spec: QuizSpec,
+): { sourceLabel: string; content: string } {
+  const source = spec.source ?? 'conversation'
+
+  const debriefTextFor = (convId: string): string | null => {
+    const artifact = findArtifactForConversation(convId, 'debrief')
+    const content = artifact?.currentVersion ? readArtifactVersionFile(artifact.currentVersion.id, 'debrief.json') : null
+    if (!content) return null
+    try {
+      const section = JSON.parse(content) as DebriefSectionData
+      return [
+        `Summary: ${section.summary}`,
+        `Commands & Tools: ${section.commandsAndTools.join(', ')}`,
+        `How to Reproduce: ${section.reproductionGuide}`,
+        `Mental Model: ${section.mentalModel}`,
+      ].join('\n\n')
+    } catch {
+      return null
+    }
+  }
+
+  const cap = (text: string): string => text.length > SOURCE_CHAR_LIMIT ? text.slice(0, SOURCE_CHAR_LIMIT) + '\n[truncated]' : text
+
+  if (source === 'project' && projectId) {
+    const convRows = db.prepare(
+      'SELECT id, title FROM conversations WHERE project_id = ? ORDER BY updated_at DESC LIMIT 25'
+    ).all(projectId) as { id: string; title: string }[]
+    const parts: string[] = []
+    for (const conv of convRows) {
+      const debrief = debriefTextFor(conv.id)
+      const body = debrief ?? buildConversationTranscript(db, conv.id)
+      if (body) parts.push(`### ${conv.title || 'Conversation'}\n${body}`)
+      if (parts.join('\n\n').length > SOURCE_CHAR_LIMIT) break
+    }
+    if (parts.length === 0) throw new Error('This project has no conversation content to quiz on yet.')
+    return { sourceLabel: 'project', content: cap(parts.join('\n\n')) }
+  }
+
+  if (source === 'debrief') {
+    const debrief = debriefTextFor(conversationId)
+    if (debrief) return { sourceLabel: 'debrief', content: cap(debrief) }
+    // No debrief yet — fall back to the transcript rather than silently generating one.
+    const transcript = buildConversationTranscript(db, conversationId)
+    if (!transcript) throw new Error('This conversation has no messages to quiz on yet.')
+    return { sourceLabel: 'conversation (no debrief found)', content: cap(transcript) }
+  }
+
+  const transcript = buildConversationTranscript(db, conversationId)
+  if (!transcript) throw new Error('This conversation has no messages to quiz on yet.')
+  return { sourceLabel: 'conversation', content: cap(transcript) }
+}
+
+export async function generateQuizForWs(conversationId: string, projectId: string | null, model?: string, spec: QuizSpec = {}, targetArtifactId?: string): Promise<QuizArtifactResult> {
   const db = getDatabase()
   const activityId = `quiz-generation:${conversationId}`
   const conversationTitleRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
   startActivity({ id: activityId, kind: 'quiz-generation', label: 'Generating quiz…', detail: conversationTitleRow?.title, projectId: projectId ?? undefined, conversationId })
   try {
-    return await generateQuizForWsInner(conversationId, projectId, model)
+    return await generateQuizForWsInner(conversationId, projectId, model, spec, targetArtifactId)
   } finally {
     endActivity(activityId)
   }
 }
 
-async function generateQuizForWsInner(conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> {
-  let debriefArtifact = findArtifactForConversation(conversationId, 'debrief')
-  let debriefContent = debriefArtifact?.currentVersion
-    ? readArtifactVersionFile(debriefArtifact.currentVersion.id, 'debrief.json')
-    : null
+async function generateQuizForWsInner(conversationId: string, projectId: string | null, model: string | undefined, spec: QuizSpec, targetArtifactId?: string): Promise<QuizArtifactResult> {
+  const db = getDatabase()
+  const { sourceLabel, content: sourceContent } = buildQuizSourceContent(db, conversationId, projectId, spec)
 
-  // Quiz builds its questions from a debrief. If the conversation doesn't have one yet,
-  // generate it transparently rather than requiring the user to run /debrief first.
-  if (!debriefArtifact || !debriefContent) {
-    await generateDebriefForWs(conversationId, projectId, model)
-    debriefArtifact = findArtifactForConversation(conversationId, 'debrief')
-    debriefContent = debriefArtifact?.currentVersion
-      ? readArtifactVersionFile(debriefArtifact.currentVersion.id, 'debrief.json')
-      : null
-    if (!debriefArtifact || !debriefContent) throw new Error('Failed to generate debrief for quiz.')
-  }
-
-  const section = JSON.parse(debriefContent) as DebriefSectionData
-
-  const debriefText = [
-    `Summary: ${section.summary}`,
-    `Commands & Tools: ${section.commandsAndTools.join(', ')}`,
-    `How to Reproduce: ${section.reproductionGuide}`,
-    `Mental Model: ${section.mentalModel}`,
-  ].join('\n\n')
-
-  const userContent = debriefText.length > 8000 ? debriefText.slice(0, 8000) + '\n[truncated]' : debriefText
+  const userContent = `Source (${sourceLabel}):\n\n${sourceContent}`
+  const systemPrompt = buildQuizSystemPrompt(spec)
 
   const extractionProvider = getProviderForAgent(model ?? DEFAULT_PROVIDER_MODEL)
 
@@ -94,7 +158,7 @@ async function generateQuizForWsInner(conversationId: string, projectId: string 
   let rawText: string
   if (apiKey) {
     const messages: ProviderMessage[] = [
-      { role: 'system', content: QUIZ_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ]
     const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, {
@@ -106,7 +170,7 @@ async function generateQuizForWsInner(conversationId: string, projectId: string 
     rawText = await ClaudeAdapter.send(
       null as never,
       {
-        systemPrompt: QUIZ_SYSTEM_PROMPT,
+        systemPrompt,
         messages: [{ role: 'user', content: userContent }],
         cwd: '',
         model: 'default',
@@ -143,22 +207,36 @@ async function generateQuizForWsInner(conversationId: string, projectId: string 
     throw new Error(`Model returned ${rawQuestions.length} question(s) but only ${questions.length} were well-formed. Try a different model.`)
   }
 
-  const db = getDatabase()
   const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
   const conversationTitle = conversationRow?.title ?? 'Conversation'
+  const titleSuffix = spec.topic ? `${conversationTitle} — ${spec.topic}` : conversationTitle
 
   const { artifactId, versionId } = writeArtifactVersionForConversation({
     conversationId,
     projectId,
     kind: 'quiz',
-    title: `Quiz: ${conversationTitle}`,
+    title: `Quiz: ${titleSuffix}`,
+    artifactId: targetArtifactId,
     files: [
       { relativePath: 'quiz.json', mediaType: 'application/json', role: 'primary', content: JSON.stringify(questions, null, 2) },
-      { relativePath: 'quiz.md', mediaType: 'text/markdown', role: 'supporting', content: formatQuizMarkdown(conversationTitle, questions) },
+      { relativePath: 'quiz.md', mediaType: 'text/markdown', role: 'supporting', content: formatQuizMarkdown(titleSuffix, questions) },
+      // Persist the spec so "Regenerate" reuses the same source/topic/difficulty intent.
+      { relativePath: 'quiz-spec.json', mediaType: 'application/json', role: 'supporting', content: JSON.stringify(spec, null, 2) },
     ],
   })
 
-  return { questions, artifactId, versionId }
+  return { questions, artifactId, versionId, spec }
+}
+
+/** Reads the persisted QuizSpec for a stored quiz version, or {} if none/legacy. */
+function readQuizSpec(versionId: string): QuizSpec {
+  const content = readArtifactVersionFile(versionId, 'quiz-spec.json')
+  if (!content) return {}
+  try {
+    return JSON.parse(content) as QuizSpec
+  } catch {
+    return {}
+  }
 }
 
 function formatQuizMarkdown(title: string, questions: QuizQuestion[]): string {
@@ -176,15 +254,24 @@ function formatQuizMarkdown(title: string, questions: QuizQuestion[]): string {
 
 /**
  * Creates the quiz artifact with status 'generating' immediately, then runs the actual
- * LLM generation (which may itself generate a debrief first) in the background — mirrors
- * startDebriefGeneration so /quiz gets the same durable, non-blocking progress card.
+ * LLM generation in the background — mirrors startDebriefGeneration so /quiz gets the same
+ * durable, non-blocking progress card. Accepts an optional QuizSpec (source/topic/difficulty/
+ * count) that the generation reuses and persists for "Regenerate".
  */
-export function startQuizGeneration(conversationId: string, projectId: string | null, model?: string): { artifactId: string } {
+export function startQuizGeneration(conversationId: string, projectId: string | null, model?: string, spec: QuizSpec = {}, targetArtifactId?: string): { artifactId: string } {
   const db = getDatabase()
   const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
-  const title = `Quiz: ${conversationRow?.title ?? 'Conversation'}`
-  const artifactId = createPendingArtifactForConversation({ conversationId, projectId, kind: 'quiz', title })
-  void generateQuizForWs(conversationId, projectId, model).catch((err) => {
+  const titleSuffix = spec.topic ? `${conversationRow?.title ?? 'Conversation'} — ${spec.topic}` : (conversationRow?.title ?? 'Conversation')
+  const title = `Quiz: ${titleSuffix}`
+  const artifactId = createPendingArtifactForConversation({
+    conversationId,
+    projectId,
+    kind: 'quiz',
+    title,
+    artifactId: targetArtifactId,
+    reuseExisting: Boolean(targetArtifactId),
+  })
+  void generateQuizForWs(conversationId, projectId, model, spec, artifactId).catch((err) => {
     markArtifactGenerationFailed(artifactId, projectId, err instanceof Error ? err.message : String(err))
   })
   return { artifactId }
@@ -202,7 +289,7 @@ export function getQuizForWs(conversationId: string): QuizArtifactResult | null 
   } catch {
     return null
   }
-  return { questions, artifactId: artifact.id, versionId: version.id }
+  return { questions, artifactId: artifact.id, versionId: version.id, spec: readQuizSpec(version.id) }
 }
 
 /**
@@ -228,19 +315,102 @@ export function getQuizByArtifactIdForWs(artifactId: string): QuizArtifactResult
   } catch {
     return null
   }
-  return { questions, artifactId, versionId }
+  return { questions, artifactId, versionId, spec: readQuizSpec(versionId) }
+}
+
+interface QuizAttemptRow {
+  id: string
+  artifact_id: string
+  version_id: string
+  conversation_id: string | null
+  project_id: string | null
+  score: number
+  total: number
+  category_breakdown: string | null
+  missed_questions: string | null
+  attempted_at: number
+}
+
+function rowToQuizAttempt(row: QuizAttemptRow): QuizAttempt {
+  let categoryBreakdown: QuizAttempt['categoryBreakdown'] = {}
+  let missedQuestions: string[] = []
+  try { if (row.category_breakdown) categoryBreakdown = JSON.parse(row.category_breakdown) } catch { /* keep {} */ }
+  try { if (row.missed_questions) missedQuestions = JSON.parse(row.missed_questions) } catch { /* keep [] */ }
+  return {
+    id: row.id,
+    artifactId: row.artifact_id,
+    versionId: row.version_id,
+    conversationId: row.conversation_id,
+    projectId: row.project_id,
+    score: row.score,
+    total: row.total,
+    categoryBreakdown,
+    missedQuestions,
+    attemptedAt: row.attempted_at,
+  }
+}
+
+/** Persists a completed quiz run so scores accumulate across restarts. */
+export function recordQuizAttempt(input: QuizAttemptInput): QuizAttempt {
+  const db = getDatabase()
+  const id = randomUUID()
+  const attemptedAt = Date.now()
+  db.prepare(
+    `INSERT INTO quiz_attempts (id, artifact_id, version_id, conversation_id, project_id, score, total, category_breakdown, missed_questions, attempted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    input.artifactId,
+    input.versionId,
+    input.conversationId ?? null,
+    input.projectId ?? null,
+    input.score,
+    input.total,
+    JSON.stringify(input.categoryBreakdown ?? {}),
+    JSON.stringify(input.missedQuestions ?? []),
+    attemptedAt,
+  )
+  return {
+    id,
+    artifactId: input.artifactId,
+    versionId: input.versionId,
+    conversationId: input.conversationId ?? null,
+    projectId: input.projectId ?? null,
+    score: input.score,
+    total: input.total,
+    categoryBreakdown: input.categoryBreakdown ?? {},
+    missedQuestions: input.missedQuestions ?? [],
+    attemptedAt,
+  }
+}
+
+/** Returns all attempts for a quiz artifact, newest first. */
+export function getQuizAttempts(artifactId: string): QuizAttempt[] {
+  const db = getDatabase()
+  const rows = db.prepare(
+    'SELECT * FROM quiz_attempts WHERE artifact_id = ? ORDER BY attempted_at DESC'
+  ).all(artifactId) as QuizAttemptRow[]
+  return rows.map(rowToQuizAttempt)
 }
 
 export function registerQuizHandlers(): void {
-  safeHandle('conversation:generate-quiz', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> => {
-    return generateQuizForWs(conversationId, projectId, model)
+  safeHandle('conversation:generate-quiz', async (_event, conversationId: string, projectId: string | null, model?: string, spec?: QuizSpec): Promise<QuizArtifactResult> => {
+    return generateQuizForWs(conversationId, projectId, model, spec ?? {})
   })
 
-  safeHandle('conversation:start-quiz-generation', (_event, conversationId: string, projectId: string | null, model?: string) => {
-    return startQuizGeneration(conversationId, projectId, model)
+  safeHandle('conversation:start-quiz-generation', (_event, conversationId: string, projectId: string | null, model?: string, spec?: QuizSpec, targetArtifactId?: string) => {
+    return startQuizGeneration(conversationId, projectId, model, spec ?? {}, targetArtifactId)
   })
 
   safeHandle('conversation:get-quiz', (_event, conversationId: string): QuizArtifactResult | null => {
     return getQuizForWs(conversationId)
+  })
+
+  safeHandle('quiz:record-attempt', (_event, input: QuizAttemptInput): QuizAttempt => {
+    return recordQuizAttempt(input)
+  })
+
+  safeHandle('quiz:get-attempts', (_event, artifactId: string): QuizAttempt[] => {
+    return getQuizAttempts(artifactId)
   })
 }

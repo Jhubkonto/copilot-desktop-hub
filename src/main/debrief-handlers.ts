@@ -43,6 +43,25 @@ export interface DebriefSectionData {
   mentalModel: string
 }
 
+/**
+ * Builds a plain-text User/Assistant transcript for a conversation, truncated to HARD_LIMIT
+ * (head + tail) the same way debrief generation does. Shared so the quiz feature can read the
+ * raw chat directly instead of only ever seeing a debrief. Returns '' when there are no
+ * user/assistant messages.
+ */
+export function buildConversationTranscript(db: ReturnType<typeof getDatabase>, conversationId: string): string {
+  const rows = db.prepare(
+    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+  ).all(conversationId) as { role: string; content: string }[]
+  if (rows.length === 0) return ''
+  const transcript = rows
+    .map((r) => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content}`)
+    .join('\n\n')
+  return transcript.length <= HARD_LIMIT
+    ? transcript
+    : transcript.slice(0, HEAD) + '\n\n[... conversation truncated ...]\n\n' + transcript.slice(-(HARD_LIMIT - HEAD))
+}
+
 /** Renders a debrief section as markdown, matching the format the old DebriefModal export produced. */
 export function formatDebriefMarkdown(title: string, section: DebriefSectionData): string {
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -92,19 +111,8 @@ export async function generateDebriefForWs(conversationId: string, projectId: st
 }
 
 async function generateDebriefForWsInner(db: ReturnType<typeof getDatabase>, conversationId: string, projectId: string | null, model?: string): Promise<DebriefArtifactResult> {
-  const rows = db.prepare(
-    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
-  ).all(conversationId) as { role: string; content: string }[]
-
-  if (rows.length === 0) throw new Error('Conversation has no messages to debrief')
-
-  const transcript = rows
-    .map((r) => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content}`)
-    .join('\n\n')
-
-  const truncatedTranscript = transcript.length <= HARD_LIMIT
-    ? transcript
-    : transcript.slice(0, HEAD) + '\n\n[... conversation truncated ...]\n\n' + transcript.slice(-(HARD_LIMIT - HEAD))
+  const truncatedTranscript = buildConversationTranscript(db, conversationId)
+  if (!truncatedTranscript) throw new Error('Conversation has no messages to debrief')
 
   const userContent = `Here is the conversation to analyze:\n\n${truncatedTranscript}`
 
