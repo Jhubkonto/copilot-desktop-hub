@@ -207,7 +207,8 @@ export async function sendOpenAINonStreaming(
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: { maxTokens?: number; temperature?: number } = {},
+  baseUrl?: string,
 ): Promise<ProviderNonStreamResult> {
   const body = JSON.stringify({
     model,
@@ -217,7 +218,7 @@ export async function sendOpenAINonStreaming(
     temperature: options.temperature ?? 0.3
   })
 
-  const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey), body)
+  const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body)
   const msg = extractMessage(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
