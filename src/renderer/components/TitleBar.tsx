@@ -3,6 +3,7 @@ import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil, Se
 import { useAppStore } from '../store/app-store'
 import { DirectoryPicker } from './DirectoryPicker'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
+import { useClickOutside } from '../hooks/useClickOutside'
 
 // TypeScript doesn't include WebkitAppRegion in CSSProperties
 type DragStyle = React.CSSProperties & { WebkitAppRegion: 'drag' | 'no-drag' }
@@ -148,16 +149,7 @@ export function TitleBar() {
   }, [])
 
   // Close project settings popover on outside click
-  useEffect(() => {
-    if (!showProjectSettings) return
-    const handler = (e: MouseEvent) => {
-      if (projSettingsRef.current && !projSettingsRef.current.contains(e.target as Node)) {
-        setShowProjectSettings(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showProjectSettings])
+  useClickOutside(projSettingsRef, () => setShowProjectSettings(false), showProjectSettings)
 
   useEffect(() => {
     if (!menuOpen) return

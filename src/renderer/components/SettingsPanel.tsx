@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds } from '../../shared/models'
 import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
+import { isApiError } from '../../shared/types'
 import { ModalShell } from './ui/primitives'
 import { GeneralTab } from './settings/GeneralTab'
 import { ProvidersTab } from './settings/ProvidersTab'
@@ -12,6 +13,7 @@ import { PromptsTab } from './settings/PromptsTab'
 import { MobileTab } from './settings/MobileTab'
 import { DeveloperTab } from './settings/DeveloperTab'
 import type { ProviderInfo } from './settings/types'
+import { useClickOutside } from '../hooks/useClickOutside'
 
 type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts' | 'developer'
 
@@ -264,15 +266,9 @@ export function SettingsPanel() {
   }, [addToast, setPendingKeyHandoffProvider])
 
   useEffect(() => {
-    if (!showDefaultModelMenu) { setDefaultModelSearch(''); return }
-    const handleClickOutside = (e: MouseEvent) => {
-      if (defaultModelMenuRef.current && !defaultModelMenuRef.current.contains(e.target as Node)) {
-        setShowDefaultModelMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    if (!showDefaultModelMenu) setDefaultModelSearch('')
   }, [showDefaultModelMenu])
+  useClickOutside(defaultModelMenuRef, () => setShowDefaultModelMenu(false), showDefaultModelMenu)
 
   const refreshMobileStatus = useCallback(async () => {
     const status = await window.api.wsStatus()
@@ -680,6 +676,11 @@ export function SettingsPanel() {
     setAndroidLogLines([])
     setActiveAndroidCommand(cmd)
     const result = await window.api.androidStartCommand(cmd)
+    if (isApiError(result)) {
+      addToast(result.error, 'error')
+      setActiveAndroidCommand(null)
+      return
+    }
     setActiveAndroidBuildId(result.buildId)
   }
 

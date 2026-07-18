@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ToastContainer, useToasts, type Toast } from '../../renderer/components/Toast'
+import { ToastContainer } from '../../renderer/components/Toast'
+import type { Toast } from '../../renderer/store/types'
 
 describe('Toast Component', () => {
   it('renders toast messages', () => {
@@ -54,29 +55,5 @@ describe('Toast Component', () => {
     const { container } = render(<ToastContainer toasts={[]} onDismiss={vi.fn()} />)
     const alerts = container.querySelectorAll('[role="alert"]')
     expect(alerts).toHaveLength(0)
-  })
-})
-
-describe('useToasts hook', () => {
-  function TestComponent() {
-    const { toasts, addToast, dismissToast } = useToasts()
-    return (
-      <div>
-        <button onClick={() => addToast('Test message', 'success')}>Add</button>
-        <button onClick={() => toasts[0] && dismissToast(toasts[0].id)}>Dismiss First</button>
-        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      </div>
-    )
-  }
-
-  it('adds and dismisses toasts', async () => {
-    const user = userEvent.setup()
-    render(<TestComponent />)
-
-    expect(screen.queryByText('Test message')).not.toBeInTheDocument()
-    await user.click(screen.getByText('Add'))
-    expect(screen.getByText('Test message')).toBeInTheDocument()
-    await user.click(screen.getByText('Dismiss First'))
-    expect(screen.queryByText('Test message')).not.toBeInTheDocument()
   })
 })

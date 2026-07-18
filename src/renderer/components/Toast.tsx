@@ -1,12 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { Check, X, Info } from 'lucide-react'
-
-export interface Toast {
-  id: string
-  message: string
-  type: 'success' | 'error' | 'info'
-  action?: { label: string; onClick: () => void }
-}
+import type { Toast } from '../store/types'
 
 interface ToastContainerProps {
   toasts: Toast[]
@@ -65,22 +59,4 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       </button>
     </div>
   )
-}
-
-/**
- * Hook for managing toasts. Returns [toasts, addToast, dismissToast].
- */
-export function useToasts() {
-  const [toasts, setToasts] = useState<Toast[]>([])
-
-  const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
-    const id = crypto.randomUUID()
-    setToasts((prev) => [...prev, { id, message, type }])
-  }, [])
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, [])
-
-  return { toasts, addToast, dismissToast }
 }
