@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath, killProcess } from './utils'
+import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker } from './utils'
 
 type ClaudeContentBlock =
   | { type: 'text'; text?: string }
@@ -156,7 +156,6 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
 
       let fullText = ''
-      let buffer = ''
       let stderrText = ''
       // Track whether we received per-token delta events. When true, the final
       // `assistant` message carries the same text and must not be re-emitted.
@@ -172,33 +171,25 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // silently merge into it. Track reasoning as an "open block" instead: it's reused
       // across consecutive thinking events, but any other event in between (text, a tool
       // call) or an explicit end closes it, so the next reasoning burst gets a fresh id.
-      let thinkingBlockSeq = 0
-      let openReasoningBlockId: string | null = null
-      const nextReasoningBlockId = (): string => {
-        if (!openReasoningBlockId) openReasoningBlockId = `thinking-${thinkingBlockSeq++}`
-        return openReasoningBlockId
-      }
-      const interruptReasoning = () => { openReasoningBlockId = null }
+      const reasoningBlocks = createOpenBlockTracker('thinking')
+      const nextReasoningBlockId = (): string => reasoningBlocks.next()
+      const interruptReasoning = () => reasoningBlocks.interrupt()
 
       // Same "open block" tracking as reasoning, but for plain response text — a turn
       // that says something, calls a tool, then says more, produces two separate text
       // bursts so the caller can position them on either side of the tool call instead
       // of concatenating them into one blob shown only once the whole turn is done.
-      let textBlockSeq = 0
-      let openTextBlockId: string | null = null
-      const nextTextBlockId = (): string => {
-        if (!openTextBlockId) openTextBlockId = `text-${textBlockSeq++}`
-        return openTextBlockId
-      }
+      const textBlocks = createOpenBlockTracker('text')
+      const nextTextBlockId = (): string => textBlocks.next()
       // Unlike reasoning, the caller actually needs to know a text block just closed —
       // without an explicit signal, a renderer watching the live stream can't tell "this
       // is the only segment so far, but it's finished" from "this is still being typed",
       // and would wrongly keep deferring an already-closed lead-in sentence to the very
       // end of the turn instead of showing it ahead of the tool call that interrupted it.
       const interruptText = () => {
-        if (!openTextBlockId) return
-        onEvent?.({ type: 'text_end', blockId: openTextBlockId })
-        openTextBlockId = null
+        if (!textBlocks.current) return
+        onEvent?.({ type: 'text_end', blockId: textBlocks.current })
+        textBlocks.interrupt()
       }
 
       proc.stderr?.on('data', (chunk: Buffer) => {
@@ -316,8 +307,8 @@ export const ClaudeAdapter: CliAgentAdapter = {
             // Only fires thinking_end when a reasoning block is actually open — the old
             // index-based lookup fired a (harmless but spurious) thinking_end for every
             // content block's stop event, including text/tool blocks that never opened one.
-            if (openReasoningBlockId) {
-              onEvent?.({ type: 'thinking_end', blockId: openReasoningBlockId })
+            if (reasoningBlocks.current) {
+              onEvent?.({ type: 'thinking_end', blockId: reasoningBlocks.current })
               interruptReasoning()
             }
             // Whatever content block just stopped — text or otherwise — any open text
@@ -329,17 +320,13 @@ export const ClaudeAdapter: CliAgentAdapter = {
         }
       }
 
-      proc.stdout.on('data', (chunk: Buffer) => {
-        buffer += chunk.toString('utf8')
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-        for (const line of lines) parseLine(line)
-      })
+      const lineBuffer = createLineBuffer(parseLine)
+      proc.stdout.on('data', (chunk: Buffer) => lineBuffer.push(chunk))
 
       proc.on('error', reject)
       proc.on('close', (code) => {
-        if (buffer.trim()) {
-          const trimmed = buffer.trim()
+        if (lineBuffer.remainder().trim()) {
+          const trimmed = lineBuffer.remainder().trim()
           try {
             JSON.parse(trimmed)
             parseLine(trimmed)
@@ -349,9 +336,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
             fullText += trimmed
           }
         }
-        if (openReasoningBlockId) {
-          onEvent?.({ type: 'thinking_end', blockId: openReasoningBlockId })
-          openReasoningBlockId = null
+        if (reasoningBlocks.current) {
+          onEvent?.({ type: 'thinking_end', blockId: reasoningBlocks.current })
+          interruptReasoning()
         }
         interruptText()
         for (const id of openToolIds) {

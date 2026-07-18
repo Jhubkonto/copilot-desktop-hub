@@ -5,12 +5,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath, killProcess } from './utils'
-
-function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*m/g, '')
-}
+import { resolveCliPath, killProcess, stripAnsi, createLineBuffer } from './utils'
 
 type TextResult = { text: string; isDelta: boolean }
 type ThinkingResult = { text: string; done?: boolean; isDelta: boolean }
@@ -484,7 +479,6 @@ export const CodexAdapter: CliAgentAdapter = {
 
       let fullText = ''
       let rawStdout = ''
-      let buffer = ''
       let stderrText = ''
       let parsedAnyJson = false
       let receivedDeltas = false
@@ -620,13 +614,10 @@ export const CodexAdapter: CliAgentAdapter = {
         }
       }
 
+      const lineBuffer = createLineBuffer(parseLine)
       proc.stdout.on('data', (chunk: Buffer) => {
-        const text = chunk.toString('utf8')
-        rawStdout += text
-        buffer += text
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-        for (const line of lines) parseLine(line)
+        rawStdout += chunk.toString('utf8')
+        lineBuffer.push(chunk)
       })
 
       proc.on('error', (err) => {
@@ -635,7 +626,7 @@ export const CodexAdapter: CliAgentAdapter = {
       })
 
       proc.on('close', (code) => {
-        if (buffer.trim()) parseLine(buffer)
+        if (lineBuffer.remainder().trim()) parseLine(lineBuffer.remainder())
         cleanup()
 
         if (openReasoningBlockId) {

@@ -29,6 +29,56 @@ export function clearCliPathCache(): void {
   cache.clear()
 }
 
+export function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, '')
+}
+
+/**
+ * Newline-delimited stdout accumulator shared by the CLI adapters' JSONL
+ * streams: buffers partial lines across chunks, emits each complete line,
+ * and exposes the trailing unterminated remainder for close-time handling.
+ */
+export function createLineBuffer(onLine: (line: string) => void) {
+  let buffer = ''
+  return {
+    push(chunk: Buffer | string): void {
+      buffer += chunk.toString()
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) onLine(line)
+    },
+    /** The unterminated tail after the last newline (checked on process close). */
+    remainder(): string {
+      return buffer
+    },
+  }
+}
+
+/**
+ * "Open block" id tracker used for reasoning/text segmentation: `next()` reuses
+ * the current block id across consecutive events of the same kind, while
+ * `interrupt()` closes it so the next event starts a fresh `${prefix}-N` block.
+ * Prevents unrelated bursts (separated by tool calls or other content) from
+ * silently merging under one block id.
+ */
+export function createOpenBlockTracker(prefix: string) {
+  let seq = 0
+  let openId: string | null = null
+  return {
+    next(): string {
+      if (!openId) openId = `${prefix}-${seq++}`
+      return openId
+    },
+    interrupt(): void {
+      openId = null
+    },
+    get current(): string | null {
+      return openId
+    },
+  }
+}
+
 /**
  * Kill a spawned process and its entire process tree.
  * On Windows, cmd.exe wrappers don't propagate SIGTERM to their children,

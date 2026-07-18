@@ -1,13 +1,8 @@
 import { spawnSync } from 'child_process'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath } from './utils'
+import { resolveCliPath, stripAnsi } from './utils'
 import { debugLog } from '../debug-mode'
-
-function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*m/g, '')
-}
 
 function buildPrompt(req: CliAdapterRequest): string {
   const lastMsg = req.messages[req.messages.length - 1]
