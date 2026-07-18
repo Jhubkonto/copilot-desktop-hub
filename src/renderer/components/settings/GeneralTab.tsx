@@ -145,7 +145,7 @@ export function GeneralTab({
       <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
         <div>
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Local voice input</p>
-          <p className="text-xs text-gray-500">Nexy downloads and configures whisper.cpp for you. Audio is never uploaded.</p>
+          <p className="text-xs text-gray-500">Nexy downloads and configures whisper.cpp on Windows and Linux, or installs it through Homebrew on macOS. Audio is never uploaded.</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="primary" onClick={onInstallWhisper} disabled={whisperInstalling} className="rounded-lg">
@@ -155,7 +155,7 @@ export function GeneralTab({
             {whisperReady ? 'Ready' : 'Not installed'}
           </span>
         </div>
-        <p className="text-[11px] text-gray-500">This is a one-time download of the speech engine and English model. No separate setup is required.</p>
+        <p className="text-[11px] text-gray-500">This is a one-time setup of the speech engine and English model. macOS requires Homebrew; manual paths remain available on every platform.</p>
         <button type="button" onClick={() => setShowManualVoiceSetup((shown) => !shown)} className="text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline">
           {showManualVoiceSetup ? 'Hide manual setup' : 'Manual setup (advanced)'}
         </button>

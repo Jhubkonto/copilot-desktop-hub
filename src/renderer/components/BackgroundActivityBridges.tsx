@@ -22,6 +22,7 @@ const activityLabels: Record<BackgroundActivityKind, string> = {
   'automated-workflow-run': 'Running workflow step…',
   'debrief-generation': 'Generating debrief…',
   'quiz-generation': 'Generating quiz…',
+  'teachback-generation': 'Generating teach-back…',
   chat: 'Assistant is responding…',
   build: 'Building…',
   'remote-edit': 'Investigating code change…',

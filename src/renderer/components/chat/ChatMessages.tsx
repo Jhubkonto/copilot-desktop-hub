@@ -12,6 +12,7 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { ThinkingBlock } from './ThinkingBlock'
 import { CodexActionLine } from './CodexActionLine'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
+import { getSupersededPendingArtifactMessageIds, parseArtifactReference } from '../artifacts/artifactReferences'
 import type { ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
@@ -276,6 +277,10 @@ export function ChatMessagesBase({
     [messages, effectiveLiveTurnState],
   )
   const effectiveCliCost = cliCost ?? liveTurnState?.cost ?? null
+  const supersededPendingArtifactMessageIds = useMemo(
+    () => getSupersededPendingArtifactMessageIds(messages),
+    [messages],
+  )
 
   const updateVisibleMessages = useCallback(() => {
     const container = scrollContainerRef?.current
@@ -440,27 +445,25 @@ export function ChatMessagesBase({
             )
           }
 
-          if (main.content.startsWith('__artifact-ref:')) {
-            try {
-              const ref = JSON.parse(main.content.slice('__artifact-ref:'.length)) as {
-                artifactId: string
-                versionId?: string
-                pending?: boolean
-              }
-              return (
-                <div
-                  key={main.id}
-                  ref={registerMessageElement(main.id)}
-                  className="max-w-3xl mx-auto px-4 pb-2 message-enter"
-                  data-message-id={main.id}
-                  data-message-role={main.role}
-                >
-                  <ArtifactCard artifactId={ref.artifactId} versionId={ref.versionId} pending={ref.pending === true} />
-                </div>
-              )
-            } catch {
-              // malformed ref — fall through to normal render
-            }
+          const artifactRef = parseArtifactReference(main.content)
+          if (artifactRef) {
+            if (supersededPendingArtifactMessageIds.has(main.id)) return null
+            return (
+              <div
+                key={main.id}
+                ref={registerMessageElement(main.id)}
+                className="max-w-3xl mx-auto px-4 pb-2 message-enter"
+                data-message-id={main.id}
+                data-message-role={main.role}
+              >
+                <ArtifactCard
+                  artifactId={artifactRef.artifactId}
+                  versionId={artifactRef.versionId}
+                  pending={artifactRef.pending === true}
+                  referencedKind={artifactRef.kind}
+                />
+              </div>
+            )
           }
 
           // Standalone tool-call chain (dangling calls with no assistant message yet —
