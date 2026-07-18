@@ -1,11 +1,9 @@
-import https from 'https'
-import http from 'http'
-import { httpsRequestWithResponse } from '../http-client'
+import { httpsRequestUrl, providerHttpError, parseSseStream } from '../http-client'
 import type { ProviderNonStreamResult, ToolCallResult, ToolChoice, ToolDefinition } from '../provider-types'
 import type { ProviderMessage } from '../provider-core-types'
-import { activeStreamingRequests, incrementFallbackCounter } from '../provider-stream-state'
 import { toAnthropicContent, toAnthropicMessages } from '../provider-messages'
 import type { AnthropicContentBlock } from '../provider-messages'
+import { runStreamingRequest, rejectHttpError } from './streaming'
 import { debugLog } from '../debug-mode'
 
 interface AnthropicTool {
@@ -14,16 +12,26 @@ interface AnthropicTool {
   input_schema: Record<string, unknown>
 }
 
-function httpsRequest(
-  url: string,
-  options: https.RequestOptions,
-  body: string
-): Promise<{ status: number; data: string }> {
-  const urlObj = new URL(url)
-  return httpsRequestWithResponse(
-    { hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, ...options },
-    body
-  )
+const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+
+const THINKING_BUDGET_MAP: Record<string, number> = { low: 2000, medium: 8000, high: 16000, max: 32000 }
+
+function anthropicHeaders(apiKey: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+  }
+}
+
+/** Enables extended thinking on the request body when the effort + model support it. */
+function applyThinkingBudget(bodyObj: Record<string, unknown>, model: string, thinkingEffort?: string): void {
+  if (!thinkingEffort || thinkingEffort === 'disabled' || !supportsExtendedThinking(model)) return
+  const budget = THINKING_BUDGET_MAP[thinkingEffort]
+  if (budget) {
+    bodyObj.thinking = { type: 'enabled', budget_tokens: budget }
+    bodyObj.temperature = 1
+  }
 }
 
 export function toAnthropicTools(
@@ -92,41 +100,25 @@ export async function sendAnthropicWithTools(
     bodyObj.tools = anthropicTools
     bodyObj.tool_choice = toolChoiceParam
   }
-  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsExtendedThinking(model)) {
-    const budgetMap: Record<string, number> = { low: 2000, medium: 8000, high: 16000, max: 32000 }
-    const budget = budgetMap[options.thinkingEffort]
-    if (budget) {
-      bodyObj.thinking = { type: 'enabled', budget_tokens: budget }
-      bodyObj.temperature = 1
-    }
-  }
+  applyThinkingBudget(bodyObj, model, options.thinkingEffort)
 
   const body = JSON.stringify(bodyObj)
   const thinkingEnabled = !!(bodyObj.thinking)
   const thinkingBudget = thinkingEnabled ? (bodyObj.thinking as { budget_tokens?: number })?.budget_tokens : undefined
   debugLog('anthropic', `withTools: model=${model} tools=${tools.length} thinking=${thinkingEnabled}${thinkingBudget ? ` budget=${thinkingBudget}` : ''} keyLen=${apiKey.length}`)
-  const { status, data } = await httpsRequest(
-    'https://api.anthropic.com/v1/messages',
+  const { status, data } = await httpsRequestUrl(
+    ANTHROPIC_MESSAGES_URL,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Length': String(Buffer.byteLength(body))
-      }
+      headers: { ...anthropicHeaders(apiKey), 'Content-Length': String(Buffer.byteLength(body)) }
     },
     body
   )
 
   if (status >= 400) {
-    let message = `Anthropic API error (HTTP ${status})`
-    try {
-      const parsed = JSON.parse(data)
-      if (parsed.error?.message) message = parsed.error.message
-    } catch { /* use default */ }
-    debugLog('anthropic', `withTools error: HTTP ${status} model=${model} message="${message}"`)
-    throw new Error(message)
+    const err = providerHttpError('Anthropic', status, data)
+    debugLog('anthropic', `withTools error: HTTP ${status} model=${model} message="${err.message}"`)
+    throw err
   }
   debugLog('anthropic', `withTools: HTTP ${status} model=${model}`)
 
@@ -184,110 +176,58 @@ export async function sendAnthropicMessage(
     ...(systemPrompt ? { system: systemPrompt } : {}),
     messages: anthropicMessages
   }
-  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsExtendedThinking(model)) {
-    const budgetMap: Record<string, number> = { low: 2000, medium: 8000, high: 16000, max: 32000 }
-    const budget = budgetMap[options.thinkingEffort]
-    if (budget) {
-      bodyObj.thinking = { type: 'enabled', budget_tokens: budget }
-      bodyObj.temperature = 1
-    }
-  }
+  applyThinkingBudget(bodyObj, model, options.thinkingEffort)
   const body = JSON.stringify(bodyObj)
   const streamThinkingEnabled = !!(bodyObj.thinking)
   const streamThinkingBudget = streamThinkingEnabled ? (bodyObj.thinking as { budget_tokens?: number })?.budget_tokens : undefined
   debugLog('anthropic', `stream: model=${model} thinking=${streamThinkingEnabled}${streamThinkingBudget ? ` budget=${streamThinkingBudget}` : ''} msgs=${messages.length} keyLen=${apiKey.length}`)
 
-  return new Promise((resolve, reject) => {
-    const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
-    const cleanupActiveRequest = (req: http.ClientRequest) => {
-      if (activeStreamingRequests.get(requestId) === req) {
-        activeStreamingRequests.delete(requestId)
-      }
+  return runStreamingRequest(conversationId, ANTHROPIC_MESSAGES_URL, anthropicHeaders(apiKey), body, (res, finish) => {
+    if (res.statusCode && res.statusCode >= 400) {
+      rejectHttpError(res, finish, (errBody) => {
+        const err = providerHttpError('Anthropic', res.statusCode, errBody)
+        debugLog('anthropic', `stream error: HTTP ${res.statusCode} model=${model} message="${err.message}"`)
+        return err
+      })
+      return
     }
-    const urlObj = new URL('https://api.anthropic.com/v1/messages')
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Length': Buffer.byteLength(body)
+    debugLog('anthropic', `stream: HTTP ${res.statusCode} model=${model} — receiving chunks`)
+
+    let fullContent = ''
+    let activeThinkingBlockId: string | null = null
+
+    parseSseStream(res, (data) => {
+      try {
+        const parsed = JSON.parse(data) as Record<string, unknown>
+        if (
+          parsed.type === 'content_block_start' &&
+          (parsed.content_block as Record<string, unknown> | undefined)?.type === 'thinking'
+        ) {
+          activeThinkingBlockId = `thinking-${parsed.index as number ?? 0}`
         }
-      },
-      (res) => {
-        if (res.statusCode && res.statusCode >= 400) {
-          let errBody = ''
-          res.on('data', (chunk: Buffer) => { errBody += chunk.toString() })
-          res.on('end', () => {
-            cleanupActiveRequest(req)
-            let message = `Anthropic API error (HTTP ${res.statusCode})`
-            try {
-              const parsed = JSON.parse(errBody)
-              if (parsed.error?.message) message = parsed.error.message
-            } catch { /* use default */ }
-            debugLog('anthropic', `stream error: HTTP ${res.statusCode} model=${model} message="${message}"`)
-            reject(new Error(message))
-          })
-          return
+        if (parsed.type === 'content_block_stop' && activeThinkingBlockId) {
+          options.onThinkingEnd?.(activeThinkingBlockId)
+          activeThinkingBlockId = null
         }
-        debugLog('anthropic', `stream: HTTP ${res.statusCode} model=${model} — receiving chunks`)
-
-        let fullContent = ''
-        let buffer = ''
-        let activeThinkingBlockId: string | null = null
-
-        res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString()
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed.startsWith('data: ')) continue
-            const data = trimmed.slice(6)
-
-            try {
-              const parsed = JSON.parse(data) as Record<string, unknown>
-              if (
-                parsed.type === 'content_block_start' &&
-                (parsed.content_block as Record<string, unknown> | undefined)?.type === 'thinking'
-              ) {
-                activeThinkingBlockId = `thinking-${parsed.index as number ?? 0}`
-              }
-              if (parsed.type === 'content_block_stop' && activeThinkingBlockId) {
-                options.onThinkingEnd?.(activeThinkingBlockId)
-                activeThinkingBlockId = null
-              }
-              if (parsed.type === 'content_block_delta') {
-                const delta = parsed.delta as Record<string, unknown> | undefined
-                if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string' && activeThinkingBlockId) {
-                  options.onThinkingChunk?.(activeThinkingBlockId, delta.thinking)
-                } else if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
-                  fullContent += delta.text
-                  onChunk(delta.text)
-                } else if (typeof (parsed.delta as Record<string, unknown> | undefined)?.text === 'string') {
-                  // fallback: older delta format without explicit type
-                  const text = (parsed.delta as { text: string }).text
-                  fullContent += text
-                  onChunk(text)
-                }
-              }
-            } catch {
-              // Skip malformed chunks
-            }
+        if (parsed.type === 'content_block_delta') {
+          const delta = parsed.delta as Record<string, unknown> | undefined
+          if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string' && activeThinkingBlockId) {
+            options.onThinkingChunk?.(activeThinkingBlockId, delta.thinking)
+          } else if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+            fullContent += delta.text
+            onChunk(delta.text)
+          } else if (typeof (parsed.delta as Record<string, unknown> | undefined)?.text === 'string') {
+            // fallback: older delta format without explicit type
+            const text = (parsed.delta as { text: string }).text
+            fullContent += text
+            onChunk(text)
           }
-        })
-
-        res.on('end', () => { cleanupActiveRequest(req); resolve(fullContent) })
-        res.on('error', (err) => { cleanupActiveRequest(req); reject(err) })
+        }
+      } catch {
+        // Skip malformed chunks
       }
-    )
-    req.on('error', (err) => { cleanupActiveRequest(req); reject(err) })
-    activeStreamingRequests.set(requestId, req)
-    req.write(body)
-    req.end()
+    })
+      .then(() => finish.resolve(fullContent))
+      .catch((err: Error) => finish.reject(err))
   })
 }

@@ -1,27 +1,175 @@
-import https from 'https'
-import http from 'http'
-import { parseSseStream, httpsRequestWithResponse } from '../http-client'
+import { parseSseStream, httpsRequestUrl, providerHttpError } from '../http-client'
 import type { ProviderNonStreamResult, ToolCallResult, ToolChoice, ToolDefinition } from '../provider-types'
 import type { ProviderMessage } from '../provider-core-types'
-import { activeStreamingRequests, incrementFallbackCounter } from '../provider-stream-state'
 import { toOpenAICompatibleMessages } from '../provider-messages'
+import { runStreamingRequest, rejectHttpError } from './streaming'
 import { debugLog } from '../debug-mode'
-
-function httpsRequest(
-  url: string,
-  options: https.RequestOptions,
-  body: string
-): Promise<{ status: number; data: string }> {
-  const urlObj = new URL(url)
-  return httpsRequestWithResponse(
-    { hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, ...options },
-    body
-  )
-}
 
 // Returns true for OpenAI o-series and compatible reasoning models.
 function supportsReasoningEffort(model: string): boolean {
   return /^o\d|\/o\d|[/-]o1[^a-z]|[/-]o3[^a-z]|[/-]o4[^a-z]/i.test(model)
+}
+
+const REASONING_EFFORT_MAP: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', max: 'high' }
+
+function applyReasoningEffort(bodyObj: Record<string, unknown>, model: string, thinkingEffort?: string): void {
+  if (!thinkingEffort || thinkingEffort === 'disabled' || !supportsReasoningEffort(model)) return
+  const effort = REASONING_EFFORT_MAP[thinkingEffort]
+  if (effort) bodyObj.reasoning_effort = effort
+}
+
+/** One OpenAI-compatible chat-completions endpoint: OpenAI itself, a baseUrl-compatible provider, or Azure. */
+interface ChatEndpoint {
+  label: string
+  url: string
+  headers: Record<string, string>
+}
+
+const AZURE_API_VERSION = '2024-02-01'
+
+function openAiEndpoint(apiKey: string, baseUrl?: string): ChatEndpoint {
+  return {
+    label: baseUrl ? 'OpenAI-compatible' : 'OpenAI',
+    url: `${baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+  }
+}
+
+function azureEndpoint(apiKey: string, endpoint: string, deployment: string): ChatEndpoint {
+  return {
+    label: 'Azure',
+    url: `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${AZURE_API_VERSION}`,
+    headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+  }
+}
+
+/** POSTs a non-streaming chat-completions body and returns the parsed JSON, throwing on HTTP errors. */
+async function chatCompletionsRequest(endpoint: ChatEndpoint, body: string): Promise<Record<string, unknown>> {
+  const { status, data } = await httpsRequestUrl(
+    endpoint.url,
+    {
+      method: 'POST',
+      headers: { ...endpoint.headers, 'Content-Length': String(Buffer.byteLength(body)) },
+    },
+    body,
+  )
+  if (status >= 400) {
+    const err = providerHttpError(endpoint.label, status, data)
+    debugLog('openai', `request error: HTTP ${status} url=${endpoint.url} message="${err.message}"`)
+    throw err
+  }
+  return JSON.parse(data)
+}
+
+function extractToolCalls(msg: Record<string, unknown> | undefined): ToolCallResult[] {
+  const rawCalls = (msg?.tool_calls ?? []) as Array<{ id: string; function: { name: string; arguments: string } }>
+  return rawCalls.map((tc) => ({
+    id: tc.id,
+    name: tc.function.name,
+    arguments: (() => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })(),
+  }))
+}
+
+function extractMessage(parsed: Record<string, unknown>): Record<string, unknown> | undefined {
+  const choices = parsed.choices as Array<{ message?: Record<string, unknown> }> | undefined
+  return choices?.[0]?.message
+}
+
+interface StreamOptions {
+  onThinkingChunk?: (blockId: string, chunk: string) => void
+  onThinkingEnd?: (blockId: string) => void
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+}
+
+/**
+ * Shared streaming response handler for every OpenAI-compatible endpoint:
+ * HTTP-error rejection, non-SSE fallback (some providers ignore stream:true),
+ * reasoning deltas, usage reporting, and empty-stop detection.
+ */
+function streamChatCompletions(
+  conversationId: string,
+  endpoint: ChatEndpoint,
+  body: string,
+  onChunk: (chunk: string) => void,
+  options: StreamOptions = {},
+): Promise<string> {
+  return runStreamingRequest(conversationId, endpoint.url, endpoint.headers, body, (res, finish) => {
+    let fullContent = ''
+    const contentType = res.headers['content-type'] ?? ''
+    debugLog('openai', `stream: HTTP ${res.statusCode} url=${endpoint.url} contentType="${contentType.split(';')[0]}"`)
+
+    if (res.statusCode && res.statusCode >= 400) {
+      rejectHttpError(res, finish, (errBody) => {
+        const err = providerHttpError(endpoint.label, res.statusCode, errBody)
+        debugLog('openai', `stream error: HTTP ${res.statusCode} url=${endpoint.url} message="${err.message}"`)
+        return err
+      })
+      return
+    }
+
+    if (!contentType.includes('text/event-stream')) {
+      // Non-streaming response (some providers ignore stream:true).
+      // Collect the full body and extract content normally.
+      let rawBody = ''
+      res.on('data', (chunk: Buffer) => { rawBody += chunk.toString() })
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(rawBody)
+          const content = parsed.choices?.[0]?.message?.content
+          if (content) { fullContent = content; onChunk(content) }
+        } catch { /* malformed */ }
+        finish.resolve(fullContent)
+      })
+      res.on('error', (err: Error) => finish.reject(err))
+      return
+    }
+
+    let sawEmptyStop = false
+    let reasoningBlockOpen = false
+    parseSseStream(res, (data) => {
+      try {
+        const parsed = JSON.parse(data)
+        const usage = parsed.usage
+        if (usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number') {
+          options.onUsage?.({ inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens })
+        }
+        const choice = parsed.choices?.[0]
+        const delta = choice?.delta
+        const finishReason = choice?.finish_reason
+        const textContent = delta?.content ?? choice?.message?.content
+        const reasoning = delta?.reasoning ?? delta?.reasoning_content
+        if (reasoning && typeof reasoning === 'string') {
+          reasoningBlockOpen = true
+          options.onThinkingChunk?.('reasoning-0', reasoning)
+        }
+        if (textContent) {
+          if (reasoningBlockOpen) {
+            options.onThinkingEnd?.('reasoning-0')
+            reasoningBlockOpen = false
+          }
+          fullContent += textContent
+          onChunk(textContent)
+        }
+        if (!textContent && finishReason === 'stop') {
+          if (reasoningBlockOpen) {
+            options.onThinkingEnd?.('reasoning-0')
+            reasoningBlockOpen = false
+          }
+          sawEmptyStop = true
+        }
+      } catch {
+        // Skip malformed chunks
+      }
+    })
+      .then(() => {
+        if (fullContent === '' && sawEmptyStop) {
+          finish.reject(new Error('The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'))
+          return
+        }
+        finish.resolve(fullContent)
+      })
+      .catch((err: Error) => finish.reject(err))
+  })
 }
 
 export async function sendOpenAIMessage(
@@ -48,125 +196,11 @@ export async function sendOpenAIMessage(
     max_tokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7,
   }
-  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsReasoningEffort(model)) {
-    const effortMap: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', max: 'high' }
-    const effort = effortMap[options.thinkingEffort]
-    if (effort) bodyObj.reasoning_effort = effort
-  }
+  applyReasoningEffort(bodyObj, model, options.thinkingEffort)
   const body = JSON.stringify(bodyObj)
   debugLog('openai', `stream: model=${model} baseUrl=${baseUrl ?? 'openai-default'} reasoningEffort=${bodyObj.reasoning_effort ?? 'none'} msgs=${messages.length} keyLen=${apiKey.length}`)
 
-  return new Promise((resolve, reject) => {
-    const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
-    const cleanupActiveRequest = (req: http.ClientRequest) => {
-      if (activeStreamingRequests.get(requestId) === req) {
-        activeStreamingRequests.delete(requestId)
-      }
-    }
-    const urlObj = new URL(`${baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`)
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Length': Buffer.byteLength(body)
-        }
-      },
-      (res) => {
-        let fullContent = ''
-        const contentType = res.headers['content-type'] ?? ''
-        debugLog('openai', `stream: HTTP ${res.statusCode} model=${model} contentType="${contentType.split(';')[0]}"`)
-
-        if (res.statusCode && res.statusCode >= 400) {
-          let errBody = ''
-          res.on('data', (chunk: Buffer) => { errBody += chunk.toString() })
-          res.on('end', () => {
-            let message = `OpenAI-compatible API error (HTTP ${res.statusCode})`
-            try {
-              const parsed = JSON.parse(errBody)
-              if (parsed.error?.message) message = parsed.error.message
-            } catch { /* use default */ }
-            debugLog('openai', `stream error: HTTP ${res.statusCode} model=${model} baseUrl=${baseUrl ?? 'openai-default'} message="${message}"`)
-            cleanupActiveRequest(req)
-            reject(new Error(message))
-          })
-          return
-        }
-
-        if (!contentType.includes('text/event-stream')) {
-          // Non-streaming response (some providers ignore stream:true).
-          // Collect the full body and extract content normally.
-          let body = ''
-          res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(body)
-              const content = parsed.choices?.[0]?.message?.content
-              if (content) { fullContent = content; onChunk(content) }
-            } catch { /* malformed */ }
-            cleanupActiveRequest(req)
-            resolve(fullContent)
-          })
-          res.on('error', (err: Error) => { cleanupActiveRequest(req); reject(err) })
-          return
-        }
-
-        let sawEmptyStop = false
-        let reasoningBlockOpen = false
-        parseSseStream(res, (data) => {
-          try {
-            const parsed = JSON.parse(data)
-            const usage = parsed.usage
-            if (usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number') {
-              options.onUsage?.({ inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens })
-            }
-            const choice = parsed.choices?.[0]
-            const delta = choice?.delta
-            const finishReason = choice?.finish_reason
-            const textContent = delta?.content ?? choice?.message?.content
-            const reasoning = delta?.reasoning ?? delta?.reasoning_content
-            if (reasoning && typeof reasoning === 'string') {
-              reasoningBlockOpen = true
-              options.onThinkingChunk?.('reasoning-0', reasoning)
-            }
-            if (textContent) {
-              if (reasoningBlockOpen) {
-                options.onThinkingEnd?.('reasoning-0')
-                reasoningBlockOpen = false
-              }
-              fullContent += textContent
-              onChunk(textContent)
-            }
-            if (!textContent && finishReason === 'stop') {
-              if (reasoningBlockOpen) {
-                options.onThinkingEnd?.('reasoning-0')
-                reasoningBlockOpen = false
-              }
-              sawEmptyStop = true
-            }
-          } catch {
-            // Skip malformed chunks
-          }
-        })
-          .then(() => {
-            cleanupActiveRequest(req)
-            if (fullContent === '' && sawEmptyStop) {
-              reject(new Error('The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'))
-              return
-            }
-            resolve(fullContent)
-          })
-          .catch((err: Error) => { cleanupActiveRequest(req); reject(err) })
-      }
-    )
-    req.on('error', (err) => { cleanupActiveRequest(req); reject(err) })
-    activeStreamingRequests.set(requestId, req)
-    req.write(body)
-    req.end()
-  })
+  return streamChatCompletions(conversationId, openAiEndpoint(apiKey, baseUrl), body, onChunk, options)
 }
 
 export async function sendOpenAINonStreaming(
@@ -183,30 +217,8 @@ export async function sendOpenAINonStreaming(
     temperature: options.temperature ?? 0.3
   })
 
-  const { status, data } = await httpsRequest(
-    'https://api.openai.com/v1/chat/completions',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Length': String(Buffer.byteLength(body))
-      }
-    },
-    body
-  )
-
-  if (status >= 400) {
-    let message = `OpenAI API error (HTTP ${status})`
-    try {
-      const parsed = JSON.parse(data)
-      if (parsed.error?.message) message = parsed.error.message
-    } catch { /* use default */ }
-    throw new Error(message)
-  }
-
-  const parsed = JSON.parse(data)
-  const msg = parsed.choices?.[0]?.message
+  const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey), body)
+  const msg = extractMessage(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
     toolCalls: []
@@ -233,48 +245,15 @@ export async function sendOpenAIWithTools(
     bodyObj.tools = tools
     bodyObj.tool_choice = toolChoice
   }
-  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsReasoningEffort(model)) {
-    const effortMap: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', max: 'high' }
-    const effort = effortMap[options.thinkingEffort]
-    if (effort) bodyObj.reasoning_effort = effort
-  }
+  applyReasoningEffort(bodyObj, model, options.thinkingEffort)
   const body = JSON.stringify(bodyObj)
-  const url = baseUrl ? `${baseUrl}/chat/completions` : 'https://api.openai.com/v1/chat/completions'
   debugLog('openai', `withTools: model=${model} baseUrl=${baseUrl ?? 'openai-default'} tools=${tools.length} toolChoice=${toolChoice} keyLen=${apiKey.length}`)
-  const { status, data } = await httpsRequest(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Length': String(Buffer.byteLength(body))
-      }
-    },
-    body
-  )
-  if (status >= 400) {
-    let message = `OpenAI API error (HTTP ${status})`
-    try {
-      const parsed = JSON.parse(data)
-      if (parsed.error?.message) message = parsed.error.message
-    } catch { /* use default */ }
-    debugLog('openai', `withTools error: HTTP ${status} model=${model} baseUrl=${baseUrl ?? 'openai-default'} message="${message}"`)
-    throw new Error(message)
-  }
-  debugLog('openai', `withTools: HTTP ${status} model=${model}`)
-  const parsed = JSON.parse(data)
-  const msg = parsed.choices?.[0]?.message
-  const toolCalls: ToolCallResult[] = (msg?.tool_calls ?? []).map(
-    (tc: { id: string; function: { name: string; arguments: string } }) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: (() => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })()
-    })
-  )
+
+  const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body)
+  const msg = extractMessage(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls
+    toolCalls: extractToolCalls(msg)
   }
 }
 
@@ -287,55 +266,13 @@ export async function sendAzureMessage(
   onChunk: (chunk: string) => void,
   options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
-  const apiVersion = '2024-02-01'
-  const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
   const body = JSON.stringify({
     messages,
     stream: true,
     max_tokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7
   })
-
-  return new Promise((resolve, reject) => {
-    const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
-    const cleanupActiveRequest = (req: http.ClientRequest) => {
-      if (activeStreamingRequests.get(requestId) === req) {
-        activeStreamingRequests.delete(requestId)
-      }
-    }
-    const urlObj = new URL(url)
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname + urlObj.search,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': apiKey,
-          'Content-Length': Buffer.byteLength(body)
-        }
-      },
-      (res) => {
-        let fullContent = ''
-
-        parseSseStream(res, (data) => {
-          try {
-            const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content
-            if (delta) { fullContent += delta; onChunk(delta) }
-          } catch {
-            // Skip malformed chunks
-          }
-        })
-          .then(() => { cleanupActiveRequest(req); resolve(fullContent) })
-          .catch((err: Error) => { cleanupActiveRequest(req); reject(err) })
-      }
-    )
-    req.on('error', (err) => { cleanupActiveRequest(req); reject(err) })
-    activeStreamingRequests.set(requestId, req)
-    req.write(body)
-    req.end()
-  })
+  return streamChatCompletions(conversationId, azureEndpoint(apiKey, endpoint, deployment), body, onChunk)
 }
 
 export async function sendAzureNonStreaming(
@@ -345,8 +282,6 @@ export async function sendAzureNonStreaming(
   messages: ProviderMessage[],
   options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<ProviderNonStreamResult> {
-  const apiVersion = '2024-02-01'
-  const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
   const body = JSON.stringify({
     messages: toOpenAICompatibleMessages(messages),
     stream: false,
@@ -354,30 +289,8 @@ export async function sendAzureNonStreaming(
     temperature: options.temperature ?? 0.3
   })
 
-  const { status, data } = await httpsRequest(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': apiKey,
-        'Content-Length': String(Buffer.byteLength(body))
-      }
-    },
-    body
-  )
-
-  if (status >= 400) {
-    let message = `Azure API error (HTTP ${status})`
-    try {
-      const parsed = JSON.parse(data)
-      if (parsed.error?.message) message = parsed.error.message
-    } catch { /* use default */ }
-    throw new Error(message)
-  }
-
-  const parsed = JSON.parse(data)
-  const msg = parsed.choices?.[0]?.message
+  const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body)
+  const msg = extractMessage(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
     toolCalls: []
@@ -393,8 +306,6 @@ export async function sendAzureWithTools(
   toolChoice: ToolChoice,
   options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<ProviderNonStreamResult> {
-  const apiVersion = '2024-02-01'
-  const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
   const bodyObj: Record<string, unknown> = {
     messages: toOpenAICompatibleMessages(messages),
     stream: false,
@@ -407,39 +318,10 @@ export async function sendAzureWithTools(
   }
   const body = JSON.stringify(bodyObj)
 
-  const { status, data } = await httpsRequest(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': apiKey,
-        'Content-Length': String(Buffer.byteLength(body))
-      }
-    },
-    body
-  )
-
-  if (status >= 400) {
-    let message = `Azure API error (HTTP ${status})`
-    try {
-      const parsed = JSON.parse(data)
-      if (parsed.error?.message) message = parsed.error.message
-    } catch { /* use default */ }
-    throw new Error(message)
-  }
-
-  const parsed = JSON.parse(data)
-  const msg = parsed.choices?.[0]?.message
-  const toolCalls: ToolCallResult[] = (msg?.tool_calls ?? []).map(
-    (tc: { id: string; function: { name: string; arguments: string } }) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: (() => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })()
-    })
-  )
+  const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body)
+  const msg = extractMessage(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls
+    toolCalls: extractToolCalls(msg)
   }
 }

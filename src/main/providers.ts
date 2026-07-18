@@ -1,7 +1,6 @@
-import https from 'https'
 import { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
-import { httpsRequestWithResponse } from './http-client'
+import { httpsRequestUrl as httpsRequest } from './http-client'
 import { broadcastToMobile } from './ws-server'
 import {
   storeApiKey,
@@ -12,6 +11,7 @@ import {
   setAzureEndpoint,
 } from './provider-secrets'
 import { fetchAndCacheAnthropicModels } from './anthropic-models'
+import { debugLog } from './debug-mode'
 import { PROVIDERS, getProviderForAgent, isProviderConfigured, DEFAULT_PROVIDER_MODEL } from './provider-registry'
 import { abortActiveStream, activeStreamingRequests } from './provider-stream-state'
 
@@ -53,24 +53,49 @@ export {
 export { sendAnthropicMessage, sendAnthropicWithTools } from './providers/anthropic-provider'
 export { sendProviderWithTools, sendProviderNonStreaming } from './provider-tools'
 
-import type { ProviderName } from './provider-core-types'
+import type { ProviderName, ProviderMessage } from './provider-core-types'
+import { sendOpenAIMessage, sendAzureMessage } from './providers/openai-provider'
+import { sendAnthropicMessage } from './providers/anthropic-provider'
+
 export function getApiKey(provider: ProviderName): string | null {
   return retrieveApiKey(provider)
 }
 
-// ---- IPC handlers ----
-function httpsRequest(
-  url: string,
-  options: https.RequestOptions,
-  body: string
-): Promise<{ status: number; data: string }> {
-  const urlObj = new URL(url)
-  return httpsRequestWithResponse(
-    { hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, ...options },
-    body
-  )
+/**
+ * Simple streaming dispatch shared by callers that just need "stream one turn
+ * from whatever provider this model maps to": openai → anthropic →
+ * OpenAI-compatible baseUrl → Azure. The richer chat path (tool loops,
+ * thinking-effort gating) stays in chat-provider-dispatch.ts.
+ */
+export function streamProviderMessage(
+  provider: ProviderName,
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  requestId: string,
+  onChunk: (chunk: string) => void,
+  generationOptions: { temperature: number; maxTokens: number },
+): Promise<string> {
+  if (provider === 'openai') {
+    return sendOpenAIMessage(requestId, apiKey, model, messages, onChunk, generationOptions)
+  }
+  if (provider === 'anthropic') {
+    const sys = messages.find((m) => m.role === 'system')
+    const systemPrompt = sys && typeof sys.content === 'string' ? sys.content : undefined
+    return sendAnthropicMessage(requestId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemPrompt, onChunk, generationOptions)
+  }
+  const providerCfg = PROVIDERS.find((p) => p.name === provider)
+  if (providerCfg?.baseUrl) {
+    return sendOpenAIMessage(requestId, apiKey, model, messages, onChunk, generationOptions, providerCfg.baseUrl)
+  }
+  const endpoint = getAzureEndpoint()
+  if (!endpoint) {
+    throw new Error('Azure endpoint not configured')
+  }
+  return sendAzureMessage(requestId, apiKey, endpoint, model, messages, onChunk, generationOptions)
 }
 
+// ---- IPC handlers ----
 export function registerProviderHandlers(): void {
   safeHandle('provider:list', () => {
     return PROVIDERS.map((p) => ({
@@ -155,7 +180,11 @@ export async function testProviderKey(provider: string, key: string, endpoint?: 
           })
         )
         const valid = result.status !== 401
-        if (valid) fetchAndCacheAnthropicModels(key).catch(() => {})
+        if (valid) {
+          fetchAndCacheAnthropicModels(key).catch((err: Error) => {
+            debugLog('provider', `anthropic model-catalog refresh failed: ${err.message}`)
+          })
+        }
         return { valid }
       } else if (provider === 'azure') {
         if (!endpoint) return { valid: false, error: 'Azure endpoint is required' }
