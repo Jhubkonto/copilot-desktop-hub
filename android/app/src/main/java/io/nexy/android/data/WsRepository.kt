@@ -79,6 +79,11 @@ fun standaloneModeTransition(prefer: Boolean, wasStandalone: Boolean): Standalon
 
 object WsRepository : WsClient {
 
+    private const val WS_LOG_TAG = "NexyWs"
+    // Desktop close-code protocol (ws-server.ts): unauthorized vs token regenerated / re-pair.
+    private const val WS_CLOSE_UNAUTHORIZED = 4001
+    private const val WS_CLOSE_TOKEN_REGENERATED = 4002
+
     private val STANDALONE_MODELS = listOf(
         ModelOption("claude-sonnet-4-6", "Claude Sonnet 4.6", "Anthropic"),
         ModelOption("claude-opus-4-6", "Claude Opus 4.6", "Anthropic"),
@@ -1025,6 +1030,7 @@ object WsRepository : WsClient {
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     synchronized(loserLock) { if (losers.contains(webSocket)) return }
+                    android.util.Log.w(WS_LOG_TAG, "candidate $wsUrl failed: ${t.message}", t)
                     _lastError.value = t.message
                     if (!winner.get() && failCount.incrementAndGet() == candidateCount) {
                         _connectionState.value = ConnectionState.DISCONNECTED
@@ -1035,9 +1041,7 @@ object WsRepository : WsClient {
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     synchronized(loserLock) { if (losers.contains(webSocket)) return }
                     if (!winner.get()) return
-                    _connectionState.value = ConnectionState.DISCONNECTED
-                    val intentional = _intentionalRestartExpected.compareAndSet(expect = true, update = false)
-                    if ((code != 4001 && code != 4002) || intentional) scheduleReconnect()
+                    handleSocketClosed(code)
                 }
             })
         }
@@ -1057,17 +1061,25 @@ object WsRepository : WsClient {
             override fun onOpen(webSocket: WebSocket, response: Response) = onWsOpen(webSocket)
             override fun onMessage(webSocket: WebSocket, text: String) = onWsMessage(text)
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                android.util.Log.w(WS_LOG_TAG, "connection to $wsUrl failed: ${t.message}", t)
                 _lastError.value = t.message
                 _connectionState.value = ConnectionState.DISCONNECTED
                 scheduleReconnect()
             }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = ConnectionState.DISCONNECTED
-                val intentional = _intentionalRestartExpected.compareAndSet(expect = true, update = false)
-                if ((code != 4001 && code != 4002) || intentional) scheduleReconnect()
-            }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = handleSocketClosed(code)
         })
         return true
+    }
+
+    /**
+     * Shared close-code policy for both connect paths: 4001 (unauthorized) and 4002
+     * (token regenerated — re-pair required) must NOT auto-reconnect, except when the
+     * close was part of an intentional desktop restart we were told to expect.
+     */
+    private fun handleSocketClosed(code: Int) {
+        _connectionState.value = ConnectionState.DISCONNECTED
+        val intentional = _intentionalRestartExpected.compareAndSet(expect = true, update = false)
+        if ((code != WS_CLOSE_UNAUTHORIZED && code != WS_CLOSE_TOKEN_REGENERATED) || intentional) scheduleReconnect()
     }
 
     private fun onWsOpen(webSocket: WebSocket) {
@@ -1494,13 +1506,23 @@ object WsRepository : WsClient {
         if (_connectionState.value != ConnectionState.CONNECTED || command.startsWith("settings:")) {
             if (handleLocalCommand(command, data)) return
         }
-        val token = currentToken ?: return
+        val socket = ws
+        val token = currentToken
+        // Queue-or-fail instead of silently dropping: a command fired during a brief
+        // reconnect used to no-op here (ws == null), leaving generator UIs stuck in
+        // isLoading forever. Queue it and kick a reconnect so it flushes on reopen.
+        if (socket == null || token == null || _connectionState.value != ConnectionState.CONNECTED) {
+            android.util.Log.d(WS_LOG_TAG, "queuing '$command' while disconnected")
+            synchronized(pendingCommands) { pendingCommands.add(command to data) }
+            if (_connectionState.value == ConnectionState.DISCONNECTED) connectFromStore()
+            return
+        }
         val obj = JSONObject()
         obj.put("token", token)
         obj.put("command", command)
         obj.put("data", mapToJson(data))
         registerGeneratorActivityForCommand(command)
-        ws?.send(obj.toString())
+        socket.send(obj.toString())
     }
 
     /**

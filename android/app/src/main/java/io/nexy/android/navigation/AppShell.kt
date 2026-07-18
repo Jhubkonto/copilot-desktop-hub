@@ -1,5 +1,6 @@
 package io.nexy.android.navigation
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -18,7 +19,7 @@ fun AppShell(
     pendingDeeplink: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
     val navController = rememberNavController()
-    val backgroundActivities by BackgroundActivityTracker.activities.collectAsState()
+    val backgroundActivities by BackgroundActivityTracker.activities.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavGraph(

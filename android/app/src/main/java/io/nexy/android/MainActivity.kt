@@ -1,5 +1,6 @@
 package io.nexy.android
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -34,7 +35,7 @@ class MainActivity : ComponentActivity() {
         pendingDeeplink.value = intent?.getStringExtra("deeplink")
         enableEdgeToEdge()
         setContent {
-            val themePreference by ThemePreferenceStore.themePreference.collectAsState()
+            val themePreference by ThemePreferenceStore.themePreference.collectAsStateWithLifecycle()
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (themePreference) {
                 ThemePreference.System -> systemDark
