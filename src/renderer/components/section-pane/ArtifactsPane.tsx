@@ -4,6 +4,7 @@ import type { ArtifactRow } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
 import { DeleteArtifactDialog } from '../DeleteArtifactDialog'
 import { ArtifactKindBadge, artifactDisplayTitle } from '../artifacts/artifactDisplay'
+import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
 
 function ElapsedTimer({ startedAt }: { startedAt: number }) {
   const [elapsed, setElapsed] = useState(0)
@@ -219,9 +220,7 @@ export function ArtifactsPane() {
       {/* List */}
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-0.5">
         {loading ? (
-          <div className="p-2 space-y-0.5">
-            {[1, 2, 3].map((i) => <div key={i} className="h-12 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />)}
-          </div>
+          <PaneSkeleton rows={3} rowHeight="h-12" />
         ) : (
           <>
             {pendingGen && (
@@ -233,13 +232,13 @@ export function ArtifactsPane() {
               </div>
             )}
             {filtered.length === 0 && !pendingGen ? (
-              <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+              <PaneEmptyState>
                 {deferredQuery
                     ? `No artifacts match "${deferredQuery}"`
                     : scope === 'project'
                       ? (scopeProjectId ? 'No artifacts for this project yet' : 'Select a project to filter by')
                       : 'No artifacts yet'}
-              </p>
+              </PaneEmptyState>
             ) : (
               filtered.map((artifact) => (
                 <ArtifactListItem

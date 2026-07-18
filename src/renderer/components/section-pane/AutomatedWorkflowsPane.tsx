@@ -18,6 +18,8 @@ import {
 } from '../automated-workflow/AutomatedWorkflowShared'
 import { DiscardWorkflowRunDialog } from '../automated-workflow/DiscardWorkflowRunDialog'
 import { AutomatedWorkflowGeneratorModal } from '../automated-workflow/AutomatedWorkflowGeneratorModal'
+import { useClickOutside } from '../../hooks/useClickOutside'
+import { PaneSkeleton } from './pane-primitives'
 
 type FilterTab = 'all' | 'global'
 
@@ -49,20 +51,7 @@ export function AutomatedWorkflowsPane() {
   const activeRunRef = useRef<AutomatedWorkflowRunDetail | null>(null)
   activeRunRef.current = activeRun
 
-  useEffect(() => {
-    if (!showInfo) return
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (
-        infoPopoverRef.current && !infoPopoverRef.current.contains(target) &&
-        infoButtonRef.current && !infoButtonRef.current.contains(target)
-      ) {
-        setShowInfo(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showInfo])
+  useClickOutside([infoPopoverRef, infoButtonRef], () => setShowInfo(false), showInfo)
 
   useLayoutEffect(() => {
     if (!showInfo || !infoButtonRef.current) { setInfoPosition(null); return }
@@ -392,11 +381,7 @@ export function AutomatedWorkflowsPane() {
 
       <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
         {loading && (
-          <div className="p-2 space-y-1">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-14 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />
-            ))}
-          </div>
+          <PaneSkeleton rows={3} rowHeight="h-14" />
         )}
         {!loading && filtered.length === 0 && (
           <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic pt-8">

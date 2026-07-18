@@ -5,6 +5,7 @@ import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
 import { formatRelativeTime } from '../../../shared/utils'
 import { isPinned, groupByDate, PROJECT_COLOR_MAP } from './shared'
+import { PaneEmptyState } from './pane-primitives'
 
 export function ChatsPane() {
   const conversations = useAppStore((s) => s.conversations)
@@ -136,9 +137,9 @@ export function ChatsPane() {
 
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
         {filtered.length === 0 && pendingConversationIds.length === 0 && (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+          <PaneEmptyState>
             {deferredQuery ? 'No matching conversations' : 'No conversations yet'}
-          </p>
+          </PaneEmptyState>
         )}
 
         {pendingConversationIds.length > 0 && !deferredQuery && (

@@ -5,6 +5,7 @@ import { isApiError } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
 import { SchedulerTaskForm } from '../scheduler/SchedulerTaskForm'
 import { SchedulerTaskDetail } from '../scheduler/SchedulerTaskDetail'
+import { PaneSkeleton } from './pane-primitives'
 
 type FilterTab = 'active' | 'paused' | 'all'
 
@@ -163,11 +164,7 @@ export function ScheduledPane() {
   if (loading) {
     return (
       <>
-        <div className="p-2 space-y-1">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />
-          ))}
-        </div>
+        <PaneSkeleton rows={3} rowHeight="h-14" />
         {showForm && (
           <SchedulerTaskForm
             initial={editTask}

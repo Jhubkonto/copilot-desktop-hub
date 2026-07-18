@@ -2,6 +2,7 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { Copy, Download, Plus, Search, Sparkles, Trash2, Upload, Wrench, X } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { SkillConfig } from '../../../shared/types'
+import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
 
 function enabledToolCount(skill: SkillConfig): number {
   return Number(skill.tools.fileEdit.enabled) + Number(skill.tools.terminal.enabled) + Number(skill.tools.webFetch.enabled)
@@ -32,9 +33,7 @@ export function SkillsPane() {
 
   if (skillsLoading) {
     return (
-      <div className="p-2 space-y-0.5">
-        {[1, 2, 3].map((i) => <div key={i} className="h-14 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />)}
-      </div>
+      <PaneSkeleton rows={3} rowHeight="h-14" />
     )
   }
 
@@ -96,9 +95,9 @@ export function SkillsPane() {
 
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-0.5">
         {filtered.length === 0 ? (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+          <PaneEmptyState>
             {deferredQuery ? `No skills match "${deferredQuery}"` : 'No skills yet - generate or create one to reuse across agents'}
-          </p>
+          </PaneEmptyState>
         ) : filtered.map((skill) => (
           <div
             key={skill.id}

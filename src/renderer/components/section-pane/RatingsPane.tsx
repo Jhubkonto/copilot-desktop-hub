@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Too
 import { Search, Star, X } from 'lucide-react'
 import type { ConversationRatingListItem, ConversationRatingStats, RatingAggregate, RatingTrendPoint } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
+import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
 
 const EMPTY_STATS: ConversationRatingStats = {
   averageByAgent: [], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [],
@@ -177,9 +178,7 @@ export function RatingsPane() {
 
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="p-2 space-y-0.5">
-            {[1, 2, 3].map((i) => <div key={i} className="h-12 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />)}
-          </div>
+          <PaneSkeleton rows={3} rowHeight="h-12" />
         ) : (
           <>
             {hasStats && (
@@ -226,9 +225,9 @@ export function RatingsPane() {
 
             <div className="p-2 space-y-0.5">
               {filtered.length === 0 ? (
-                <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+                <PaneEmptyState>
                   {deferredQuery ? `No ratings match "${deferredQuery}"` : 'No conversations rated yet'}
-                </p>
+                </PaneEmptyState>
               ) : (
                 filtered.map((item) => (
                   <RatingListItem key={item.id} item={item} onClick={selectConversation} />

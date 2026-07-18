@@ -1,7 +1,9 @@
-import { useEffect, useDeferredValue, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { Plus, Settings, Upload, MessageSquare, Trash2, FolderPlus, Check, Search, X, Sparkles } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { AgentConfig } from '../../../shared/types'
+import { useClickOutside } from '../../hooks/useClickOutside'
+import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
 
 export function AgentsPane() {
   const agents = useAppStore((s) => s.agents)
@@ -24,16 +26,7 @@ export function AgentsPane() {
   const [addToProjectAgentId, setAddToProjectAgentId] = useState<string | null>(null)
   const addToProjectPopoverRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!addToProjectAgentId) return
-    const handler = (e: MouseEvent) => {
-      if (addToProjectPopoverRef.current && !addToProjectPopoverRef.current.contains(e.target as Node)) {
-        setAddToProjectAgentId(null)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [addToProjectAgentId])
+  useClickOutside(addToProjectPopoverRef, () => setAddToProjectAgentId(null), addToProjectAgentId !== null)
 
   const handleAddToProject = async (projectId: string, agent: AgentConfig) => {
     await addAgentToProject(projectId, agent.id)
@@ -49,11 +42,7 @@ export function AgentsPane() {
 
   if (agentsLoading) {
     return (
-      <div className="p-2 space-y-0.5">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-9 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />
-        ))}
-      </div>
+      <PaneSkeleton rows={4} rowHeight="h-9" />
     )
   }
 
@@ -133,13 +122,13 @@ export function AgentsPane() {
         )}
 
         {filtered.length === 0 && deferredQuery ? (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+          <PaneEmptyState>
             No agents match "{deferredQuery}"
-          </p>
+          </PaneEmptyState>
         ) : agents.length === 0 ? (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+          <PaneEmptyState>
             No agents configured — create one to get started
-          </p>
+          </PaneEmptyState>
         ) : filtered.map((agent: AgentConfig) => {
           const isActive = activeAgentId === agent.id
           const isPopoverOpen = addToProjectAgentId === agent.id
@@ -238,3 +227,4 @@ export function AgentsPane() {
     </>
   )
 }
+

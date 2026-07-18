@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/app-store'
 import type { ProjectAgent } from '../../store/types'
 import { DeleteProjectDialog } from '../DeleteProjectDialog'
 import { PROJECT_COLOR_MAP, AgentAvatarStack } from './shared'
+import { PaneEmptyState } from './pane-primitives'
 
 export function ProjectsPane() {
   const projects = useAppStore((s) => s.projects)
@@ -245,13 +246,13 @@ export function ProjectsPane() {
         })}
 
         {filtered.length === 0 && deferredQuery ? (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+          <PaneEmptyState>
             No projects match "{deferredQuery}"
-          </p>
+          </PaneEmptyState>
         ) : projects.length === 0 && (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+          <PaneEmptyState>
             No projects yet — create one to organise your chats
-          </p>
+          </PaneEmptyState>
         )}
       </div>
 
