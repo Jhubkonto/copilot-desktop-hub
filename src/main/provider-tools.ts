@@ -72,9 +72,16 @@ export async function sendProviderNonStreaming(
   if (provider === 'openai') {
     return sendOpenAINonStreaming(apiKey, model, messages, options)
   }
-  const endpoint = getAzureEndpoint()
-  if (!endpoint) {
-    throw new Error('Azure endpoint not configured')
+  if (provider === 'azure') {
+    const endpoint = getAzureEndpoint()
+    if (!endpoint) {
+      throw new Error('Azure endpoint not configured')
+    }
+    return sendAzureNonStreaming(apiKey, endpoint, model, messages, options)
   }
-  return sendAzureNonStreaming(apiKey, endpoint, model, messages, options)
+  if (OPENAI_COMPATIBLE_PROVIDERS.includes(provider)) {
+    const baseUrl = PROVIDERS.find((entry) => entry.name === provider)?.baseUrl
+    return sendOpenAINonStreaming(apiKey, model, messages, options, baseUrl)
+  }
+  throw new Error(`Provider "${provider}" does not support non-streaming requests.`)
 }

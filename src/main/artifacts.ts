@@ -375,11 +375,33 @@ export function createPendingArtifactForConversation(input: {
   projectId: string | null
   kind: ArtifactKind
   title: string
+  /** Target an existing artifact for an in-card regeneration. */
+  artifactId?: string
+  /** False creates an independent artifact for a new chat command. Defaults to true. */
+  reuseExisting?: boolean
 }): string {
   const db = getDatabase()
-  const existing = findArtifactForConversation(input.conversationId, input.kind)
+  const targetedRow = input.artifactId
+    ? db.prepare('SELECT * FROM artifacts WHERE id = ?').get(input.artifactId) as Record<string, unknown> | undefined
+    : undefined
+  const targeted = targetedRow
+    ? rowToArtifact(targetedRow, targetedRow.current_version_id ? getVersionWithFiles(String(targetedRow.current_version_id)) : undefined)
+    : null
+  if (targeted && (
+    targeted.conversationId !== input.conversationId ||
+    targeted.projectId !== input.projectId ||
+    targeted.kind !== input.kind
+  )) {
+    throw new Error('Artifact does not belong to this conversation or learning activity.')
+  }
+  const existing = input.artifactId
+    ? targeted
+    : input.reuseExisting === false
+      ? null
+      : findArtifactForConversation(input.conversationId, input.kind)
   const now = Date.now()
-  const artifactId = existing?.id ?? randomUUID()
+  const artifactId = input.artifactId ?? existing?.id ?? randomUUID()
+  if (input.artifactId && !existing) throw new Error('Artifact not found.')
   if (existing) {
     db.prepare(
       `UPDATE artifacts SET status = 'generating', error_message = NULL, title = ?, conversation_id = ?, updated_at = ? WHERE id = ?`
@@ -424,6 +446,8 @@ interface WriteArtifactVersionForConversationInput {
   kind: ArtifactKind
   title: string
   files: ConversationArtifactFileInput[]
+  /** Pins the version to a specific pending artifact, avoiding latest-by-kind races. */
+  artifactId?: string
 }
 
 /**
@@ -434,7 +458,21 @@ interface WriteArtifactVersionForConversationInput {
  */
 export function writeArtifactVersionForConversation(input: WriteArtifactVersionForConversationInput): ConversationArtifactRef {
   const db = getDatabase()
-  const existing = findArtifactForConversation(input.conversationId, input.kind)
+  const targetedRow = input.artifactId
+    ? db.prepare('SELECT * FROM artifacts WHERE id = ?').get(input.artifactId) as Record<string, unknown> | undefined
+    : undefined
+  const targeted = targetedRow
+    ? rowToArtifact(targetedRow, targetedRow.current_version_id ? getVersionWithFiles(String(targetedRow.current_version_id)) : undefined)
+    : null
+  if (targeted && (
+    targeted.conversationId !== input.conversationId ||
+    targeted.projectId !== input.projectId ||
+    targeted.kind !== input.kind
+  )) {
+    throw new Error('Artifact does not belong to this conversation or learning activity.')
+  }
+  const existing = input.artifactId ? targeted : findArtifactForConversation(input.conversationId, input.kind)
+  if (input.artifactId && !existing) throw new Error('Pending artifact not found.')
   const artifactId = existing?.id ?? randomUUID()
   const versionId = randomUUID()
   const now = Date.now()
@@ -446,9 +484,12 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
     : 0
   const versionNumber = existingVersionCount + 1
 
+  const artifactDirectory = input.artifactId
+    ? `${slugify(input.title)}-${artifactId.slice(0, 8)}`
+    : slugify(input.title)
   const versionDir = input.projectId
-    ? path.join(storageRoot, 'projects', input.projectId, slugify(input.title), `v${versionNumber}`)
-    : path.join(storageRoot, 'global', slugify(input.title), `v${versionNumber}`)
+    ? path.join(storageRoot, 'projects', input.projectId, artifactDirectory, `v${versionNumber}`)
+    : path.join(storageRoot, 'global', artifactDirectory, `v${versionNumber}`)
 
   const writtenFiles = input.files.map((f) => {
     const relativePath = sanitizeRelativeArtifactPath(f.relativePath)
@@ -590,7 +631,9 @@ export function registerArtifactHandlers(): void {
 
   safeHandle('artifact:delete', (_event, id: string) => {
     const db = getDatabase()
+    const row = db.prepare('SELECT project_id FROM artifacts WHERE id = ?').get(id) as { project_id: string | null } | undefined
     const info = db.prepare('DELETE FROM artifacts WHERE id = ?').run(id)
+    if (info.changes > 0) broadcastArtifactUpdated(id, row?.project_id ?? null)
     return { deleted: info.changes > 0 }
   })
 
