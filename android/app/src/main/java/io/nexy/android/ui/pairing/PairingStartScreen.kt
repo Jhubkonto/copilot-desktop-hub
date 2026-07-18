@@ -1,5 +1,6 @@
 package io.nexy.android.ui.pairing
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,9 +42,9 @@ fun PairingStartScreen(
     onConnected: () -> Unit,
     vm: PairingViewModel = viewModel(),
 ) {
-    val connectionState by vm.connectionState.collectAsState()
-    val profiles by vm.profiles.collectAsState()
-    val error by vm.error.collectAsState()
+    val connectionState by vm.connectionState.collectAsStateWithLifecycle()
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
 
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.CONNECTED) onConnected()

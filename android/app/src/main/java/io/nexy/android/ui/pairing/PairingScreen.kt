@@ -1,5 +1,6 @@
 package io.nexy.android.ui.pairing
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -60,9 +61,9 @@ fun PairingScreen(
     initialShowManual: Boolean = false,
     vm: PairingViewModel = viewModel(),
 ) {
-    val connectionState by vm.connectionState.collectAsState()
-    val error by vm.error.collectAsState()
-    val discoveredServices by vm.discoveredServices.collectAsState()
+    val connectionState by vm.connectionState.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    val discoveredServices by vm.discoveredServices.collectAsStateWithLifecycle()
     var showManual by remember { mutableStateOf(initialShowManual) }
     var manualUrl by remember { mutableStateOf("") }
     var cameraPermissionGranted by remember { mutableStateOf(false) }
