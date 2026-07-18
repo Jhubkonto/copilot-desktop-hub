@@ -1432,6 +1432,50 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 77,
     sql: `ALTER TABLE messages ADD COLUMN text_segments TEXT`,
   },
+  {
+    // Learning history: persist each completed quiz run so scores accumulate over time
+    // (the old conversation_quiz_attempts table was dropped when quizzes moved to the
+    // artifact system — this is a fresh schema keyed to artifact id + version, not a revival).
+    // category_breakdown / missed_questions are JSON blobs; missed_questions feeds the
+    // "re-quiz what I missed" flow.
+    version: 78,
+    sql: `
+      CREATE TABLE IF NOT EXISTS quiz_attempts (
+        id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL,
+        version_id TEXT NOT NULL,
+        conversation_id TEXT,
+        project_id TEXT,
+        score INTEGER NOT NULL,
+        total INTEGER NOT NULL,
+        category_breakdown TEXT,
+        missed_questions TEXT,
+        attempted_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_quiz_attempts_artifact ON quiz_attempts(artifact_id);
+    `,
+  },
+  {
+    // Persist each spoken teach-back/viva turn against the exact artifact version.
+    version: 79,
+    sql: `
+      CREATE TABLE IF NOT EXISTS teachback_attempts (
+        id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+        version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+        conversation_id TEXT,
+        project_id TEXT,
+        parent_attempt_id TEXT,
+        turn_number INTEGER NOT NULL DEFAULT 0,
+        prompt TEXT NOT NULL,
+        transcript TEXT NOT NULL,
+        feedback_json TEXT NOT NULL,
+        attempted_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_teachback_attempts_artifact
+        ON teachback_attempts(artifact_id, attempted_at DESC);
+    `,
+  },
 ];
 
 
