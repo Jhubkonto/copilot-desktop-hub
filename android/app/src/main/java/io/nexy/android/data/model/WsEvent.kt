@@ -479,6 +479,11 @@ sealed class WsEvent {
     data class QuizReady(val questions: List<QuizQuestion>, val artifactId: String? = null, val versionId: String? = null, val conversationId: String? = null) : WsEvent()
     data class QuizLoaded(val conversationId: String, val questions: List<QuizQuestion>?, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
     data class QuizError(val message: String) : WsEvent()
+    data class TeachbackReady(val conversationId: String, val artifactId: String, val versionId: String, val exercise: TeachbackExercise) : WsEvent()
+    data class TeachbackLoaded(val conversationId: String, val artifactId: String?, val versionId: String?, val exercise: TeachbackExercise?) : WsEvent()
+    data class TeachbackGraded(val artifactId: String, val versionId: String, val feedback: TeachbackFeedback) : WsEvent()
+    data class TeachbackAttempts(val artifactId: String, val attempts: List<TeachbackAttempt>) : WsEvent()
+    data class TeachbackError(val message: String) : WsEvent()
 
     data class ActivityChanged(val activities: List<io.nexy.android.data.BackgroundActivity>) : WsEvent()
     // Provider Key Handoff (opt-in, consent-gated exception)

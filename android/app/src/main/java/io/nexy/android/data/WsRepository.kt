@@ -2581,6 +2581,24 @@ object WsRepository : WsClient {
         send("quiz:get-by-artifact", mapOf("conversationId" to conversationId, "artifactId" to artifactId))
     }
 
+    // ─── Teach-back practice ───────────────────────────────────────────────────
+    fun generateTeachback(conversationId: String, projectId: String? = null, topic: String? = null) {
+        send("conversation:generate-teachback", buildMap {
+            put("conversationId", conversationId)
+            if (projectId != null) put("projectId", projectId)
+            if (!topic.isNullOrBlank()) put("topic", topic)
+        })
+    }
+    fun getTeachback(conversationId: String) = send("conversation:get-teachback", mapOf("conversationId" to conversationId))
+    fun getTeachbackByArtifact(conversationId: String, artifactId: String) = send("teachback:get-by-artifact", mapOf("conversationId" to conversationId, "artifactId" to artifactId))
+    fun gradeTeachback(artifactId: String, versionId: String, transcript: String, prompt: String, parentAttemptId: String?, turnNumber: Int) {
+        send("teachback:grade", buildMap {
+            put("artifactId", artifactId); put("versionId", versionId); put("transcript", transcript); put("prompt", prompt); put("turnNumber", turnNumber)
+            if (parentAttemptId != null) put("parentAttemptId", parentAttemptId)
+        })
+    }
+    fun getTeachbackAttempts(artifactId: String) = send("teachback:get-attempts", mapOf("artifactId" to artifactId))
+
     // ─── Activity feed ──────────────────────────────────────────────────────────
     fun getActivityFeed() { send("activity:list", emptyMap()) }
     fun dismissActivity(id: String) {

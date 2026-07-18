@@ -28,6 +28,10 @@ import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.ArtifactExportFile
 import io.nexy.android.data.model.ArtifactVersionFile
 import io.nexy.android.data.model.ArtifactVersionSummary
+import io.nexy.android.data.model.TeachbackAttempt
+import io.nexy.android.data.model.TeachbackExercise
+import io.nexy.android.data.model.TeachbackFeedback
+import io.nexy.android.data.model.TeachbackRubricDimension
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.ConversationExportPackData
 import io.nexy.android.data.model.PromptEntry
@@ -2157,6 +2161,26 @@ fun parseWsEvent(
 
             "quiz:error" -> WsEvent.QuizError(data?.optString("message") ?: "Unknown error")
 
+            "teachback:ready" -> {
+                val exercise = data?.optJSONObject("teachback") ?: return
+                WsEvent.TeachbackReady(data.optString("conversationId"), data.optString("artifactId"), data.optString("versionId"), parseTeachbackExercise(exercise))
+            }
+            "teachback:loaded" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                WsEvent.TeachbackLoaded(conversationId, data.nullableString("artifactId"), data.nullableString("versionId"), data.optJSONObject("teachback")?.let(::parseTeachbackExercise))
+            }
+            "teachback:graded" -> {
+                val feedback = data?.optJSONObject("feedback") ?: return
+                WsEvent.TeachbackGraded(data.optString("artifactId"), data.optString("versionId"), parseTeachbackFeedback(feedback))
+            }
+            "teachback:attempts" -> {
+                val artifactId = data?.optString("artifactId") ?: return
+                val arr = data.optJSONArray("attempts")
+                val attempts = arr?.let { (0 until it.length()).map { i -> parseTeachbackAttempt(it.getJSONObject(i)) } } ?: emptyList()
+                WsEvent.TeachbackAttempts(artifactId, attempts)
+            }
+            "teachback:error" -> WsEvent.TeachbackError(data?.optString("message") ?: "Unknown error")
+
             "activity:changed" -> {
                 val arr = data?.optJSONArray("activities")
                 val list = arr?.let { array ->
@@ -2958,6 +2982,40 @@ private fun parseQuizQuestion(obj: JSONObject): QuizQuestion {
     )
 }
 
+private fun parseTeachbackExercise(obj: JSONObject) = TeachbackExercise(
+    prompt = obj.optString("prompt"),
+    keyPoints = obj.optStringList("keyPoints"),
+    sourceLabel = obj.optString("sourceLabel"),
+)
+
+private fun parseTeachbackDimension(obj: JSONObject?) = TeachbackRubricDimension(
+    score = obj?.optInt("score", 0) ?: 0,
+    feedback = obj?.optString("feedback").orEmpty(),
+)
+
+private fun parseTeachbackFeedback(obj: JSONObject): TeachbackFeedback {
+    val rubric = obj.optJSONObject("rubric")
+    return TeachbackFeedback(
+        accuracy = parseTeachbackDimension(rubric?.optJSONObject("accuracy")),
+        completeness = parseTeachbackDimension(rubric?.optJSONObject("completeness")),
+        clarity = parseTeachbackDimension(rubric?.optJSONObject("clarity")),
+        strengths = obj.optStringList("strengths"),
+        corrections = obj.optStringList("corrections"),
+        followUpQuestions = obj.optStringList("followUpQuestions"),
+        attemptId = obj.nullableString("attemptId"),
+        prompt = obj.nullableString("prompt"),
+        turnNumber = obj.optInt("turnNumber", 0),
+        attemptedAt = if (obj.has("attemptedAt") && !obj.isNull("attemptedAt")) obj.optLong("attemptedAt") else null,
+    )
+}
+
+private fun parseTeachbackAttempt(obj: JSONObject) = TeachbackAttempt(
+    id = obj.optString("id"), artifactId = obj.optString("artifactId"), versionId = obj.optString("versionId"),
+    parentAttemptId = obj.nullableString("parentAttemptId"), turnNumber = obj.optInt("turnNumber", 0),
+    prompt = obj.optString("prompt"), transcript = obj.optString("transcript"),
+    feedback = parseTeachbackFeedback(obj.optJSONObject("feedback") ?: JSONObject()), attemptedAt = obj.optLong("attemptedAt", 0L),
+)
+
 /** Mirrors desktop's openBackgroundActivity kind-dispatch (backgroundActivitySlice.ts) — maps a
  *  server-tracked activity kind to the Android nav route that shows it. Returns null for kinds
  *  with no reachable Android destination. */
@@ -2967,7 +3025,7 @@ private fun routeForServerActivity(id: String, kind: String, conversationId: Str
     // conversation-scoped activity above. This used to route to "remote-edit/{reportId}", a
     // screen that was deleted along with the wizard; navigating there crashed the app since
     // that destination no longer exists in NavGraph.
-    "chat", "debrief-generation", "quiz-generation", "orchestration", "automated-workflow-run", "remote-edit" ->
+    "chat", "debrief-generation", "quiz-generation", "teachback-generation", "orchestration", "automated-workflow-run", "remote-edit" ->
         conversationId?.let { "chat/$it" }
     "project-generator" -> "project-generator"
     "agent-generator" -> "agent-generator"
