@@ -155,6 +155,24 @@ describe('slash-commands', () => {
     expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('No debrief found'))
   })
 
+  it('sc-13b: /quiz parses natural-language difficulty, count, and focus', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/quiz hard 10 questions about migrations', ctx)).resolves.toBe('handled')
+    expect(ctx.startArtifactGeneration).toHaveBeenCalledWith('quiz', {
+      model: undefined,
+      quizSpec: { difficulty: 'hard', questionCount: 10, topic: 'migrations' },
+    })
+  })
+
+  it('sc-13c: /teachback starts a topic-directed spoken exercise', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/teachback on the IPC layer', ctx)).resolves.toBe('handled')
+    expect(ctx.startArtifactGeneration).toHaveBeenCalledWith('teachback', {
+      model: undefined,
+      teachbackSpec: { topic: 'the IPC layer' },
+    })
+  })
+
   it('sc-14: /code-change with no description shows usage and does not create a request', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/code-change', ctx)).resolves.toBe('handled')
