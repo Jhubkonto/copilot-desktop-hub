@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { getAvailableModelIds, getModelLabel } from '../shared/models'
-import { isApiError, type AgentConfig, type CatalogModel, type ErrorReportEntry } from '../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel, type ErrorReportEntry, type QuizSpec, type TeachbackSpec } from '../shared/types'
 
 interface Attachment {
   id: string
@@ -74,7 +74,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/review', usage: '/review [text]', description: 'Review code for issues' },
   { name: '/context', usage: '/context', description: 'Show context snapshot of the last sent message' },
   { name: '/debrief', usage: '/debrief [model]', description: 'Generate a session debrief as a re-runnable artifact' },
-  { name: '/quiz', usage: '/quiz [model]', description: 'Quiz yourself on this session (generates a debrief first if needed)' },
+  { name: '/quiz', usage: '/quiz [focus]', description: 'Quiz yourself on this session. Add a focus, e.g. /quiz hard 8 questions about the IPC layer, or /quiz project' },
+  { name: '/teachback', usage: '/teachback [topic]', description: 'Explain a session concept out loud and get rubric feedback' },
   { name: '/complete', usage: '/complete', description: 'Mark this conversation complete' },
   { name: '/incomplete', usage: '/incomplete', description: 'Mark this conversation incomplete' },
   { name: '/code-change', usage: '/code-change [repo] <description>', description: 'Describe a change; the AI investigates and proposes a plan. Add [repo] first if this workspace has more than one git repo' },
@@ -143,6 +144,74 @@ function resolveSlashGenerationModel(argText: string, ctx: Pick<SlashCommandCont
     return INVALID_MODEL
   }
   return argText
+}
+
+/**
+ * Parses `/quiz` arguments into a model override + QuizSpec. Supports natural-language forms:
+ *   /quiz                          → conversation source, model = current
+ *   /quiz gpt-5.5                  → backward-compatible model override (whole arg is a model id)
+ *   /quiz on the IPC layer         → topic focus
+ *   /quiz hard 10 questions about migrations
+ *   /quiz project easy             → project source, easy difficulty
+ * Difficulty (easy|medium|hard), a "<n> questions" count, and a "project"/"debrief" source
+ * keyword are stripped out; whatever remains (or the text after "on"/"about") becomes the topic.
+ */
+function parseQuizCommand(
+  argText: string,
+  ctx: Pick<SlashCommandContext, 'catalogModels' | 'conversationModel'>,
+): { model: string | null; spec: QuizSpec } {
+  const trimmed = argText.trim()
+  if (!trimmed) return { model: ctx.conversationModel, spec: {} }
+
+  // Backward-compat: a bare, known model id keeps its old "run against this model" meaning.
+  const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
+  if (modelIds.includes(trimmed)) return { model: trimmed, spec: {} }
+
+  const spec: QuizSpec = {}
+  let rest = trimmed
+
+  const difficultyMatch = rest.match(/\b(easy|medium|hard)\b/i)
+  if (difficultyMatch) {
+    spec.difficulty = difficultyMatch[1].toLowerCase() as NonNullable<QuizSpec['difficulty']>
+    rest = rest.replace(difficultyMatch[0], ' ')
+  }
+
+  const countMatch = rest.match(/\b(\d{1,2})\s+questions?\b/i)
+  if (countMatch) {
+    spec.questionCount = Number.parseInt(countMatch[1], 10)
+    rest = rest.replace(countMatch[0], ' ')
+  }
+
+  if (/\bproject\b/i.test(rest)) {
+    spec.source = 'project'
+    rest = rest.replace(/\bproject\b/i, ' ')
+  } else if (/\bdebrief\b/i.test(rest)) {
+    spec.source = 'debrief'
+    rest = rest.replace(/\bdebrief\b/i, ' ')
+  }
+
+  const aboutMatch = rest.match(/\b(?:on|about|regarding)\s+(.+)$/i)
+  if (aboutMatch) {
+    const topic = aboutMatch[1].trim()
+    if (topic) spec.topic = topic
+  } else {
+    const leftover = rest.replace(/\s+/g, ' ').trim()
+    if (leftover) spec.topic = leftover
+  }
+
+  return { model: ctx.conversationModel, spec }
+}
+
+function parseTeachbackCommand(
+  argText: string,
+  ctx: Pick<SlashCommandContext, 'catalogModels' | 'conversationModel'>,
+): { model: string | null; spec: TeachbackSpec } {
+  const trimmed = argText.trim()
+  if (!trimmed) return { model: ctx.conversationModel, spec: {} }
+  const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
+  if (modelIds.includes(trimmed)) return { model: trimmed, spec: {} }
+  const topic = trimmed.replace(/^(?:on|about|regarding)\s+/i, '').trim()
+  return { model: ctx.conversationModel, spec: topic ? { topic } : {} }
 }
 
 export function transformCodeSlashCommand(input: string): string | null {
@@ -226,11 +295,11 @@ export interface SlashCommandContext {
   /** Marks the current conversation complete/incomplete (mirrors the "..." menu action). */
   markComplete: () => Promise<void>
   markIncomplete: () => Promise<void>
-  /** Starts a fixed generation flow (debrief/quiz) against the given/conversation model and
+  /** Starts a fixed learning-artifact generation flow against the given/conversation model and
    * attaches a durable, live-updating artifact card to the transcript right away — the
    * artifact is created with status 'generating' immediately, and the actual LLM call runs
    * in the background so this resolves without blocking the composer. */
-  startArtifactGeneration: (kind: 'debrief' | 'quiz', opts?: { model?: string }) => Promise<{ ok: true } | { error: string }>
+  startArtifactGeneration: (kind: 'debrief' | 'quiz' | 'teachback', opts?: { model?: string; quizSpec?: QuizSpec; teachbackSpec?: TeachbackSpec }) => Promise<{ ok: true } | { error: string }>
   // --- Code Changes: independent actions, no wizard/step gating ---
   /** Creates or reuses this conversation's code-change report and (re-)runs the AI investigation. */
   codeChangeSubmitDescription: (description: string, repoArg?: string) => Promise<{ reportId: string } | { error: string }>
@@ -592,11 +661,22 @@ export async function executeSlashCommand(
         ctx.pushSystemMessage('No active conversation. Start a chat before generating a quiz.')
         return 'handled'
       }
-      const model = resolveSlashGenerationModel(argText, ctx)
-      if (model === INVALID_MODEL) return 'handled'
-      const result = await ctx.startArtifactGeneration('quiz', { model: model ?? undefined })
+      const { model, spec } = parseQuizCommand(argText, ctx)
+      const result = await ctx.startArtifactGeneration('quiz', { model: model ?? undefined, quizSpec: spec })
       if ('error' in result) {
         ctx.pushSystemMessage(`Failed to start quiz generation: ${result.error}`)
+      }
+      return 'handled'
+    }
+    case '/teachback': {
+      if (!ctx.conversationId) {
+        ctx.pushSystemMessage('No active conversation. Start a chat before generating a teach-back exercise.')
+        return 'handled'
+      }
+      const { model, spec } = parseTeachbackCommand(argText, ctx)
+      const result = await ctx.startArtifactGeneration('teachback', { model: model ?? undefined, teachbackSpec: spec })
+      if ('error' in result) {
+        ctx.pushSystemMessage(`Failed to start teach-back generation: ${result.error}`)
       }
       return 'handled'
     }

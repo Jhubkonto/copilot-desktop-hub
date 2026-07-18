@@ -178,19 +178,21 @@ export function useChatWindowActions({
   const executingSlashCommandRef = useRef(false)
   const [isExecutingSlashCommand, setIsExecutingSlashCommand] = useState(false)
 
-  // Kicks off /debrief or /quiz generation and immediately attaches a durable chat card
+  // Kicks off learning-artifact generation and immediately attaches a durable chat card
   // referencing the artifact (created up front with status 'generating'). The actual LLM
   // call runs in the main process in the background, so this resolves fast — the composer
   // isn't blocked for the duration of generation, and the card keeps working if the user
   // navigates away and comes back, since its state lives in the artifacts table.
   const startArtifactGeneration = useCallback(
-    async (kind: 'debrief' | 'quiz', opts?: { model?: string }): Promise<{ ok: true } | { error: string }> => {
+    async (kind: 'debrief' | 'quiz' | 'teachback', opts?: { model?: string; quizSpec?: import('@shared/types').QuizSpec; teachbackSpec?: import('@shared/types').TeachbackSpec }): Promise<{ ok: true } | { error: string }> => {
       if (!conversationId) return { error: 'No active conversation.' }
       const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
       try {
         const result = kind === 'debrief'
           ? await window.api.startDebriefGeneration(conversationId, projectId, opts?.model)
-          : await window.api.startQuizGeneration(conversationId, projectId, opts?.model)
+          : kind === 'quiz'
+            ? await window.api.startQuizGeneration(conversationId, projectId, opts?.model, opts?.quizSpec)
+            : await window.api.startTeachbackGeneration(conversationId, projectId, opts?.model, opts?.teachbackSpec)
         if (isApiError(result)) return { error: result.error }
 
         const content = `__artifact-ref:${JSON.stringify({ artifactId: result.artifactId, kind, pending: true })}`
