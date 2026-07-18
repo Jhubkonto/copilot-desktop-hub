@@ -70,6 +70,7 @@ import io.nexy.android.ui.skills.SkillsScreen
 import io.nexy.android.ui.splash.SplashScreen
 import io.nexy.android.ui.debrief.DebriefScreen
 import io.nexy.android.ui.quiz.QuizScreen
+import io.nexy.android.ui.teachback.TeachbackScreen
 
 @Composable
 fun NavGraph(
@@ -322,6 +323,9 @@ fun NavGraph(
                 onOpenDebrief = { cid -> navController.navigate("debrief/${Uri.encode(cid)}") },
                 onOpenQuiz = { cid, artifactId ->
                     navController.navigate("quiz/${Uri.encode(cid)}?artifactId=${Uri.encode(artifactId)}")
+                },
+                onOpenTeachback = { cid, artifactId ->
+                    navController.navigate("teachback/${Uri.encode(cid)}?artifactId=${Uri.encode(artifactId)}")
                 },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
                 // No-op body: ChatScreen now prefills its own composer in place with
@@ -695,6 +699,17 @@ fun NavGraph(
                 artifactId = artifactId,
                 onBack = { navController.popBackStack() },
             )
+        }
+        composable(
+            route = "teachback/{conversationId}?artifactId={artifactId}",
+            arguments = listOf(
+                navArgument("conversationId") { type = NavType.StringType },
+                navArgument("artifactId") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { backStackEntry ->
+            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
+            val artifactId = backStackEntry.arguments?.getString("artifactId")?.takeIf { it.isNotBlank() }
+            TeachbackScreen(conversationId, artifactId, onBack = { navController.popBackStack() })
         }
     }
 }
