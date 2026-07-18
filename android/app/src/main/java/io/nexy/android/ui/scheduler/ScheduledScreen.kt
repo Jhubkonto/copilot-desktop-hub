@@ -1,5 +1,6 @@
 package io.nexy.android.ui.scheduler
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,11 +69,11 @@ fun ScheduledScreen(
     onTaskDetail: (taskId: String) -> Unit,
     viewModel: SchedulerViewModel = viewModel(),
 ) {
-    val tasks by viewModel.tasks.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val actionError by viewModel.actionError.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val isConnected = connectionState == ConnectionState.CONNECTED
     var filter by remember { mutableStateOf(TaskFilter.ALL) }
 

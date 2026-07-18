@@ -1,5 +1,6 @@
 package io.nexy.android.ui.scheduler
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,12 +65,12 @@ fun SchedulerTaskConfigScreen(
     viewModel: SchedulerViewModel = viewModel(),
 ) {
     val isEdit = taskId != null
-    val tasks by viewModel.tasks.collectAsState()
+    val tasks by viewModel.tasks.collectAsStateWithLifecycle()
     val initial = remember(taskId, tasks) { tasks.firstOrNull { it.id == taskId } }
 
-    val agents = WsRepository.agents.collectAsState().value
-    val projects = WsRepository.projects.collectAsState().value
-    val connectionState = WsRepository.connectionState.collectAsState().value
+    val agents = WsRepository.agents.collectAsStateWithLifecycle().value
+    val projects = WsRepository.projects.collectAsStateWithLifecycle().value
+    val connectionState = WsRepository.connectionState.collectAsStateWithLifecycle().value
     val isConnected = connectionState == io.nexy.android.data.ConnectionState.CONNECTED
 
     var name by rememberSaveable(initial) { mutableStateOf(initial?.name ?: "") }

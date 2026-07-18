@@ -1,5 +1,6 @@
 package io.nexy.android.ui.scheduler
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,10 +59,10 @@ fun SchedulerTaskDetailScreen(
     onEdit: (taskId: String) -> Unit,
     viewModel: SchedulerViewModel = viewModel(),
 ) {
-    val tasks by viewModel.tasks.collectAsState()
-    val runsMap by viewModel.runs.collectAsState()
-    val actionError by viewModel.actionError.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val runsMap by viewModel.runs.collectAsStateWithLifecycle()
+    val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val isConnected = connectionState == ConnectionState.CONNECTED
     val task = tasks.firstOrNull { it.id == taskId }
     val runs = runsMap[taskId] ?: emptyList()
