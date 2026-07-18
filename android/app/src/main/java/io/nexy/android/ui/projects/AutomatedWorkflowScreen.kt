@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projects
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
@@ -87,12 +88,12 @@ fun AutomatedWorkflowScreen(
     onBack: () -> Unit,
     onOpenConversation: (String) -> Unit = {},
 ) {
-    val session by WsRepository.automatedWorkflowSession.collectAsState()
+    val session by WsRepository.automatedWorkflowSession.collectAsStateWithLifecycle()
     val activeSession = session
-    val models by WsRepository.models.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
-    val effectiveMode by WsRepository.effectiveMode.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
     val snackbarHostState = remember { SnackbarHostState() }
     var messageInput by remember { mutableStateOf("") }
@@ -114,7 +115,7 @@ fun AutomatedWorkflowScreen(
     // a brand-new run id, so it's matched back here by templateId rather than by run id (which
     // wouldn't exist yet client-side) to know when to navigate into the freshly spawned run.
     var pendingRunAgainTemplateId by remember { mutableStateOf<String?>(null) }
-    val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsState()
+    val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsStateWithLifecycle()
 
     // Mirrors the TopAppBar's onBack step-back logic below — without this, the system/gesture
     // back button skips past Detail/List and exits the screen in one tap instead of stepping

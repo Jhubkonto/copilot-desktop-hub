@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projects
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -87,10 +88,10 @@ fun AutomatedWorkflowListScreen(
     onNewWorkflow: () -> Unit,
     onOpenConversation: (String) -> Unit,
 ) {
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
-    val projects by WsRepository.projects.collectAsState()
-    val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsState()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsStateWithLifecycle()
 
     val runs = remember { mutableStateListOf<AutomatedWorkflowRunInfo>() }
     var activeRun by remember { mutableStateOf<AutomatedWorkflowRunInfo?>(null) }

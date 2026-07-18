@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projects
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -56,14 +57,14 @@ fun ProjectAuditScreen(
     onBack: () -> Unit,
     vm: ProjectAuditViewModel = viewModel(),
 ) {
-    val projects by WsRepository.projects.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val sessions by vm.sessions.collectAsState()
-    val filesBySession by vm.filesBySession.collectAsState()
-    val diffsByKey by vm.diffsByKey.collectAsState()
-    val loadingSessions by vm.loadingSessions.collectAsState()
-    val loadingFiles by vm.loadingFiles.collectAsState()
-    val loadingDiffs by vm.loadingDiffs.collectAsState()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val sessions by vm.sessions.collectAsStateWithLifecycle()
+    val filesBySession by vm.filesBySession.collectAsStateWithLifecycle()
+    val diffsByKey by vm.diffsByKey.collectAsStateWithLifecycle()
+    val loadingSessions by vm.loadingSessions.collectAsStateWithLifecycle()
+    val loadingFiles by vm.loadingFiles.collectAsStateWithLifecycle()
+    val loadingDiffs by vm.loadingDiffs.collectAsStateWithLifecycle()
     val project = projects.find { it.id == projectId }
 
     val expandedSessions = remember { mutableStateMapOf<String, Boolean>() }

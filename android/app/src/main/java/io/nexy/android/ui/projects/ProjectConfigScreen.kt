@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projects
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
@@ -116,9 +117,9 @@ fun ProjectConfigScreen(
     onOpenAutomatedWorkflow: () -> Unit = {},
     onOpenFileExplorer: (String) -> Unit = {},
 ) {
-    val projects by WsRepository.projects.collectAsState()
-    val allAgents by WsRepository.agents.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val allAgents by WsRepository.agents.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val project = projects.find { it.id == projectId }
 
     var instructions by remember { mutableStateOf("") }
