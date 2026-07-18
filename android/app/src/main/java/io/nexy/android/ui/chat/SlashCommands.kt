@@ -20,6 +20,7 @@ val MOBILE_SLASH_COMMANDS: List<SlashCommandDef> = listOf(
     SlashCommandDef("/model", "/model [name]", "Show or set conversation model"),
     SlashCommandDef("/debrief", "/debrief [model]", "Generate a session debrief as a re-runnable artifact"),
     SlashCommandDef("/quiz", "/quiz [model]", "Quiz yourself on this session (generates a debrief first if needed)"),
+    SlashCommandDef("/teachback", "/teachback [topic]", "Explain a concept aloud and get rubric feedback"),
     SlashCommandDef("/complete", "/complete", "Mark this conversation complete"),
     SlashCommandDef("/incomplete", "/incomplete", "Mark this conversation incomplete"),
     SlashCommandDef(

@@ -202,6 +202,7 @@ class ChatViewModel(
     // "the last /quiz or /code-change issued from this open chat", matching this codebase's
     // existing best-effort WS correlation elsewhere (no request/response ids on this protocol).
     private var awaitingQuizInsert = false
+    private var awaitingTeachbackInsert = false
 
     // /code-change, /code-plan, /code-execute, /code-push, /code-undo, /code-status: independent
     // slash commands (no wizard/step gating) following the same "awaiting flag + ephemeral status,
@@ -805,6 +806,16 @@ class ChatViewModel(
                         removePendingArtifactRefMessage("quiz")
                         _slashCommandMessage.value = "Failed to generate quiz: ${event.message}"
                     }
+                    event is WsEvent.TeachbackReady && awaitingTeachbackInsert -> {
+                        awaitingTeachbackInsert = false
+                        removePendingArtifactRefMessage("teachback")
+                        insertArtifactRefMessage(event.artifactId, event.versionId, "teachback", conversationId)
+                    }
+                    event is WsEvent.TeachbackError && awaitingTeachbackInsert -> {
+                        awaitingTeachbackInsert = false
+                        removePendingArtifactRefMessage("teachback")
+                        _slashCommandMessage.value = "Failed to generate teach-back: ${event.message}"
+                    }
                     event is WsEvent.CodeChangeReport -> {
                         val pending = pendingCodeChangeAction
                         if (awaitingCodeChangePlan) {
@@ -1098,6 +1109,12 @@ class ChatViewModel(
                 awaitingQuizInsert = true
                 insertPendingArtifactRefMessage("quiz")
                 WsRepository.generateQuiz(conversationId, projectId, argText.ifBlank { null })
+            }
+            "/teachback" -> {
+                awaitingTeachbackInsert = true
+                insertPendingArtifactRefMessage("teachback")
+                val topic = argText.replace(Regex("^(on|about|regarding)\\s+", RegexOption.IGNORE_CASE), "").ifBlank { null }
+                WsRepository.generateTeachback(conversationId, projectId, topic)
             }
             "/code-change" -> {
                 // A trailing "[repo]" (as the git-housekeeping commands use) would be ambiguous

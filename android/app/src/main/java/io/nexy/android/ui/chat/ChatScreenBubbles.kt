@@ -1054,6 +1054,7 @@ fun ArtifactRefBubble(
     ref: ArtifactRef,
     onOpenDebrief: () -> Unit,
     onOpenQuiz: () -> Unit,
+    onOpenTeachback: () -> Unit,
     onOpenArtifact: () -> Unit,
 ) {
     var fetchedTitle by remember(ref.artifactId) { mutableStateOf<String?>(null) }
@@ -1083,22 +1084,26 @@ fun ArtifactRefBubble(
     val kindLabel = when (effectiveKind) {
         "debrief" -> "Debrief"
         "quiz" -> "Quiz"
+        "teachback" -> "Teach-back"
         else -> "Artifact"
     }
     val fallbackTitle = when {
         ref.pending && effectiveKind == "debrief" -> "Generating debrief…"
         ref.pending && effectiveKind == "quiz" -> "Generating quiz…"
+        ref.pending && effectiveKind == "teachback" -> "Generating teach-back…"
         ref.pending -> "Generating…"
         effectiveKind == "debrief" -> "Open debrief"
         effectiveKind == "quiz" -> "Start quiz"
+        effectiveKind == "teachback" -> "Start teach-back"
         else -> "View artifact"
     }
     val icon = when (effectiveKind) {
         "debrief" -> Icons.AutoMirrored.Filled.MenuBook
         "quiz" -> Icons.Default.Psychology
+        "teachback" -> Icons.Default.RecordVoiceOver
         else -> Icons.AutoMirrored.Filled.Article
     }
-    val isIndigo = effectiveKind == "debrief" || effectiveKind == "quiz"
+    val isIndigo = effectiveKind == "debrief" || effectiveKind == "quiz" || effectiveKind == "teachback"
 
     val isDark = LocalNexyColors.current.isDark
     val bubbleColor = when {
@@ -1134,6 +1139,7 @@ fun ArtifactRefBubble(
             when (effectiveKind) {
                 "debrief" -> onOpenDebrief()
                 "quiz" -> onOpenQuiz()
+                "teachback" -> onOpenTeachback()
                 else -> onOpenArtifact()
             }
         },

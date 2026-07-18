@@ -181,6 +181,7 @@ fun ChatScreen(
     // quiz screen can load that exact artifact instead of re-deriving "the quiz for this
     // conversation" (see ArtifactRefBubble's onOpenQuiz dispatch for why that matters).
     onOpenQuiz: ((String, String) -> Unit)? = null,
+    onOpenTeachback: ((String, String) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodePanel: ((String) -> Unit)? = null,
@@ -1336,6 +1337,7 @@ fun ChatScreen(
                                     ref = item.ref,
                                     onOpenDebrief = { onOpenDebrief?.invoke(targetConversationId) },
                                     onOpenQuiz = { onOpenQuiz?.invoke(targetConversationId, item.ref.artifactId) },
+                                    onOpenTeachback = { onOpenTeachback?.invoke(targetConversationId, item.ref.artifactId) },
                                     onOpenArtifact = { onOpenArtifacts?.invoke(item.ref.artifactId) },
                                 )
                             }
@@ -1617,4 +1619,3 @@ private fun InReplyToBanner(
         }
     }
 }
-
