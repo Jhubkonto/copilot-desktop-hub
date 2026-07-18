@@ -1,6 +1,4 @@
-import { useEffect, useRef } from 'react'
-import { Trash2 } from 'lucide-react'
-import { Button, ModalShell } from './ui/primitives'
+import { ConfirmDialog } from './ui/ConfirmDialog'
 
 interface DeleteArtifactDialogProps {
   artifactTitle: string
@@ -9,50 +7,16 @@ interface DeleteArtifactDialogProps {
 }
 
 export function DeleteArtifactDialog({ artifactTitle, onConfirm, onCancel }: DeleteArtifactDialogProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    cancelRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onCancel])
-
   return (
-    <ModalShell
+    <ConfirmDialog
       title={`Delete "${artifactTitle}"?`}
-      maxWidth="max-w-md"
-      height=""
-      bodyClassName="p-6 space-y-4"
-      onClose={onCancel}
-      footer={
-        <>
-          <Button ref={cancelRef} onClick={onCancel} className="px-4 py-2 text-sm">
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 dark:text-white"
-          >
-            Delete Artifact
-          </Button>
-        </>
-      }
+      confirmLabel="Delete Artifact"
+      onConfirm={onConfirm}
+      onCancel={onCancel}
     >
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-            <Trash2 className="w-5 h-5 text-red-500" />
-          </div>
-        </div>
-
-        <p className="text-sm text-gray-600 dark:text-gray-300">
-          This artifact and all its versions will be permanently removed.
-        </p>
-
-        <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">
-          This action cannot be undone.
-        </p>
-    </ModalShell>
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        This artifact and all its versions will be permanently removed.
+      </p>
+    </ConfirmDialog>
   )
 }
