@@ -10,7 +10,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle, X } from 'lucide-react'
+import { X } from 'lucide-react'
 
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -140,7 +140,7 @@ export function ModalShell({
   )
 }
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dangerSolid'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
@@ -155,6 +155,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     secondary: 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700',
     ghost: 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
     danger: 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30',
+    dangerSolid: 'bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 dark:text-white',
   }[variant]
 
   return (
@@ -329,46 +330,6 @@ export function SaveStatus({ state }: { state: SaveState }) {
     error: 'text-red-500',
   }[state]
   return <span className={cx('text-[11px]', colorClass)}>{label}</span>
-}
-
-export interface PhaseBarStep {
-  id: string
-  label: string
-}
-
-interface PhaseBarProps {
-  steps: PhaseBarStep[]
-  currentIndex: number
-  failedId?: string
-}
-
-export function PhaseBar({ steps, currentIndex, failedId }: PhaseBarProps) {
-  return (
-    <div className="flex flex-wrap items-center gap-y-2">
-      {steps.map((step, i) => {
-        const failed = failedId === step.id
-        const done = !failed && currentIndex > i
-        const active = !failed && currentIndex === i
-        return (
-          <div key={step.id} className="flex items-center">
-            {i > 0 && <div className={cx('h-px w-4 shrink-0', done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700')} />}
-            <span
-              className={cx(
-                'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
-                failed ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                : done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                : active ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600',
-              )}
-            >
-              {done && <CheckCircle className="w-2.5 h-2.5" />}
-              {step.label}
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
 }
 
 export function SegmentedTabs<T extends string>({

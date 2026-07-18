@@ -105,9 +105,21 @@ body {
   animation: stream-fade-in 260ms ease-out both;
 }
 
+/*
+ * Honour prefers-reduced-motion globally: previously only .stream-fade-in opted out,
+ * so message-enter, the shimmer skeleton, spinners and blinks still animated for users
+ * who asked the OS to reduce motion. Collapse every animation/transition to near-instant
+ * instead of maintaining a per-class opt-out list. `both` fill-mode still lands the final
+ * frame, so elements settle in their intended end state rather than the "from" state.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .stream-fade-in {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
