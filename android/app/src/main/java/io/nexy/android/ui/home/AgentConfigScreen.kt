@@ -1,5 +1,6 @@
 package io.nexy.android.ui.home
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
@@ -124,14 +125,14 @@ fun AgentConfigScreen(
     onBack: () -> Unit,
     isNew: Boolean = false,
 ) {
-    val agents by WsRepository.agents.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val fullConfig by WsRepository.agentFullConfig.collectAsState()
-    val skills by WsRepository.skills.collectAsState()
-    val availableMcpServers by WsRepository.mcpServers.collectAsState()
-    val models by WsRepository.models.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
-    val effectiveMode by WsRepository.effectiveMode.collectAsState()
+    val agents by WsRepository.agents.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val fullConfig by WsRepository.agentFullConfig.collectAsStateWithLifecycle()
+    val skills by WsRepository.skills.collectAsStateWithLifecycle()
+    val availableMcpServers by WsRepository.mcpServers.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val agent = agents.find { it.id == agentId }
 
     // Identity

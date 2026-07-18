@@ -1,5 +1,6 @@
 package io.nexy.android.ui.home
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -44,7 +45,7 @@ fun ActivityFeedScreen(
     onBack: () -> Unit,
     onOpenActivity: (BackgroundActivity) -> Unit,
 ) {
-    val activities by BackgroundActivityTracker.activities.collectAsState()
+    val activities by BackgroundActivityTracker.activities.collectAsStateWithLifecycle()
     var isRefreshing by remember { mutableStateOf(false) }
 
     Scaffold(

@@ -1,5 +1,6 @@
 package io.nexy.android.ui.home
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -60,11 +61,11 @@ fun ScopedChatHistoryScreen(
     onOpenDebrief: ((String) -> Unit)? = null,
     onOpenQuiz: ((String) -> Unit)? = null,
 ) {
-    val conversations by WsRepository.conversations.collectAsState()
-    val agents by WsRepository.agents.collectAsState()
-    val projects by WsRepository.projects.collectAsState()
-    val activeConversationIds by WsRepository.activeConversationIds.collectAsState()
-    val completedConversationIds by WsRepository.completedConversationIds.collectAsState()
+    val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
+    val agents by WsRepository.agents.collectAsStateWithLifecycle()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val activeConversationIds by WsRepository.activeConversationIds.collectAsStateWithLifecycle()
+    val completedConversationIds by WsRepository.completedConversationIds.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
     var isRefreshing by remember { mutableStateOf(false) }
     var deletingConversation by remember { mutableStateOf<Conversation?>(null) }

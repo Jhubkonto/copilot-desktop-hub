@@ -1,5 +1,6 @@
 package io.nexy.android.ui.home
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -114,30 +115,30 @@ fun HomeScreen(
     onNavigateRoute: (String) -> Unit = {},
     vm: HomeViewModel = viewModel(),
 ) {
-    val connectionState by vm.connectionState.collectAsState()
-    val effectiveMode by vm.effectiveMode.collectAsState()
-    val preferStandaloneMode by vm.preferStandaloneMode.collectAsState()
-    val capabilities by WsRepository.capabilities.collectAsState()
-    val backgroundActivities by BackgroundActivityTracker.activities.collectAsState()
-    val syncInProgress by WsRepository.syncInProgress.collectAsState()
-    val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsState()
-    val conversations by vm.conversations.collectAsState()
-    val agents by vm.agents.collectAsState()
-    val projects by vm.projects.collectAsState()
-    val isRefreshingConversations by vm.isRefreshingConversations.collectAsState()
-    val isRefreshingAgents by vm.isRefreshingAgents.collectAsState()
-    val isRefreshingProjects by vm.isRefreshingProjects.collectAsState()
-    val pendingApproval by vm.pendingApproval.collectAsState()
-    val searchQuery by vm.searchQuery.collectAsState()
-    val searchResults by vm.searchResults.collectAsState()
-    val highlightProjectId by vm.highlightProjectId.collectAsState()
-    val highlightAgentId by vm.highlightAgentId.collectAsState()
-    val profiles by vm.profiles.collectAsState()
-    val activeProfileId by vm.activeProfileId.collectAsState()
-    val activeConversationIds by vm.activeConversationIds.collectAsState()
-    val pendingConversationIds by vm.pendingConversationIds.collectAsState()
-    val completedWhileAwayIds by vm.completedWhileAwayIds.collectAsState()
-    val activeCodeChangesByProject by WsRepository.activeCodeChangesByProject.collectAsState()
+    val connectionState by vm.connectionState.collectAsStateWithLifecycle()
+    val effectiveMode by vm.effectiveMode.collectAsStateWithLifecycle()
+    val preferStandaloneMode by vm.preferStandaloneMode.collectAsStateWithLifecycle()
+    val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
+    val backgroundActivities by BackgroundActivityTracker.activities.collectAsStateWithLifecycle()
+    val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
+    val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsStateWithLifecycle()
+    val conversations by vm.conversations.collectAsStateWithLifecycle()
+    val agents by vm.agents.collectAsStateWithLifecycle()
+    val projects by vm.projects.collectAsStateWithLifecycle()
+    val isRefreshingConversations by vm.isRefreshingConversations.collectAsStateWithLifecycle()
+    val isRefreshingAgents by vm.isRefreshingAgents.collectAsStateWithLifecycle()
+    val isRefreshingProjects by vm.isRefreshingProjects.collectAsStateWithLifecycle()
+    val pendingApproval by vm.pendingApproval.collectAsStateWithLifecycle()
+    val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
+    val searchResults by vm.searchResults.collectAsStateWithLifecycle()
+    val highlightProjectId by vm.highlightProjectId.collectAsStateWithLifecycle()
+    val highlightAgentId by vm.highlightAgentId.collectAsStateWithLifecycle()
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val activeProfileId by vm.activeProfileId.collectAsStateWithLifecycle()
+    val activeConversationIds by vm.activeConversationIds.collectAsStateWithLifecycle()
+    val pendingConversationIds by vm.pendingConversationIds.collectAsStateWithLifecycle()
+    val completedWhileAwayIds by vm.completedWhileAwayIds.collectAsStateWithLifecycle()
+    val activeCodeChangesByProject by WsRepository.activeCodeChangesByProject.collectAsStateWithLifecycle()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     var newChatQuery by remember { mutableStateOf("") }
