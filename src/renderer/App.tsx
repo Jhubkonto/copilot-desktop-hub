@@ -269,10 +269,15 @@ export default function App() {
             </div>
           )}
 
-          <ChatWindow />
+          {/* Localized boundary: a chat render error must not blank the whole window */}
+          <ErrorBoundary>
+            <ChatWindow />
+          </ErrorBoundary>
         </main>
       </div>
 
+      {/* Localized boundary: a crash in any lazy-loaded panel/modal keeps the app shell alive */}
+      <ErrorBoundary>
       <Suspense fallback={null}>
         {showAgentPanel && (
           <AgentPanel width={agentPanelWidth} onResize={handleAgentPanelResize} />
@@ -313,6 +318,7 @@ export default function App() {
           />
         )}
       </Suspense>
+      </ErrorBoundary>
 
       <ToolApproval />
 
