@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
 import type { AvailableModelEntry, CatalogModel } from '../../../shared/types'
+import { useClickOutside } from '../../hooks/useClickOutside'
 
 const MENU_WIDTH = 240
 const MENU_MAX_HEIGHT = 280
@@ -31,20 +32,7 @@ export function CliLockedModelBadge({
   const [open, setOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; openUpward: boolean } | null>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (
-        menuRef.current && !menuRef.current.contains(target) &&
-        buttonRef.current && !buttonRef.current.contains(target)
-      ) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
+  useClickOutside([menuRef, buttonRef], () => setOpen(false), open)
 
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) { setMenuPosition(null); return }
@@ -122,3 +110,4 @@ export function CliLockedModelBadge({
     </div>
   )
 }
+

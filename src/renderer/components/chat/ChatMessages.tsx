@@ -209,6 +209,7 @@ export function ChatMessagesBase({
   const throttledStreamingContent = useThrottledValue(liveTrailingText, CHAT_MARKDOWN_THROTTLE_MS, isGenerating)
   const messageElementsRef = useRef(new Map<string, HTMLDivElement>())
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRafRef = useRef<number | null>(null)
   const [visibleMessageIds, setVisibleMessageIds] = useState<Set<string>>(new Set())
   const [topVisibleAssistantId, setTopVisibleAssistantId] = useState<string | null>(null)
   const [highlightedRequestId, setHighlightedRequestId] = useState<string | null>(null)
@@ -332,6 +333,7 @@ export function ChatMessagesBase({
   useEffect(() => {
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current)
     }
   }, [])
 
@@ -356,7 +358,13 @@ export function ChatMessagesBase({
 
   const handleScroll = useCallback(() => {
     onScroll?.()
-    updateVisibleMessages()
+    // rAF-coalesce the O(n) getBoundingClientRect sweep so a burst of scroll events within
+    // one frame does the visibility recompute at most once, off the scroll event itself.
+    if (scrollRafRef.current !== null) return
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null
+      updateVisibleMessages()
+    })
   }, [onScroll, updateVisibleMessages])
 
   return (

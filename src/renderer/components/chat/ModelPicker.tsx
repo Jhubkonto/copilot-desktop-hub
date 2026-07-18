@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
 import type { AvailableModelEntry, AvailableModelGroup, CatalogModel } from '../../../shared/types'
+import { useClickOutside } from '../../hooks/useClickOutside'
 
 interface ModelPickerProps {
   value: string
@@ -46,19 +47,9 @@ export function ModelPicker({
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; openUpward: boolean } | null>(null)
 
   useEffect(() => {
-    if (!showModelMenu) { setModelSearch(''); return }
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (
-        modelMenuRef.current && !modelMenuRef.current.contains(target) &&
-        resolvedButtonRef.current && !resolvedButtonRef.current.contains(target)
-      ) {
-        setShowModelMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showModelMenu, resolvedButtonRef])
+    if (!showModelMenu) setModelSearch('')
+  }, [showModelMenu])
+  useClickOutside([modelMenuRef, resolvedButtonRef], () => setShowModelMenu(false), showModelMenu)
 
   useLayoutEffect(() => {
     if (!showModelMenu || !resolvedButtonRef.current) {
