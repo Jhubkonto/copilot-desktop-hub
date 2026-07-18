@@ -1,49 +1,107 @@
 import { useState, useEffect } from 'react'
-import { Package, Copy, CheckCircle } from 'lucide-react'
+import { Package, PackageX, Copy, CheckCircle, AlertCircle } from 'lucide-react'
 
 import type { ArtifactRow } from '@shared/types'
 import { DebriefArtifactCard } from './DebriefArtifactCard'
 import { QuizArtifactCard } from './QuizArtifactCard'
-import { ArtifactKindBadge, artifactDisplayTitle } from './artifactDisplay'
+import { TeachbackArtifactCard } from './TeachbackArtifactCard'
+import { ArtifactKindBadge, artifactDisplayTitle, artifactKindLabel } from './artifactDisplay'
 
 const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json']
 
 /**
  * Renders a chat-attached artifact reference. Dispatches to a kind-specific view for
- * kinds with rich interactive presentation (debrief, quiz); everything else falls back
+ * kinds with rich interactive presentation (debrief, quiz, teach-back); everything else falls back
  * to the generic metadata + export card.
  */
-export function ArtifactCard({ artifactId, versionId, pending = false }: { artifactId: string; versionId?: string; pending?: boolean }) {
-  const [kind, setKind] = useState<string | null>(null)
+type ArtifactLookupState =
+  | { status: 'loading' }
+  | { status: 'ready'; artifact: ArtifactRow }
+  | { status: 'missing' }
+  | { status: 'error' }
+
+export function ArtifactCard({
+  artifactId,
+  versionId,
+  pending = false,
+  referencedKind,
+}: {
+  artifactId: string
+  versionId?: string
+  pending?: boolean
+  referencedKind?: string
+}) {
+  const [lookup, setLookup] = useState<ArtifactLookupState>({ status: 'loading' })
 
   useEffect(() => {
-    setKind(null)
-    window.api.artifactGet(artifactId).then((a) => setKind(a?.kind ?? null)).catch(() => setKind(null))
+    let cancelled = false
+
+    const load = () => {
+      window.api.artifactGet(artifactId)
+        .then((artifact) => {
+          if (cancelled) return
+          setLookup(artifact ? { status: 'ready', artifact } : { status: 'missing' })
+        })
+        .catch(() => {
+          if (!cancelled) setLookup({ status: 'error' })
+        })
+    }
+
+    setLookup({ status: 'loading' })
+    load()
+    const unsubscribe = window.api.onArtifactUpdated(({ artifactId: updatedId }) => {
+      if (updatedId === artifactId) load()
+    })
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
   }, [artifactId])
 
-  if (kind === 'debrief') return <DebriefArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
-  if (kind === 'quiz') return <QuizArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
-  return <GenericArtifactCard artifactId={artifactId} />
+  if (lookup.status === 'loading') return <ArtifactLoadingCard />
+  if (lookup.status === 'missing') return <DeletedArtifactCard kind={referencedKind} />
+  if (lookup.status === 'error') return <ArtifactUnavailableCard />
+
+  const { artifact } = lookup
+  if (artifact.kind === 'debrief') return <DebriefArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
+  if (artifact.kind === 'quiz') return <QuizArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
+  if (artifact.kind === 'teachback') return <TeachbackArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
+  return <GenericArtifactCard artifact={artifact} />
 }
 
-function GenericArtifactCard({ artifactId }: { artifactId: string }) {
-  const [artifact, setArtifact] = useState<ArtifactRow | null>(null)
+function ArtifactLoadingCard() {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-400">
+      <Package className="w-3.5 h-3.5" />
+      Loading artifact…
+    </div>
+  )
+}
+
+function DeletedArtifactCard({ kind }: { kind?: string }) {
+  const label = kind ? `${artifactKindLabel(kind)} deleted` : 'Artifact deleted'
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-[11px] text-gray-400 dark:text-gray-500">
+      <PackageX className="w-3.5 h-3.5" />
+      {label}
+    </div>
+  )
+}
+
+function ArtifactUnavailableCard() {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-800 text-[11px] text-amber-600 dark:text-amber-400">
+      <AlertCircle className="w-3.5 h-3.5" />
+      Artifact unavailable
+    </div>
+  )
+}
+
+function GenericArtifactCard({ artifact }: { artifact: ArtifactRow }) {
   const [copying, setCopying] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState('')
-
-  useEffect(() => {
-    window.api.artifactGet(artifactId).then((a) => setArtifact(a)).catch(() => {})
-  }, [artifactId])
-
-  if (!artifact) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-400">
-        <Package className="w-3.5 h-3.5" />
-        Loading artifact…
-      </div>
-    )
-  }
 
   const version = artifact.currentVersion
   const primaryFile = version?.files?.find((f) => f.role === 'primary') ?? version?.files?.[0]

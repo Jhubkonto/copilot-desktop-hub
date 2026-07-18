@@ -1,7 +1,7 @@
 export const ARTIFACT_KIND_LABELS: Record<string, string> = {
   document: 'Doc', code: 'Code', ui: 'UI', data: 'Data',
   prompt: 'Prompt', 'agent-config': 'Agent', plan: 'Plan', bundle: 'Bundle', other: 'Other',
-  debrief: 'Debrief', quiz: 'Quiz',
+  debrief: 'Debrief', quiz: 'Quiz', teachback: 'Teach-back',
 }
 
 export function artifactKindLabel(kind: string): string {

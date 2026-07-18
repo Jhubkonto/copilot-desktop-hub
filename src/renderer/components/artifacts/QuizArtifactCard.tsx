@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrainCircuit, CheckCircle, Loader2, RefreshCw, XCircle } from 'lucide-react'
-import type { ArtifactRow, ArtifactVersion, QuizQuestion, QuizResult } from '@shared/types'
+import type { ArtifactRow, ArtifactVersion, QuizQuestion, QuizResult, QuizSpec, QuizAttempt, QuizCategoryBreakdown } from '@shared/types'
 
 type Step = 'loading' | 'generating' | 'question' | 'feedback' | 'summary'
 
@@ -39,6 +39,9 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
   const [score, setScore] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
+  const [spec, setSpec] = useState<QuizSpec | null>(null)
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([])
+  const recordedRef = useRef(false)
 
   const nextBtnRef = useRef<HTMLButtonElement>(null)
   const lockedVersionId = lockedVersion?.artifactId === artifactId ? lockedVersion.versionId : null
@@ -79,11 +82,21 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
         const result = await window.api.artifactGetFileContent(targetVersion.id, 'quiz.json')
         const parsed = JSON.parse(result.content) as QuizQuestion[]
         setQuestions(parsed)
+        // Best-effort: load the persisted spec so "Regenerate" reuses the same intent. Legacy
+        // quizzes have no quiz-spec.json — fall back to null (regenerate uses defaults).
+        try {
+          const specFile = await window.api.artifactGetFileContent(targetVersion.id, 'quiz-spec.json')
+          setSpec(JSON.parse(specFile.content) as QuizSpec)
+        } catch {
+          setSpec(null)
+        }
         setCurrentIndex(0)
         setSelectedIndex(null)
         setResults([])
         setScore(0)
+        recordedRef.current = false
         setStep('question')
+        window.api.getQuizAttempts(artifactId).then(setAttempts).catch(() => setAttempts([]))
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'Failed to load quiz')
@@ -128,6 +141,37 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
     setTimeout(() => nextBtnRef.current?.focus(), 50)
   }, [selectedIndex, questions, currentIndex])
 
+  // Persists one completed run to the learning-history store. Guarded so a single walk-through
+  // records exactly once (handleNext can fire more than once on the final question); reset in
+  // handleTryAgain so each fresh re-walk counts as its own attempt.
+  const recordAttempt = useCallback((finalResults: QuizResult[]) => {
+    if (recordedRef.current) return
+    const versionId = version?.id
+    if (!versionId) return
+    recordedRef.current = true
+    // Align to one result per question (finalResults can carry a trailing duplicate of the
+    // last answer depending on submit/next timing).
+    const aligned = finalResults.slice(0, questions.length)
+    const breakdown: QuizCategoryBreakdown = {}
+    const missed: string[] = []
+    questions.forEach((q, i) => {
+      if (!breakdown[q.category]) breakdown[q.category] = { correct: 0, total: 0 }
+      breakdown[q.category].total++
+      if (aligned[i]?.correct) breakdown[q.category].correct++
+      else missed.push(q.question)
+    })
+    window.api.recordQuizAttempt({
+      artifactId,
+      versionId,
+      conversationId: version?.sourceConversationId ?? artifact?.conversationId ?? null,
+      projectId: artifact?.projectId ?? null,
+      score: aligned.filter((r) => r.correct).length,
+      total: questions.length,
+      categoryBreakdown: breakdown,
+      missedQuestions: missed,
+    }).then((a) => setAttempts((prev) => [a, ...prev])).catch(() => { /* history is best-effort */ })
+  }, [artifactId, questions, version, artifact])
+
   const handleNext = useCallback(() => {
     const nextIndex = currentIndex + 1
     if (nextIndex < questions.length) {
@@ -138,14 +182,16 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
       const finalResults = [...results, { questionId: questions[currentIndex].id, selectedIndex: selectedIndex!, correct: selectedIndex === questions[currentIndex].correctIndex }]
       setScore(finalResults.filter((r) => r.correct).length)
       setStep('summary')
+      recordAttempt(finalResults)
     }
-  }, [currentIndex, questions, results, selectedIndex])
+  }, [currentIndex, questions, results, selectedIndex, recordAttempt])
 
   const handleTryAgain = useCallback(() => {
     setCurrentIndex(0)
     setSelectedIndex(null)
     setResults([])
     setScore(0)
+    recordedRef.current = false
     setStep('question')
   }, [])
 
@@ -154,17 +200,47 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
     if (!conversationId) return
     setRegenerating(true)
     try {
-      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null)
+      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null, undefined, spec ?? undefined, artifactId)
       load()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to regenerate quiz')
     } finally {
       setRegenerating(false)
     }
-  }, [artifact, load, version])
+  }, [artifact, artifactId, load, version, spec])
+
+  // Generates a fresh quiz that re-tests the concepts from the questions just missed. Uses the
+  // most recent attempt's missed list, threaded through the spec's focusQuestions.
+  const handleRequizMissed = useCallback(async () => {
+    const conversationId = version?.sourceConversationId ?? artifact?.currentVersion?.sourceConversationId ?? artifact?.conversationId
+    const missed = attempts[0]?.missedQuestions ?? []
+    if (!conversationId || missed.length === 0) return
+    setRegenerating(true)
+    try {
+      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null, undefined, {
+        ...(spec ?? {}),
+        focusQuestions: missed,
+      }, artifactId)
+      load()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to generate follow-up quiz')
+    } finally {
+      setRegenerating(false)
+    }
+  }, [artifact, artifactId, attempts, load, version, spec])
 
   const currentQuestion = questions[currentIndex]
   const total = questions.length
+  const bestScore = attempts.length > 0 ? Math.max(...attempts.map((a) => (a.total > 0 ? a.score / a.total : 0))) : null
+  const missedInLatest = attempts[0]?.missedQuestions ?? []
+  const historicalBreakdown = attempts.reduce<QuizCategoryBreakdown>((totals, attempt) => {
+    Object.entries(attempt.categoryBreakdown).forEach(([category, value]) => {
+      if (!totals[category]) totals[category] = { correct: 0, total: 0 }
+      totals[category].correct += value.correct
+      totals[category].total += value.total
+    })
+    return totals
+  }, {})
   const isLastQuestion = currentIndex === total - 1
   const getCategoryColor = (cat: string) => CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.concept
 
@@ -341,6 +417,11 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
           <div className="text-center">
             <p className="text-4xl font-bold text-gray-900 dark:text-gray-100">{score}<span className="text-2xl text-gray-400">/{total}</span></p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{getScoreLabel(score, total)}</p>
+            {attempts.length > 1 && bestScore !== null && (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                {attempts.length} attempts · best {Math.round(bestScore * 100)}%
+              </p>
+            )}
           </div>
 
           {questions.length > 0 && (() => {
@@ -366,6 +447,24 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
             )
           })()}
 
+          {Object.keys(historicalBreakdown).length > 0 && (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">History by Category</p>
+              <div className="space-y-1.5">
+                {Object.entries(historicalBreakdown).map(([category, value]) => {
+                  const percentage = value.total > 0 ? Math.round((value.correct / value.total) * 100) : 0
+                  return (
+                    <div key={category} className="flex items-center gap-2 text-xs">
+                      <span className="capitalize text-gray-600 dark:text-gray-300 flex-1">{category}</span>
+                      <span className="text-gray-400">{value.correct}/{value.total}</span>
+                      <span className="w-9 text-right font-semibold text-gray-700 dark:text-gray-200">{percentage}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
               type="button"
@@ -384,6 +483,18 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
               Regenerate
             </button>
           </div>
+
+          {missedInLatest.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleRequizMissed()}
+              disabled={regenerating}
+              className="flex items-center justify-center gap-1.5 w-full px-4 py-2 text-sm rounded-lg border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 transition-colors"
+            >
+              {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BrainCircuit className="w-3.5 h-3.5" />}
+              Re-quiz the {missedInLatest.length} I missed
+            </button>
+          )}
         </>
       )}
     </div>
