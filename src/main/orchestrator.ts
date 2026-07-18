@@ -5,13 +5,9 @@ import type { ToolDefinition } from './provider-types'
 import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
-  PROVIDERS,
   getProviderForAgent,
   getApiKey,
-  getAzureEndpoint,
-  sendOpenAIMessage,
-  sendAnthropicMessage,
-  sendAzureMessage,
+  streamProviderMessage,
   sendProviderWithTools,
   type MessageContent,
   type ProviderMessage,
@@ -107,11 +103,6 @@ function buildTeamManifest(teamAgents: OrchestratorAgent[], projectName: string)
   )
 }
 
-function extractSystemPrompt(messages: ProviderMessage[]): string | undefined {
-  const sys = messages.find((m) => m.role === 'system')
-  return sys && typeof sys.content === 'string' ? sys.content : undefined
-}
-
 /**
  * Stream the leader's final answer using the appropriate provider.
  * Routes to the correct streaming function based on provider.
@@ -130,24 +121,7 @@ async function callLeaderStreaming(
   }
 
   const onChunk = (chunk: string) => window.webContents.send('chat:stream-response', chunk)
-  if (provider === 'openai') {
-    return sendOpenAIMessage(conversationId, apiKey, model, messages, onChunk, generationOptions)
-  }
-  if (provider === 'anthropic') {
-    const systemPrompt = extractSystemPrompt(messages)
-    return sendAnthropicMessage(conversationId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemPrompt, onChunk, generationOptions)
-  }
-
-  const providerCfg = PROVIDERS.find((p) => p.name === provider)
-  if (providerCfg?.baseUrl) {
-    return sendOpenAIMessage(conversationId, apiKey, model, messages, onChunk, generationOptions, providerCfg.baseUrl)
-  }
-
-  const endpoint = getAzureEndpoint()
-  if (!endpoint) {
-    throw new Error('Azure endpoint not configured')
-  }
-  return sendAzureMessage(conversationId, apiKey, endpoint, model, messages, onChunk, generationOptions)
+  return streamProviderMessage(provider, apiKey, model, messages, conversationId, onChunk, generationOptions)
 }
 
 /**

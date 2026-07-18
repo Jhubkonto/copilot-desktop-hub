@@ -12,9 +12,10 @@ import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { startFeedServer, isFeedRunning, getFeedUrl, getFeedPort } from './local-feed-server'
 import { broadcastToMobile } from './ws-server'
-import { debugTime, debugTimeEnd } from './debug-mode'
+import { debugTime, debugTimeEnd, debugLog } from './debug-mode'
 import { startActivity, endActivity } from './activity-tracker'
-import type { BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
+import { runBuildProcess, cancelBuildProcess, mapBuildRecord } from './build-runner'
+import type { BuildCommandName, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // In-flight process registry
@@ -92,26 +93,6 @@ const BUILD_COMMANDS: Record<BuildCommandName, string> = {
   package: 'npm run package',
 }
 
-function rowToRecord(row: Record<string, unknown>): BuildRecord {
-  return {
-    id: row.id as string,
-    workspacePath: row.workspace_path as string,
-    commitSha: (row.commit_sha as string | null) ?? null,
-    branch: (row.branch as string | null) ?? null,
-    version: (row.version as string | null) ?? null,
-    versionCode: (row.version_code as number | null) ?? null,
-    platform: row.platform as string,
-    command: row.command as BuildCommandName,
-    status: row.status as BuildStatus,
-    exitCode: (row.exit_code as number | null) ?? null,
-    artifactPaths: JSON.parse((row.artifact_paths as string | null) ?? '[]') as string[],
-    artifactChecksums: JSON.parse((row.artifact_checksums as string | null) ?? '{}') as Record<string, string>,
-    logTail: (row.log_tail as string | null) ?? '',
-    startedAt: row.started_at as number,
-    finishedAt: (row.finished_at as number | null) ?? null,
-    mobileInitiated: Boolean(row.mobile_initiated),
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Local update feed helpers
@@ -248,94 +229,51 @@ export async function startBuildFromMobile(command: BuildCommandName, mainWindow
      VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, 1)`
   ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.version, process.platform, command, now)
 
-  const cmd = BUILD_COMMANDS[command]
-  const child = spawn(cmd, [], { shell: true, cwd: workspacePath })
-  activeBuildProcesses.set(buildId, child)
   startActivity({ id: `build:${buildId}`, kind: 'build', label: `Building (${command})…`, detail: wsInfo.branch ?? undefined })
-
-  const logLines: string[] = []
-  const MAX_LOG_CHARS = 4096
-  let lastUniqueLine = ''
-  let repeatCount = 0
-
-  function appendLog(line: string, stream: 'stdout' | 'stderr'): void {
-    if (line === lastUniqueLine) {
-      repeatCount++
-      const summary = `  [repeated ${repeatCount + 1}×]`
-      logLines[logLines.length - 1] = summary
-      mainWindow?.webContents.send('build:log-chunk', { buildId, line: summary, stream, replace: true })
-      broadcastToMobile({ event: 'build:log-chunk', data: { buildId, line: summary, stream, replace: true } })
-      return
-    }
-    lastUniqueLine = line
-    repeatCount = 0
-    logLines.push(line)
-    mainWindow?.webContents.send('build:log-chunk', { buildId, line, stream })
-    broadcastToMobile({ event: 'build:log-chunk', data: { buildId, line, stream } })
-  }
-
-  function buildLogTail(): string {
-    const joined = logLines.join('\n')
-    return joined.length > MAX_LOG_CHARS ? joined.slice(-MAX_LOG_CHARS) : joined
-  }
-
-  child.stdout?.on('data', (data: Buffer) => {
-    for (const line of data.toString().split('\n')) {
-      if (line) appendLog(line, 'stdout')
-    }
-  })
-
-  child.stderr?.on('data', (data: Buffer) => {
-    for (const line of data.toString().split('\n')) {
-      if (line) appendLog(line, 'stderr')
-    }
-  })
-
-  child.on('close', (code) => {
-    activeBuildProcesses.delete(buildId)
-    endActivity(`build:${buildId}`)
-    const exitCode = code ?? -1
-    const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
-    const finishedAt = Date.now()
-    const logTail = buildLogTail()
-    const releaseDir = path.join(workspacePath, 'release')
-    const artifactPaths = command === 'package' ? scanArtifacts(releaseDir, now) : []
-
-    db.prepare(
-      `UPDATE build_records
-       SET status = ?, exit_code = ?, finished_at = ?, log_tail = ?, artifact_paths = ?
-       WHERE id = ?`
-    ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), buildId)
-
-    mainWindow?.webContents.send('build:command-done', { buildId, status, exitCode })
-    broadcastToMobile({ event: 'build:command-done', data: { buildId, status, exitCode } })
-
-    // Phase 2: auto-publish + relaunch after a successful mobile-initiated package build
-    if (command === 'package' && status === 'success') {
-      void publishArtifactToFeed(db).then((result) => {
-        if (!result.published) return
-        broadcastToMobile({ event: 'update:restarting', data: { eta: 10, version: result.version ?? null } })
-        mainWindow?.webContents.send('update:restarting', { eta: 10, version: result.version ?? null })
-        setTimeout(() => { app.relaunch(); app.exit(0) }, 2000)
-      })
-    }
+  runBuildProcess({
+    db,
+    buildId,
+    spawnCmd: BUILD_COMMANDS[command],
+    spawnArgs: [],
+    cwd: workspacePath,
+    logEvent: 'build:log-chunk',
+    doneEvent: 'build:command-done',
+    window: mainWindow,
+    mirrorToMobile: true,
+    registry: activeBuildProcesses,
+    collectArtifacts: async () => ({
+      artifactPaths: command === 'package' ? scanArtifacts(path.join(workspacePath, 'release'), now) : [],
+    }),
+    onDone: (status) => {
+      endActivity(`build:${buildId}`)
+      // Phase 2: auto-publish + relaunch after a successful mobile-initiated package build
+      if (command === 'package' && status === 'success') {
+        void publishArtifactToFeed(db).then((result) => {
+          if (!result.published) {
+            if (result.error) debugLog('build', `auto-publish skipped: ${result.error}`)
+            return
+          }
+          broadcastToMobile({ event: 'update:restarting', data: { eta: 10, version: result.version ?? null } })
+          mainWindow?.webContents.send('update:restarting', { eta: 10, version: result.version ?? null })
+          setTimeout(() => { app.relaunch(); app.exit(0) }, 2000)
+        }).catch((err: Error) => {
+          debugLog('build', `auto-publish failed: ${err.message}`)
+        })
+      }
+    },
   })
 
   return { buildId }
 }
 
 export function cancelMobileBuild(buildId: string): boolean {
-  const child = activeBuildProcesses.get(buildId)
-  if (!child) return false
-  child.kill('SIGTERM')
-  activeBuildProcesses.delete(buildId)
-  endActivity(`build:${buildId}`)
-  const db = getDatabase()
-  db.prepare(
-    `UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`
-  ).run(Date.now(), buildId)
-  broadcastToMobile({ event: 'build:command-done', data: { buildId, status: 'cancelled', exitCode: null } })
-  return true
+  return cancelBuildProcess({
+    db: getDatabase(),
+    buildId,
+    registry: activeBuildProcesses,
+    mobileDoneEvent: 'build:command-done',
+    onCancelled: () => endActivity(`build:${buildId}`),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -369,79 +307,33 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
        VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)`
     ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.version, process.platform, command, now)
 
-    const cmd = BUILD_COMMANDS[command]
-    const child = spawn(cmd, [], { shell: true, cwd: workspacePath })
-    activeBuildProcesses.set(buildId, child)
     startActivity({ id: `build:${buildId}`, kind: 'build', label: `Building (${command})…`, detail: wsInfo.branch ?? undefined })
-
-    const logLines: string[] = []
-    const MAX_LOG_CHARS = 4096
-    let lastUniqueLine = ''
-    let repeatCount = 0
-
-    function appendLog(line: string, stream: 'stdout' | 'stderr'): void {
-      if (line === lastUniqueLine) {
-        repeatCount++
-        const summary = `  [repeated ${repeatCount + 1}×]`
-        logLines[logLines.length - 1] = summary
-        mainWindow?.webContents.send('build:log-chunk', { buildId, line: summary, stream, replace: true })
-        return
-      }
-      lastUniqueLine = line
-      repeatCount = 0
-      logLines.push(line)
-      mainWindow?.webContents.send('build:log-chunk', { buildId, line, stream })
-    }
-
-    function buildLogTail(): string {
-      const joined = logLines.join('\n')
-      return joined.length > MAX_LOG_CHARS ? joined.slice(-MAX_LOG_CHARS) : joined
-    }
-
-    child.stdout?.on('data', (data: Buffer) => {
-      for (const line of data.toString().split('\n')) {
-        if (line) appendLog(line, 'stdout')
-      }
-    })
-
-    child.stderr?.on('data', (data: Buffer) => {
-      for (const line of data.toString().split('\n')) {
-        if (line) appendLog(line, 'stderr')
-      }
-    })
-
-    child.on('close', (code) => {
-      activeBuildProcesses.delete(buildId)
-      endActivity(`build:${buildId}`)
-      const exitCode = code ?? -1
-      const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
-      const finishedAt = Date.now()
-      const logTail = buildLogTail()
-      const releaseDir = path.join(workspacePath, 'release')
-      const artifactPaths = command === 'package' ? scanArtifacts(releaseDir, now) : []
-
-      db.prepare(
-        `UPDATE build_records
-         SET status = ?, exit_code = ?, finished_at = ?, log_tail = ?, artifact_paths = ?
-         WHERE id = ?`
-      ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), buildId)
-
-      mainWindow?.webContents.send('build:command-done', { buildId, status, exitCode })
+    runBuildProcess({
+      db,
+      buildId,
+      spawnCmd: BUILD_COMMANDS[command],
+      spawnArgs: [],
+      cwd: workspacePath,
+      logEvent: 'build:log-chunk',
+      doneEvent: 'build:command-done',
+      window: mainWindow,
+      registry: activeBuildProcesses,
+      collectArtifacts: async () => ({
+        artifactPaths: command === 'package' ? scanArtifacts(path.join(workspacePath, 'release'), now) : [],
+      }),
+      onDone: () => endActivity(`build:${buildId}`),
     })
 
     return { buildId }
   })
 
   safeHandle('build:cancel-command', (_event, buildId: string) => {
-    const child = activeBuildProcesses.get(buildId)
-    if (!child) return false
-    child.kill('SIGTERM')
-    activeBuildProcesses.delete(buildId)
-    endActivity(`build:${buildId}`)
-    db.prepare(
-      `UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`
-    ).run(Date.now(), buildId)
-    return true
+    return cancelBuildProcess({
+      db,
+      buildId,
+      registry: activeBuildProcesses,
+      onCancelled: () => endActivity(`build:${buildId}`),
+    })
   })
 
   safeHandle('build:get-records', (_event, limit?: number) => {
@@ -449,7 +341,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     const rows = db.prepare(
       `SELECT * FROM build_records ORDER BY started_at DESC LIMIT ?`
     ).all(limit ?? 20) as Record<string, unknown>[]
-    const r = rows.map(rowToRecord)
+    const r = rows.map(mapBuildRecord)
     debugTimeEnd('build:get-records')
     return r
   })

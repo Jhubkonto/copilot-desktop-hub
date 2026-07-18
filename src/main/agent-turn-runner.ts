@@ -1,13 +1,9 @@
 import { getAgentConfig } from './agents'
 import {
   NO_PROVIDER_CONFIGURED_MESSAGE,
-  PROVIDERS,
   getProviderForAgent,
   getApiKey,
-  getAzureEndpoint,
-  sendOpenAIMessage,
-  sendAnthropicMessage,
-  sendAzureMessage,
+  streamProviderMessage,
 } from './providers'
 import type { ProviderMessage } from './provider-core-types'
 
@@ -62,23 +58,8 @@ export async function runAgentTurn(opts: AgentTurnOptions): Promise<string> {
     onChunk(chunk)
   }
 
-  const attempt = (): Promise<string> => {
-    if (provider === 'openai') {
-      return sendOpenAIMessage(requestId, apiKey, model, messages, wrappedOnChunk, generationOptions)
-    }
-    if (provider === 'anthropic') {
-      return sendAnthropicMessage(requestId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemContent, wrappedOnChunk, generationOptions)
-    }
-    const providerCfg = PROVIDERS.find((p) => p.name === provider)
-    if (providerCfg?.baseUrl) {
-      return sendOpenAIMessage(requestId, apiKey, model, messages, wrappedOnChunk, generationOptions, providerCfg.baseUrl)
-    }
-    const endpoint = getAzureEndpoint()
-    if (!endpoint) {
-      throw new Error('Azure endpoint not configured')
-    }
-    return sendAzureMessage(requestId, apiKey, endpoint, model, messages, wrappedOnChunk, generationOptions)
-  }
+  const attempt = (): Promise<string> =>
+    streamProviderMessage(provider, apiKey, model, messages, requestId, wrappedOnChunk, generationOptions)
 
   try {
     return await attempt()

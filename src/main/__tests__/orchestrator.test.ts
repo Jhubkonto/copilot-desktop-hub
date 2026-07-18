@@ -14,9 +14,7 @@ vi.mock('../providers', () => ({
   getApiKey: vi.fn(() => 'test-key'),
   getAzureEndpoint: vi.fn(() => null),
   sendProviderWithTools: mocks.sendProviderWithTools,
-  sendOpenAIMessage: vi.fn(),
-  sendAnthropicMessage: vi.fn(),
-  sendAzureMessage: vi.fn(),
+  streamProviderMessage: vi.fn(),
 }))
 
 vi.mock('../agents', () => ({ getAgentConfig: mocks.getAgentConfig }))
