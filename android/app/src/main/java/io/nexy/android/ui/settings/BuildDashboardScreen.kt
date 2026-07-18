@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,8 +62,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BuildDashboardScreen(onBack: () -> Unit) {
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val buildRecords by WsRepository.buildRecords.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val buildRecords by WsRepository.buildRecords.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
 
     var desktopRecords by remember { mutableStateOf<List<BuildRecord>>(emptyList()) }

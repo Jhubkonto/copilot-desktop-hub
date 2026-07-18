@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,7 +43,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DebugLogScreen(onBack: () -> Unit) {
-    val entries by WsRepository.debugLog.collectAsState()
+    val entries by WsRepository.debugLog.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val context = LocalContext.current
 

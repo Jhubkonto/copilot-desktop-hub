@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,14 +65,14 @@ fun ProvidersScreen(
     onBack: () -> Unit,
     vm: ProvidersViewModel = viewModel(),
 ) {
-    val providers by vm.providers.collectAsState()
-    val isLoading by vm.isLoading.collectAsState()
-    val error by vm.error.collectAsState()
-    val azureEndpoint by vm.azureEndpoint.collectAsState()
-    val testResult by vm.testResult.collectAsState()
-    val testError by vm.testError.collectAsState()
-    val isTesting by vm.isTesting.collectAsState()
-    val pendingKeyHandoffRequests by WsRepository.pendingKeyHandoffRequests.collectAsState()
+    val providers by vm.providers.collectAsStateWithLifecycle()
+    val isLoading by vm.isLoading.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    val azureEndpoint by vm.azureEndpoint.collectAsStateWithLifecycle()
+    val testResult by vm.testResult.collectAsStateWithLifecycle()
+    val testError by vm.testError.collectAsStateWithLifecycle()
+    val isTesting by vm.isTesting.collectAsStateWithLifecycle()
+    val pendingKeyHandoffRequests by WsRepository.pendingKeyHandoffRequests.collectAsStateWithLifecycle()
     var editingProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     var confirmKeyHandoffProviderId by remember { mutableStateOf<String?>(null) }

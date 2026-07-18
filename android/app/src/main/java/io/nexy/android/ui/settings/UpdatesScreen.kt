@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -23,8 +24,8 @@ fun UpdatesScreen(
     onBack: () -> Unit,
     vm: SettingsViewModel = viewModel(),
 ) {
-    val androidUpdateManifest by vm.androidUpdateManifest.collectAsState()
-    val updateInstallState by vm.updateInstallState.collectAsState()
+    val androidUpdateManifest by vm.androidUpdateManifest.collectAsStateWithLifecycle()
+    val updateInstallState by vm.updateInstallState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.refreshUpdateManifest() }
 

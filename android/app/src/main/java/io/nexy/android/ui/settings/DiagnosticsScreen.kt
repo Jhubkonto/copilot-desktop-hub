@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,11 +23,11 @@ fun DiagnosticsScreen(
     onForgetServer: () -> Unit,
     vm: SettingsViewModel = viewModel(),
 ) {
-    val connectionState by vm.connectionState.collectAsState()
-    val profiles by vm.profiles.collectAsState()
-    val activeProfileId by vm.activeProfileId.collectAsState()
-    val serverVersion by vm.serverVersion.collectAsState()
-    val lastError by vm.lastError.collectAsState()
+    val connectionState by vm.connectionState.collectAsStateWithLifecycle()
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val activeProfileId by vm.activeProfileId.collectAsStateWithLifecycle()
+    val serverVersion by vm.serverVersion.collectAsStateWithLifecycle()
+    val lastError by vm.lastError.collectAsStateWithLifecycle()
 
     val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
     val connectionDiagnostics = buildConnectionDiagnostics(

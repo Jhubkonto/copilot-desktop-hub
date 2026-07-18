@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,7 +23,7 @@ fun AppearanceScreen(
     onBack: () -> Unit,
     vm: SettingsViewModel = viewModel(),
 ) {
-    val themePreference by vm.themePreference.collectAsState()
+    val themePreference by vm.themePreference.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {

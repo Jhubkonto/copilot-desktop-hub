@@ -29,6 +29,10 @@ data class UpdateInstallState(
     val installing: Boolean = false,
     val message: String? = null,
     val error: String? = null,
+    /** 0f..1f while downloading; null when total size is unknown or not downloading. */
+    val downloadProgress: Float? = null,
+    /** True when the last failure is retryable (i.e. the user can tap Install again). */
+    val canRetry: Boolean = false,
 )
 
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
@@ -92,28 +96,53 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshUpdateManifest() {
+        if (connectionState.value != ConnectionState.CONNECTED) {
+            _updateInstallState.value = UpdateInstallState(
+                error = "Not connected to the desktop — connect to check for updates.",
+            )
+            return
+        }
         WsRepository.send("android:update-manifest", emptyMap())
     }
 
     fun installUpdate(manifest: AndroidUpdateManifest) {
         if (!canInstallUpdate(manifest, clientVersionCode) || _updateInstallState.value.installing) return
+        if (connectionState.value != ConnectionState.CONNECTED) {
+            _updateInstallState.value = UpdateInstallState(
+                error = "Not connected to the desktop — connect and try again.",
+                canRetry = true,
+            )
+            return
+        }
         val app: Application = getApplication()
         viewModelScope.launch {
-            _updateInstallState.value = UpdateInstallState(installing = true, message = "Downloading update...")
+            _updateInstallState.value = UpdateInstallState(installing = true, message = "Downloading update…", downloadProgress = 0f)
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val apk = downloadUpdateApk(app, updateHttpClient, manifest)
+                    val apk = downloadUpdateApk(app, updateHttpClient, manifest) { read, total ->
+                        val progress = if (total > 0) (read.toFloat() / total.toFloat()).coerceIn(0f, 1f) else null
+                        _updateInstallState.value = UpdateInstallState(
+                            installing = true,
+                            message = "Downloading update…",
+                            downloadProgress = progress,
+                        )
+                    }
+                    _updateInstallState.value = UpdateInstallState(installing = true, message = "Verifying update…")
                     verifyChecksum(apk, manifest.checksum)
                     apk
                 }
             }.onSuccess { apk ->
-                _updateInstallState.value = UpdateInstallState(message = "Opening Android installer...")
+                _updateInstallState.value = UpdateInstallState(message = "Opening Android installer…")
                 openPackageInstaller(app, apk) { msg ->
                     _updateInstallState.value = UpdateInstallState(message = msg)
                 }
             }.onFailure { error ->
+                android.util.Log.e("NexyUpdate", "installUpdate failed", error)
+                val stage = (error as? UpdateException)?.stage
                 _updateInstallState.value = UpdateInstallState(
-                    error = error.message ?: "Unable to install update",
+                    error = error.message ?: "Unable to install update.",
+                    // Download/verify failures are retryable; an install-launch failure is not.
+                    canRetry = stage == UpdateStage.DOWNLOAD || stage == UpdateStage.VERIFY,
                 )
             }
         }

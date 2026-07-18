@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -39,7 +40,7 @@ fun SettingsScreen(
     onOpenDebugLog: () -> Unit = {},
     onOpenBackupRecovery: () -> Unit = {},
 ) {
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val desktopConnected = connectionState == ConnectionState.CONNECTED
     Scaffold(
         topBar = {

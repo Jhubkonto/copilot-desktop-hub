@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -27,8 +28,8 @@ fun NotificationsScreen(
     onBack: () -> Unit,
     vm: SettingsViewModel = viewModel(),
 ) {
-    val notificationDiagnostics by vm.notificationDiagnostics.collectAsState()
-    val readAloudEnabled by vm.readAloudEnabled.collectAsState()
+    val notificationDiagnostics by vm.notificationDiagnostics.collectAsStateWithLifecycle()
+    val readAloudEnabled by vm.readAloudEnabled.collectAsStateWithLifecycle()
     var refreshed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.refreshNotificationDiagnostics() }

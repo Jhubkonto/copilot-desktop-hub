@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -64,9 +65,9 @@ import io.nexy.android.ui.components.NexyTopAppBar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun McpAndCliScreen(onBack: () -> Unit) {
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val mcpServers by WsRepository.mcpServers.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val mcpServers by WsRepository.mcpServers.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
 
     var showAddSheet by remember { mutableStateOf(false) }

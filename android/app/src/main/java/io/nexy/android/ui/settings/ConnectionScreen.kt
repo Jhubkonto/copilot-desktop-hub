@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,19 +45,19 @@ fun ConnectionScreen(
     onOpenPairingScan: () -> Unit = {},
     vm: SettingsViewModel = viewModel(),
 ) {
-    val profiles by vm.profiles.collectAsState()
-    val activeProfileId by vm.activeProfileId.collectAsState()
-    val connectionState by vm.connectionState.collectAsState()
-    val effectiveMode by vm.effectiveMode.collectAsState()
-    val preferStandaloneMode by vm.preferStandaloneMode.collectAsState()
-    val wolSnackbar by vm.wolSnackbar.collectAsState()
-    val capabilities by WsRepository.capabilities.collectAsState()
-    val conflicts by WsRepository.syncConflicts.collectAsState()
-    val outbox by WsRepository.syncOutbox.collectAsState()
-    val syncInProgress by WsRepository.syncInProgress.collectAsState()
-    val activeConversationIds by WsRepository.activeConversationIds.collectAsState()
-    val pendingConversationIds by WsRepository.pendingConversationIds.collectAsState()
-    val backgroundActivities by BackgroundActivityTracker.activities.collectAsState()
+    val profiles by vm.profiles.collectAsStateWithLifecycle()
+    val activeProfileId by vm.activeProfileId.collectAsStateWithLifecycle()
+    val connectionState by vm.connectionState.collectAsStateWithLifecycle()
+    val effectiveMode by vm.effectiveMode.collectAsStateWithLifecycle()
+    val preferStandaloneMode by vm.preferStandaloneMode.collectAsStateWithLifecycle()
+    val wolSnackbar by vm.wolSnackbar.collectAsStateWithLifecycle()
+    val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
+    val conflicts by WsRepository.syncConflicts.collectAsStateWithLifecycle()
+    val outbox by WsRepository.syncOutbox.collectAsStateWithLifecycle()
+    val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
+    val activeConversationIds by WsRepository.activeConversationIds.collectAsStateWithLifecycle()
+    val pendingConversationIds by WsRepository.pendingConversationIds.collectAsStateWithLifecycle()
+    val backgroundActivities by BackgroundActivityTracker.activities.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var discardOperationId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()

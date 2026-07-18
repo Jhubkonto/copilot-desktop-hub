@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,15 +52,15 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val effectiveMode by WsRepository.effectiveMode.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
-    val modelOptions by WsRepository.models.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
+    val modelOptions by WsRepository.models.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val standaloneProviderStore = remember { StandaloneProviderStore.get(context) }
-    val standaloneProviders by standaloneProviderStore.providers.collectAsState()
+    val standaloneProviders by standaloneProviderStore.providers.collectAsStateWithLifecycle()
     val configuredProviderIds = standaloneProviders.filter { it.configured }.map { it.id }.toSet()
     val standaloneModelOptions = filterModelsByConfiguredProviders(modelOptions, configuredProviderIds)
 

@@ -12,19 +12,64 @@ import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
 
-internal fun downloadUpdateApk(app: Application, httpClient: OkHttpClient, manifest: AndroidUpdateManifest): File {
+/** Which stage of the OTA flow failed, so the UI can show a specific message and offer retry. */
+enum class UpdateStage { DOWNLOAD, VERIFY, INSTALL }
+
+class UpdateException(val stage: UpdateStage, message: String, cause: Throwable? = null) :
+    Exception(message, cause)
+
+/**
+ * Removes previously-downloaded APKs except the one currently being installed, so stale
+ * versioned files don't accumulate in cacheDir/updates over successive updates.
+ */
+private fun pruneOldApks(updateDir: File, keep: File) {
+    updateDir.listFiles()?.forEach { file ->
+        if (file != keep && file.name.endsWith(".apk")) {
+            runCatching { file.delete() }
+        }
+    }
+}
+
+internal fun downloadUpdateApk(
+    app: Application,
+    httpClient: OkHttpClient,
+    manifest: AndroidUpdateManifest,
+    onProgress: (bytesRead: Long, total: Long) -> Unit = { _, _ -> },
+): File {
     val request = Request.Builder()
         .url(manifest.artifactUrl)
         .build()
-    httpClient.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            throw IllegalStateException("Download failed with HTTP ${response.code}")
+    val response = try {
+        httpClient.newCall(request).execute()
+    } catch (e: Exception) {
+        throw UpdateException(UpdateStage.DOWNLOAD, "Couldn't reach the desktop to download the update. Check your connection and try again.", e)
+    }
+    response.use { resp ->
+        if (!resp.isSuccessful) {
+            throw UpdateException(UpdateStage.DOWNLOAD, "Download failed with HTTP ${resp.code}.")
         }
-        val body = response.body ?: throw IllegalStateException("Update download was empty")
+        val body = resp.body ?: throw UpdateException(UpdateStage.DOWNLOAD, "The update download was empty.")
+        val total = body.contentLength()
         val updateDir = File(app.cacheDir, "updates").also { it.mkdirs() }
         val apk = File(updateDir, "nexy-${manifest.versionCode}.apk")
-        body.byteStream().use { input ->
-            apk.outputStream().use { output -> input.copyTo(output) }
+        pruneOldApks(updateDir, keep = apk)
+        try {
+            body.byteStream().use { input ->
+                apk.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var readTotal = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                        readTotal += read
+                        onProgress(readTotal, total)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            apk.delete()
+            throw UpdateException(UpdateStage.DOWNLOAD, "The update download was interrupted. Try again.", e)
         }
         return apk
     }
@@ -32,7 +77,7 @@ internal fun downloadUpdateApk(app: Application, httpClient: OkHttpClient, manif
 
 internal fun verifyChecksum(apk: File, expectedChecksum: String) {
     val normalizedExpected = expectedChecksum.trim().lowercase()
-    if (normalizedExpected.isBlank()) throw IllegalStateException("Update checksum is missing")
+    if (normalizedExpected.isBlank()) throw UpdateException(UpdateStage.VERIFY, "The update is missing a checksum and can't be verified.")
     val digest = MessageDigest.getInstance("SHA-256")
     apk.inputStream().use { input ->
         val buffer = ByteArray(8 * 1024)
@@ -45,7 +90,7 @@ internal fun verifyChecksum(apk: File, expectedChecksum: String) {
     val actual = digest.digest().joinToString("") { "%02x".format(it) }
     if (actual != normalizedExpected) {
         apk.delete()
-        throw IllegalStateException("Update checksum did not match")
+        throw UpdateException(UpdateStage.VERIFY, "The downloaded update failed its integrity check and was discarded.")
     }
 }
 

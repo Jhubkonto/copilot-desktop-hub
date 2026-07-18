@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,9 +23,9 @@ fun ModelsScreen(
     onBack: () -> Unit,
     vm: SettingsViewModel = viewModel(),
 ) {
-    val models by vm.models.collectAsState()
-    val modelSource by vm.modelSource.collectAsState()
-    val effectiveMode by vm.effectiveMode.collectAsState()
+    val models by vm.models.collectAsStateWithLifecycle()
+    val modelSource by vm.modelSource.collectAsStateWithLifecycle()
+    val effectiveMode by vm.effectiveMode.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.refreshModels() }
 

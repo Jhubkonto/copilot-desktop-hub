@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,8 +34,8 @@ import io.nexy.android.ui.components.NexyTopAppBar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CliModelsScreen(onBack: () -> Unit) {
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
 
     LaunchedEffect(Unit) {
