@@ -1,5 +1,6 @@
 package io.nexy.android.ui.chat
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,7 +62,7 @@ fun ContextInspectorSheet(
     sheetState: SheetState,
     vm: ContextInspectorViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(conversationId) {
         vm.load(conversationId)

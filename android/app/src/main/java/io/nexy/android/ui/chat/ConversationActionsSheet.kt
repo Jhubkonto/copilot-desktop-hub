@@ -1,5 +1,6 @@
 package io.nexy.android.ui.chat
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -58,9 +59,9 @@ fun ConversationActionsSheet(
     onImportNavigate: (String) -> Unit,
     vm: ConversationActionsViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val conversations by WsRepository.conversations.collectAsState()
+    val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
     var showRatingPicker by remember { mutableStateOf(false) }
     val currentRating = conversations.firstOrNull { it.id == conversationId }?.rating
 

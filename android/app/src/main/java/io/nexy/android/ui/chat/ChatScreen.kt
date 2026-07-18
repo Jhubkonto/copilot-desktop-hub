@@ -1,5 +1,6 @@
 package io.nexy.android.ui.chat
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Intent
@@ -195,26 +196,26 @@ fun ChatScreen(
         },
     ),
 ) {
-    val messages by vm.messages.collectAsState()
-    val isStreaming by vm.isStreaming.collectAsState()
-    val isAwaitingResponse by vm.isAwaitingResponse.collectAsState()
-    val isRefreshing by vm.isRefreshing.collectAsState()
-    val activityLabel by vm.activityLabel.collectAsState()
-    val liveActivity by vm.liveActivity.collectAsState()
-    val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsState()
-    val generationStartedAt by vm.generationStartedAt.collectAsState()
-    val selectedModel by vm.selectedModel.collectAsState()
-    val attachments by vm.attachments.collectAsState()
-    val conversations by WsRepository.conversations.collectAsState()
-    val agents by WsRepository.agents.collectAsState()
-    val projects by WsRepository.projects.collectAsState()
-    val models by WsRepository.models.collectAsState()
-    val modelSource by WsRepository.modelSource.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val capabilities by WsRepository.capabilities.collectAsState()
-    val lastError by WsRepository.lastError.collectAsState()
-    val effectiveMode by WsRepository.effectiveMode.collectAsState()
+    val messages by vm.messages.collectAsStateWithLifecycle()
+    val isStreaming by vm.isStreaming.collectAsStateWithLifecycle()
+    val isAwaitingResponse by vm.isAwaitingResponse.collectAsStateWithLifecycle()
+    val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
+    val activityLabel by vm.activityLabel.collectAsStateWithLifecycle()
+    val liveActivity by vm.liveActivity.collectAsStateWithLifecycle()
+    val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsStateWithLifecycle()
+    val generationStartedAt by vm.generationStartedAt.collectAsStateWithLifecycle()
+    val selectedModel by vm.selectedModel.collectAsStateWithLifecycle()
+    val attachments by vm.attachments.collectAsStateWithLifecycle()
+    val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
+    val agents by WsRepository.agents.collectAsStateWithLifecycle()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
+    val modelSource by WsRepository.modelSource.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
+    val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val conversation = conversations.find { it.id == conversationId }
     val isCompleted = conversation?.completed_at != null
     val conversationRating = conversation?.rating
@@ -263,8 +264,8 @@ fun ChatScreen(
         }
     }
 
-    val customSlashCommands by vm.customSlashCommands.collectAsState()
-    val draftFromVm by vm.draft.collectAsState()
+    val customSlashCommands by vm.customSlashCommands.collectAsStateWithLifecycle()
+    val draftFromVm by vm.draft.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf(draftFromVm) }
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(draftFromVm) {
@@ -300,7 +301,7 @@ fun ChatScreen(
         onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text"; vm.setDraft(input) },
         onError = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
     )
-    val sendError by vm.sendError.collectAsState()
+    val sendError by vm.sendError.collectAsStateWithLifecycle()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var addToProjectMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -314,7 +315,7 @@ fun ChatScreen(
     var promoteArtifactFilePath by remember { mutableStateOf("output.md") }
     var pendingPromotedMessageId by remember { mutableStateOf<String?>(null) }
     var pendingApproval by remember { mutableStateOf<io.nexy.android.data.model.WsEvent.ToolApprovalRequest?>(null) }
-    val promptEntries by WsRepository.promptEntries.collectAsState()
+    val promptEntries by WsRepository.promptEntries.collectAsStateWithLifecycle()
     var relaunchFilePicker by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -548,7 +549,7 @@ fun ChatScreen(
         vm.clearSendError()
     }
 
-    val slashCommandMessage by vm.slashCommandMessage.collectAsState()
+    val slashCommandMessage by vm.slashCommandMessage.collectAsStateWithLifecycle()
     LaunchedEffect(slashCommandMessage) {
         val message = slashCommandMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)

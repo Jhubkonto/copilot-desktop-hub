@@ -1,5 +1,6 @@
 package io.nexy.android.ui.fileexplorer
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -62,9 +63,9 @@ fun FileExplorerScreen(
     initialPath: String = "",
     vm: FileExplorerViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val lastError by WsRepository.lastError.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
 
     // Jump straight into the project's already-configured root directory (if any) instead of

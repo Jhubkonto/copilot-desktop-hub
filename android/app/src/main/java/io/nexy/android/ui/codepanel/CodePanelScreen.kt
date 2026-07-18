@@ -1,5 +1,6 @@
 package io.nexy.android.ui.codepanel
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
@@ -104,7 +105,7 @@ fun CodePanelScreen(
     onOpenChatForConflictResolution: (conversationId: String, projectId: String) -> Unit,
     vm: CodePanelViewModel = viewModel(factory = remember(projectId) { CodePanelViewModelFactory(projectId) }),
 ) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
