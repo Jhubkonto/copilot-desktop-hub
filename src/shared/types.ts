@@ -55,6 +55,8 @@ export interface Debrief {
 
 export interface QuizQuestion {
   id: string
+  /** Question format. Defaults to 'mcq' when absent so existing stored quizzes stay valid. */
+  kind?: 'mcq'
   question: string
   options: [string, string, string, string]
   correctIndex: 0 | 1 | 2 | 3
@@ -66,6 +68,29 @@ export interface QuizResult {
   questionId: string
   selectedIndex: number
   correct: boolean
+}
+
+/** Where a quiz draws its material from. */
+export type QuizSource = 'conversation' | 'debrief' | 'project'
+
+export type QuizDifficulty = 'easy' | 'medium' | 'hard'
+
+/**
+ * A quiz generation request. All fields optional so a bare `/quiz` still works with sensible
+ * defaults (source 'conversation', model-chosen count, medium difficulty). Persisted alongside
+ * the quiz artifact so "Regenerate" reuses the same intent.
+ */
+export interface QuizSpec {
+  /** Material source. Defaults to 'conversation' (the raw chat transcript). */
+  source?: QuizSource
+  /** Optional free-text focus, e.g. "the IPC layer". Narrows whichever source is chosen. */
+  topic?: string
+  /** Difficulty of the generated questions. Defaults to 'medium'. */
+  difficulty?: QuizDifficulty
+  /** Desired number of questions (clamped 3–12). Omitted → the model picks 5–8. */
+  questionCount?: number
+  /** Specific question prompts to re-test (used by "re-quiz what I missed"). */
+  focusQuestions?: string[]
 }
 
 export interface DebriefArtifactResult {
@@ -155,6 +180,7 @@ export type BackgroundActivityKind =
   | 'automated-workflow-run'
   | 'debrief-generation'
   | 'quiz-generation'
+  | 'teachback-generation'
   | 'chat'
   | 'build'
   | 'remote-edit'
@@ -174,6 +200,91 @@ export interface QuizArtifactResult {
   questions: QuizQuestion[]
   artifactId: string
   versionId: string
+  /** The spec this quiz was generated from, when available (so "Regenerate" can reuse it). */
+  spec?: QuizSpec
+}
+
+export type QuizCategoryBreakdown = Record<string, { correct: number; total: number }>
+
+/** A single completed quiz run, persisted for learning history. */
+export interface QuizAttempt {
+  id: string
+  artifactId: string
+  versionId: string
+  conversationId: string | null
+  projectId: string | null
+  score: number
+  total: number
+  categoryBreakdown: QuizCategoryBreakdown
+  /** Prompts of the questions answered incorrectly (feeds "re-quiz what I missed"). */
+  missedQuestions: string[]
+  attemptedAt: number
+}
+
+export interface QuizAttemptInput {
+  artifactId: string
+  versionId: string
+  conversationId?: string | null
+  projectId?: string | null
+  score: number
+  total: number
+  categoryBreakdown: QuizCategoryBreakdown
+  missedQuestions: string[]
+}
+
+export interface TeachbackSpec {
+  /** Optional concept the learner wants to explain. Defaults to the session's mental model. */
+  topic?: string
+}
+
+export interface TeachbackArtifactData {
+  prompt: string
+  keyPoints: string[]
+  sourceLabel: string
+  /** Stored with the artifact so grading remains tied to the version that posed the prompt. */
+  sourceMaterial: string
+  spec: TeachbackSpec
+  model?: string
+}
+
+export interface TeachbackArtifactResult {
+  teachback: TeachbackArtifactData
+  artifactId: string
+  versionId: string
+}
+
+export interface TeachbackRubricDimension {
+  score: number
+  feedback: string
+}
+
+export interface TeachbackFeedback {
+  rubric: {
+    accuracy: TeachbackRubricDimension
+    completeness: TeachbackRubricDimension
+    clarity: TeachbackRubricDimension
+  }
+  strengths: string[]
+  corrections: string[]
+  followUpQuestions: string[]
+  attemptId?: string
+  prompt?: string
+  turnNumber?: number
+  attemptedAt?: number
+}
+
+export interface TeachbackAttempt {
+  id: string
+  artifactId: string
+  versionId: string
+  conversationId: string | null
+  projectId: string | null
+  parentAttemptId: string | null
+  turnNumber: number
+  prompt: string
+  transcript: string
+  feedback: TeachbackFeedback
+  attemptedAt: number
 }
 
 export interface ToolConfig {
@@ -990,7 +1101,7 @@ export interface AutomatedWorkflowTemplateDetail extends AutomatedWorkflowTempla
 export type ArtifactKind =
   | 'document' | 'code' | 'ui' | 'data'
   | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
-  | 'debrief' | 'quiz'
+  | 'debrief' | 'quiz' | 'teachback'
 
 export type ArtifactStatus = 'draft' | 'generating' | 'ready' | 'exported' | 'archived' | 'failed'
 
@@ -1890,6 +2001,12 @@ export type IpcReturnMap = {
   'conversation:generate-quiz': QuizArtifactResult
   'conversation:start-quiz-generation': { artifactId: string }
   'conversation:get-quiz': QuizArtifactResult | null
+  'quiz:record-attempt': QuizAttempt
+  'quiz:get-attempts': QuizAttempt[]
+  'conversation:generate-teachback': TeachbackArtifactResult
+  'conversation:start-teachback-generation': { artifactId: string }
+  'conversation:grade-teachback': TeachbackFeedback
+  'teachback:get-attempts': TeachbackAttempt[]
   // Ratings
   'rating:submit': ConversationRating
   'rating:get': ConversationRating | null
@@ -2370,6 +2487,12 @@ export type IpcChannels =
   | 'conversation:generate-quiz'
   | 'conversation:start-quiz-generation'
   | 'conversation:get-quiz'
+  | 'quiz:record-attempt'
+  | 'quiz:get-attempts'
+  | 'conversation:generate-teachback'
+  | 'conversation:start-teachback-generation'
+  | 'conversation:grade-teachback'
+  | 'teachback:get-attempts'
   | 'rating:submit'
   | 'rating:get'
   | 'rating:delete'

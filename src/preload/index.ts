@@ -1032,12 +1032,26 @@ const api = {
   },
 
   // Quiz
-  generateQuiz: (conversationId: string, projectId: string | null, model?: string) =>
-    typedInvoke('conversation:generate-quiz', conversationId, projectId, model),
-  startQuizGeneration: (conversationId: string, projectId: string | null, model?: string) =>
-    typedInvoke('conversation:start-quiz-generation', conversationId, projectId, model),
+  generateQuiz: (conversationId: string, projectId: string | null, model?: string, spec?: import('../shared/types').QuizSpec) =>
+    typedInvoke('conversation:generate-quiz', conversationId, projectId, model, spec),
+  startQuizGeneration: (conversationId: string, projectId: string | null, model?: string, spec?: import('../shared/types').QuizSpec, targetArtifactId?: string) =>
+    typedInvoke('conversation:start-quiz-generation', conversationId, projectId, model, spec, targetArtifactId),
   getQuiz: (conversationId: string) =>
     typedInvoke('conversation:get-quiz', conversationId),
+  recordQuizAttempt: (input: import('../shared/types').QuizAttemptInput) =>
+    typedInvoke('quiz:record-attempt', input),
+  getQuizAttempts: (artifactId: string) =>
+    typedInvoke('quiz:get-attempts', artifactId),
+
+  // Teach-back
+  generateTeachback: (conversationId: string, projectId: string | null, model?: string, spec?: import('../shared/types').TeachbackSpec) =>
+    typedInvoke('conversation:generate-teachback', conversationId, projectId, model, spec),
+  startTeachbackGeneration: (conversationId: string, projectId: string | null, model?: string, spec?: import('../shared/types').TeachbackSpec) =>
+    typedInvoke('conversation:start-teachback-generation', conversationId, projectId, model, spec),
+  gradeTeachback: (artifactId: string, versionId: string, transcript: string, prompt?: string, parentAttemptId?: string, turnNumber?: number) =>
+    typedInvoke('conversation:grade-teachback', artifactId, versionId, transcript, prompt, parentAttemptId, turnNumber),
+  getTeachbackAttempts: (artifactId: string) =>
+    typedInvoke('teachback:get-attempts', artifactId),
 
   // Ratings
   submitConversationRating: (conversationId: string, rating: number, note?: string | null) =>
