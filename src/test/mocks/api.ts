@@ -604,6 +604,12 @@ export function createMockApi() {
     generateQuiz: vi.fn().mockResolvedValue({ questions: [], artifactId: 'quiz-artifact-1', versionId: 'quiz-version-1' }),
     startQuizGeneration: vi.fn().mockResolvedValue({ artifactId: 'quiz-artifact-1' }),
     getQuiz: vi.fn().mockResolvedValue(null),
+    recordQuizAttempt: vi.fn().mockResolvedValue({ id: 'attempt-1', artifactId: 'quiz-artifact-1', versionId: 'quiz-version-1', conversationId: null, projectId: null, score: 0, total: 0, categoryBreakdown: {}, missedQuestions: [], attemptedAt: 0 }),
+    getQuizAttempts: vi.fn().mockResolvedValue([]),
+    generateTeachback: vi.fn().mockResolvedValue({ teachback: null, artifactId: 'teachback-artifact-1', versionId: 'teachback-version-1' }),
+    startTeachbackGeneration: vi.fn().mockResolvedValue({ artifactId: 'teachback-artifact-1' }),
+    gradeTeachback: vi.fn().mockResolvedValue({ rubric: { accuracy: { score: 0, feedback: '' }, completeness: { score: 0, feedback: '' }, clarity: { score: 0, feedback: '' } }, strengths: [], corrections: [], followUpQuestions: [] }),
+    getTeachbackAttempts: vi.fn().mockResolvedValue([]),
 
     // Ratings
     submitConversationRating: vi.fn().mockResolvedValue({
