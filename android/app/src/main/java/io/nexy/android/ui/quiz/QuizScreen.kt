@@ -1,5 +1,6 @@
 package io.nexy.android.ui.quiz
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -76,7 +77,7 @@ fun QuizScreen(
     artifactId: String? = null,
     vm: QuizViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(conversationId, artifactId) {
         // A known artifactId (opening an existing quiz card) always loads that exact quiz —

@@ -1,5 +1,6 @@
 package io.nexy.android.ui.ratings
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,7 +65,7 @@ fun RatingsScreen(
     onOpenConversation: (String) -> Unit,
     vm: RatingsViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf(RatingsSort.RECENT) }
 

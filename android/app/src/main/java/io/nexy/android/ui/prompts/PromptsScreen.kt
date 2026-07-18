@@ -1,5 +1,6 @@
 package io.nexy.android.ui.prompts
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -71,8 +72,8 @@ fun PromptsScreen(
     onBack: () -> Unit,
     vm: PromptsViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
-    val isRefreshing by vm.isRefreshing.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
     var scopeFilter by remember { mutableStateOf<String?>(null) }

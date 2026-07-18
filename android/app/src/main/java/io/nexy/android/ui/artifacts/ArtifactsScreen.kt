@@ -1,5 +1,6 @@
 package io.nexy.android.ui.artifacts
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
@@ -93,20 +94,20 @@ fun ArtifactsScreen(
     initialArtifactId: String? = null,
     vm: ArtifactsViewModel = viewModel(),
 ) {
-    val artifacts by vm.artifacts.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
-    val selected by vm.selectedArtifact.collectAsState()
-    val versions by vm.versions.collectAsState()
-    val isLoading by vm.isLoading.collectAsState()
-    val error by vm.error.collectAsState()
-    val exportPack by vm.exportPack.collectAsState()
-    val exportError by vm.exportError.collectAsState()
-    val exporting by vm.exporting.collectAsState()
-    val deleting by vm.deleting.collectAsState()
-    val deletingVersionId by vm.deletingVersionId.collectAsState()
-    val deletingArtifactId by vm.deletingArtifactId.collectAsState()
-    val listDeleteError by vm.listDeleteError.collectAsState()
-    val revisioning by vm.revisioning.collectAsState()
+    val artifacts by vm.artifacts.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val selected by vm.selectedArtifact.collectAsStateWithLifecycle()
+    val versions by vm.versions.collectAsStateWithLifecycle()
+    val isLoading by vm.isLoading.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    val exportPack by vm.exportPack.collectAsStateWithLifecycle()
+    val exportError by vm.exportError.collectAsStateWithLifecycle()
+    val exporting by vm.exporting.collectAsStateWithLifecycle()
+    val deleting by vm.deleting.collectAsStateWithLifecycle()
+    val deletingVersionId by vm.deletingVersionId.collectAsStateWithLifecycle()
+    val deletingArtifactId by vm.deletingArtifactId.collectAsStateWithLifecycle()
+    val listDeleteError by vm.listDeleteError.collectAsStateWithLifecycle()
+    val revisioning by vm.revisioning.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf<String?>(null) }

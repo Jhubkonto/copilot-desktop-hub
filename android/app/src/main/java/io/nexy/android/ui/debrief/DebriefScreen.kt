@@ -1,5 +1,6 @@
 package io.nexy.android.ui.debrief
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -72,10 +73,10 @@ fun DebriefScreen(
     onQuizMe: (conversationId: String) -> Unit,
     vm: DebriefViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
-    val models by WsRepository.models.collectAsState()
-    val cliStatus by WsRepository.cliStatus.collectAsState()
-    val effectiveMode by WsRepository.effectiveMode.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState()
 

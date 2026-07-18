@@ -1,5 +1,6 @@
 package io.nexy.android.ui.wiki
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -77,7 +78,7 @@ fun WikiScreen(
     onNavigateToConversation: ((conversationId: String) -> Unit)? = null,
     vm: WikiViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 

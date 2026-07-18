@@ -1,5 +1,6 @@
 package io.nexy.android.ui.skills
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
@@ -82,9 +83,9 @@ fun SkillsScreen(
     onOpenSkillGenerator: (() -> Unit)? = null,
     vm: SkillsViewModel = viewModel(),
 ) {
-    val state by vm.state.collectAsState()
-    val isRefreshing by vm.isRefreshing.collectAsState()
-    val connectionState by WsRepository.connectionState.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     val haptic = LocalHapticFeedback.current
