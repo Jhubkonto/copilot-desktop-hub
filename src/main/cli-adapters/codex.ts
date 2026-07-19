@@ -429,9 +429,18 @@ export const CodexAdapter: CliAgentAdapter = {
         ? lastMsg.content
         : JSON.stringify(lastMsg?.content ?? '')
 
-      // Embed system prompt as a text prefix to avoid CLI flag escaping issues
+      // Per-conversation Codex sandbox override — real CLI flag, unlike the prompt directive below.
+      const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access']
+      const sandboxMode = req.permissionMode && CODEX_SANDBOX_MODES.includes(req.permissionMode)
+        ? req.permissionMode
+        : null
+
+      // Embed system prompt as a text prefix to avoid CLI flag escaping issues. The
+      // [AUTO-APPROVE] directive stays for skipPermissions without an explicit sandbox mode —
+      // with an explicit mode the real --sandbox flag governs and the directive is redundant
+      // (and would fight a deliberately restrictive 'read-only' selection).
       let effectiveSystemPrompt = req.systemPrompt ?? ''
-      if (req.skipPermissions === true) {
+      if (req.skipPermissions === true && !sandboxMode) {
         const autoApproveDirective = '[AUTO-APPROVE] You have full permission to use any tool without asking for confirmation. Execute all actions immediately.'
         effectiveSystemPrompt = effectiveSystemPrompt
           ? `${autoApproveDirective}\n\n${effectiveSystemPrompt}`
@@ -455,6 +464,9 @@ export const CodexAdapter: CliAgentAdapter = {
       ]
       if (req.model && req.model !== 'default') {
         execArgs.push('--model', req.model)
+      }
+      if (sandboxMode) {
+        execArgs.push('--sandbox', sandboxMode)
       }
 
       // On Windows, npm global CLIs (.cmd) can't be spawned directly with shell:false.

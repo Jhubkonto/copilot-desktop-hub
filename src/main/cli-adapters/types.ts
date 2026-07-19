@@ -19,6 +19,11 @@ export interface CliAdapterRequest {
   conversationId: string
   thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
   skipPermissions?: boolean
+  // Per-conversation CLI mode override (shared/types CliModeOverride): Claude Code maps
+  // 'plan'|'acceptEdits'|'bypassPermissions' to --permission-mode; Codex maps
+  // 'read-only'|'workspace-write'|'danger-full-access' to --sandbox. Adapters ignore values
+  // from the other backend's family (one conversation column serves both).
+  permissionMode?: string
   // Directories the CLI's own built-in sandbox should be allowed to touch beyond `cwd` — set
   // when the project/conversation's terminal sandbox bypass is enabled. Not all adapters honor
   // this (currently Claude CLI only, via --add-dir); adapters that don't support it ignore it.

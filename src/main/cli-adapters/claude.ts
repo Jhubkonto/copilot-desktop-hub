@@ -133,7 +133,15 @@ export const ClaudeAdapter: CliAgentAdapter = {
           args.push('--add-dir', dir)
         }
       }
-      if (req.skipPermissions === true) {
+      // Explicit per-conversation permission mode wins over the coarse skipPermissions boolean —
+      // e.g. a chat put in plan mode must stay read-only even if the agent default auto-approves.
+      const CLAUDE_PERMISSION_MODES = ['plan', 'acceptEdits', 'bypassPermissions']
+      if (req.permissionMode && CLAUDE_PERMISSION_MODES.includes(req.permissionMode)) {
+        args.push('--permission-mode', req.permissionMode)
+        if (req.permissionMode === 'bypassPermissions') {
+          console.warn(`[WARN] Agent is running with --permission-mode bypassPermissions. All file and shell operations will execute without confirmation.`)
+        }
+      } else if (req.skipPermissions === true) {
         args.push('--dangerously-skip-permissions')
         console.warn(`[WARN] Agent is running with --dangerously-skip-permissions. All file and shell operations will execute without confirmation.`)
       }
