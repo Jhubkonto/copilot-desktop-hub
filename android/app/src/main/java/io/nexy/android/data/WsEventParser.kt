@@ -120,6 +120,7 @@ fun parseWsEvent(
     currentRating: MutableStateFlow<ConversationRating?>,
     ratingsList: MutableStateFlow<List<ConversationRatingListItem>>,
     ratingStats: MutableStateFlow<ConversationRatingStats?>,
+    desktopIsPackaged: MutableStateFlow<Boolean?> = MutableStateFlow(null),
 ) {
     try {
         val obj = JSONObject(text)
@@ -139,7 +140,9 @@ fun parseWsEvent(
                 if (mDnsName != null) {
                     pairedServerStore?.updateActiveProfileMdnsName(mDnsName)
                 }
-                WsEvent.Connected(version, macAddress, broadcastAddress, mDnsName)
+                val isPackaged = if (data?.has("isPackaged") == true) data.optBoolean("isPackaged") else null
+                desktopIsPackaged.value = isPackaged
+                WsEvent.Connected(version, macAddress, broadcastAddress, mDnsName, isPackaged)
             }
 
             "sync:welcome" -> WsEvent.SyncWelcome(

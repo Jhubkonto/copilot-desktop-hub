@@ -118,6 +118,10 @@ object WsRepository : WsClient {
     private val _serverVersion = MutableStateFlow<String?>(null)
     val serverVersion: StateFlow<String?> = _serverVersion
 
+    private val _desktopIsPackaged = MutableStateFlow<Boolean?>(null)
+    /** Whether the paired desktop runs as the installed app (vs a dev checkout); null until known. */
+    val desktopIsPackaged: StateFlow<Boolean?> = _desktopIsPackaged
+
     private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
     override val events: SharedFlow<WsEvent> = _events
     private val _remoteEvents = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
@@ -1089,6 +1093,7 @@ object WsRepository : WsClient {
         _connectionState.value = ConnectionState.CONNECTED
         _lastError.value = null
         _serverVersion.value = null
+        _desktopIsPackaged.value = null
         val endpoint = currentUrl?.substringBefore("?token=")
         val token = currentToken
         if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
@@ -1122,6 +1127,7 @@ object WsRepository : WsClient {
             scope = scope,
             events = _remoteEvents,
             serverVersion = _serverVersion,
+            desktopIsPackaged = _desktopIsPackaged,
             conversations = _conversations,
             projects = _projects,
             agents = _agents,
@@ -1406,6 +1412,7 @@ object WsRepository : WsClient {
         _modelSource.value = ModelListSource(type = "standalone", label = "On-device catalog")
         _androidUpdateManifest.value = null
         _serverVersion.value = null
+        _desktopIsPackaged.value = null
         _errorReports.value = emptyList()
         _activeCodeChangesByProject.value = emptyMap()
         _providers.value = standaloneProviders?.providers?.value.orEmpty()

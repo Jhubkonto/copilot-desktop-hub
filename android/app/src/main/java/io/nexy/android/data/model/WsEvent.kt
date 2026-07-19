@@ -21,6 +21,8 @@ sealed class WsEvent {
         val macAddress: String? = null,
         val broadcastAddress: String? = null,
         val mDnsName: String? = null,
+        /** Whether the desktop runs as the installed (packaged) app; null for older desktops. */
+        val isPackaged: Boolean? = null,
     ) : WsEvent()
     data class SyncWelcome(
         val protocolVersion: Int,
