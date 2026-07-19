@@ -6,6 +6,47 @@ import org.junit.Test
 
 class ChatRenderItemTest {
     @Test
+    fun usesTypeAwareDeletedArtifactLabelsWithAGenericFallback() {
+        assertEquals("Quiz deleted", deletedArtifactLabel("quiz"))
+        assertEquals("Teach-back deleted", deletedArtifactLabel("teachback"))
+        assertEquals("Artifact deleted", deletedArtifactLabel(null))
+        assertEquals("Artifact deleted", deletedArtifactLabel("future-kind"))
+    }
+
+    @Test
+    fun hidesAPendingArtifactReferenceOnceItsFinalReferenceExists() {
+        val messages = listOf(
+            ChatMessage(
+                id = "pending-ref",
+                text = "",
+                isUser = false,
+                isStreaming = false,
+                timestamp = 100,
+                artifactRef = ArtifactRef("artifact-1", null, "quiz", pending = true),
+            ),
+            ChatMessage(
+                id = "final-ref",
+                text = "",
+                isUser = false,
+                isStreaming = false,
+                timestamp = 200,
+                artifactRef = ArtifactRef("artifact-1", "version-1", "quiz"),
+            ),
+        )
+
+        val items = buildChatRenderItems(
+            messages = messages,
+            liveThinkingBlocks = emptyList(),
+            isAwaitingResponse = false,
+            isStreaming = false,
+            activity = null,
+            generationStartedAt = null,
+        )
+
+        assertEquals(listOf("final-ref"), items.filterIsInstance<ChatRenderItem.ArtifactCard>().map { it.messageId })
+    }
+
+    @Test
     fun positionsAPersistedTextSegmentBeforeTheToolCallThatFollowedIt() {
         val messages = listOf(
             ChatMessage(

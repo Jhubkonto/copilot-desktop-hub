@@ -121,6 +121,9 @@ fun buildChatRenderItems(
     val result = mutableListOf<ChatRenderItem>()
     var pendingToolCalls = mutableListOf<ChatMessage>()
     var toolCallListIdx = 0
+    val finalizedArtifactIds = messages.mapNotNull { message ->
+        message.artifactRef?.takeIf { !it.versionId.isNullOrBlank() }?.artifactId
+    }.toSet()
 
     fun flushDanglingToolCalls() {
         for (tc in pendingToolCalls) result.add(ChatRenderItem.ToolCall(tc, toolCallListIdx++))
@@ -130,7 +133,9 @@ fun buildChatRenderItems(
     for (msg in messages) {
         if (msg.artifactRef != null) {
             flushDanglingToolCalls()
-            result.add(ChatRenderItem.ArtifactCard(msg.artifactRef, msg.id))
+            if (!(msg.artifactRef.pending && msg.artifactRef.artifactId in finalizedArtifactIds)) {
+                result.add(ChatRenderItem.ArtifactCard(msg.artifactRef, msg.id))
+            }
         } else if (msg.isToolCall) {
             pendingToolCalls.add(msg)
         } else if (msg.isUser) {

@@ -1067,18 +1067,63 @@ fun ArtifactRefBubble(
     // prefer it over the message-embedded kind once it arrives, same as fetchedTitle already
     // overrides any placeholder title.
     var fetchedKind by remember(ref.artifactId) { mutableStateOf<String?>(null) }
+    var isDeleted by remember(ref.artifactId) { mutableStateOf(false) }
+    var isLookupPending by remember(ref.artifactId, ref.pending) {
+        mutableStateOf(!ref.pending && ref.artifactId.isNotBlank())
+    }
     val effectiveKind = fetchedKind ?: ref.kind
 
+    LaunchedEffect(ref.artifactId) {
+        WsRepository.events.collect { event ->
+            when (event) {
+                is WsEvent.ArtifactDetail -> if (event.artifactId == ref.artifactId) {
+                    val artifact = event.artifact
+                    isLookupPending = false
+                    isDeleted = artifact == null
+                    if (artifact != null) {
+                        fetchedTitle = artifact.title
+                        fetchedKind = artifact.kind
+                    }
+                }
+                is WsEvent.ArtifactDeleted -> if (event.id == ref.artifactId && event.deleted) {
+                    isLookupPending = false
+                    isDeleted = true
+                }
+                else -> Unit
+            }
+        }
+    }
     LaunchedEffect(ref.artifactId, ref.pending) {
         if (!ref.pending && ref.artifactId.isNotBlank()) WsRepository.getArtifact(ref.artifactId)
     }
-    LaunchedEffect(ref.artifactId) {
-        WsRepository.events.collect { event ->
-            if (event is WsEvent.ArtifactDetail && event.artifact?.id == ref.artifactId) {
-                fetchedTitle = event.artifact.title
-                fetchedKind = event.artifact.kind
+
+    if (isDeleted) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    deletedArtifactLabel(effectiveKind),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
+        return
     }
 
     val kindLabel = when (effectiveKind) {
@@ -1088,6 +1133,7 @@ fun ArtifactRefBubble(
         else -> "Artifact"
     }
     val fallbackTitle = when {
+        isLookupPending -> "Loading artifact…"
         ref.pending && effectiveKind == "debrief" -> "Generating debrief…"
         ref.pending && effectiveKind == "quiz" -> "Generating quiz…"
         ref.pending && effectiveKind == "teachback" -> "Generating teach-back…"
@@ -1143,7 +1189,7 @@ fun ArtifactRefBubble(
                 else -> onOpenArtifact()
             }
         },
-        enabled = !ref.pending,
+        enabled = !ref.pending && !isLookupPending,
         shape = RoundedCornerShape(10.dp),
         color = bubbleColor,
         border = BorderStroke(1.dp, borderColor),
@@ -1171,7 +1217,7 @@ fun ArtifactRefBubble(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (ref.pending) {
+            if (ref.pending || isLookupPending) {
                 androidx.compose.material3.CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
@@ -1187,5 +1233,24 @@ fun ArtifactRefBubble(
             }
         }
     }
+}
+
+internal fun deletedArtifactLabel(kind: String?): String {
+    val kindLabel = when (kind?.trim()?.lowercase()) {
+        "document" -> "Doc"
+        "code" -> "Code"
+        "ui" -> "UI"
+        "data" -> "Data"
+        "prompt" -> "Prompt"
+        "agent-config" -> "Agent"
+        "plan" -> "Plan"
+        "bundle" -> "Bundle"
+        "other" -> "Other"
+        "debrief" -> "Debrief"
+        "quiz" -> "Quiz"
+        "teachback" -> "Teach-back"
+        else -> null
+    }
+    return kindLabel?.let { "$it deleted" } ?: "Artifact deleted"
 }
 
