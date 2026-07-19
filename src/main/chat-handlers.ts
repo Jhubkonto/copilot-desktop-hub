@@ -151,6 +151,7 @@ type ChatSendOptions = {
   thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   fullAutoApproveOverride?: boolean | null
   terminalSandboxOverride?: boolean | null
+  cliModeOverride?: string | null
 }
 
 type AgentToolPolicy = { enabled?: boolean; approval?: string }
@@ -420,6 +421,12 @@ export async function dispatchChatSend(
           conversationId,
         )
       }
+      if (options?.cliModeOverride !== undefined && options.cliModeOverride !== null) {
+        db.prepare('UPDATE conversations SET cli_mode_override = ? WHERE id = ?').run(
+          options.cliModeOverride,
+          conversationId,
+        )
+      }
     }
 
     const userMsgId = options?.messageId ?? randomUUID()
@@ -455,7 +462,7 @@ export async function dispatchChatSend(
 
   // ── Provider resolution ────────────────────────────────────────────────────
   const convRow = db
-    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, terminal_sandbox_override FROM conversations WHERE id = ?')
+    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override FROM conversations WHERE id = ?')
     .get(conversationId) as {
       agent_id: string | null
       model: string | null
@@ -463,6 +470,7 @@ export async function dispatchChatSend(
       thinking_effort_override: string | null
       full_auto_approve_override: number | null
       terminal_sandbox_override: number | null
+      cli_mode_override: string | null
     } | undefined
   // Auto-heal: if cli_backend is missing but the stored model is a known CLI model, infer and persist it.
   // Skip healing if the model is in the OpenRouter cache — it's a BYOK model, not a CLI one.
@@ -994,6 +1002,7 @@ export async function dispatchChatSend(
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
             thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
             skipPermissions: effectiveFullAutoApprove,
+            permissionMode: (options?.cliModeOverride ?? convRow?.cli_mode_override) ?? undefined,
             extraAllowedDirs: effectiveTerminalSandboxBypass
               ? [path.parse(homedir()).root]
               : undefined,
