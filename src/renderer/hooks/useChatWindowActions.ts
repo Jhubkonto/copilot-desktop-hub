@@ -1,7 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks use stable store functions and refs across conversations. */
 import { useCallback, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
-import { isApiError, type AgentConfig, type CatalogModel } from '../../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel, type CliBackend, type CliModeOverride } from '../../shared/types'
+import { getProviderSlashCommands } from '../provider-slash-commands'
 import type { Theme } from '../store/types'
 import {
   executeSlashCommand,
@@ -23,6 +24,8 @@ interface UseChatWindowActionsParams {
   chatAgentId: string | null
   chatProjectId: string | null
   activeAgent: AgentConfig | null
+  /** The CLI backend answering this chat (from ChatWindow's backend detection), null for BYOK. */
+  activeCliBackend?: CliBackend | null
   effectiveModel: string
   effectiveModelLabel: string
   conversationModel: string | null
@@ -95,6 +98,7 @@ export function useChatWindowActions({
   chatAgentId,
   chatProjectId,
   activeAgent,
+  activeCliBackend = null,
   effectiveModel,
   effectiveModelLabel,
   conversationModel,
@@ -169,6 +173,7 @@ export function useChatWindowActions({
   const pendingThinkingEffortRef = useRef<'low' | 'medium' | 'high' | 'max' | 'disabled' | null>(null)
   const pendingFullAutoApproveRef = useRef<boolean | null>(null)
   const pendingTerminalSandboxRef = useRef<boolean | null>(null)
+  const pendingCliModeOverrideRef = useRef<CliModeOverride | null>(null)
   // Slash commands (e.g. /debrief, /quiz) run an async IPC round-trip before clearing the
   // composer, so isGenerating alone doesn't block a second Enter press mid-flight. The ref is
   // the synchronous re-entrancy guard (state updates aren't visible synchronously); the state
@@ -545,6 +550,18 @@ export function useChatWindowActions({
       chatProjectId,
       messages: messages.filter((message) => message.role !== 'team-activity') as SlashCommandContext['messages'],
       activeAgent,
+      activeCliBackend,
+      // Mirrors handleSetConversationMode's cliModeOverride path (that callback is declared
+      // later in this hook, so it can't be referenced from this memo directly).
+      setCliMode: async (mode: CliModeOverride | null) => {
+        if (!conversationId) {
+          pendingCliModeOverrideRef.current = mode
+          return
+        }
+        const result = await window.api.setConversationMode(conversationId, { cliModeOverride: mode })
+        if (isApiError(result)) throw new Error(result.error)
+        await loadConversations()
+      },
       effectiveModelLabel,
       conversationModel,
       catalogModels,
@@ -601,6 +618,7 @@ export function useChatWindowActions({
       chatProjectId,
       messages,
       activeAgent,
+      activeCliBackend,
       effectiveModelLabel,
       conversationModel,
       catalogModels,
@@ -651,13 +669,24 @@ export function useChatWindowActions({
           name: command.name,
           usage: command.name,
           description: command.description,
+          source: 'agent' as const,
         })),
     [activeAgent, input],
   )
 
+  // Commands specific to the CLI backend answering this chat (plan mode, sandbox levels, …) —
+  // the list follows the active backend, so switching model/backend swaps the commands shown.
+  const providerSlashCommands = useMemo<SlashCommandDef[]>(
+    () =>
+      getProviderSlashCommands(activeCliBackend).filter((command) =>
+        command.name.slice(1).startsWith((input.match(/^\/([a-z-]*)$/i)?.[1] ?? '').toLowerCase()),
+      ),
+    [activeCliBackend, input],
+  )
+
   const visibleSlashCommands = useMemo(
-    () => [...filteredSlashCommands, ...customSlashCommands].slice(0, 8),
-    [filteredSlashCommands, customSlashCommands],
+    () => [...filteredSlashCommands, ...customSlashCommands, ...providerSlashCommands].slice(0, 12),
+    [filteredSlashCommands, customSlashCommands, providerSlashCommands],
   )
 
   const visibleAtOptions = useMemo(() => filteredAtOptions.slice(0, 6), [filteredAtOptions])
@@ -869,6 +898,8 @@ export function useChatWindowActions({
       pendingFullAutoApproveRef.current = null
       const effectiveTerminalSandboxOverride = pendingTerminalSandboxRef.current
       pendingTerminalSandboxRef.current = null
+      const effectiveCliModeOverride = pendingCliModeOverrideRef.current
+      pendingCliModeOverrideRef.current = null
       const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
@@ -882,6 +913,7 @@ export function useChatWindowActions({
         thinkingEffortOverride: effectiveThinkingEffortOverride,
         fullAutoApproveOverride: effectiveFullAutoApproveOverride,
         terminalSandboxOverride: effectiveTerminalSandboxOverride,
+        cliModeOverride: effectiveCliModeOverride,
       }) as unknown
       if (isApiError(sendResult)) throw new Error(sendResult.error)
       void loadConversations()
@@ -1084,11 +1116,12 @@ export function useChatWindowActions({
   )
 
   const handleSetConversationMode = useCallback(
-    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null }) => {
+    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null }) => {
       if (!conversationId) {
         if (mode.thinkingEffortOverride !== undefined) pendingThinkingEffortRef.current = mode.thinkingEffortOverride
         if (mode.fullAutoApproveOverride !== undefined) pendingFullAutoApproveRef.current = mode.fullAutoApproveOverride
         if (mode.terminalSandboxOverride !== undefined) pendingTerminalSandboxRef.current = mode.terminalSandboxOverride
+        if (mode.cliModeOverride !== undefined) pendingCliModeOverrideRef.current = mode.cliModeOverride
         return
       }
       try {
