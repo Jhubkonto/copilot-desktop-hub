@@ -6,6 +6,21 @@ import { getFeedUrl, isFeedRunning } from './local-feed-server'
 import { log } from './logger'
 
 let mainWindow: BrowserWindow | null = null
+let lastFeedUrl = ''
+
+// The local feed server starts asynchronously during handler registration, so
+// it may not be listening yet when initAutoUpdater runs. Re-sync before every
+// check so the updater always points at the live server (its port changes per
+// launch).
+function syncFeedUrl(): void {
+  if (!isFeedRunning()) return
+  const url = getFeedUrl()
+  if (!url || url === lastFeedUrl) return
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url } as never)
+    lastFeedUrl = url
+  } catch { /* ignore — may not work in dev mode */ }
+}
 
 export function initAutoUpdater(window: BrowserWindow): void {
   mainWindow = window
@@ -14,12 +29,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = log
 
-  // Point at the local feed server if it was started during registerBuildHandlers
-  if (isFeedRunning()) {
-    try {
-      autoUpdater.setFeedURL({ provider: 'generic', url: getFeedUrl() } as never)
-    } catch { /* ignore — may not work in dev mode */ }
-  }
+  syncFeedUrl()
 
   autoUpdater.on('update-available', (info) => {
     mainWindow?.webContents.send('updater:update-available', {
@@ -52,6 +62,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
 export function registerUpdaterHandlers(): void {
   safeHandle('app:check-updates', async () => {
     try {
+      syncFeedUrl()
       const result = await autoUpdater.checkForUpdates()
       return {
         updateAvailable: !!result?.updateInfo,
@@ -80,9 +91,45 @@ export function registerUpdaterHandlers(): void {
   })
 }
 
+export type MobileUpdateInstallResult =
+  | { mode: 'installing'; version: string }
+  | { mode: 'relaunching' }
+  | { mode: 'no-update'; error: string }
+  | { mode: 'error'; error: string }
+
+// Completes a phone-initiated update: after the new installer has been
+// published to the local feed, download it via electron-updater and silently
+// reinstall + restart so no desktop interaction is needed. In dev checkouts
+// there is nothing to install, so just relaunch the process.
+export async function installPublishedUpdateAndRestart(): Promise<MobileUpdateInstallResult> {
+  if (!app.isPackaged) {
+    setTimeout(() => { app.relaunch(); app.exit(0) }, 1500)
+    return { mode: 'relaunching' }
+  }
+  try {
+    syncFeedUrl()
+    const result = await autoUpdater.checkForUpdates()
+    if (!result?.isUpdateAvailable) {
+      const current = autoUpdater.currentVersion?.version ?? '?'
+      return {
+        mode: 'no-update',
+        error: `Published build is not newer than the running app (v${current}). Bump the version in package.json and rebuild.`,
+      }
+    }
+    await autoUpdater.downloadUpdate()
+    setTimeout(() => autoUpdater.quitAndInstall(true, true), 1500)
+    return { mode: 'installing', version: result.updateInfo.version }
+  } catch (err) {
+    return { mode: 'error', error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 export function checkForUpdatesOnStartup(): void {
   if (!app.isPackaged) return
   setTimeout(() => {
-    setImmediate(() => autoUpdater.checkForUpdates().catch(() => {}))
+    setImmediate(() => {
+      syncFeedUrl()
+      autoUpdater.checkForUpdates().catch(() => {})
+    })
   }, 10_000)
 }

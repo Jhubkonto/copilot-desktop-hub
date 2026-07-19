@@ -15,6 +15,13 @@ import { broadcastToMobile } from './ws-server'
 import { debugTime, debugTimeEnd, debugLog } from './debug-mode'
 import { startActivity, endActivity } from './activity-tracker'
 import { runBuildProcess, cancelBuildProcess, mapBuildRecord } from './build-runner'
+
+// Loaded lazily: importing ./updater pulls in electron-updater, which
+// instantiates platform updaters against the real Electron app object.
+export async function runPublishedUpdateInstall(): Promise<import('./updater').MobileUpdateInstallResult> {
+  const { installPublishedUpdateAndRestart } = await import('./updater')
+  return installPublishedUpdateAndRestart()
+}
 import type { BuildCommandName, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -217,6 +224,11 @@ export async function publishArtifactToFeed(db: Database.Database): Promise<{ pu
 // ---------------------------------------------------------------------------
 
 export async function startBuildFromMobile(command: BuildCommandName, mainWindow?: BrowserWindow): Promise<{ buildId: string }> {
+  // Packaging rewrites native modules that the running dev process holds open
+  // (fails with a bare exit code 1 on Windows), so surface the reason up front.
+  if (command === 'package' && !app.isPackaged) {
+    throw new Error('Desktop is running from a dev checkout — packaging would fail because the running app locks its build output. Open the installed Nexy Desktop app and try again.')
+  }
   const db = getDatabase()
   const buildId = randomUUID()
   const workspacePath = getWorkspacePath(db)
@@ -246,18 +258,27 @@ export async function startBuildFromMobile(command: BuildCommandName, mainWindow
     }),
     onDone: (status) => {
       endActivity(`build:${buildId}`)
-      // Phase 2: auto-publish + relaunch after a successful mobile-initiated package build
+      // Phase 2: after a successful mobile-initiated package build, publish the
+      // installer to the feed and silently install + restart into the new version.
       if (command === 'package' && status === 'success') {
-        void publishArtifactToFeed(db).then((result) => {
+        void publishArtifactToFeed(db).then(async (result) => {
           if (!result.published) {
             if (result.error) debugLog('build', `auto-publish skipped: ${result.error}`)
+            broadcastToMobile({ event: 'update:restarting', data: { eta: null, version: null, error: result.error ?? 'Publish failed' } })
             return
           }
-          broadcastToMobile({ event: 'update:restarting', data: { eta: 10, version: result.version ?? null } })
-          mainWindow?.webContents.send('update:restarting', { eta: 10, version: result.version ?? null })
-          setTimeout(() => { app.relaunch(); app.exit(0) }, 2000)
+          const install = await runPublishedUpdateInstall()
+          if (install.mode === 'no-update' || install.mode === 'error') {
+            debugLog('build', `auto-update stopped: ${install.error}`)
+            broadcastToMobile({ event: 'update:restarting', data: { eta: null, version: result.version ?? null, error: install.error } })
+            mainWindow?.webContents.send('update:restarting', { eta: null, version: result.version ?? null, error: install.error })
+            return
+          }
+          broadcastToMobile({ event: 'update:restarting', data: { eta: 15, version: result.version ?? null } })
+          mainWindow?.webContents.send('update:restarting', { eta: 15, version: result.version ?? null })
         }).catch((err: Error) => {
           debugLog('build', `auto-publish failed: ${err.message}`)
+          broadcastToMobile({ event: 'update:restarting', data: { eta: null, version: null, error: err.message } })
         })
       }
     },

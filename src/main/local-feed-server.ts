@@ -7,7 +7,9 @@ let server: http.Server | null = null
 let _port = 0
 let _feedDir = ''
 
-export function startFeedServer(feedDir: string, bindAddress = '127.0.0.1'): Promise<number> {
+// Bind to all interfaces by default: the Android companion downloads OTA APKs
+// over LAN, and the desktop updater reaches the same server via 127.0.0.1.
+export function startFeedServer(feedDir: string, bindAddress = '0.0.0.0'): Promise<number> {
   return new Promise((resolve, reject) => {
     stopFeedServer()
     _feedDir = feedDir
