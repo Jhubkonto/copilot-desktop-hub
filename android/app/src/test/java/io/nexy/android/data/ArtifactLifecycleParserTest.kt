@@ -34,6 +34,7 @@ class ArtifactLifecycleParserTest {
             {
               "event": "artifact:detail",
               "data": {
+                "artifactId": "artifact-1",
                 "artifact": {
                   "id": "artifact-1",
                   "projectId": "project-1",
@@ -62,10 +63,21 @@ class ArtifactLifecycleParserTest {
             """.trimIndent()
         ) as WsEvent.ArtifactDetail
 
+        assertEquals("artifact-1", event.artifactId)
         val artifact = event.artifact!!
         assertEquals("C:/repo/.nexy/artifacts/artifact-1", artifact.storageRoot)
         assertEquals("version-2", artifact.currentVersion?.id)
         assertEquals("release.md", artifact.currentVersion?.files?.single()?.relativePath)
+    }
+
+    @Test
+    fun preservesRequestedIdWhenArtifactDetailIsMissing() = runTest {
+        val event = parseEvent(
+            """{"event":"artifact:detail","data":{"artifactId":"deleted-quiz","artifact":null}}"""
+        ) as WsEvent.ArtifactDetail
+
+        assertEquals("deleted-quiz", event.artifactId)
+        assertEquals(null, event.artifact)
     }
 
     @Test

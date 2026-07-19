@@ -1293,8 +1293,12 @@ fun parseWsEvent(
 
             "artifact:detail" -> {
                 val a = data?.optJSONObject("artifact")
+                // A null detail means the artifact has been deleted. Keep the requested ID so
+                // each inline chat reference can correlate that response with its own lookup.
+                val artifactId = data?.optString("artifactId")?.takeIf { it.isNotBlank() }
+                    ?: a?.optString("id").orEmpty()
                 if (a == null) {
-                    WsEvent.ArtifactDetail(null)
+                    WsEvent.ArtifactDetail(artifactId = artifactId, artifact = null)
                 } else {
                     val cvObj = a.optJSONObject("currentVersion")
                     val currentVersion = cvObj?.let {
@@ -1318,7 +1322,8 @@ fun parseWsEvent(
                         )
                     }
                     WsEvent.ArtifactDetail(
-                        ArtifactDetail2(
+                        artifactId = artifactId,
+                        artifact = ArtifactDetail2(
                             id = a.optString("id"),
                             projectId = a.nullableString("projectId"),
                             title = a.optString("title"),
@@ -1330,7 +1335,7 @@ fun parseWsEvent(
                             createdAt = a.optLong("createdAt", 0L),
                             updatedAt = a.optLong("updatedAt", 0L),
                             currentVersion = currentVersion,
-                        )
+                        ),
                     )
                 }
             }

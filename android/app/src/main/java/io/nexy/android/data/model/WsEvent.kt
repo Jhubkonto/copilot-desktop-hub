@@ -325,7 +325,7 @@ sealed class WsEvent {
     data class SkillAgentLinks(val agentId: String, val links: List<SkillAgentLink>) : WsEvent()
     data class SkillAgentUsageList(val usage: List<SkillAgentUsage>) : WsEvent()
     data class ArtifactList(val artifacts: List<ArtifactSummary>) : WsEvent()
-    data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
+    data class ArtifactDetail(val artifactId: String, val artifact: ArtifactDetail2?) : WsEvent()
     data class ArtifactVersions(val artifactId: String, val versions: List<ArtifactVersionSummary>) : WsEvent()
     data class ArtifactDeleted(val id: String, val deleted: Boolean) : WsEvent()
     data class ArtifactVersionDeleted(val versionId: String, val deleted: Boolean, val artifactId: String?) : WsEvent()
