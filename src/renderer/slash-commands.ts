@@ -1,6 +1,7 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { getAvailableModelIds, getModelLabel } from '../shared/models'
-import { isApiError, type AgentConfig, type CatalogModel, type ErrorReportEntry, type QuizSpec, type TeachbackSpec } from '../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel, type CliBackend, type CliModeOverride, type ErrorReportEntry, type QuizSpec, type TeachbackSpec } from '../shared/types'
+import { MODE_COMMAND_TO_OVERRIDE, slashCommandSourceLabel } from './provider-slash-commands'
 
 interface Attachment {
   id: string
@@ -43,6 +44,10 @@ export interface SlashCommandDef {
   name: string
   usage: string
   description: string
+  /** Where the command comes from: undefined/'nexy' = built-in, 'agent' = the active agent's
+   *  customCommands, or a CLI backend key for provider-specific commands. Drives the grouped
+   *  section headers in the slash menu. */
+  source?: 'nexy' | 'agent' | 'claude-cli' | 'codex-cli' | 'hermes-cli'
 }
 
 export const SLASH_COMMANDS: SlashCommandDef[] = [
@@ -274,6 +279,10 @@ export interface SlashCommandContext {
   effectiveModelLabel: string
   conversationModel: string | null
   catalogModels?: CatalogModel[]
+  /** The CLI backend that answers this chat (agent-forced or inferred), or null for BYOK. */
+  activeCliBackend?: CliBackend | null
+  /** Sets/clears this conversation's CLI mode override (plan / accept-edits / sandbox levels). */
+  setCliMode?: (mode: CliModeOverride | null) => Promise<void>
   theme: 'light' | 'dark'
   pushSystemMessage: (text: string) => void
   /** Like pushSystemMessage, but persists the message to whichever conversation was active when
@@ -1041,6 +1050,42 @@ export async function executeSlashCommand(
       } else {
         ctx.pushSystemMessage(`Deleted branch ${branchName}.`)
       }
+      return 'handled'
+    }
+    case '/plan':
+    case '/accept-edits':
+    case '/bypass-permissions':
+    case '/sandbox-read-only':
+    case '/sandbox-workspace':
+    case '/sandbox-full': {
+      const entry = MODE_COMMAND_TO_OVERRIDE[command]
+      const backend = ctx.activeCliBackend ?? null
+      if (!backend || !ctx.setCliMode) {
+        ctx.pushSystemMessage(`${command} only applies to CLI-backed chats (Claude CLI / Codex CLI). This chat uses a provider backend.`)
+        return 'handled'
+      }
+      if (backend !== entry.backend) {
+        ctx.pushSystemMessage(`${command} is a ${slashCommandSourceLabel(entry.backend)} command, but this chat runs on ${slashCommandSourceLabel(backend)}.`)
+        return 'handled'
+      }
+      await ctx.setCliMode(entry.mode)
+      ctx.pushSystemMessage(`CLI mode for this chat set to ${entry.mode}. Applies from the next message; use /mode-default to clear.`)
+      return 'handled'
+    }
+    case '/mode-default': {
+      if (!ctx.activeCliBackend || !ctx.setCliMode) {
+        ctx.pushSystemMessage('/mode-default only applies to CLI-backed chats.')
+        return 'handled'
+      }
+      await ctx.setCliMode(null)
+      ctx.pushSystemMessage('CLI mode override cleared — back to the backend\'s default behavior.')
+      return 'handled'
+    }
+    case '/init': {
+      // Claude CLI understands /init natively — pass it through as the message so the CLI
+      // generates the CLAUDE.md itself. On any other backend there's nothing to pass it to.
+      if (ctx.activeCliBackend === 'claude-cli') return false
+      ctx.pushSystemMessage('/init is a Claude CLI command — this chat is not running on Claude CLI.')
       return 'handled'
     }
     default: {
