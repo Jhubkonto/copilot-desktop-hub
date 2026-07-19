@@ -1,6 +1,25 @@
 # Roadmap: Provider-Aware Slash Commands & Per-Backend Modes
 
-Drafted 2026-07-18.
+Drafted 2026-07-18. **Status: IMPLEMENTED 2026-07-19 (stretch items open — see below).**
+
+## Implementation status (2026-07-19)
+
+Both phases shipped:
+
+**Phase 1 — provider-aware slash commands**
+- `SlashCommandDef.source` field + new `src/renderer/provider-slash-commands.ts` (per-backend command sets, `MODE_COMMAND_TO_OVERRIDE` map, `slashCommandSourceLabel`).
+- Backend commands injected as a third source in `visibleSlashCommands` (`useChatWindowActions.ts`), keyed off the new machine-readable `backendChip.backend` in `ChatWindow.tsx`; cap raised 8 → 12.
+- `SlashCommandMenu.tsx` renders grouped section headers (Nexy / Agent / Claude CLI / …) only when sources are mixed.
+- Execution: mode commands set the conversation override; backend-mismatched commands get a clear notice; `/init` passes through as prompt text to Claude CLI.
+
+**Phase 2 — per-backend modes**
+- Migration 80: `conversations.cli_mode_override TEXT`; `CliModeOverride` union in `src/shared/types.ts`.
+- Fourth `ChatModePicker` section, shown only for CLI-backed chats (Claude permission modes / Codex sandbox levels), following the existing override plumbing (`conversation:set-mode`, pending refs for not-yet-created conversations).
+- Threaded through `chat-handlers.ts` as `CliAdapterRequest.permissionMode`; Claude adapter maps to `--permission-mode` (explicit mode wins over `skipPermissions`), Codex maps to `--sandbox` and drops the `[AUTO-APPROVE]` prompt hack whenever a real sandbox flag governs.
+- Slash commands (`/plan`, `/accept-edits`, `/bypass-permissions`, `/sandbox-*`, `/mode-default`) and the picker are two front-ends to the same column.
+- Tests: adapter arg-mapping (`cli-adapters.test.ts`), override threading (`chat.test.ts`), mode-command behavior (`slash-commands.test.ts`); schema version expectations bumped.
+
+**Still open (stretch):** dynamic discovery of user-defined `~/.claude` commands; `--resume` session support for cross-turn plan → execute flows; `[AUTO-APPROVE]` retained as fallback when `skipPermissions` is set without an explicit sandbox mode (kept deliberately — removing it entirely would change existing auto-approve behavior); Android `conversation:set-mode` does not yet accept `cliModeOverride` (column is preserved, just not settable from the companion).
 
 ## Summary
 
