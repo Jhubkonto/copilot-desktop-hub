@@ -1507,6 +1507,8 @@ export interface WorkspaceInfo {
   dirty: boolean
   version: string | null
   isGitRepo: boolean
+  /** Whether a package.json exists at the path — false usually means the path points at the wrong folder. */
+  hasPackageJson: boolean
 }
 
 export interface BuildRecord {
@@ -1572,6 +1574,8 @@ export interface AndroidWorkspaceInfo {
   versionCode: number | null
   versionName: string | null
   isGitRepo: boolean
+  /** Whether a Gradle wrapper exists at the path — false usually means this isn't the android/ folder. */
+  hasGradleProject: boolean
 }
 
 export interface AndroidSigningConfig {
