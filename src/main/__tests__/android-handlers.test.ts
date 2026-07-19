@@ -741,6 +741,39 @@ describe('getAndroidUpdateManifest', () => {
     }
   })
 
+  it('rewrites the artifact URL to the live feed origin when the feed server is running', async () => {
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const feedDir = join(tmpDir, `nexy-feed-rewrite-${Date.now()}`)
+    const androidDir = join(feedDir, 'android')
+    const manifest = {
+      versionCode: 7,
+      versionName: '0.7.0',
+      commitSha: 'abc123',
+      changelog: '',
+      checksum: 'checksum',
+      artifactUrl: 'http://192.168.0.9:54321/android/app-release.apk',
+      publishedAt: 1000,
+    }
+
+    mkdirSync(androidDir, { recursive: true })
+    writeFileSync(join(androidDir, 'android-update.json'), JSON.stringify(manifest))
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('local_update_feed_path', ?)").run(feedDir)
+
+    const feedServer = await import('../local-feed-server')
+    vi.mocked(feedServer.isFeedRunning).mockReturnValue(true)
+
+    try {
+      const { getAndroidUpdateManifest } = await import('../android-handlers')
+      const result = await getAndroidUpdateManifest(db)
+      expect(result?.artifactUrl).toBe('http://192.168.1.100:12345/android/app-release.apk')
+    } finally {
+      vi.mocked(feedServer.isFeedRunning).mockReturnValue(false)
+      rmSync(feedDir, { recursive: true, force: true })
+    }
+  })
+
   it('returns null when no Android manifest has been published', async () => {
     const { getAndroidUpdateManifest } = await import('../android-handlers')
 
