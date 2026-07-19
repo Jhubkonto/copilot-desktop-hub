@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { AddressInfo } from 'net'
 import QRCode from 'qrcode'
 import selfsigned from 'selfsigned'
-import { powerSaveBlocker } from 'electron'
+import { app, powerSaveBlocker } from 'electron'
 import Bonjour from 'bonjour-service'
 import { getDatabase } from './database'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
@@ -323,7 +323,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     const localIp = getLocalIp()
     const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
     const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
-    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl, macAddress, broadcastAddress, mDnsName: getMdnsName() } }))
+    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl, macAddress, broadcastAddress, mDnsName: getMdnsName(), isPackaged: app.isPackaged } }))
 
     ws.on('message', (raw) => {
       try {

@@ -11,7 +11,7 @@ import { BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { startFeedServer, getFeedLanUrl } from './local-feed-server'
+import { startFeedServer, getFeedLanUrl, isFeedRunning } from './local-feed-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
 import { runBuildProcess, cancelBuildProcess, mapBuildRecord } from './build-runner'
 import type {
@@ -131,9 +131,25 @@ export async function getAndroidUpdateManifest(db: Database.Database): Promise<A
   const manifestPath = path.join(androidFeedDir, 'android-update.json')
   if (!existsSync(manifestPath)) return null
   try {
-    return JSON.parse(await readFile(manifestPath, 'utf8')) as AndroidUpdateManifest
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as AndroidUpdateManifest
+    return { ...manifest, artifactUrl: refreshArtifactUrl(manifest.artifactUrl) }
   } catch {
     return null
+  }
+}
+
+// The manifest on disk embeds the feed origin that was current at publish
+// time, but the feed server gets a fresh random port each launch and the LAN
+// IP can change. Re-point the URL at the live feed so downloads keep working
+// across desktop restarts.
+function refreshArtifactUrl(artifactUrl: string): string {
+  if (!isFeedRunning()) return artifactUrl
+  const liveOrigin = getFeedLanUrl(getLocalIp())
+  if (!liveOrigin) return artifactUrl
+  try {
+    return `${liveOrigin}${new URL(artifactUrl).pathname}`
+  } catch {
+    return artifactUrl
   }
 }
 
@@ -186,6 +202,118 @@ const ANDROID_COMMANDS: Record<AndroidBuildCommandName, string[]> = {
 }
 
 const SIGNING_COMMANDS: ReadonlySet<AndroidBuildCommandName> = new Set(['assembleRelease', 'bundleRelease'])
+
+// ---------------------------------------------------------------------------
+// Shared publish/restore (used by IPC handlers + mobile WS commands)
+// ---------------------------------------------------------------------------
+
+async function ensureLanFeedServer(db: Database.Database, androidFeedDir: string): Promise<string> {
+  if (!isFeedRunning()) {
+    const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+    await startFeedServer(feedPathRow?.value ?? androidFeedDir)
+  }
+  return getFeedLanUrl(getLocalIp())
+}
+
+export async function publishAndroidUpdate(db: Database.Database): Promise<{ published: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
+  // Production update path (UPD.16):
+  // 1. Run assembleRelease from desktop — Gradle signs APK via NEXY_KEYSTORE_* env vars.
+  // 2. Publish — copies APK to {feedPath}/android/, writes android-update.json.
+  // 3. Feed server serves it on all interfaces so Android can reach it over LAN.
+  // 4. Next WS connect sends feedUrl (LAN IP) in `connected` event.
+  // 5. Android fetches android-update.json, compares versionCode with BuildConfig.VERSION_CODE.
+  // 6. User taps Download & Install — the APK is downloaded and handed to the system installer.
+  // For production outside LAN: replace feedUrl with a stable HTTPS URL; the manifest schema is unchanged.
+
+  const androidFeedDir = getAndroidFeedDir(db)
+  if (!androidFeedDir) return { published: false, error: 'No local update feed path configured' }
+
+  const workspacePath = getAndroidWorkspacePath(db)
+  if (!workspacePath) return { published: false, error: 'Android workspace path not configured' }
+
+  const releaseApkDir = path.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'release')
+  let apkSrc: string | null = null
+  if (existsSync(releaseApkDir)) {
+    let latestMtime = 0
+    for (const entry of readdirSync(releaseApkDir)) {
+      if (entry.endsWith('.apk')) {
+        const full = path.join(releaseApkDir, entry)
+        try {
+          const st = statSync(full)
+          if (st.isFile() && st.mtimeMs > latestMtime) { apkSrc = full; latestMtime = st.mtimeMs }
+        } catch { /* skip */ }
+      }
+    }
+  }
+  if (!apkSrc) return { published: false, error: 'No release APK found in app/build/outputs/apk/release/' }
+
+  mkdirSync(androidFeedDir, { recursive: true })
+
+  // Archive the previous release before overwriting so rollback is possible
+  const prevManifest = await getAndroidUpdateManifest(db)
+  if (prevManifest) {
+    const prevApkName = prevManifest.artifactUrl.split('/').pop()
+    const prevApkInFeed = prevApkName ? path.join(androidFeedDir, prevApkName) : null
+    if (prevApkInFeed && existsSync(prevApkInFeed)) {
+      const archiveDir = path.join(androidFeedDir, 'archive')
+      mkdirSync(archiveDir, { recursive: true })
+      const archiveName = `nexy-v${prevManifest.versionCode}-${prevManifest.publishedAt}.apk`
+      const archivePath = path.join(archiveDir, archiveName)
+      if (!existsSync(archivePath)) copyFileSync(prevApkInFeed, archivePath)
+      await appendPublishHistory(androidFeedDir, prevManifest, archivePath)
+    }
+  }
+
+  const apkName = path.basename(apkSrc)
+  const destApk = path.join(androidFeedDir, apkName)
+  copyFileSync(apkSrc, destApk)
+
+  const checksum = await computeSha256(destApk)
+  const wsInfo = await getAndroidWorkspaceInfo(db)
+  const feedLanUrl = await ensureLanFeedServer(db, androidFeedDir)
+
+  const manifest: AndroidUpdateManifest = {
+    versionCode: wsInfo.versionCode ?? 1,
+    versionName: wsInfo.versionName ?? '1.0',
+    commitSha: wsInfo.commitSha,
+    changelog: '',
+    checksum,
+    artifactUrl: `${feedLanUrl}/android/${apkName}`,
+    publishedAt: Date.now(),
+  }
+
+  await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
+
+  return { published: true, manifest }
+}
+
+export async function restoreAndroidVersion(db: Database.Database, versionCode: number): Promise<{ restored: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
+  const androidFeedDir = getAndroidFeedDir(db)
+  if (!androidFeedDir) return { restored: false, error: 'No local update feed path configured' }
+
+  const history = await readPublishHistory(androidFeedDir)
+  const entry = history.find((e) => e.versionCode === versionCode) as (AndroidUpdateManifest & { archiveApkPath?: string }) | undefined
+  if (!entry) return { restored: false, error: `Version ${versionCode} not found in publish history` }
+
+  const archivePath = entry.archiveApkPath
+  if (!archivePath || !existsSync(archivePath)) {
+    return { restored: false, error: `Archived APK for version ${versionCode} not found` }
+  }
+
+  const apkName = path.basename(archivePath)
+  const destApk = path.join(androidFeedDir, apkName)
+  copyFileSync(archivePath, destApk)
+
+  const feedLanUrl = await ensureLanFeedServer(db, androidFeedDir)
+  const restoredManifest: AndroidUpdateManifest = {
+    ...entry,
+    artifactUrl: `${feedLanUrl}/android/${apkName}`,
+    publishedAt: entry.publishedAt,
+  }
+  await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(restoredManifest, null, 2), 'utf8')
+
+  return { restored: true, manifest: restoredManifest }
+}
 
 function getArtifactDir(workspacePath: string, command: AndroidBuildCommandName): string {
   if (command === 'bundleRelease') return path.join(workspacePath, 'app', 'build', 'outputs', 'bundle', 'release')
@@ -391,84 +519,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     })
   })
 
-  safeHandle('android:publish-update', async () => {
-    // Production update path (UPD.16):
-    // 1. Run assembleRelease from desktop — Gradle signs APK via NEXY_KEYSTORE_* env vars.
-    // 2. Click "Publish release APK to feed" — copies APK to {feedPath}/android/, writes android-update.json.
-    // 3. Feed server restarts bound to 0.0.0.0 so Android can reach it over LAN.
-    // 4. Next WS connect sends feedUrl (LAN IP) in `connected` event.
-    // 5. Android fetches android-update.json, compares versionCode with BuildConfig.VERSION_CODE.
-    // 6. User taps Download & Install — DownloadManager downloads APK, system PackageInstaller handles install.
-    // For production outside LAN: replace feedUrl with a stable HTTPS URL; the manifest schema is unchanged.
-
-    const androidFeedDir = getAndroidFeedDir(db)
-    if (!androidFeedDir) return { published: false, error: 'No local update feed path configured' }
-
-    const workspacePath = getAndroidWorkspacePath(db)
-    if (!workspacePath) return { published: false, error: 'Android workspace path not configured' }
-
-    const releaseApkDir = path.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'release')
-    let apkSrc: string | null = null
-    if (existsSync(releaseApkDir)) {
-      let latestMtime = 0
-      for (const entry of readdirSync(releaseApkDir)) {
-        if (entry.endsWith('.apk')) {
-          const full = path.join(releaseApkDir, entry)
-          try {
-            const st = statSync(full)
-            if (st.isFile() && st.mtimeMs > latestMtime) { apkSrc = full; latestMtime = st.mtimeMs }
-          } catch { /* skip */ }
-        }
-      }
-    }
-    if (!apkSrc) return { published: false, error: 'No release APK found in app/build/outputs/apk/release/' }
-
-    mkdirSync(androidFeedDir, { recursive: true })
-
-    // Archive the previous release before overwriting so rollback is possible
-    const prevManifest = await getAndroidUpdateManifest(db)
-    if (prevManifest) {
-      const prevApkName = prevManifest.artifactUrl.split('/').pop()
-      const prevApkInFeed = prevApkName ? path.join(androidFeedDir, prevApkName) : null
-      if (prevApkInFeed && existsSync(prevApkInFeed)) {
-        const archiveDir = path.join(androidFeedDir, 'archive')
-        mkdirSync(archiveDir, { recursive: true })
-        const archiveName = `nexy-v${prevManifest.versionCode}-${prevManifest.publishedAt}.apk`
-        const archivePath = path.join(archiveDir, archiveName)
-        if (!existsSync(archivePath)) copyFileSync(prevApkInFeed, archivePath)
-        await appendPublishHistory(androidFeedDir, prevManifest, archivePath)
-      }
-    }
-
-    const apkName = path.basename(apkSrc)
-    const destApk = path.join(androidFeedDir, apkName)
-    copyFileSync(apkSrc, destApk)
-
-    const checksum = await computeSha256(destApk)
-    const wsInfo = await getAndroidWorkspaceInfo(db)
-    const lanIp = getLocalIp()
-
-    // Restart feed server bound to all interfaces so Android can reach it over LAN
-    const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
-    const feedRootPath = feedPathRow?.value ?? androidFeedDir
-    await startFeedServer(feedRootPath, '0.0.0.0')
-    const feedLanUrl = getFeedLanUrl(lanIp)
-
-    const artifactUrl = `${feedLanUrl}/android/${apkName}`
-    const manifest: AndroidUpdateManifest = {
-      versionCode: wsInfo.versionCode ?? 1,
-      versionName: wsInfo.versionName ?? '1.0',
-      commitSha: wsInfo.commitSha,
-      changelog: '',
-      checksum,
-      artifactUrl,
-      publishedAt: Date.now(),
-    }
-
-    await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
-
-    return { published: true, manifest }
-  })
+  safeHandle('android:publish-update', () => publishAndroidUpdate(db))
 
   safeHandle('android:get-update-manifest', async () => {
     debugTime('android:get-update-manifest')
@@ -501,36 +552,5 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     return r
   })
 
-  safeHandle('android:restore-version', async (_event, versionCode: number) => {
-    const androidFeedDir = getAndroidFeedDir(db)
-    if (!androidFeedDir) return { restored: false, error: 'No local update feed path configured' }
-
-    const history = await readPublishHistory(androidFeedDir)
-    const entry = history.find((e) => e.versionCode === versionCode) as (AndroidUpdateManifest & { archiveApkPath?: string }) | undefined
-    if (!entry) return { restored: false, error: `Version ${versionCode} not found in publish history` }
-
-    const archivePath = entry.archiveApkPath
-    if (!archivePath || !existsSync(archivePath)) {
-      return { restored: false, error: `Archived APK for version ${versionCode} not found` }
-    }
-
-    const apkName = path.basename(archivePath)
-    const destApk = path.join(androidFeedDir, apkName)
-    copyFileSync(archivePath, destApk)
-
-    const lanIp = getLocalIp()
-    const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
-    const feedRootPath = feedPathRow?.value ?? androidFeedDir
-    await startFeedServer(feedRootPath, '0.0.0.0')
-    const feedLanUrl = getFeedLanUrl(lanIp)
-
-    const restoredManifest: AndroidUpdateManifest = {
-      ...entry,
-      artifactUrl: `${feedLanUrl}/android/${apkName}`,
-      publishedAt: entry.publishedAt,
-    }
-    await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(restoredManifest, null, 2), 'utf8')
-
-    return { restored: true, manifest: restoredManifest }
-  })
+  safeHandle('android:restore-version', (_event, versionCode: number) => restoreAndroidVersion(db, versionCode))
 }
