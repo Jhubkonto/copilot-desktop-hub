@@ -7,7 +7,7 @@ import { SlashCommandMenu } from './SlashCommandMenu'
 import { ModelPicker } from './ModelPicker'
 import { CliLockedModelBadge } from './CliLockedModelBadge'
 import { ChatModePicker } from './ChatModePicker'
-import type { AgentConfig, AvailableModelEntry, AvailableModelGroup } from '../../../shared/types'
+import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend, CliModeOverride } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
@@ -78,10 +78,13 @@ interface ChatComposerProps {
   conversationThinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   conversationFullAutoApproveOverride?: boolean | null
   conversationTerminalSandboxOverride?: boolean | null
+  activeCliBackend?: CliBackend | null
+  conversationCliModeOverride?: CliModeOverride | null
   onSetConversationMode?: (mode: {
     thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
     fullAutoApproveOverride?: boolean | null
     terminalSandboxOverride?: boolean | null
+    cliModeOverride?: CliModeOverride | null
   }) => void
 }
 
@@ -147,6 +150,8 @@ export function ChatComposer({
   conversationThinkingEffortOverride = null,
   conversationFullAutoApproveOverride = null,
   conversationTerminalSandboxOverride = null,
+  activeCliBackend = null,
+  conversationCliModeOverride = null,
   onSetConversationMode,
 }: ChatComposerProps) {
   const [showModePicker, setShowModePicker] = useState(false)
@@ -371,6 +376,8 @@ export function ChatComposer({
                     thinkingEffortOverride={conversationThinkingEffortOverride}
                     fullAutoApproveOverride={conversationFullAutoApproveOverride}
                     terminalSandboxOverride={conversationTerminalSandboxOverride}
+                    activeCliBackend={activeCliBackend}
+                    cliModeOverride={conversationCliModeOverride}
                     onChange={onSetConversationMode}
                   />
                 )}

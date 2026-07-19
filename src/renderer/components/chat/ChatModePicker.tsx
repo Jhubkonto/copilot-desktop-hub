@@ -1,5 +1,6 @@
 import { Settings2 } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
+import type { CliBackend, CliModeOverride } from '../../../shared/types'
 
 type ThinkingEffort = 'low' | 'medium' | 'high' | 'max' | 'disabled'
 
@@ -9,10 +10,14 @@ interface Props {
   thinkingEffortOverride: ThinkingEffort | null
   fullAutoApproveOverride: boolean | null
   terminalSandboxOverride: boolean | null
+  /** The CLI backend answering this chat — shows that backend's mode section; null hides it. */
+  activeCliBackend?: CliBackend | null
+  cliModeOverride?: CliModeOverride | null
   onChange: (mode: {
     thinkingEffortOverride?: ThinkingEffort | null
     fullAutoApproveOverride?: boolean | null
     terminalSandboxOverride?: boolean | null
+    cliModeOverride?: CliModeOverride | null
   }) => void
 }
 
@@ -31,11 +36,35 @@ const APPROVE_OPTIONS: { value: boolean | null; label: string }[] = [
   { value: false, label: 'Off' },
 ]
 
+/** Backend-specific mode options — Claude Code permission modes vs Codex sandbox levels.
+ *  Hermes has no mode flags, so it gets no section. */
+const CLI_MODE_OPTIONS: Partial<Record<CliBackend, { title: string; options: { value: CliModeOverride | null; label: string; hint?: string }[] }>> = {
+  'claude-cli': {
+    title: 'Claude Code mode (this chat)',
+    options: [
+      { value: null, label: 'Default' },
+      { value: 'plan', label: 'Plan', hint: 'Analyse only — no file edits' },
+      { value: 'acceptEdits', label: 'Accept edits', hint: 'Auto-accept file edits' },
+      { value: 'bypassPermissions', label: 'Bypass', hint: 'Skip all permission prompts' },
+    ],
+  },
+  'codex-cli': {
+    title: 'Codex sandbox (this chat)',
+    options: [
+      { value: null, label: 'Default' },
+      { value: 'read-only', label: 'Read-only', hint: 'No file writes' },
+      { value: 'workspace-write', label: 'Workspace', hint: 'Writes inside the workspace' },
+      { value: 'danger-full-access', label: 'Full access', hint: 'No sandbox restrictions' },
+    ],
+  },
+}
+
 /** Per-conversation overrides for thinking effort and tool auto-approval — the composer-bar
  *  counterpart to the agent-level defaults set in the agent settings screen. Follows the same
  *  small-button + DropdownPanel pattern as ModelPicker. */
-export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, onChange }: Props) {
-  const hasOverride = thinkingEffortOverride !== null || fullAutoApproveOverride !== null || terminalSandboxOverride !== null
+export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, activeCliBackend = null, cliModeOverride = null, onChange }: Props) {
+  const cliModeSection = activeCliBackend ? CLI_MODE_OPTIONS[activeCliBackend] : undefined
+  const hasOverride = thinkingEffortOverride !== null || fullAutoApproveOverride !== null || terminalSandboxOverride !== null || (cliModeSection != null && cliModeOverride !== null)
   return (
     <DropdownPanel
       open={open}
@@ -118,6 +147,32 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
           </div>
           <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1 pt-1.5">Overrides the project's sandbox-bypass default for this conversation only.</p>
         </div>
+        {cliModeSection && (
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">{cliModeSection.title}</p>
+            <div className="space-y-0.5">
+              {cliModeSection.options.map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => onChange({ cliModeOverride: opt.value })}
+                  title={opt.hint}
+                  className={`w-full text-left px-2 py-1 rounded text-xs flex items-center justify-between gap-2 ${
+                    cliModeOverride === opt.value
+                      ? 'bg-purple-500 text-white'
+                      : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  {opt.hint && (
+                    <span className={`text-[10px] truncate ${cliModeOverride === opt.value ? 'text-purple-100' : 'text-gray-400 dark:text-gray-500'}`}>{opt.hint}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1 pt-1.5">Also settable via slash commands (e.g. /plan, /mode-default). Applies from the next message.</p>
+          </div>
+        )}
       </div>
     </DropdownPanel>
   )

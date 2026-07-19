@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Star, Upload, Users, X, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
+import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type CliBackend, type CliModeOverride, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useAutoScroll } from '../hooks/useAutoScroll'
@@ -113,6 +113,7 @@ export function ChatWindow() {
   >(null)
   const [pendingFullAutoApproveOverride, setPendingFullAutoApproveOverride] = useState<boolean | null>(null)
   const [pendingTerminalSandboxOverride, setPendingTerminalSandboxOverride] = useState<boolean | null>(null)
+  const [pendingCliModeOverride, setPendingCliModeOverride] = useState<CliModeOverride | null>(null)
   const [input, setInput] = useState('')
 
   useEffect(() => {
@@ -259,6 +260,54 @@ export function ChatWindow() {
     }))
   }, [catalogModels, continueBackend, continueCliModels, continueProviderModelIds, defaultModelSetting])
 
+  const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
+
+  // Determines the chip shown in the context bar AND which CLI backend (if any) answers this
+  // chat. `backend` is the machine-readable half — consumed by the provider slash-command list
+  // and the ChatModePicker's mode section, so both follow the same precedence as the visual chip:
+  // agent-forced backend → auth-mode-none CLI fallback → BYOK provider match → CLI model match.
+  const backendChip = useMemo(() => {
+    const byokGroup = availableGroups.find((g) => {
+      if (g.sourceType !== 'provider') return false
+      if (effectiveModel === 'default') return true
+      return g.models.some((m) => m.id === effectiveModel)
+    })
+    const cliGroup = availableGroups.find(
+      (g) => g.sourceType === 'cli' && g.models.some((m) => m.id === effectiveModel),
+    )
+    const providerColorMap: Record<string, string> = {
+      openrouter: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300',
+      anthropic: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300',
+      azure: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300',
+    }
+
+    const cliChip: Record<string, { label: string; cls: string; backend: CliBackend | null }> = {
+      'codex-cli': { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300', backend: 'codex-cli' },
+      'claude-cli': { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300', backend: 'claude-cli' },
+      'hermes-cli': { label: 'Hermes Agent', cls: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300', backend: 'hermes-cli' },
+    }
+
+    const agentBackend = chatAgent?.backend
+    if (agentBackend && cliChip[agentBackend] && cliInstalled) {
+      return cliChip[agentBackend]
+    }
+    if (!agentBackend && authMode === 'none' && cliInstalled && !hasByok) {
+      if (installedClis.claude) return cliChip['claude-cli']
+      if (installedClis.codex) return cliChip['codex-cli']
+      return cliChip['hermes-cli']
+    }
+    if (byokGroup) {
+      const cls = providerColorMap[byokGroup.sourceKey] ?? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300'
+      return { label: byokGroup.sourceLabel, cls, backend: null }
+    }
+    if (cliGroup && cliChip[cliGroup.sourceKey]) {
+      return cliChip[cliGroup.sourceKey]
+    }
+    return { label: 'No provider', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400', backend: null }
+  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups, hasByok])
+
+  const activeCliBackend: CliBackend | null = backendChip.backend
+
   const chat = useChat({
     conversationId,
     activeAgentId: chatAgentId,
@@ -291,6 +340,7 @@ export function ChatWindow() {
     chatAgentId,
     chatProjectId,
     activeAgent: chatAgent,
+    activeCliBackend,
     effectiveModel,
     effectiveModelLabel,
     conversationModel,
@@ -1040,48 +1090,6 @@ export function ChatWindow() {
     window.addEventListener('pointerup', onUp)
   }, [])
 
-  const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
-
-  const backendChip = useMemo(() => {
-    const byokGroup = availableGroups.find((g) => {
-      if (g.sourceType !== 'provider') return false
-      if (effectiveModel === 'default') return true
-      return g.models.some((m) => m.id === effectiveModel)
-    })
-    const cliGroup = availableGroups.find(
-      (g) => g.sourceType === 'cli' && g.models.some((m) => m.id === effectiveModel),
-    )
-    const providerColorMap: Record<string, string> = {
-      openrouter: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300',
-      anthropic: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300',
-      azure: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300',
-    }
-
-    const cliChip: Record<string, { label: string; cls: string }> = {
-      'codex-cli': { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' },
-      'claude-cli': { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' },
-      'hermes-cli': { label: 'Hermes Agent', cls: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300' },
-    }
-
-    const agentBackend = chatAgent?.backend
-    if (agentBackend && cliChip[agentBackend] && cliInstalled) {
-      return cliChip[agentBackend]
-    }
-    if (!agentBackend && authMode === 'none' && cliInstalled && !hasByok) {
-      if (installedClis.claude) return cliChip['claude-cli']
-      if (installedClis.codex) return cliChip['codex-cli']
-      return cliChip['hermes-cli']
-    }
-    if (byokGroup) {
-      const cls = providerColorMap[byokGroup.sourceKey] ?? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300'
-      return { label: byokGroup.sourceLabel, cls }
-    }
-    if (cliGroup && cliChip[cliGroup.sourceKey]) {
-      return cliChip[cliGroup.sourceKey]
-    }
-    return { label: 'No provider', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400' }
-  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, installedClis.hermes, effectiveModel, availableGroups, hasByok])
-
   const workflowModeInfo = projectWorkflowMode === 'orchestrated'
     ? { label: 'Orchestrated', Icon: Users, title: 'This project delegates tasks across the team automatically.' }
     : projectWorkflowMode === 'automated-delegation'
@@ -1171,10 +1179,11 @@ export function ChatWindow() {
     </div>
   )
 
-  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null }) => {
+  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null }) => {
     if (mode.thinkingEffortOverride !== undefined) setPendingThinkingEffortOverride(mode.thinkingEffortOverride)
     if (mode.fullAutoApproveOverride !== undefined) setPendingFullAutoApproveOverride(mode.fullAutoApproveOverride)
     if (mode.terminalSandboxOverride !== undefined) setPendingTerminalSandboxOverride(mode.terminalSandboxOverride)
+    if (mode.cliModeOverride !== undefined) setPendingCliModeOverride(mode.cliModeOverride)
     await actions.handleSetConversationMode(mode)
   }, [actions])
 
@@ -1253,6 +1262,12 @@ export function ChatWindow() {
             : currentConversation.terminal_sandbox_override === 0 ? false
             : null
           : pendingTerminalSandboxOverride
+      }
+      activeCliBackend={activeCliBackend}
+      conversationCliModeOverride={
+        currentConversation
+          ? ((currentConversation.cli_mode_override as CliModeOverride | null | undefined) ?? null)
+          : pendingCliModeOverride
       }
       onSetConversationMode={handleSetConversationMode}
       availableGroups={availableGroups}
