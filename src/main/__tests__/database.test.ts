@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -185,7 +185,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
     expect(db.prepare('SELECT project_id FROM automated_workflow_runs WHERE id = ?').get('run-1'))
       .toEqual({ project_id: 'proj-1' })
     expect(() => {
@@ -232,7 +232,7 @@ describe('database migrations', () => {
     expect(() => runMigrations(db)).not.toThrow()
 
     expect(getColumnNames(db, 'automated_workflow_runs')).toContain('template_id')
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
   })
 
   it('describes automated_workflow_templates and the widened automated_workflow_runs identically on a fresh install vs. an incrementally-migrated install (migration 75)', () => {
@@ -300,7 +300,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -337,7 +337,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -391,7 +391,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -454,7 +454,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -558,7 +558,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(79)
+    expect(db.pragma('user_version', { simple: true })).toBe(80)
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label', 'step', 'repo_relative_path']),
     )

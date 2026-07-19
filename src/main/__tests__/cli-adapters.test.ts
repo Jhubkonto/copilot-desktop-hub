@@ -261,6 +261,81 @@ describe('CLI adapters', () => {
     await expect(sendPromise).rejects.toThrow('Error: not authenticated')
   })
 
+  it('ClaudeAdapter maps permissionMode to --permission-mode and it wins over skipPermissions', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      permissionMode: 'plan',
+      skipPermissions: true,
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } })}\n`))
+    proc.emit('close', 0)
+    await sendPromise
+
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    const modeIndex = args.indexOf('--permission-mode')
+    expect(modeIndex).toBeGreaterThan(-1)
+    expect(args[modeIndex + 1]).toBe('plan')
+    // An explicit plan mode must keep the chat read-only even when auto-approve is on.
+    expect(args).not.toContain('--dangerously-skip-permissions')
+  })
+
+  it('ClaudeAdapter ignores Codex-family sandbox modes and keeps the skipPermissions fallback', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      permissionMode: 'workspace-write',
+      skipPermissions: true,
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } })}\n`))
+    proc.emit('close', 0)
+    await sendPromise
+
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    expect(args).not.toContain('--permission-mode')
+    expect(args).toContain('--dangerously-skip-permissions')
+  })
+
+  it('CodexAdapter maps permissionMode to --sandbox and drops the [AUTO-APPROVE] prompt hack', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      systemPrompt: 'be helpful',
+      permissionMode: 'read-only',
+      skipPermissions: true,
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { id: 'm1', type: 'agent_message', text: 'ok' } })}\n`))
+    proc.emit('close', 0)
+    await sendPromise
+
+    const spawnArgs = (mockSpawn.mock.calls[0][1] as string[]).flat()
+    const sandboxIndex = spawnArgs.indexOf('--sandbox')
+    expect(sandboxIndex).toBeGreaterThan(-1)
+    expect(spawnArgs[sandboxIndex + 1]).toBe('read-only')
+    // With a real sandbox flag governing, the prompt directive must not fight a
+    // deliberately restrictive read-only selection.
+    const stdinPayload = String(proc.stdin.end.mock.calls[0]?.[0] ?? '')
+    expect(stdinPayload).not.toContain('[AUTO-APPROVE]')
+  })
+
   it('ClaudeAdapter reports availability from execSync', () => {
     mockExecSync.mockReturnValue('C:\\claude.exe\n')
     expect(ClaudeAdapter.isAvailable()).toBe(true)

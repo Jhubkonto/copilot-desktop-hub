@@ -632,6 +632,33 @@ describe('chat handlers', () => {
     expect(state.messages.some((message) => message.content.includes('No provider configured'))).toBe(false)
   })
 
+  it('threads the conversation cli_mode_override into the CLI adapter request as permissionMode', async () => {
+    const capturedReqs: Array<{ permissionMode?: string }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { permissionMode?: string }) => {
+        capturedReqs.push({ permissionMode: req.permissionMode })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: null,
+      cli_backend: null,
+      cli_mode_override: 'plan',
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli-mode', 'hello there')
+
+    expect(capturedReqs).toHaveLength(1)
+    expect(capturedReqs[0].permissionMode).toBe('plan')
+  })
+
   it('labels the assistant message with the explicitly selected model', async () => {
     const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
     await handler({ sender: {} }, 'conv-model-label', 'Hello there', { model: 'gpt-5.4-mini' })

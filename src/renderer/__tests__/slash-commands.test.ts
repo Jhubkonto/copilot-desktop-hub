@@ -269,6 +269,55 @@ describe('formatContextUsage', () => {
   })
 })
 
+describe('CLI mode slash commands', () => {
+  it('/plan sets the plan mode override on a Claude CLI chat', async () => {
+    const ctx = createContext()
+    ctx.activeCliBackend = 'claude-cli'
+    ctx.setCliMode = vi.fn().mockResolvedValue(undefined)
+    const outcome = await executeSlashCommand('/plan', ctx)
+    expect(outcome).toBe('handled')
+    expect(ctx.setCliMode).toHaveBeenCalledWith('plan')
+    expect((ctx.pushSystemMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('plan')
+  })
+
+  it('/plan on a BYOK chat explains it needs a CLI backend and sets nothing', async () => {
+    const ctx = createContext()
+    ctx.activeCliBackend = null
+    ctx.setCliMode = vi.fn()
+    await executeSlashCommand('/plan', ctx)
+    expect(ctx.setCliMode).not.toHaveBeenCalled()
+    expect((ctx.pushSystemMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('CLI-backed')
+  })
+
+  it('/sandbox-full on a Claude CLI chat reports the backend mismatch', async () => {
+    const ctx = createContext()
+    ctx.activeCliBackend = 'claude-cli'
+    ctx.setCliMode = vi.fn()
+    await executeSlashCommand('/sandbox-full', ctx)
+    expect(ctx.setCliMode).not.toHaveBeenCalled()
+    expect((ctx.pushSystemMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('Codex CLI')
+  })
+
+  it('/mode-default clears the override', async () => {
+    const ctx = createContext()
+    ctx.activeCliBackend = 'codex-cli'
+    ctx.setCliMode = vi.fn().mockResolvedValue(undefined)
+    await executeSlashCommand('/mode-default', ctx)
+    expect(ctx.setCliMode).toHaveBeenCalledWith(null)
+  })
+
+  it('/init passes through as a chat message on Claude CLI and is blocked elsewhere', async () => {
+    const claudeCtx = createContext()
+    claudeCtx.activeCliBackend = 'claude-cli'
+    expect(await executeSlashCommand('/init', claudeCtx)).toBe(false)
+
+    const byokCtx = createContext()
+    byokCtx.activeCliBackend = null
+    expect(await executeSlashCommand('/init', byokCtx)).toBe('handled')
+    expect((byokCtx.pushSystemMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('Claude CLI')
+  })
+})
+
 describe('/usage slash command (M.10)', () => {
   it('m10-7: /usage outputs a visual bar and message counts', async () => {
     const ctx = createContext()
