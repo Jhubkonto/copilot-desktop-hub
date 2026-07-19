@@ -1238,6 +1238,26 @@ export interface ConversationRow {
   rating: number | null
 }
 
+// ---------------------------------------------------------------------------
+// CLI backend modes
+// ---------------------------------------------------------------------------
+
+export type CliBackend = 'claude-cli' | 'codex-cli' | 'hermes-cli'
+
+/**
+ * Per-conversation CLI mode override. One column holds either family — the picker/commands
+ * only offer the values valid for the chat's active backend:
+ * - Claude Code `--permission-mode`: 'plan' | 'acceptEdits' | 'bypassPermissions'
+ * - Codex `--sandbox`: 'read-only' | 'workspace-write' | 'danger-full-access'
+ * null/absent = the backend's default behavior.
+ */
+export type CliModeOverride =
+  | 'plan' | 'acceptEdits' | 'bypassPermissions'
+  | 'read-only' | 'workspace-write' | 'danger-full-access'
+
+export const CLAUDE_CLI_MODES: CliModeOverride[] = ['plan', 'acceptEdits', 'bypassPermissions']
+export const CODEX_CLI_MODES: CliModeOverride[] = ['read-only', 'workspace-write', 'danger-full-access']
+
 export interface MessageRow {
   id: string
   conversation_id: string
