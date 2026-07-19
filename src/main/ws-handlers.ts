@@ -2149,7 +2149,7 @@ export function registerWsHandlers(): void {
       if (!id) return
       const r = db.prepare('SELECT * FROM artifacts WHERE id = ?').get(id) as Record<string, unknown> | undefined
       if (!r) {
-        reply({ event: 'artifact:detail', data: { artifact: null } })
+        reply({ event: 'artifact:detail', data: { artifactId: id, artifact: null } })
         return
       }
       const currentVersionId = r.current_version_id != null ? String(r.current_version_id) : null
@@ -2177,6 +2177,7 @@ export function registerWsHandlers(): void {
       reply({
         event: 'artifact:detail',
         data: {
+          artifactId: id,
           artifact: {
             id: String(r.id),
             projectId: r.project_id != null ? String(r.project_id) : null,
@@ -2225,7 +2226,7 @@ export function registerWsHandlers(): void {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
       const info = db.prepare('DELETE FROM artifacts WHERE id = ?').run(id)
-      reply({ event: 'artifact:deleted', data: { id, deleted: info.changes > 0 } })
+      broadcastToMobile({ event: 'artifact:deleted', data: { id, deleted: info.changes > 0 } })
       const rows = db.prepare('SELECT id, project_id, title, kind, description, storage_root, status, current_version_id, created_at, updated_at FROM artifacts ORDER BY updated_at DESC LIMIT 50').all() as Record<string, unknown>[]
       reply({
         event: 'artifact:list',
@@ -2303,6 +2304,7 @@ export function registerWsHandlers(): void {
             reply({
               event: 'artifact:detail',
               data: {
+                artifactId,
                 artifact: {
                   id: String(aRow.id),
                   projectId: aRow.project_id != null ? String(aRow.project_id) : null,

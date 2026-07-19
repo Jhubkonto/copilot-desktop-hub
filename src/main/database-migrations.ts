@@ -1476,6 +1476,13 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON teachback_attempts(artifact_id, attempted_at DESC);
     `,
   },
+  {
+    // Per-conversation CLI mode override (fourth ChatModePicker section): Claude Code
+    // --permission-mode ('plan'|'acceptEdits'|'bypassPermissions') or Codex --sandbox
+    // ('read-only'|'workspace-write'|'danger-full-access'). NULL = backend default.
+    version: 80,
+    sql: `ALTER TABLE conversations ADD COLUMN cli_mode_override TEXT`,
+  },
 ];
 
 

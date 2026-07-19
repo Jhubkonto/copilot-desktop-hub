@@ -15,6 +15,7 @@ import { app, shell, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
+import { broadcastToMobile } from './ws-server'
 
 /** Notifies all open windows that an artifact changed, so the chat card and Project
  * Artifacts tab can refresh live instead of only reflecting state as of last mount. */
@@ -633,7 +634,10 @@ export function registerArtifactHandlers(): void {
     const db = getDatabase()
     const row = db.prepare('SELECT project_id FROM artifacts WHERE id = ?').get(id) as { project_id: string | null } | undefined
     const info = db.prepare('DELETE FROM artifacts WHERE id = ?').run(id)
-    if (info.changes > 0) broadcastArtifactUpdated(id, row?.project_id ?? null)
+    if (info.changes > 0) {
+      broadcastArtifactUpdated(id, row?.project_id ?? null)
+      broadcastToMobile({ event: 'artifact:deleted', data: { id, deleted: true } })
+    }
     return { deleted: info.changes > 0 }
   })
 
