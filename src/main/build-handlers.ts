@@ -63,6 +63,7 @@ export async function getWorkspaceInfo(db: Database.Database): Promise<Workspace
     dirty: false,
     version: null,
     isGitRepo: false,
+    hasPackageJson: false,
   }
 
   try {
@@ -83,6 +84,7 @@ export async function getWorkspaceInfo(db: Database.Database): Promise<Workspace
   try {
     const pkgPath = path.join(workspacePath, 'package.json')
     if (existsSync(pkgPath)) {
+      info.hasPackageJson = true
       const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { version?: string }
       info.version = pkg.version ?? null
     }

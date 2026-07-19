@@ -50,9 +50,11 @@ export async function getAndroidWorkspaceInfo(db: Database.Database): Promise<An
     versionCode: null,
     versionName: null,
     isGitRepo: false,
+    hasGradleProject: false,
   }
 
   if (!workspacePath) return info
+  info.hasGradleProject = existsSync(path.join(workspacePath, 'gradlew')) || existsSync(path.join(workspacePath, 'gradlew.bat'))
 
   try {
     const [, statusOut] = await Promise.all([
