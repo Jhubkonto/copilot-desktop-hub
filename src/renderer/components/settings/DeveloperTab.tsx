@@ -25,7 +25,7 @@ interface Props {
   workspacePathInput: string
   onSetWorkspacePathInput: (v: string) => void
   onRefreshWorkspace: () => void
-  onSaveWorkspacePath: () => void
+  onSaveWorkspacePath: (path?: string) => void
   // Desktop build
   buildRecords: BuildRecord[]
   activeBuildId: string | null
@@ -45,7 +45,7 @@ interface Props {
   publishing: boolean
   publishResult: string | null
   onSetFeedPathInput: (v: string) => void
-  onSaveFeedPath: () => void
+  onSaveFeedPath: (path?: string) => void
   onPublishUpdate: () => void
   onRollback: (version: string) => void
   // Launch dev
@@ -55,7 +55,7 @@ interface Props {
   androidWorkspaceInfo: AndroidWorkspaceInfo | null
   androidWorkspacePathInput: string
   onSetAndroidWorkspacePathInput: (v: string) => void
-  onSaveAndroidWorkspacePath: () => void
+  onSaveAndroidWorkspacePath: (path?: string) => void
   onRefreshAndroidWorkspace: () => void
   // Android build
   androidBuildRecords: BuildRecord[]
@@ -194,6 +194,41 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${Math.round(bytes / 1024)} KB`
+}
+
+async function browseForDirectory(apply: (path: string) => void): Promise<void> {
+  const result = await window.api.openDirectoryDialog()
+  if (Array.isArray(result) && result[0]) apply(result[0])
+}
+
+function normalizePath(p: string): string {
+  return p.trim().toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '')
+}
+
+// Flags feed directories that builds will overwrite (build outputs) or that
+// live inside a workspace checkout.
+function feedPathWarning(feedPath: string, workspacePaths: (string | undefined)[]): string | null {
+  const p = normalizePath(feedPath)
+  if (!p) return null
+  if (/\\(build|dist|out|release)(\\|$)/.test(p) || /\\node_modules(\\|$)/.test(p)) {
+    return 'This looks like a build output directory — builds will overwrite or delete published files here. Choose a dedicated folder, e.g. C:\\nexy-feed.'
+  }
+  for (const ws of workspacePaths) {
+    const wsNorm = ws ? normalizePath(ws) : ''
+    if (wsNorm && (p === wsNorm || p.startsWith(`${wsNorm}\\`))) {
+      return 'This folder is inside a workspace checkout — pick a folder outside the repo so published installers survive builds and clean checkouts.'
+    }
+  }
+  return null
+}
+
+function PathWarning({ text }: { text: string }) {
+  return (
+    <p className="flex items-start gap-1.5 text-[11px] text-yellow-700 dark:text-yellow-300">
+      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+      {text}
+    </p>
+  )
 }
 
 function FeedStatusPill({ running, url }: { running: boolean; url: string }) {
@@ -346,6 +381,11 @@ export function DeveloperTab({
   // Signing modal
   const [signingModalOpen, setSigningModalOpen] = useState(false)
 
+  const activeFeedPathWarning = useMemo(
+    () => feedPathWarning(feedPathInput || (feedInfo?.feedPath ?? ''), [workspaceInfo?.path, androidWorkspaceInfo?.path]),
+    [feedPathInput, feedInfo?.feedPath, workspaceInfo?.path, androidWorkspaceInfo?.path],
+  )
+
   const latestDesktopBuild = buildRecords[0]
   const latestDesktopOutcome = desktopOutcomeCopy(latestDesktopBuild)
   const canPublishDesktopPackage = latestDesktopBuild && isDesktopCommand(latestDesktopBuild.command) && latestDesktopBuild.command === 'package' && latestDesktopBuild.status === 'success'
@@ -466,13 +506,23 @@ export function DeveloperTab({
                 className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <Button
+                variant="secondary"
+                onClick={() => void browseForDirectory((p) => onSaveWorkspacePath(p))}
+                className="rounded-lg"
+              >
+                Browse…
+              </Button>
+              <Button
                 variant="primary"
-                onClick={onSaveWorkspacePath}
+                onClick={() => onSaveWorkspacePath()}
                 className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-100"
               >
                 Save
               </Button>
             </div>
+            {workspaceInfo && !workspaceInfo.hasPackageJson && (
+              <PathWarning text="No package.json found here — point this at the Nexy source checkout (the folder you run npm from), not the installed app." />
+            )}
             {workspaceInfo && (
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {workspaceInfo.isGitRepo ? (
@@ -684,17 +734,25 @@ export function DeveloperTab({
                   type="text"
                   value={feedPathInput}
                   onChange={(e) => onSetFeedPathInput(e.target.value)}
-                  placeholder="/path/to/feed-directory"
+                  placeholder="C:\nexy-feed"
                   className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <Button
+                  variant="secondary"
+                  onClick={() => void browseForDirectory((p) => onSaveFeedPath(p))}
+                  className="rounded-lg"
+                >
+                  Browse…
+                </Button>
+                <Button
                   variant="primary"
-                  onClick={onSaveFeedPath}
+                  onClick={() => onSaveFeedPath()}
                   className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-100"
                 >
                   Set
                 </Button>
               </div>
+              {activeFeedPathWarning && <PathWarning text={activeFeedPathWarning} />}
 
               {feedInfo?.feedPath && (
                 <div className="flex flex-wrap items-center gap-2">
@@ -787,12 +845,16 @@ export function DeveloperTab({
                 type="text"
                 value={androidWorkspacePathInput}
                 onChange={(e) => onSetAndroidWorkspacePathInput(e.target.value)}
-                placeholder="/path/to/nexy-android"
+                placeholder="/path/to/nexy/android"
                 className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono"
               />
-              <Button variant="secondary" onClick={onSaveAndroidWorkspacePath} className="px-2.5 py-1.5 rounded-lg">Save</Button>
+              <Button variant="secondary" onClick={() => void browseForDirectory((p) => onSaveAndroidWorkspacePath(p))} className="px-2.5 py-1.5 rounded-lg">Browse…</Button>
+              <Button variant="secondary" onClick={() => onSaveAndroidWorkspacePath()} className="px-2.5 py-1.5 rounded-lg">Save</Button>
               <button onClick={onRefreshAndroidWorkspace} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><RefreshCw className="w-3.5 h-3.5" /></button>
             </div>
+            {androidWorkspaceInfo && androidWorkspaceInfo.path.trim() !== '' && !androidWorkspaceInfo.hasGradleProject && (
+              <PathWarning text="No Gradle wrapper found here — point this at the android/ folder inside the Nexy checkout." />
+            )}
             {androidWorkspaceInfo && (
               <div className="flex flex-wrap gap-1.5">
                 {androidWorkspaceInfo.branch && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">{androidWorkspaceInfo.branch}</span>}

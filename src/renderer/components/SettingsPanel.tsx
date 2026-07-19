@@ -557,8 +557,11 @@ export function SettingsPanel() {
     }
   }
 
-  const handleSaveWorkspacePath = async () => {
-    const info = await window.api.buildSetWorkspacePath(workspacePathInput.trim())
+  const handleSaveWorkspacePath = async (pathOverride?: string) => {
+    const target = (pathOverride ?? workspacePathInput).trim()
+    if (!target) return
+    setWorkspacePathInput(target)
+    const info = await window.api.buildSetWorkspacePath(target)
     setWorkspaceInfo(info)
     addToast('Workspace path saved', 'success')
   }
@@ -623,9 +626,10 @@ export function SettingsPanel() {
     if (!result.launched) setLaunchDevError(result.error ?? 'Failed to launch')
   }
 
-  const handleSaveFeedPath = async () => {
-    const trimmed = feedPathInput.trim()
+  const handleSaveFeedPath = async (pathOverride?: string) => {
+    const trimmed = (pathOverride ?? feedPathInput).trim()
     if (!trimmed) return
+    setFeedPathInput(trimmed)
     const info = await window.api.buildSetFeedPath(trimmed)
     setFeedInfo(info)
     addToast('Local update feed path saved', 'success')
@@ -660,9 +664,10 @@ export function SettingsPanel() {
     else addToast(`Launching v${version} installer…`, 'success')
   }
 
-  const handleSaveAndroidWorkspacePath = async () => {
-    const trimmed = androidWorkspacePathInput.trim()
+  const handleSaveAndroidWorkspacePath = async (pathOverride?: string) => {
+    const trimmed = (pathOverride ?? androidWorkspacePathInput).trim()
     if (!trimmed) return
+    setAndroidWorkspacePathInput(trimmed)
     const info = await window.api.androidSetWorkspacePath(trimmed)
     setAndroidWorkspaceInfo(info)
   }
@@ -1061,7 +1066,7 @@ export function SettingsPanel() {
             workspacePathInput={workspacePathInput}
             onSetWorkspacePathInput={setWorkspacePathInput}
             onRefreshWorkspace={() => void refreshWorkspaceInfo()}
-            onSaveWorkspacePath={() => void handleSaveWorkspacePath()}
+            onSaveWorkspacePath={(p?: string) => void handleSaveWorkspacePath(p)}
             buildRecords={buildRecords}
             activeBuildId={activeBuildId}
             activeBuildCommand={activeBuildCommand}
@@ -1078,7 +1083,7 @@ export function SettingsPanel() {
             publishing={publishing}
             publishResult={publishResult}
             onSetFeedPathInput={setFeedPathInput}
-            onSaveFeedPath={() => void handleSaveFeedPath()}
+            onSaveFeedPath={(p?: string) => void handleSaveFeedPath(p)}
             onPublishUpdate={() => void handlePublishUpdate()}
             onRollback={(v) => void handleRollback(v)}
             launchDevError={launchDevError}
@@ -1086,7 +1091,7 @@ export function SettingsPanel() {
             androidWorkspaceInfo={androidWorkspaceInfo}
             androidWorkspacePathInput={androidWorkspacePathInput}
             onSetAndroidWorkspacePathInput={setAndroidWorkspacePathInput}
-            onSaveAndroidWorkspacePath={() => void handleSaveAndroidWorkspacePath()}
+            onSaveAndroidWorkspacePath={(p?: string) => void handleSaveAndroidWorkspacePath(p)}
             onRefreshAndroidWorkspace={() => void handleRefreshAndroidWorkspace()}
             androidBuildRecords={androidBuildRecords}
             activeAndroidBuildId={activeAndroidBuildId}
