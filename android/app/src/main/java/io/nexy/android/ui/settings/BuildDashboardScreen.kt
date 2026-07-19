@@ -64,6 +64,7 @@ import java.util.Locale
 fun BuildDashboardScreen(onBack: () -> Unit) {
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val buildRecords by WsRepository.buildRecords.collectAsStateWithLifecycle()
+    val desktopIsPackaged by WsRepository.desktopIsPackaged.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
 
     var desktopRecords by remember { mutableStateOf<List<BuildRecord>>(emptyList()) }
@@ -90,6 +91,11 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
 
     // Phase 2: desktop self-update state
     var updateRestartingEvent by remember { mutableStateOf<WsEvent.UpdateRestarting?>(null) }
+
+    // One-tap desktop update flow (package → publish → silent install → restart)
+    var updateFlowActive by remember { mutableStateOf(false) }
+    var updateFlowDone by remember { mutableStateOf(false) }
+    var lastBuildError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         WsRepository.getBuildRecords(platform = null)
@@ -123,6 +129,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                     if (event.buildId.isNotEmpty()) {
                         activeBuildId = event.buildId
                         buildStatus = "running"
+                        lastBuildError = null
                         buildLogLines.clear()
                     }
                 }
@@ -141,15 +148,22 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 is WsEvent.BuildCommandDone -> {
                     if (event.buildId == activeBuildId || activeBuildId == null) {
                         buildStatus = event.status
+                        lastBuildError = event.error
                         if (event.status != "running") activeBuildId = null
+                        if (event.status != "running" && event.status != "success") updateFlowActive = false
                     }
                 }
                 is WsEvent.UpdateRestarting -> {
                     updateRestartingEvent = event
+                    if (event.error != null) updateFlowActive = false
                 }
                 is WsEvent.Connected -> {
                     // Desktop came back — clear the banner once reconnected
                     updateRestartingEvent = null
+                    if (updateFlowActive) {
+                        updateFlowActive = false
+                        updateFlowDone = true
+                    }
                 }
                 else -> {}
             }
@@ -188,7 +202,23 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Not connected to desktop.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (updateFlowActive) {
+                    CircularProgressIndicator(strokeWidth = 3.dp)
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Desktop is installing the update and restarting…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "This screen reconnects automatically when it's back.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text("Not connected to desktop.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             return@Scaffold
         }
@@ -196,6 +226,84 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
             item {
                 Spacer(Modifier.height(12.dp))
+                SectionHeader("Desktop App Update")
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(14.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "One-tap desktop update",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "Packages the desktop app from its workspace, publishes the installer to the update feed, then silently installs it and restarts the desktop. Takes a few minutes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (desktopIsPackaged == false) {
+                            Text(
+                                "Desktop is running from a dev checkout — one-tap updates need the installed Nexy Desktop app.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                confirmTitle = "Update the desktop app?"
+                                confirmMessage = "This packages a fresh desktop build, publishes it, and restarts the desktop into the new version. The desktop briefly disconnects while it restarts."
+                                confirmAction = {
+                                    updateFlowActive = true
+                                    updateFlowDone = false
+                                    updateRestartingEvent = null
+                                    buildLogLines.clear()
+                                    buildStatus = "running"
+                                    selectedBuildCommand = "package"
+                                    WsRepository.startDesktopBuild("package")
+                                }
+                            },
+                            enabled = buildStatus != "running" && desktopIsPackaged != false,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Build & install desktop update") }
+
+                        if (updateFlowActive) {
+                            val stage = when {
+                                buildStatus == "running" -> "Step 1 of 3 — packaging the installer on desktop…"
+                                buildStatus == "success" && updateRestartingEvent == null -> "Step 2 of 3 — publishing to the update feed…"
+                                updateRestartingEvent?.error == null -> "Step 3 of 3 — installing and restarting the desktop…"
+                                else -> null
+                            }
+                            stage?.let {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 2.dp))
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                                }
+                            }
+                        }
+                        if (updateFlowDone) {
+                            Text(
+                                "✓ Desktop updated and back online.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        updateRestartingEvent?.error?.let { err ->
+                            Text("Update failed: $err", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                        lastBuildError?.let { err ->
+                            Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
                 SectionHeader("Desktop Build Preflight")
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

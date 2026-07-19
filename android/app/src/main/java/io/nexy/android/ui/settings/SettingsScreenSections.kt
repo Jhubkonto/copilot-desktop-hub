@@ -9,18 +9,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -378,71 +383,156 @@ fun UpdatesSection(
     onInstallUpdate: (AndroidUpdateManifest) -> Unit,
 ) {
     val updateCanInstall = canInstallUpdate(androidUpdateManifest, clientVersionCode)
+    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
 
     SettingsSectionHeader("Updates")
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
+            // Status hero card
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (updateCanInstall) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                },
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        updateStatusLabel(androidUpdateManifest, clientVersionCode),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = if (updateCanInstall) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(updateStatusDetail(androidUpdateManifest, clientVersionCode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "Refresh update manifest") }
-            }
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            when {
+                                androidUpdateManifest == null -> Icons.Default.CloudOff
+                                updateCanInstall -> Icons.Default.SystemUpdate
+                                else -> Icons.Default.CheckCircle
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = if (updateCanInstall) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                updateStatusLabel(androidUpdateManifest, clientVersionCode),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (updateCanInstall) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                            Text(
+                                updateStatusDetail(androidUpdateManifest, clientVersionCode),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = onRefresh) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh update manifest",
+                                tint = if (updateCanInstall) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
 
-            androidUpdateManifest?.let { manifest ->
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    SettingsInfoRow("Version", "v${manifest.versionName} (${manifest.versionCode})")
-                    SettingsInfoRow("Commit", manifest.commitSha ?: "Unknown")
-                    SettingsInfoRow("Checksum", checksumPreview(manifest.checksum))
-                    SettingsInfoRow("Source desktop", sourceDesktopLabel(manifest.artifactUrl))
-                    SettingsInfoRow("Artifact", manifest.artifactUrl)
-                    SettingsInfoRow("Published", publishedAtLabel(manifest.publishedAt))
-                    if (manifest.changelog.isNotBlank()) {
-                        SettingsInfoRow("Notes", manifest.changelog)
+                    androidUpdateManifest?.takeIf { updateCanInstall }?.let { manifest ->
+                        FilledTonalButton(
+                            onClick = { onInstallUpdate(manifest) },
+                            enabled = !updateInstallState.installing,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (updateInstallState.installing) "Preparing update…"
+                                else "Install v${manifest.versionName} (build ${manifest.versionCode})",
+                            )
+                        }
+                    }
+
+                    if (updateInstallState.installing) {
+                        val progress = updateInstallState.downloadProgress
+                        if (progress != null) {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    updateInstallState.message?.let { message ->
+                        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    updateInstallState.error?.let { error ->
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
                     }
                 }
-                if (updateCanInstall) {
-                    NexySecondaryButton(
-                        text = if (updateInstallState.installing) "Preparing update..." else "Install update",
-                        onClick = { onInstallUpdate(manifest) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !updateInstallState.installing,
-                    )
-                }
             }
 
-            updateInstallState.message?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
-            updateInstallState.error?.let { error ->
-                Text(error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
-            }
-            if (androidUpdateManifest != null) {
-                Text(
-                    "How updates work: when you trigger a build on desktop, Nexy automatically publishes the build artifact to the local network feed server. Android checks this feed periodically and downloads available updates. You can also tap Refresh above to check now.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                )
-                Text(
-                    "To roll back: on the desktop, open Settings → Android → Published History and click Restore. Then uninstall the current app from Android Settings and tap Install update here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+            // Collapsible release details
+            androidUpdateManifest?.let { manifest ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { detailsExpanded = !detailsExpanded }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "Release details",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Icon(
+                        if (detailsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (detailsExpanded) "Collapse release details" else "Expand release details",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (detailsExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SettingsInfoRow("Version", "v${manifest.versionName} (${manifest.versionCode})")
+                        SettingsInfoRow("Installed", "build $clientVersionCode")
+                        SettingsInfoRow("Commit", manifest.commitSha ?: "Unknown")
+                        SettingsInfoRow("Checksum", checksumPreview(manifest.checksum))
+                        SettingsInfoRow("Source desktop", sourceDesktopLabel(manifest.artifactUrl))
+                        SettingsInfoRow("Artifact", manifest.artifactUrl)
+                        SettingsInfoRow("Published", publishedAtLabel(manifest.publishedAt))
+                        if (manifest.changelog.isNotBlank()) {
+                            SettingsInfoRow("Notes", manifest.changelog)
+                        }
+                    }
+                    Text(
+                        "Updates are published from Nexy Desktop to the local network feed; tap Refresh to check now. " +
+                            "To roll back, restore an older version from desktop Settings → Developer → Android, uninstall this app, then install the update here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
         }
     }
