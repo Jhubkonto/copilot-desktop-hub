@@ -368,6 +368,25 @@ class ChatViewModel(
                         current + message
                     } else current
                     _drainActive.value = animation.backlogLength > 0
+                    // A settled animation frame (terminal backend turn + fully drained reveal) is
+                    // the authoritative "this reply is visually complete" signal. Reconcile the
+                    // live-turn state to it: if the reducer never accepted a matching
+                    // turn_completed — e.g. this ViewModel began collecting mid-turn and
+                    // _liveTurnState still carries a stale turnId, so reduceChatTurn drops the real
+                    // turn_completed via its turnId guard — status would otherwise stay Active and
+                    // the "Thinking · Ns" bubble (isAwaitingResponse) would spin forever beneath the
+                    // finished message. Forcing it terminal here caps it at the exact instant the
+                    // reply is done, independent of which upstream completion channel was missed.
+                    // thinkingBlocks are left intact: the settled `message` above reads them, and a
+                    // second settled frame would rebuild that message from _liveTurnState — wiping
+                    // them here would blank the reply's reasoning on that re-render.
+                    if (settled && !isTurnTerminal) {
+                        _liveTurnState.value = _liveTurnState.value.copy(
+                            status = ChatTurnStatus.Completed,
+                            activity = null,
+                            generationStartedAt = null,
+                        )
+                    }
                 }
             }
         }
