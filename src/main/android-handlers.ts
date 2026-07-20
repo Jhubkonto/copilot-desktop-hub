@@ -14,6 +14,7 @@ import { getDatabase } from './database'
 import { startFeedServer, getFeedLanUrl, isFeedRunning } from './local-feed-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
 import { runBuildProcess, cancelBuildProcess, mapBuildRecord } from './build-runner'
+import { startActivity, endActivity } from './activity-tracker'
 import type {
   AndroidBuildCommandName,
   AndroidWorkspaceInfo,
@@ -247,7 +248,7 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
       }
     }
   }
-  if (!apkSrc) return { published: false, error: 'No release APK found in app/build/outputs/apk/release/' }
+  if (!apkSrc) return { published: false, error: 'No release APK found — run a release build first (Android Build Actions → Build release APK), then Publish.' }
 
   mkdirSync(androidFeedDir, { recursive: true })
 
@@ -329,6 +330,99 @@ function isInsideDirectory(candidatePath: string, directoryPath: string): boolea
   return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+// Scans the Gradle output dir for the command's artifacts produced since the
+// build started and hashes them. Shared by the IPC handler and the mobile
+// (WS) build starter.
+async function collectAndroidArtifacts(
+  workspacePath: string,
+  command: AndroidBuildCommandName,
+  sinceMtime: number,
+): Promise<{ artifactPaths: string[]; artifactChecksums: Record<string, string> }> {
+  const artifactDir = getArtifactDir(workspacePath, command)
+  let artifactPaths: string[] = []
+  if (artifactDir && existsSync(artifactDir)) {
+    try {
+      artifactPaths = readdirSync(artifactDir)
+        .map((f) => path.join(artifactDir, f))
+        .filter((f) => {
+          try { return statSync(f).isFile() && statSync(f).mtimeMs >= sinceMtime } catch { return false }
+        })
+    } catch { /* ignore */ }
+  }
+  const artifactChecksums: Record<string, string> = {}
+  await Promise.all(artifactPaths.map(async (artifactPath) => {
+    try {
+      artifactChecksums[artifactPath] = await computeSha256(artifactPath)
+    } catch {
+      // Leave checksum absent for files that disappear before hashing.
+    }
+  }))
+  return { artifactPaths, artifactChecksums }
+}
+
+// ---------------------------------------------------------------------------
+// Mobile-initiated Android build API (called from ws-handlers.ts)
+// ---------------------------------------------------------------------------
+
+// Reuses the desktop build's `build:log-chunk` / `build:command-done` event
+// channel (mirrored to mobile) so the companion's existing build-log UI renders
+// the Gradle output. The record is stored with platform 'android' so it lands
+// in Android Build Records and can be published/restored.
+export async function startAndroidBuildFromMobile(
+  command: AndroidBuildCommandName,
+  mainWindow?: BrowserWindow,
+): Promise<{ buildId: string }> {
+  const db = getDatabase()
+  const workspacePath = getAndroidWorkspacePath(db)
+  if (!workspacePath) throw new Error('Android workspace path not configured')
+
+  const buildId = randomUUID()
+  const wsInfo = await getAndroidWorkspaceInfo(db)
+  const now = Date.now()
+
+  db.prepare(
+    `INSERT INTO build_records
+      (id, workspace_path, commit_sha, branch, version, version_code, platform, command, status, started_at, mobile_initiated)
+     VALUES (?, ?, ?, ?, ?, ?, 'android', ?, 'running', ?, 1)`
+  ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.versionName, wsInfo.versionCode, command, now)
+
+  startActivity({ id: `android-build:${buildId}`, kind: 'build', label: `Android build (${command})…`, detail: wsInfo.branch ?? undefined })
+
+  const gradlew = getGradlew()
+  const args = ANDROID_COMMANDS[command]
+  const useSigningEnv = SIGNING_COMMANDS.has(command)
+  const signingConfig = useSigningEnv ? getSigningConfig(db) : null
+  const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
+
+  runBuildProcess({
+    db,
+    buildId,
+    spawnCmd: gradlew,
+    spawnArgs: args,
+    cwd: workspacePath,
+    env,
+    logEvent: 'build:log-chunk',
+    doneEvent: 'build:command-done',
+    window: mainWindow,
+    mirrorToMobile: true,
+    registry: activeAndroidProcesses,
+    collectArtifacts: () => collectAndroidArtifacts(workspacePath, command, now),
+    onDone: () => endActivity(`android-build:${buildId}`),
+  })
+
+  return { buildId }
+}
+
+export function cancelAndroidBuildFromMobile(buildId: string): boolean {
+  return cancelBuildProcess({
+    db: getDatabase(),
+    buildId,
+    registry: activeAndroidProcesses,
+    mobileDoneEvent: 'build:command-done',
+    onCancelled: () => endActivity(`android-build:${buildId}`),
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Handler registration
 // ---------------------------------------------------------------------------
@@ -381,28 +475,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       doneEvent: 'android:command-done',
       window: mainWindow,
       registry: activeAndroidProcesses,
-      collectArtifacts: async () => {
-        const artifactDir = getArtifactDir(workspacePath, command)
-        let artifactPaths: string[] = []
-        if (artifactDir && existsSync(artifactDir)) {
-          try {
-            artifactPaths = readdirSync(artifactDir)
-              .map((f) => path.join(artifactDir, f))
-              .filter((f) => {
-                try { return statSync(f).isFile() && statSync(f).mtimeMs >= now } catch { return false }
-              })
-          } catch { /* ignore */ }
-        }
-        const artifactChecksums: Record<string, string> = {}
-        await Promise.all(artifactPaths.map(async (artifactPath) => {
-          try {
-            artifactChecksums[artifactPath] = await computeSha256(artifactPath)
-          } catch {
-            // Leave checksum absent for files that disappear before hashing.
-          }
-        }))
-        return { artifactPaths, artifactChecksums }
-      },
+      collectArtifacts: () => collectAndroidArtifacts(workspacePath, command, now),
     })
 
     return { buildId }

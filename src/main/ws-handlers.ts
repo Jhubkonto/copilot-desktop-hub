@@ -7,7 +7,7 @@ import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
-import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, publishAndroidUpdate, restoreAndroidVersion } from './android-handlers'
+import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, publishAndroidUpdate, restoreAndroidVersion, startAndroidBuildFromMobile, cancelAndroidBuildFromMobile } from './android-handlers'
 import { getWorkspaceInfo, startBuildFromMobile, cancelMobileBuild, publishArtifactToFeed, runPublishedUpdateInstall } from './build-handlers'
 import { dbListTasks, dbGetTask, dbCreateTask, dbUpdateTask, dbDeleteTask, dbSetTaskEnabled, dbListRuns, schedulerEngine } from './scheduler-engine'
 import { existsSync as fsExistsSync } from 'fs'
@@ -3259,6 +3259,36 @@ export function registerWsHandlers(): void {
       void getAndroidWorkspaceInfo(db)
         .then((info) => reply({ event: 'android:workspace-info', data: info }))
         .catch((err: unknown) => reply({ event: 'android:workspace-info', data: { error: String(err) } }))
+      return
+    }
+
+    if (command === 'android:set-workspace-path') {
+      const workspacePath = typeof data.path === 'string' ? data.path : ''
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(workspacePath)
+      void getAndroidWorkspaceInfo(db)
+        .then((info) => reply({ event: 'android:workspace-info', data: info }))
+        .catch((err: unknown) => reply({ event: 'android:workspace-info', data: { error: String(err) } }))
+      return
+    }
+
+    if (command === 'android:start-build') {
+      const cmd = typeof data.command === 'string' ? data.command as import('../shared/types').AndroidBuildCommandName : null
+      const validCommands = ['assembleRelease', 'bundleRelease', 'assembleDebug'] as const
+      if (!cmd || !validCommands.includes(cmd as typeof validCommands[number])) {
+        reply({ event: 'build:command-done', data: { buildId: null, status: 'failed', exitCode: -1, error: 'Invalid Android build command' } })
+        return
+      }
+      const win = BrowserWindow.getAllWindows()[0]
+      void startAndroidBuildFromMobile(cmd, win ?? undefined)
+        .then(({ buildId }) => reply({ event: 'build:started', data: { buildId, command: cmd } }))
+        .catch((err: unknown) => reply({ event: 'build:command-done', data: { buildId: null, status: 'failed', exitCode: -1, error: String(err) } }))
+      return
+    }
+
+    if (command === 'android:cancel-build') {
+      const buildId = typeof data.buildId === 'string' ? data.buildId : ''
+      const cancelled = buildId ? cancelAndroidBuildFromMobile(buildId) : false
+      reply({ event: 'build:cancelled', data: { buildId, cancelled } })
       return
     }
 
