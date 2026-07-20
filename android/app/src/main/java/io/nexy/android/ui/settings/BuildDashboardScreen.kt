@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -83,6 +84,17 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
     val buildCommands = listOf("typecheck", "test", "build", "package")
     var selectedBuildCommand by remember { mutableStateOf("typecheck") }
     var commandMenuExpanded by remember { mutableStateOf(false) }
+
+    // Android workspace + release-build trigger state
+    var androidWorkspaceInfo by remember { mutableStateOf<WsEvent.AndroidWorkspaceInfo?>(null) }
+    var workspacePathDraft by remember { mutableStateOf<String?>(null) }
+    val androidBuildCommands = listOf("assembleRelease", "bundleRelease")
+    var selectedAndroidBuildCommand by remember { mutableStateOf("assembleRelease") }
+    var androidCommandMenuExpanded by remember { mutableStateOf(false) }
+    // Tracks whether the in-flight build (shared build log/status) is an Android
+    // build, so Cancel routes to the right registry.
+    var activeBuildIsAndroid by remember { mutableStateOf(false) }
+
     var activeBuildId by remember { mutableStateOf<String?>(null) }
     var buildStatus by remember { mutableStateOf<String?>(null) }
     val buildLogLines = remember { mutableStateListOf<String>() }
@@ -100,6 +112,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         WsRepository.getBuildRecords(platform = null)
         WsRepository.getBuildWorkspaceInfo()
+        WsRepository.getAndroidWorkspaceInfo()
     }
 
     LaunchedEffect(Unit) {
@@ -112,6 +125,12 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 is WsEvent.BuildPreflightResult -> {
                     isRunningPreflight = false
                     preflightChecks = event.checks
+                }
+                is WsEvent.AndroidWorkspaceInfo -> {
+                    androidWorkspaceInfo = event
+                    // Reset the edit draft to the server value unless the user is
+                    // mid-edit with an unsaved change.
+                    if (workspacePathDraft == null || workspacePathDraft == event.path) workspacePathDraft = null
                 }
                 is WsEvent.AndroidSigningValidation -> {
                     isValidatingSigning = false
@@ -264,6 +283,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                     buildLogLines.clear()
                                     buildStatus = "running"
                                     selectedBuildCommand = "package"
+                                    activeBuildIsAndroid = false
                                     WsRepository.startDesktopBuild("package")
                                 }
                             },
@@ -352,7 +372,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                     }
                     if (isBuilding) {
                         Button(
-                            onClick = { activeBuildId?.let { WsRepository.cancelDesktopBuild(it) } },
+                            onClick = { activeBuildId?.let { if (activeBuildIsAndroid) WsRepository.cancelAndroidBuild(it) else WsRepository.cancelDesktopBuild(it) } },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                         ) { Text("Cancel") }
                     } else {
@@ -360,6 +380,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                             onClick = {
                                 buildLogLines.clear()
                                 buildStatus = "running"
+                                activeBuildIsAndroid = false
                                 WsRepository.startDesktopBuild(selectedBuildCommand)
                             },
                         ) { Text("Start") }
@@ -425,7 +446,98 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
             }
 
             item {
+                SectionHeader("Android Workspace")
+                Spacer(Modifier.height(8.dp))
+                val info = androidWorkspaceInfo
+                val pathValue = workspacePathDraft ?: info?.path ?: ""
+                OutlinedTextField(
+                    value = pathValue,
+                    onValueChange = { workspacePathDraft = it },
+                    label = { Text("Workspace path (android/ project folder)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (info != null) {
+                    val meta = listOfNotNull(
+                        info.versionName?.let { "v$it" },
+                        info.versionCode?.let { "vc$it" },
+                        info.branch?.let { "branch: $it" },
+                    ).joinToString("  ·  ")
+                    if (meta.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (!info.hasGradleProject) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (info.path.isBlank()) "No workspace path set — point this at your android/ project folder, then Save."
+                            else "No Gradle wrapper found here — this doesn't look like the android/ project folder.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { workspacePathDraft?.trim()?.let { WsRepository.setAndroidWorkspacePath(it) } },
+                        enabled = workspacePathDraft != null && workspacePathDraft != (info?.path ?: ""),
+                    ) { Text("Save path") }
+                    OutlinedButton(onClick = { WsRepository.getAndroidWorkspaceInfo() }) { Text("Refresh") }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
                 SectionHeader("Android Build Actions")
+                Spacer(Modifier.height(8.dp))
+
+                // Build the release APK — the first half of the publish flow,
+                // reusing the shared build log/status stream above.
+                val isBuildingAndroid = buildStatus == "running" && activeBuildIsAndroid
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { androidCommandMenuExpanded = true },
+                            enabled = buildStatus != "running",
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(selectedAndroidBuildCommand) }
+                        DropdownMenu(
+                            expanded = androidCommandMenuExpanded,
+                            onDismissRequest = { androidCommandMenuExpanded = false },
+                        ) {
+                            androidBuildCommands.forEach { cmd ->
+                                DropdownMenuItem(
+                                    text = { Text(cmd) },
+                                    onClick = { selectedAndroidBuildCommand = cmd; androidCommandMenuExpanded = false },
+                                )
+                            }
+                        }
+                    }
+                    if (isBuildingAndroid) {
+                        Button(
+                            onClick = { activeBuildId?.let { WsRepository.cancelAndroidBuild(it) } },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Cancel") }
+                    } else {
+                        Button(
+                            onClick = {
+                                buildLogLines.clear()
+                                buildStatus = "running"
+                                activeBuildIsAndroid = true
+                                WsRepository.startAndroidBuild(selectedAndroidBuildCommand)
+                            },
+                            enabled = buildStatus != "running",
+                        ) { Text("Build APK") }
+                    }
+                }
+                if (isBuildingAndroid) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 2.dp))
+                        Text("Building $selectedAndroidBuildCommand… (log above)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
@@ -450,7 +562,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                 WsRepository.publishAndroidUpdate()
                             }
                         },
-                        enabled = !isPublishing,
+                        enabled = !isPublishing && buildStatus != "running",
                         modifier = Modifier.weight(1f),
                     ) {
                         if (isPublishing) CircularProgressIndicator(modifier = Modifier.padding(end = 6.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
