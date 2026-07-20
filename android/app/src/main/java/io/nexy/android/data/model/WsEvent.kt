@@ -449,7 +449,7 @@ sealed class WsEvent {
     data class BuildCommandDone(val buildId: String?, val status: String, val exitCode: Int?, val error: String? = null) : WsEvent()
     data class BuildCancelled(val buildId: String, val cancelled: Boolean) : WsEvent()
     data class UpdateRestarting(val eta: Int, val version: String?, val error: String? = null) : WsEvent()
-    data class AndroidWorkspaceInfo(val path: String, val branch: String?, val commitSha: String?, val dirty: Boolean, val versionCode: Int?, val versionName: String?, val isGitRepo: Boolean) : WsEvent()
+    data class AndroidWorkspaceInfo(val path: String, val branch: String?, val commitSha: String?, val dirty: Boolean, val versionCode: Int?, val versionName: String?, val isGitRepo: Boolean, val hasGradleProject: Boolean) : WsEvent()
     data class AndroidSigningValidation(val valid: Boolean, val checks: List<PreflightCheck>) : WsEvent()
     data class AndroidPublishResult(val published: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()
     data class AndroidRestoreResult(val restored: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()

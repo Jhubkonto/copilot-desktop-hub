@@ -1989,6 +1989,7 @@ fun parseWsEvent(
                 versionCode = if (data?.isNull("versionCode") != false) null else data.optInt("versionCode"),
                 versionName = data?.nullableString("versionName"),
                 isGitRepo = data?.optBoolean("isGitRepo", false) ?: false,
+                hasGradleProject = data?.optBoolean("hasGradleProject", false) ?: false,
             )
 
             "android:signing-validation" -> {

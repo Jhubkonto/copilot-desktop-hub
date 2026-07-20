@@ -2498,6 +2498,9 @@ object WsRepository : WsClient {
     fun cancelDesktopBuild(buildId: String) { send("build:cancel-from-mobile", mapOf("buildId" to buildId)) }
     fun startUpdateFromArtifact() { send("build:update-from-artifact", emptyMap()) }
     fun getAndroidWorkspaceInfo() { send("android:get-workspace-info", emptyMap()) }
+    fun setAndroidWorkspacePath(path: String) { send("android:set-workspace-path", mapOf("path" to path)) }
+    fun startAndroidBuild(command: String) { send("android:start-build", mapOf("command" to command)) }
+    fun cancelAndroidBuild(buildId: String) { send("android:cancel-build", mapOf("buildId" to buildId)) }
     fun validateAndroidSigning() { send("android:validate-signing", emptyMap()) }
     fun publishAndroidUpdate() { send("android:publish-update", emptyMap()) }
     fun restoreAndroidVersion(versionCode: Int) { send("android:restore-version", mapOf("versionCode" to versionCode)) }
