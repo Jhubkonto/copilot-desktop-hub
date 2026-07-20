@@ -64,6 +64,18 @@ export async function getAndroidWorkspaceInfo(db: Database.Database): Promise<An
       execFileAsync('git', ['status', '--porcelain'], { cwd: workspacePath, timeout: 5000 }),
       execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
         .then(({ stdout }) => { info.commitSha = stdout.trim() }),
+      // Mirror the git-based versionCode that app/build.gradle.kts embeds in the
+      // APK (git commit count) so the published manifest's versionCode matches
+      // the installed APK's BuildConfig.VERSION_CODE. Without this the manifest
+      // would fall back to 1 and the Android updater would never offer the build.
+      execFileAsync('git', ['rev-list', '--count', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
+        .then(({ stdout }) => {
+          const count = parseInt(stdout.trim(), 10)
+          if (Number.isFinite(count) && count > 0) {
+            info.versionCode = count
+            info.versionName = `1.0.${count}`
+          }
+        }),
     ])
     info.isGitRepo = true
     info.dirty = statusOut.stdout.trim().length > 0
@@ -72,6 +84,8 @@ export async function getAndroidWorkspaceInfo(db: Database.Database): Promise<An
   }
 
   try {
+    // If the Gradle project ever exposes versionCode/versionName as project
+    // properties, prefer those over the git-derived fallback above.
     const gradlew = getGradlew()
     const { stdout } = await execFileAsync(gradlew, ['properties', '-q', '--no-daemon'], {
       cwd: workspacePath,
@@ -248,7 +262,7 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
       }
     }
   }
-  if (!apkSrc) return { published: false, error: 'No release APK found — run a release build first (Android Build Actions → Build release APK), then Publish.' }
+  if (!apkSrc) return { published: false, error: 'No release APK found — click the "assembleRelease" button under Android Build first, then Publish.' }
 
   mkdirSync(androidFeedDir, { recursive: true })
 

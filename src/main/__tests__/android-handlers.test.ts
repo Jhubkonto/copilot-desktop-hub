@@ -90,6 +90,7 @@ describe('getAndroidWorkspaceInfo', () => {
       .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' })   // git rev-parse --abbrev-ref HEAD
       .mockResolvedValueOnce({ stdout: '', stderr: '' })          // git status --porcelain (clean)
       .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })  // git rev-parse --short HEAD
+      .mockResolvedValueOnce({ stdout: '1063\n', stderr: '' })    // git rev-list --count HEAD
     execSyncMock.mockImplementationOnce(() => { throw new Error('no gradlew') })
 
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(process.cwd())
@@ -102,6 +103,23 @@ describe('getAndroidWorkspaceInfo', () => {
     expect(info.branch).toBe('main')
     expect(info.commitSha).toBe('abc123')
     expect(info.dirty).toBe(false)
+  })
+
+  it('derives versionCode/versionName from the git commit count', async () => {
+    execFileMock
+      .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' })    // abbrev-ref
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })           // status
+      .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })   // short HEAD
+      .mockResolvedValueOnce({ stdout: '1063\n', stderr: '' })     // rev-list --count HEAD
+    execSyncMock.mockImplementationOnce(() => { throw new Error('no gradlew') })
+
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(process.cwd())
+
+    const { getAndroidWorkspaceInfo } = await import('../android-handlers')
+    const info = await getAndroidWorkspaceInfo(db)
+
+    expect(info.versionCode).toBe(1063)
+    expect(info.versionName).toBe('1.0.1063')
   })
 
   it('returns isGitRepo false when path is not a git repo', async () => {
@@ -127,14 +145,12 @@ describe('getAndroidWorkspaceInfo', () => {
     expect(info.isGitRepo).toBe(false)
   })
 
-  it('returns null versionCode/versionName when Gradle is not available', async () => {
-    execFileMock
-      .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })
+  it('returns null versionCode/versionName when the path is not a git repo and Gradle is unavailable', async () => {
+    execFileMock.mockRejectedValue(new Error('not a git repo'))
     execSyncMock.mockImplementationOnce(() => { throw new Error('gradlew not found') })
 
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(process.cwd())
+    const tmpDir = require('os').tmpdir() as string
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(tmpDir)
 
     const { getAndroidWorkspaceInfo } = await import('../android-handlers')
     const info = await getAndroidWorkspaceInfo(db)
