@@ -1,9 +1,29 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     id("com.google.gms.google-services")
 }
+
+// Derive versionCode from the git commit count so every APK the desktop builds
+// and publishes to the update feed is strictly newer than the previously
+// installed one — the Android updater compares only versionCode. Falls back to 1
+// when git is unavailable (e.g. building from a source archive without .git).
+fun gitCommitCount(root: File): Int = try {
+    val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+        .directory(root)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    process.waitFor()
+    output.toIntOrNull() ?: 1
+} catch (_: Exception) {
+    1
+}
+
+val gitVersionCode = gitCommitCount(rootDir)
 
 android {
     namespace = "io.nexy.android"
@@ -17,8 +37,8 @@ android {
         applicationId = "io.nexy.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = gitVersionCode
+        versionName = "1.0.$gitVersionCode"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
