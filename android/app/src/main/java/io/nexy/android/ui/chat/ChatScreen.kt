@@ -221,9 +221,9 @@ fun ChatScreen(
     val isCompleted = conversation?.completed_at != null
     val conversationRating = conversation?.rating
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
-    val chatThinkingEffortOverride = conversation?.thinking_effort_override
-    val chatFullAutoApproveOverride = conversation?.full_auto_approve_override
-    val chatTerminalSandboxOverride = conversation?.terminal_sandbox_override
+    val chatThinkingEffortOverride by vm.thinkingEffortOverride.collectAsStateWithLifecycle()
+    val chatFullAutoApproveOverride by vm.fullAutoApproveOverride.collectAsStateWithLifecycle()
+    val chatTerminalSandboxOverride by vm.terminalSandboxOverride.collectAsStateWithLifecycle()
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val chatBackend = chatAgent?.backend

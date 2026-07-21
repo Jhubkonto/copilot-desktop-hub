@@ -188,6 +188,20 @@ class ChatViewModel(
     private val _selectedModel = MutableStateFlow<String?>(null)
     val selectedModel: StateFlow<String?> = _selectedModel
 
+    // Local, optimistic mirror of the conversation's mode overrides. Needed because a
+    // brand-new/unsent chat only has a client-generated draft id (see NavGraph.kt) — there's no
+    // server-side conversation row yet, so `conversation:set-mode` would target an id the desktop
+    // has never heard of and silently no-op. Reading straight from WsRepository.conversations (as
+    // ChatScreen used to) meant taps on the mode sheet before the first message never appeared to
+    // do anything. Keyed by wire field name so setModeOverride/the flush collector can share one map.
+    private val pendingModeOverrides = mutableMapOf<String, Any?>()
+    private val _thinkingEffortOverride = MutableStateFlow<String?>(null)
+    val thinkingEffortOverride: StateFlow<String?> = _thinkingEffortOverride
+    private val _fullAutoApproveOverride = MutableStateFlow<Boolean?>(null)
+    val fullAutoApproveOverride: StateFlow<Boolean?> = _fullAutoApproveOverride
+    private val _terminalSandboxOverride = MutableStateFlow<Boolean?>(null)
+    val terminalSandboxOverride: StateFlow<Boolean?> = _terminalSandboxOverride
+
     private val _sendError = MutableStateFlow<String?>(null)
     val sendError: StateFlow<String?> = _sendError
 
@@ -315,6 +329,31 @@ class ChatViewModel(
         if (wsClient === WsRepository) {
             viewModelScope.launch {
                 effectiveAgentId.collect { id -> if (id != null) WsRepository.requestAgentFull(id) }
+            }
+            viewModelScope.launch {
+                WsRepository.conversations.collect { list ->
+                    val conv = list.find { it.id == conversationId } ?: return@collect
+                    // Flush any overrides the user set while this was still a draft conversation
+                    // (no server row yet). The keys we just flushed are skipped in the resync below
+                    // since `conv`'s override columns here are still whatever they were before this
+                    // conversation existed (default null) — syncing them now would flash the
+                    // checkmark back off until the conversation:mode-updated echo lands.
+                    val flushedKeys = pendingModeOverrides.keys.toSet()
+                    if (flushedKeys.isNotEmpty()) {
+                        val toSend = pendingModeOverrides.toMap()
+                        pendingModeOverrides.clear()
+                        wsClient.send(
+                            "conversation:set-mode",
+                            buildMap {
+                                put("conversationId", conversationId)
+                                toSend.forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
+                            },
+                        )
+                    }
+                    if ("thinkingEffortOverride" !in flushedKeys) _thinkingEffortOverride.value = conv.thinking_effort_override
+                    if ("fullAutoApproveOverride" !in flushedKeys) _fullAutoApproveOverride.value = conv.full_auto_approve_override
+                    if ("terminalSandboxOverride" !in flushedKeys) _terminalSandboxOverride.value = conv.terminal_sandbox_override
+                }
             }
         }
         localData?.let { repository ->
@@ -605,6 +644,26 @@ class ChatViewModel(
                             },
                         )
                         if (toInsert.isNotEmpty()) _messages.value = current + toInsert
+                    }
+                    event is WsEvent.ChatActiveTurnSnapshot && event.conversationId == conversationId -> {
+                        // Authoritative status is "completed"/"failed" here (the "active" case is
+                        // handled by the branch above). This is the correction path for the race
+                        // where refreshMessages() applied stale local/WsRepository state as Active
+                        // before this snapshot came back — without it, a turn missed while
+                        // backgrounded (socket closed, so no live turn_completed/turn_failed push)
+                        // left the "Thinking..." spinner running forever with no way to clear.
+                        if (!isTurnTerminal) {
+                            _liveTurnState.value = _liveTurnState.value.copy(
+                                status = if (event.status == "failed") ChatTurnStatus.Failed else ChatTurnStatus.Completed,
+                                thinkingBlocks = emptyList(),
+                                pendingThinkingEnds = emptySet(),
+                                activity = null,
+                                generationStartedAt = null,
+                            )
+                        }
+                        _drainActive.value = false
+                        stopActiveHistoryPolling()
+                        WsRepository.clearConversationActiveState(conversationId)
                     }
                     event is WsEvent.ChatActivity && event.conversationId == conversationId -> {
                         if (event.state == "complete" || event.state == "error") {
@@ -1224,33 +1283,37 @@ class ChatViewModel(
     // (JSONObject.NULL is the explicit "clear to agent default" signal; a Kotlin Map<String, Any>
     // can't hold a plain null, and simply omitting the key would mean "don't touch this field").
     fun setThinkingEffortOverride(value: String?) {
-        wsClient.send(
-            "conversation:set-mode",
-            mapOf(
-                "conversationId" to conversationId,
-                "thinkingEffortOverride" to (value ?: JSONObject.NULL),
-            ),
-        )
+        _thinkingEffortOverride.value = value
+        sendModeOverride("thinkingEffortOverride", value)
     }
 
     fun setFullAutoApproveOverride(value: Boolean?) {
-        wsClient.send(
-            "conversation:set-mode",
-            mapOf(
-                "conversationId" to conversationId,
-                "fullAutoApproveOverride" to (value ?: JSONObject.NULL),
-            ),
-        )
+        _fullAutoApproveOverride.value = value
+        sendModeOverride("fullAutoApproveOverride", value)
     }
 
     fun setTerminalSandboxOverride(value: Boolean?) {
-        wsClient.send(
-            "conversation:set-mode",
-            mapOf(
-                "conversationId" to conversationId,
-                "terminalSandboxOverride" to (value ?: JSONObject.NULL),
-            ),
-        )
+        _terminalSandboxOverride.value = value
+        sendModeOverride("terminalSandboxOverride", value)
+    }
+
+    // A draft conversation (unsent first message) only exists as a client-side UUID — sending
+    // conversation:set-mode for it now would target an id the desktop has never heard of and
+    // silently no-op. Queue it instead; the WsRepository.conversations collector in init{} flushes
+    // it the moment the conversation actually shows up server-side.
+    private fun sendModeOverride(key: String, value: Any?) {
+        val conversationExists = wsClient !== WsRepository || WsRepository.conversations.value.any { it.id == conversationId }
+        if (conversationExists) {
+            wsClient.send(
+                "conversation:set-mode",
+                mapOf(
+                    "conversationId" to conversationId,
+                    key to (value ?: JSONObject.NULL),
+                ),
+            )
+        } else {
+            pendingModeOverrides[key] = value
+        }
     }
 
     fun sendMessage(text: String) {
