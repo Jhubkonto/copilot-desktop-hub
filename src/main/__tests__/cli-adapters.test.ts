@@ -286,6 +286,50 @@ describe('CLI adapters', () => {
     expect(args).not.toContain('--dangerously-skip-permissions')
   })
 
+  it('ClaudeAdapter bridges non-interactive PermissionRequest hooks to Nexy', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const requestPermission = vi.fn().mockResolvedValue(true)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'inspect the workspace' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      requestPermission,
+    }, () => {})
+
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled())
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    const settingsIndex = args.indexOf('--settings')
+    expect(settingsIndex).toBeGreaterThan(-1)
+    const settings = JSON.parse(args[settingsIndex + 1]) as {
+      hooks: { PermissionRequest: Array<{ hooks: Array<{ url: string }> }> }
+    }
+    const hookUrl = settings.hooks.PermissionRequest[0].hooks[0].url
+    const hookResponse = await fetch(hookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'PowerShell',
+        tool_input: { command: 'Get-ChildItem -Force' },
+      }),
+    })
+
+    expect(await hookResponse.json()).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
+      },
+    })
+    expect(requestPermission).toHaveBeenCalledWith('PowerShell', { command: 'Get-ChildItem -Force' })
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } })}\n`))
+    proc.emit('close', 0)
+    await expect(sendPromise).resolves.toBe('done')
+  })
+
   it('ClaudeAdapter ignores Codex-family sandbox modes and keeps the skipPermissions fallback', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)

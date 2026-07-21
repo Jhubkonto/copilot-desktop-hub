@@ -720,6 +720,36 @@ describe('registerAndroidHandlers — android:publish-update', () => {
       rmSync(feedDir, { recursive: true, force: true })
     }
   })
+
+  it('refuses to publish an unsigned release APK', async () => {
+    const { mkdirSync, writeFileSync, existsSync, rmSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const wsDir = join(tmpDir, `nexy-android-unsigned-${Date.now()}`)
+    const feedDir = join(tmpDir, `nexy-feed-unsigned-${Date.now()}`)
+    const apkDir = join(wsDir, 'app', 'build', 'outputs', 'apk', 'release')
+
+    mkdirSync(apkDir, { recursive: true })
+    mkdirSync(feedDir, { recursive: true })
+    // Gradle emits this name when no signing config is applied.
+    writeFileSync(join(apkDir, 'app-release-unsigned.apk'), Buffer.alloc(100))
+
+    try {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('local_update_feed_path', ?)").run(feedDir)
+
+      const handler = handlers.get('android:publish-update')
+      const result = await handler?.({})
+
+      expect(result.published).toBe(false)
+      expect(result.error).toMatch(/unsigned/i)
+      // Nothing should have been written to the feed.
+      expect(existsSync(join(feedDir, 'android', 'android-update.json'))).toBe(false)
+    } finally {
+      rmSync(wsDir, { recursive: true, force: true })
+      rmSync(feedDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('getAndroidUpdateManifest', () => {

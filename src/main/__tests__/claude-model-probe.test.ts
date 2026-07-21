@@ -135,6 +135,129 @@ describe('probeClaudeCliModels', () => {
     expect(fakePty.kill).toHaveBeenCalled()
   })
 
+  it('navigates into the "More models" flyout and merges its entries with the top-level menu', async () => {
+    resolveCliPathMock.mockReturnValue('/usr/local/bin/claude')
+    const fakePty = makeFakePty()
+    ptySpawnMock.mockReturnValue(fakePty)
+
+    const promise = probeClaudeCliModels()
+
+    gridState.text = '❯ \n  for shortcuts · ← for agents'
+    fakePty._emitData('banner')
+    await wait(80)
+    expect(fakePty._written).toContain('/model\r')
+
+    gridState.text = [
+      'Select model',
+      '    1. Default (recommended)  Sonnet 5 · Efficient for routine tasks',
+      '  ❯ 2. Sonnet ✔               Sonnet 5 · Efficient for routine tasks',
+      '    3. Haiku                  Haiku 4.5 · Fastest for quick answers',
+      '    4. More models            Opus, legacy models, and more',
+    ].join('\n')
+    fakePty._emitData('top-level-menu')
+    await wait(80)
+
+    expect(fakePty._written).toContain('4\r')
+
+    gridState.text = [
+      'Select model',
+      '  ❯ 1. Opus                   Opus 4.8 · Best for everyday, complex tasks',
+      '    2. Sonnet ✔               Sonnet 5 · Efficient for routine tasks',
+    ].join('\n')
+    fakePty._emitData('submenu')
+    await wait(80)
+
+    const result = await promise
+    expect(result).toEqual([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+      { id: 'opus', label: 'Opus 4.8' },
+    ])
+  })
+
+  it('re-requests the "More models" flyout once when it stalls, then merges its entries', async () => {
+    resolveCliPathMock.mockReturnValue('/usr/local/bin/claude')
+    __setProbeTimingForTests({ probeTimeoutMs: 5000, quietMs: 20, pollMs: 10, submenuTimeoutMs: 100 })
+    const fakePty = makeFakePty()
+    ptySpawnMock.mockReturnValue(fakePty)
+
+    const promise = probeClaudeCliModels()
+
+    gridState.text = '❯ \n  for shortcuts · ← for agents'
+    fakePty._emitData('banner')
+    await wait(60)
+    expect(fakePty._written).toContain('/model\r')
+
+    // Top-level menu renders with a "More models" row; the probe requests the flyout.
+    gridState.text = [
+      'Select model',
+      '    1. Default (recommended)  Sonnet 5 · Efficient for routine tasks',
+      '  ❯ 2. Sonnet ✔               Sonnet 5 · Efficient for routine tasks',
+      '    3. Haiku                  Haiku 4.5 · Fastest for quick answers',
+      '    4. More models            Opus, legacy models, and more',
+    ].join('\n')
+    fakePty._emitData('top-level-menu')
+    await wait(60)
+    expect(fakePty._written.filter((w) => w === '4\r')).toHaveLength(1)
+
+    // The flyout stalls (grid stays on the top-level menu). No new data arrives, so after the
+    // submenu timeout elapses the probe re-requests the flyout exactly once.
+    await wait(140)
+    expect(fakePty._written.filter((w) => w === '4\r')).toHaveLength(2)
+
+    // This time the flyout renders with Opus, well within the fresh post-retry window.
+    gridState.text = [
+      'Select model',
+      '  ❯ 1. Opus                   Opus 4.8 · Best for everyday, complex tasks',
+      '    2. Sonnet ✔               Sonnet 5 · Efficient for routine tasks',
+    ].join('\n')
+    fakePty._emitData('submenu')
+    await wait(60)
+
+    const result = await promise
+    expect(result).toEqual([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+      { id: 'opus', label: 'Opus 4.8' },
+    ])
+  })
+
+  it('falls back to top-level models when the flyout never opens after a retry', async () => {
+    resolveCliPathMock.mockReturnValue('/usr/local/bin/claude')
+    __setProbeTimingForTests({ probeTimeoutMs: 5000, quietMs: 20, pollMs: 10, submenuTimeoutMs: 100 })
+    const fakePty = makeFakePty()
+    ptySpawnMock.mockReturnValue(fakePty)
+
+    const promise = probeClaudeCliModels()
+
+    gridState.text = '❯ \n  for shortcuts · ← for agents'
+    fakePty._emitData('banner')
+    await wait(60)
+
+    gridState.text = [
+      'Select model',
+      '  ❯ 2. Sonnet ✔               Sonnet 5 · Efficient for routine tasks',
+      '    3. Haiku                  Haiku 4.5 · Fastest for quick answers',
+      '    4. More models            Opus, legacy models, and more',
+    ].join('\n')
+    fakePty._emitData('top-level-menu')
+    await wait(60)
+    expect(fakePty._written.filter((w) => w === '4\r')).toHaveLength(1)
+
+    // The flyout never renders. After the first timeout the probe retries once (2× "4\r"), and
+    // after the second timeout it gives up and falls back to the top-level entries.
+    await wait(140)
+    expect(fakePty._written.filter((w) => w === '4\r')).toHaveLength(2)
+    await wait(140)
+
+    const result = await promise
+    // Falls back to the top-level entries rather than an empty result.
+    expect(result).toEqual([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+    ])
+  })
+
   it('accepts the workspace trust dialog before continuing', async () => {
     resolveCliPathMock.mockReturnValue('/usr/local/bin/claude')
     const fakePty = makeFakePty()
@@ -240,5 +363,38 @@ describe('claude CLI PTY model cache', () => {
   it('does not write cache for an empty probe result', () => {
     cacheClaudeCliPtyModels([])
     expect(mockDb._store.has('claude_cli_pty_models_cache')).toBe(false)
+  })
+
+  it('does not regress a cached model list when a later probe finds fewer models', () => {
+    cacheClaudeCliPtyModels([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'fable', label: 'Fable 5' },
+      { id: 'opus', label: 'Opus 4.8' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+    ])
+
+    // A subsequent probe that raced the "more models" submenu and only saw 3 entries.
+    cacheClaudeCliPtyModels([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'fable', label: 'Fable 5' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+    ])
+
+    expect(getCachedClaudeCliPtyModels()).toEqual([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'fable', label: 'Fable 5' },
+      { id: 'opus', label: 'Opus 4.8' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+    ])
+  })
+
+  it('adds newly discovered models to an existing cache', () => {
+    cacheClaudeCliPtyModels([{ id: 'sonnet', label: 'Sonnet 5' }])
+    cacheClaudeCliPtyModels([{ id: 'sonnet', label: 'Sonnet 5' }, { id: 'opus', label: 'Opus 4.8' }])
+
+    expect(getCachedClaudeCliPtyModels()).toEqual([
+      { id: 'sonnet', label: 'Sonnet 5' },
+      { id: 'opus', label: 'Opus 4.8' },
+    ])
   })
 })

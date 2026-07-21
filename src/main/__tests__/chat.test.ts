@@ -517,24 +517,31 @@ describe('chat handlers', () => {
     expect(capturedReqs[0].allowedTools).toEqual(['mcp__playwright_chromium__browser_navigate'])
   })
 
-  it('asks once and passes built-in file edit tools to Claude CLI', async () => {
-    const capturedReqs: Array<{ allowedTools?: string[] }> = []
+  it('asks for the exact PowerShell command when Claude CLI attempts it', async () => {
+    const capturedReqs: Array<{
+      allowedTools?: string[]
+      requestPermission?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>
+    }> = []
     const mockAdapter = {
       isAvailable: () => true,
-      send: vi.fn(async (_win: unknown, req: { allowedTools?: string[] }) => {
-        capturedReqs.push({ allowedTools: req.allowedTools })
+      send: vi.fn(async (_win: unknown, req: {
+        allowedTools?: string[]
+        requestPermission?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>
+      }) => {
+        capturedReqs.push(req)
+        expect(await req.requestPermission?.('PowerShell', { command: 'Get-ChildItem -Force' })).toBe(true)
         return 'cli response'
       }),
     }
     vi.mocked(getAgentConfig).mockReturnValue({
-      id: 'agent-file',
-      name: 'File Agent',
-      systemPrompt: 'Draw with SVG files.',
+      id: 'agent-terminal',
+      name: 'Terminal Agent',
+      systemPrompt: 'Inspect the workspace.',
       mcpServers: [],
       agenticMode: false,
       tools: {
-        fileEdit: { enabled: true, approval: 'always-ask', instructions: '' },
-        terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+        fileEdit: { enabled: false, approval: 'always-ask', instructions: '' },
+        terminal: { enabled: true, approval: 'always-ask', instructions: '' },
         webFetch: { enabled: false, approval: 'always-ask', instructions: '' },
       },
     } as never)
@@ -545,16 +552,18 @@ describe('chat handlers', () => {
     vi.mocked(requestApproval).mockResolvedValue(true)
 
     const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
-    await handler({ sender: {} }, 'conv-file', 'draw crossbones', { agentId: 'agent-file' })
+    await handler({ sender: {} }, 'conv-terminal', 'inspect files', { agentId: 'agent-terminal' })
 
     expect(requestApproval).toHaveBeenCalledWith(
       expect.anything(),
-      'claude-cli:fileEdit',
-      {},
-      'Allow Claude CLI to read and edit files for this message?',
+      'claude-cli:terminal',
+      { command: 'Get-ChildItem -Force' },
+      'Allow Claude CLI to run terminal commands for this message?',
       { onRemember: expect.any(Function) },
     )
-    expect(capturedReqs[0].allowedTools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit'])
+    // always-ask tools are deliberately absent from --allowedTools; the live
+    // PermissionRequest hook pauses and asks only if Claude actually calls one.
+    expect(capturedReqs[0].allowedTools).toBeUndefined()
   })
 
   it('injects assigned MCP servers when falling back to Codex CLI for MCP agents', async () => {

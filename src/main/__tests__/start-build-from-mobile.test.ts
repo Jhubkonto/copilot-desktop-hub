@@ -9,7 +9,7 @@ import { initializeBaseSchema, runMigrations } from '../database-migrations'
 // ---------------------------------------------------------------------------
 
 vi.mock('electron', () => ({
-  app: { isPackaged: false },
+  app: { isPackaged: false, getVersion: vi.fn(() => '0.9.0') },
   BrowserWindow: class {},
 }))
 
@@ -187,6 +187,17 @@ describe('startBuildFromMobile', () => {
     const doneCalls = broadcastMock.mock.calls.filter((c) => c[0].event === 'build:command-done')
     expect(doneCalls.length).toBe(1)
     expect((doneCalls[0][0].data as Record<string, unknown>).status).toBe('success')
+  })
+
+  it('rejects a package build up front when the workspace version is not newer than the running app', async () => {
+    const { app } = await import('electron')
+    ;(app as unknown as { isPackaged: boolean }).isPackaged = true
+
+    const { startBuildFromMobile } = await import('../build-handlers')
+    await expect(startBuildFromMobile('package')).rejects.toThrow(/not newer than the running app/)
+    expect(spawnMockFn).not.toHaveBeenCalled()
+
+    ;(app as unknown as { isPackaged: boolean }).isPackaged = false
   })
 
   it('cancelMobileBuild kills the process and marks record cancelled', async () => {
