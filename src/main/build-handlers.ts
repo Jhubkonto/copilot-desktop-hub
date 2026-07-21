@@ -54,6 +54,17 @@ function npxCommand(): string {
   return process.platform === 'win32' ? 'npx.cmd' : 'npx'
 }
 
+function isVersionNewer(candidate: string, current: string): boolean {
+  const toParts = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0)
+  const a = toParts(candidate)
+  const b = toParts(current)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0)
+    if (diff !== 0) return diff > 0
+  }
+  return false
+}
+
 export async function getWorkspaceInfo(db: Database.Database): Promise<WorkspaceInfo> {
   const workspacePath = getWorkspacePath(db)
   const info: WorkspaceInfo = {
@@ -232,9 +243,20 @@ export async function startBuildFromMobile(command: BuildCommandName, mainWindow
     throw new Error('Desktop is running from a dev checkout — packaging would fail because the running app locks its build output. Open the installed Nexy Desktop app and try again.')
   }
   const db = getDatabase()
-  const buildId = randomUUID()
   const workspacePath = getWorkspacePath(db)
   const wsInfo = await getWorkspaceInfo(db)
+
+  // Fail fast, before running a full (multi-minute) package build: the
+  // installer this produces will be rejected at install time anyway if the
+  // workspace version isn't ahead of the version currently running.
+  if (command === 'package' && app.isPackaged) {
+    const runningVersion = app.getVersion()
+    if (wsInfo.version && !isVersionNewer(wsInfo.version, runningVersion)) {
+      throw new Error(`Workspace package.json version (v${wsInfo.version}) is not newer than the running app (v${runningVersion}). Bump the version in package.json and try again.`)
+    }
+  }
+
+  const buildId = randomUUID()
   const now = Date.now()
 
   db.prepare(

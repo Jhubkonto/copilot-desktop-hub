@@ -264,6 +264,14 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
   }
   if (!apkSrc) return { published: false, error: 'No release APK found — click the "assembleRelease" button under Android Build first, then Publish.' }
 
+  // Gradle emits "app-release-unsigned.apk" when no signing config is applied.
+  // An unsigned APK cannot be installed ("App not installed" on the phone), so
+  // refuse to publish it and point the user at the signing config instead of
+  // shipping an uninstallable artifact.
+  if (path.basename(apkSrc).toLowerCase().includes('unsigned')) {
+    return { published: false, error: 'The release APK is unsigned and cannot be installed. Configure the Android signing keystore (Settings → Android signing), then re-run assembleRelease before publishing.' }
+  }
+
   mkdirSync(androidFeedDir, { recursive: true })
 
   // Archive the previous release before overwriting so rollback is possible
