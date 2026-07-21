@@ -43,8 +43,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // The desktop app runs assembleRelease with NEXY_KEYSTORE_* env vars set (see
+    // buildSigningEnv in src/main/android-handlers.ts). Wire them into a real
+    // signing config so the published APK is signed — without this, assembleRelease
+    // emits app-release-unsigned.apk and the phone reports "App not installed".
+    // When the env vars are absent (e.g. a local unsigned build), leave the config
+    // empty so Gradle produces an unsigned APK rather than failing configuration.
+    val keystorePath: String? = System.getenv("NEXY_KEYSTORE_PATH")
+    signingConfigs {
+        create("release") {
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("NEXY_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("NEXY_KEY_ALIAS")
+                keyPassword = System.getenv("NEXY_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = if (keystorePath != null) signingConfigs.getByName("release") else null
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

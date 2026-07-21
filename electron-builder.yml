@@ -38,8 +38,9 @@ linux:
   icon: resources/icon.png
   category: Development
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
 publish:
