@@ -1,4 +1,6 @@
 import { spawn } from 'child_process'
+import { randomUUID } from 'crypto'
+import { createServer } from 'http'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker } from './utils'
@@ -73,6 +75,73 @@ function buildConversationJson(req: CliAdapterRequest): string {
   return lines.join('\n')
 }
 
+async function startPermissionHookServer(
+  requestPermission: NonNullable<CliAdapterRequest['requestPermission']>,
+): Promise<{ url: string; close: () => void }> {
+  const hookPath = `/permission/${randomUUID()}`
+  const server = createServer((request, response) => {
+    if (request.method !== 'POST' || request.url !== hookPath) {
+      response.writeHead(404).end()
+      return
+    }
+
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => {
+      // Permission payloads are tiny. Cap input so a malformed/local caller cannot
+      // make the desktop process retain an unbounded request body.
+      if (body.length <= 1024 * 1024) body += chunk
+    })
+    request.on('end', () => {
+      void (async () => {
+        let approved = false
+        let toolName = 'Claude CLI tool'
+        try {
+          const payload = JSON.parse(body) as { tool_name?: unknown; tool_input?: unknown }
+          if (typeof payload.tool_name === 'string' && payload.tool_name.trim()) {
+            toolName = payload.tool_name
+          }
+          const input = payload.tool_input && typeof payload.tool_input === 'object'
+            ? payload.tool_input as Record<string, unknown>
+            : {}
+          approved = await requestPermission(toolName, input)
+        } catch {
+          // Invalid hook input or a failed UI bridge is denied safely.
+          approved = false
+        }
+
+        const decision = approved
+          ? { behavior: 'allow' }
+          : { behavior: 'deny', message: 'The user did not approve this action in Nexy.' }
+        response.writeHead(200, { 'Content-Type': 'application/json' })
+        response.end(JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PermissionRequest',
+            decision,
+          },
+        }))
+      })()
+    })
+  })
+
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject)
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close()
+        reject(new Error('Failed to start Claude permission bridge'))
+        return
+      }
+      resolve({
+        url: `http://127.0.0.1:${address.port}${hookPath}`,
+        close: () => server.close(),
+      })
+    })
+  })
+}
+
 export const ClaudeAdapter: CliAgentAdapter = {
   name: 'claude-cli',
 
@@ -80,16 +149,20 @@ export const ClaudeAdapter: CliAgentAdapter = {
     return resolveCliPath('claude') !== null
   },
 
-  send(
+  async send(
     _window: BrowserWindow,
     req: CliAdapterRequest,
     onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: Parameters<CliAgentAdapter['send']>[3],
     signal?: AbortSignal
   ): Promise<string> {
+    const permissionHook = req.requestPermission
+      ? await startPermissionHookServer(req.requestPermission)
+      : null
     return new Promise((resolve, reject) => {
       const claudePath = resolveCliPath('claude')
       if (!claudePath) {
+        permissionHook?.close()
         reject(new Error('claude CLI not found'))
         return
       }
@@ -133,6 +206,21 @@ export const ClaudeAdapter: CliAgentAdapter = {
           args.push('--add-dir', dir)
         }
       }
+      if (permissionHook) {
+        args.push('--settings', JSON.stringify({
+          hooks: {
+            PermissionRequest: [{
+              matcher: '.*',
+              hooks: [{
+                type: 'http',
+                url: permissionHook.url,
+                timeout: 65,
+                statusMessage: 'Waiting for approval in Nexy',
+              }],
+            }],
+          },
+        }))
+      }
       // Explicit per-conversation permission mode wins over the coarse skipPermissions boolean —
       // e.g. a chat put in plan mode must stay read-only even if the agent default auto-approves.
       const CLAUDE_PERMISSION_MODES = ['plan', 'acceptEdits', 'bypassPermissions']
@@ -150,14 +238,21 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
 
       // --verbose is required when combining --output-format stream-json with --print
-      const proc = spawn(claudePath, args, {
-        cwd: req.cwd,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: false,
-      })
+      let proc: ReturnType<typeof spawn>
+      try {
+        proc = spawn(claudePath, args, {
+          cwd: req.cwd,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: false,
+        })
+      } catch (error) {
+        permissionHook?.close()
+        reject(error)
+        return
+      }
 
       const stdinContent = useJsonInput ? buildConversationJson(req) : buildConversationText(req)
-      proc.stdin.end(stdinContent, 'utf8')
+      proc.stdin!.end(stdinContent, 'utf8')
 
       if (signal) {
         signal.addEventListener('abort', () => { killProcess(proc) }, { once: true })
@@ -329,10 +424,14 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
 
       const lineBuffer = createLineBuffer(parseLine)
-      proc.stdout.on('data', (chunk: Buffer) => lineBuffer.push(chunk))
+      proc.stdout!.on('data', (chunk: Buffer) => lineBuffer.push(chunk))
 
-      proc.on('error', reject)
+      proc.on('error', (error) => {
+        permissionHook?.close()
+        reject(error)
+      })
       proc.on('close', (code) => {
+        permissionHook?.close()
         if (lineBuffer.remainder().trim()) {
           const trimmed = lineBuffer.remainder().trim()
           try {

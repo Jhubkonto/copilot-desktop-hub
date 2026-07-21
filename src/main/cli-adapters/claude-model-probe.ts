@@ -21,6 +21,10 @@ const TIMING = {
   probeTimeoutMs: 15000,
   quietMs: 900,
   pollMs: 300,
+  // How long to wait for the "more models" submenu to render before re-requesting it once. A cold
+  // PTY can settle the top-level menu and then stall opening the flyout, which would otherwise cost
+  // the whole probe (and drop Opus). Kept well under probeTimeoutMs so a retry still has time.
+  submenuTimeoutMs: 4000,
 }
 
 export function __setProbeTimingForTests(overrides: Partial<typeof TIMING> | null): void {
@@ -28,6 +32,7 @@ export function __setProbeTimingForTests(overrides: Partial<typeof TIMING> | nul
     TIMING.probeTimeoutMs = 15000
     TIMING.quietMs = 900
     TIMING.pollMs = 300
+    TIMING.submenuTimeoutMs = 4000
     return
   }
   Object.assign(TIMING, overrides)
@@ -44,14 +49,23 @@ function snapshotGrid(term: TerminalType): string {
   return lines.join('\n')
 }
 
-/** Parses the "Select model" menu grid (top-level only, per product decision — the
- *  "More models" flyout needs extra keystroke navigation and is deliberately not captured).
- *  Skips the "Default (recommended)" row since it mirrors an existing option, not a distinct one. */
-function parseModelMenu(grid: string): CliModelOption[] {
+const MORE_MODELS_PATTERN = /^\s*(?:❯\s*)?(\d+)\.\s+(?:more models|show more models|additional models)\b/i
+
+/** Parses the "Select model" menu grid. Skips the "Default (recommended)" row since it mirrors
+ *  an existing option, not a distinct one. Also detects a trailing "More models" row that opens
+ *  a flyout submenu (e.g. Opus, when it isn't offered at the top level) and returns its row
+ *  number so the caller can navigate into it and merge the extra entries. */
+function parseModelMenu(grid: string): { models: CliModelOption[]; moreModelsRow: string | null } {
   const models: CliModelOption[] = []
+  let moreModelsRow: string | null = null
   const rowPattern = /^\s*(?:❯\s*)?\d+\.\s+(\S.*?)\s{2,}(.+)$/
   for (const rawLine of grid.split('\n')) {
     const line = rawLine.replace(/✔/g, '').trimEnd()
+    const moreMatch = MORE_MODELS_PATTERN.exec(line)
+    if (moreMatch) {
+      moreModelsRow = moreMatch[1]
+      continue
+    }
     const match = rowPattern.exec(line)
     if (!match) continue
     const alias = match[1].trim()
@@ -60,7 +74,7 @@ function parseModelMenu(grid: string): CliModelOption[] {
     if (!rest) continue
     models.push({ id: alias.toLowerCase(), label: rest })
   }
-  return models
+  return { models, moreModelsRow }
 }
 
 let inFlightProbe: Promise<CliModelOption[]> | null = null
@@ -104,7 +118,11 @@ async function runProbe(): Promise<CliModelOption[]> {
       })
 
       let lastDataAt = Date.now()
-      let stage: 'settle' | 'awaiting-menu' = 'settle'
+      let stage: 'settle' | 'awaiting-menu' | 'awaiting-submenu' = 'settle'
+      let topLevelModels: CliModelOption[] = []
+      let moreModelsRowNum: string | null = null
+      let submenuRequestedAt = 0
+      let submenuRetried = false
 
       ptyProcess.onData((chunk) => {
         lastDataAt = Date.now()
@@ -128,7 +146,47 @@ async function runProbe(): Promise<CliModelOption[]> {
           }
         } else if (stage === 'awaiting-menu') {
           if (/Select model/i.test(grid)) {
-            finish(parseModelMenu(grid))
+            const { models, moreModelsRow } = parseModelMenu(grid)
+            if (moreModelsRow) {
+              topLevelModels = models
+              moreModelsRowNum = moreModelsRow
+              stage = 'awaiting-submenu'
+              submenuRequestedAt = Date.now()
+              ptyProcess?.write(`${moreModelsRow}\r`)
+            } else {
+              finish(models)
+            }
+          }
+        } else if (stage === 'awaiting-submenu') {
+          // The submenu resolves only once new data has arrived since we requested it AND the grid
+          // shows more than the top-level rows — otherwise we'd re-parse the still-visible top-level
+          // menu and finish without the flyout entries (e.g. Opus).
+          if (lastDataAt > submenuRequestedAt && /Select model/i.test(grid)) {
+            const { models: submenuModels } = parseModelMenu(grid)
+            const merged = [...topLevelModels]
+            for (const model of submenuModels) {
+              if (!merged.some((m) => m.id === model.id)) merged.push(model)
+            }
+            const gainedEntries = merged.length > topLevelModels.length
+            if (gainedEntries || submenuRetried) {
+              finish(merged)
+            } else if (Date.now() - submenuRequestedAt >= TIMING.submenuTimeoutMs) {
+              // The flyout never produced new entries in time — re-request it once before giving up.
+              submenuRetried = true
+              submenuRequestedAt = Date.now()
+              if (moreModelsRowNum) ptyProcess?.write(`${moreModelsRowNum}\r`)
+            }
+          } else if (Date.now() - submenuRequestedAt >= TIMING.submenuTimeoutMs) {
+            // No usable submenu frame arrived at all (cold PTY stalled opening the flyout).
+            if (submenuRetried) {
+              // Second attempt also failed: fall back to the top-level models rather than nothing,
+              // so the cache merge still preserves whatever we did see.
+              finish(topLevelModels)
+            } else {
+              submenuRetried = true
+              submenuRequestedAt = Date.now()
+              if (moreModelsRowNum) ptyProcess?.write(`${moreModelsRowNum}\r`)
+            }
           }
         }
       }, TIMING.pollMs)
@@ -144,7 +202,15 @@ export function cacheClaudeCliPtyModels(models: CliModelOption[]): void {
   if (models.length === 0) return
   try {
     const db = getDatabase()
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(CACHE_KEY, JSON.stringify(models))
+    // Union with the existing cache rather than replacing it outright: a probe run that races the
+    // "more models" submenu can settle on a subset of a previously-confirmed list (see the Opus
+    // flicker bug), and silently regressing the cache would undo a known-good result.
+    const previous = getCachedClaudeCliPtyModels()
+    const merged = [...previous]
+    for (const model of models) {
+      if (!merged.some((m) => m.id === model.id)) merged.push(model)
+    }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(CACHE_KEY, JSON.stringify(merged))
   } catch { /* fail silently — stale cache is acceptable */ }
 }
 

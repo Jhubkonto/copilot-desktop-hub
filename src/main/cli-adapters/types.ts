@@ -28,6 +28,10 @@ export interface CliAdapterRequest {
   // when the project/conversation's terminal sandbox bypass is enabled. Not all adapters honor
   // this (currently Claude CLI only, via --add-dir); adapters that don't support it ignore it.
   extraAllowedDirs?: string[]
+  // Non-interactive CLI processes cannot display their own permission dialog. Adapters
+  // that support a permission callback (currently Claude Code via PermissionRequest
+  // hooks) pause the tool call and delegate the exact request to Nexy's approval UI.
+  requestPermission?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>
 }
 
 export type CliStreamEvent =
