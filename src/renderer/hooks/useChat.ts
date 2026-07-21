@@ -590,15 +590,19 @@ export function useChat({
         })
       }
       if (toInsert.length > 0) {
+        const insertedAt = Date.now()
         const newToolCallMessages: ChatMessage[] = []
-        const newMessages = toInsert.map((item): ChatMessage => {
+        const newMessages = toInsert.map((item, insertIndex): ChatMessage => {
+          // Preserve the sorted order even when several events arrive in one React
+          // batch and therefore share the same wall-clock millisecond.
+          const timelineTimestamp = insertedAt + insertIndex
           if (item.kind === 'tool') {
             const { key, tc } = item
             const msg: ChatMessage = {
               id: crypto.randomUUID(),
               role: 'tool-call',
               content: tc.result,
-              timestamp: Date.now(),
+              timestamp: timelineTimestamp,
               toolCallId: tc.id,
               toolName: tc.toolName,
               serverName: tc.serverName,
@@ -616,9 +620,14 @@ export function useChat({
             id: crypto.randomUUID(),
             role: 'assistant',
             content: item.content,
-            timestamp: Date.now(),
+            timestamp: timelineTimestamp,
             isFrozenMidTurn: true,
-            textSegments: new Map([[item.blockId, { blockId: item.blockId, content: item.content, done: true, firstSeenAt: Date.now() }]]),
+            textSegments: new Map([[item.blockId, {
+              blockId: item.blockId,
+              content: item.content,
+              done: true,
+              firstSeenAt: timelineTimestamp,
+            }]]),
           }
           seenText.add(item.blockId)
           return msg
