@@ -721,7 +721,7 @@ describe('registerAndroidHandlers — android:publish-update', () => {
     }
   })
 
-  it('refuses to publish an unsigned release APK', async () => {
+  it('publishes an unsigned release APK with a warning', async () => {
     const { mkdirSync, writeFileSync, existsSync, rmSync } = await import('fs')
     const { join } = await import('path')
     const tmpDir = require('os').tmpdir() as string
@@ -741,10 +741,10 @@ describe('registerAndroidHandlers — android:publish-update', () => {
       const handler = handlers.get('android:publish-update')
       const result = await handler?.({})
 
-      expect(result.published).toBe(false)
-      expect(result.error).toMatch(/unsigned/i)
-      // Nothing should have been written to the feed.
-      expect(existsSync(join(feedDir, 'android', 'android-update.json'))).toBe(false)
+      expect(result.published).toBe(true)
+      expect(result.warning).toMatch(/unsigned/i)
+      expect(result.manifest?.artifactUrl).toContain('app-release-unsigned.apk')
+      expect(existsSync(join(feedDir, 'android', 'android-update.json'))).toBe(true)
     } finally {
       rmSync(wsDir, { recursive: true, force: true })
       rmSync(feedDir, { recursive: true, force: true })

@@ -232,7 +232,7 @@ async function ensureLanFeedServer(db: Database.Database, androidFeedDir: string
   return getFeedLanUrl(getLocalIp())
 }
 
-export async function publishAndroidUpdate(db: Database.Database): Promise<{ published: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
+export async function publishAndroidUpdate(db: Database.Database): Promise<{ published: boolean; manifest?: AndroidUpdateManifest; error?: string; warning?: string }> {
   // Production update path (UPD.16):
   // 1. Run assembleRelease from desktop — Gradle signs APK via NEXY_KEYSTORE_* env vars.
   // 2. Publish — copies APK to {feedPath}/android/, writes android-update.json.
@@ -264,13 +264,9 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
   }
   if (!apkSrc) return { published: false, error: 'No release APK found — click the "assembleRelease" button under Android Build first, then Publish.' }
 
-  // Gradle emits "app-release-unsigned.apk" when no signing config is applied.
-  // An unsigned APK cannot be installed ("App not installed" on the phone), so
-  // refuse to publish it and point the user at the signing config instead of
-  // shipping an uninstallable artifact.
-  if (path.basename(apkSrc).toLowerCase().includes('unsigned')) {
-    return { published: false, error: 'The release APK is unsigned and cannot be installed. Configure the Android signing keystore (Settings → Android signing), then re-run assembleRelease before publishing.' }
-  }
+  const unsignedWarning = path.basename(apkSrc).toLowerCase().includes('unsigned')
+    ? 'The release APK is unsigned. It was published to the feed, but Android may refuse to install it or update an existing install unless it is signed with the expected key.'
+    : undefined
 
   mkdirSync(androidFeedDir, { recursive: true })
 
@@ -309,7 +305,7 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
 
   await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
-  return { published: true, manifest }
+  return { published: true, manifest, warning: unsignedWarning }
 }
 
 export async function restoreAndroidVersion(db: Database.Database, versionCode: number): Promise<{ restored: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
