@@ -79,6 +79,7 @@ export default function App() {
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
   const addToast = useAppStore((s) => s.addToast)
   const setCatalogModels = useAppStore((s) => s.setCatalogModels)
+  const refreshAvailableModels = useAppStore((s) => s.refreshAvailableModels)
   const androidDebugLog = useAppStore((s) => s.androidDebugLog)
   const viewingArtifactId = useAppStore((s) => s.viewingArtifactId)
 
@@ -154,6 +155,13 @@ export default function App() {
     })
     return () => { unsubscribe() }
   }, [setCatalogModels, addToast])
+
+  useEffect(() => {
+    const unsubscribe = window.api.onCliModelsUpdated(() => {
+      void refreshAvailableModels()
+    })
+    return () => { unsubscribe() }
+  }, [refreshAvailableModels])
 
   useEffect(() => {
     if (typeof window.api.onDebugLog !== 'function') return

@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Star, Upload, Users, X, Zap } from 'lucide-react'
-import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
+import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type CliBackend, type CliModeOverride, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
@@ -17,6 +17,7 @@ import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from 
 import type { ContextInspectorSnapshot, ProjectConfig } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
+import { ModelPicker } from './chat/ModelPicker'
 import { DropdownPanel } from './DropdownPanel'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
@@ -246,19 +247,42 @@ export function ChatWindow() {
   const continueAgent = continueAgentId ? (agents.find((agent) => agent.id === continueAgentId) ?? null) : null
   const continueBackend = continueAgent?.backend ?? null
   const continueAgentNeedsTools = !!(continueAgent && (continueAgent.mcpServers?.length ?? 0) > 0)
-  const continueProviderModelIds = useMemo(
-    () => getAvailableModelIds(catalogModels, effectiveModel, continueAgentNeedsTools),
-    [catalogModels, continueAgentNeedsTools, effectiveModel],
-  )
-  const continueModelOptions = useMemo(() => {
-    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli' || continueBackend === 'hermes-cli') {
-      return continueCliModels.map((model) => ({ id: model.id, label: model.label }))
+  const continueIsCli =
+    continueBackend === 'claude-cli' || continueBackend === 'codex-cli' || continueBackend === 'hermes-cli'
+  // Reuse the same grouped model source the composer's ModelPicker consumes so the fork
+  // dialog lists models in the identical order (and same available set) as the in-chat
+  // dropdown — instead of the flat, catalog-ordered list the native <select> used before.
+  const continueGroups = useMemo<AvailableModelGroup[]>(() => {
+    if (continueIsCli) {
+      const sourceLabel =
+        continueBackend === 'codex-cli' ? 'Codex CLI' : continueBackend === 'hermes-cli' ? 'Hermes Agent' : 'Claude CLI'
+      if (continueCliModels.length === 0) return []
+      return [{
+        sourceKey: continueBackend!,
+        sourceLabel,
+        sourceType: 'cli',
+        models: continueCliModels.map((model) => ({ id: model.id, label: model.label })),
+      }]
     }
-    return continueProviderModelIds.map((model) => ({
-      id: model,
-      label: getModelLabel(model, catalogModels, defaultModelSetting ?? undefined),
-    }))
-  }, [catalogModels, continueBackend, continueCliModels, continueProviderModelIds, defaultModelSetting])
+    // With no CLI-locked agent this is the composer's exact grouped source, including
+    // provider and installed-CLI sections in the same order as the bottom model picker.
+    if (!continueAgentNeedsTools) return availableGroups
+    // A tool-using agent can't fork onto a chat-only model, so hide those (mirrors the
+    // requiresTools filtering the flat list applied via getAvailableModelIds). CLI
+    // groups remain available because their agent runtimes provide their own tools.
+    return availableGroups
+      .map((group) => ({
+        ...group,
+        models: group.sourceType === 'provider'
+          ? group.models.filter((model) => modelIdSupportsTools(model.id, catalogModels))
+          : group.models,
+      }))
+      .filter((group) => group.models.length > 0)
+  }, [availableGroups, catalogModels, continueAgentNeedsTools, continueBackend, continueCliModels, continueIsCli])
+  const continueModelOptions = useMemo(() => {
+    const fromGroups = continueGroups.flatMap((group) => group.models.map((model) => ({ id: model.id, label: model.label })))
+    return continueIsCli ? fromGroups : [{ id: 'default', label: 'Global default' }, ...fromGroups]
+  }, [continueGroups, continueIsCli])
 
   const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
 
@@ -1606,17 +1630,18 @@ export function ChatWindow() {
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">Fork this chat into a new conversation.</div>
                         <label className="block mb-2">
                           <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Model</span>
-                          <select
+                          <ModelPicker
                             value={continueModel}
-                            onChange={(event) => setContinueModel(event.target.value)}
-                            className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500"
-                          >
-                            {continueModelOptions.map((model) => (
-                              <option key={model.id} value={model.id}>
-                                {model.label}
-                              </option>
-                            ))}
-                          </select>
+                            availableGroups={continueGroups}
+                            catalogModels={catalogModels}
+                            globalDefaultModel={defaultModelSetting ?? undefined}
+                            includeDefault={!continueIsCli}
+                            emptyLabel="No models available"
+                            buttonClassName="flex w-full items-center justify-between gap-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                            menuClassName="left-0"
+                            onSelectDefault={() => setContinueModel('default')}
+                            onSelectAvailableModel={(_group, model) => setContinueModel(model.id)}
+                          />
                           {continueBackend === 'claude-cli' && (
                             <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Showing Claude CLI models only.</div>
                           )}

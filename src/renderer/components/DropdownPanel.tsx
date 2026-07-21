@@ -1,5 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
-import { useClickOutside } from '../hooks/useClickOutside'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 interface DropdownPanelProps {
   open: boolean
@@ -49,7 +48,25 @@ export function DropdownPanel({
     }
   }, [open])
 
-  useClickOutside(containerRef, onClose, open)
+  // Close on outside mousedown, but ignore clicks landing inside a ModelPicker menu:
+  // that menu is portaled to document.body (outside this panel's DOM subtree), so a
+  // plain containment check would treat picking a model as an "outside" click and close
+  // the whole panel before the selection registers.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node | null
+      if (!target) return
+      const container = containerRef.current
+      if (container && container.contains(target)) return
+      if (target instanceof Element && target.closest('[data-model-picker-menu]')) return
+      onCloseRef.current()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
 
   return (
     <div ref={containerRef} className="relative">

@@ -235,6 +235,23 @@ export function ChatMessagesBase({
     return mapping
   }, [messages])
 
+  const effectiveLiveTurnState = liveTurnState ?? createEmptyChatTurnState(null)
+  // Current-turn tool/text rows are inserted into `messages` eagerly for recovery and
+  // update-in-place behavior. While generation is active, keep those optimistic rows out
+  // of the historical renderer and let the normalized live timeline render them instead.
+  // That keeps thoughts, text, and commands in one sequence-sorted DOM region rather than
+  // forcing every historical row above every still-live thought.
+  const historicalMessages = useMemo(() => {
+    if (!isGenerating) return messages
+    const liveToolIds = new Set(
+      effectiveLiveTurnState.toolCalls.flatMap((toolCall) => toolCall.id ? [toolCall.id] : []),
+    )
+    return messages.filter((message) =>
+      !message.isFrozenMidTurn &&
+      !(message.role === 'tool-call' && !!message.toolCallId && liveToolIds.has(message.toolCallId)),
+    )
+  }, [messages, isGenerating, effectiveLiveTurnState.toolCalls])
+
   // Group consecutive tool-call messages with the assistant message that follows them.
   // This ensures one message-enter animation per turn rather than one per block.
   // Dangling tool calls with no assistant message yet (mid-turn: they're inserted into
@@ -244,13 +261,13 @@ export function ChatMessagesBase({
   // top-level items, then visibly "condensed" down to the tighter chained-timeline spacing
   // the instant the turn committed and they got grouped with the assistant message.
   const msgGroups = useMemo<MsgGroup[]>(() => {
-    const rawItems = buildChatRenderItems(messages, createEmptyChatTurnState(null), { includeLiveTurn: false })
+    const rawItems = buildChatRenderItems(historicalMessages, createEmptyChatTurnState(null), { includeLiveTurn: false })
     const groups: MsgGroup[] = []
     let pendingDanglingToolCalls: ChatMessage[] = []
     const flushDangling = () => {
       if (pendingDanglingToolCalls.length === 0) return
       const [main, ...rest] = pendingDanglingToolCalls
-      groups.push({ main, toolCalls: rest, index: messages.length })
+      groups.push({ main, toolCalls: rest, index: historicalMessages.length })
       pendingDanglingToolCalls = []
     }
     for (const item of rawItems) {
@@ -266,15 +283,14 @@ export function ChatMessagesBase({
     }
     flushDangling()
     return groups
-  }, [messages])
-  const effectiveLiveTurnState = liveTurnState ?? createEmptyChatTurnState(null)
+  }, [historicalMessages])
   // buildChatRenderItems already de-dupes against committed historical messages and
   // interleaves thinking blocks/tool calls by firstSeenSequence — the live area below
   // renders this directly instead of maintaining separate parallel derivations.
   const liveRenderItems = useMemo(
-    () => buildChatRenderItems(messages, effectiveLiveTurnState, { includeLiveTurn: true })
+    () => buildChatRenderItems(historicalMessages, effectiveLiveTurnState, { includeLiveTurn: true })
       .filter((item) => item.type !== 'historical-message' && item.type !== 'historical-tool-group'),
-    [messages, effectiveLiveTurnState],
+    [historicalMessages, effectiveLiveTurnState],
   )
   const effectiveCliCost = cliCost ?? liveTurnState?.cost ?? null
   const supersededPendingArtifactMessageIds = useMemo(
