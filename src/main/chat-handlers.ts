@@ -175,7 +175,9 @@ const CLAUDE_CLI_BUILT_IN_TOOLS: Array<{
     key: 'terminal',
     label: 'Terminal',
     approvalTool: 'claude-cli:terminal',
-    claudeTools: ['Bash'],
+    // Claude Code reports its Windows-native shell as PowerShell in current releases;
+    // older releases and non-Windows hosts use Bash. Both names must share one policy.
+    claudeTools: ['Bash', 'PowerShell'],
     description: 'Allow Claude CLI to run terminal commands for this message?',
   },
   {
@@ -247,72 +249,115 @@ function extractCliEditedPaths(input: Record<string, unknown>, cwd: string): str
   return [...paths]
 }
 
-async function getClaudeCliAllowedBuiltInTools(
-  window: BrowserWindow,
+function getClaudeCliToolDefinition(toolName: string): (typeof CLAUDE_CLI_BUILT_IN_TOOLS)[number] | null {
+  const normalized = toolName.trim().toLowerCase()
+  return CLAUDE_CLI_BUILT_IN_TOOLS.find((tool) =>
+    tool.claudeTools.some((candidate) => candidate.toLowerCase() === normalized)
+  ) ?? null
+}
+
+function getClaudeCliToolPolicies(
   agentConfig: Record<string, unknown> | null,
-  agentId: string | null,
-  sendActivity: (activity: MobileChatActivity) => void,
-  autoApprove = false,
-): Promise<string[]> {
-  const tools = (agentConfig?.tools && typeof agentConfig.tools === 'object'
+): Partial<Record<BuiltInToolKey, AgentToolPolicy>> {
+  return (agentConfig?.tools && typeof agentConfig.tools === 'object'
     ? agentConfig.tools
     : {}) as Partial<Record<BuiltInToolKey, AgentToolPolicy>>
+}
+
+function getClaudeCliGlobalToolPreference(approvalTool: string): string | null {
+  const row = getDatabase()
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get(`tool_pref:${approvalTool}`) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+function rememberClaudeCliAgentTool(agentId: string, key: BuiltInToolKey): void {
+  const current = getAgentConfig(agentId)
+  if (!current) return
+  const currentTools = (current.tools && typeof current.tools === 'object'
+    ? current.tools
+    : {}) as Record<string, unknown>
+  const updatedConfig = {
+    ...current,
+    tools: {
+      ...currentTools,
+      [key]: { ...(currentTools[key] as object ?? {}), enabled: true, approval: 'auto' },
+    },
+  }
+  getDatabase()
+    .prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(updatedConfig), Date.now(), agentId)
+}
+
+function getClaudeCliAllowedBuiltInTools(
+  agentConfig: Record<string, unknown> | null,
+  agentId: string | null,
+  autoApprove = false,
+): string[] {
+  const tools = getClaudeCliToolPolicies(agentConfig)
   const allowedTools: string[] = []
 
   for (const tool of CLAUDE_CLI_BUILT_IN_TOOLS) {
     const policy = tools[tool.key]
-    // Explicitly disabled → skip entirely, no prompt (fullAutoApprove respects disabled)
     if (policy?.enabled === false) continue
-    // Enabled: true + auto → allow immediately without prompting
-    if (policy?.enabled === true && policy.approval === 'auto') {
+    if (autoApprove || (policy?.enabled === true && policy.approval === 'auto')) {
       allowedTools.push(...tool.claudeTools)
       continue
     }
-    // No agent configured → auto-allow all built-in tools, no prompt needed
-    if (!agentId) {
+    // A remembered choice on an unconfigured/default chat is the equivalent of an
+    // agent's approval=auto policy. Otherwise omit the tool from --allowedTools so the
+    // CLI's PermissionRequest hook can ask at the exact moment it is attempted.
+    if (!agentId && getClaudeCliGlobalToolPreference(tool.approvalTool) === 'always_allow') {
       allowedTools.push(...tool.claudeTools)
-      continue
     }
-    // fullAutoApprove mode — skip prompt and emit audit event
-    if (autoApprove) {
-      const approved = await requestApproval(window.webContents, tool.approvalTool, {}, tool.description, { autoApprove: true })
-      if (approved) allowedTools.push(...tool.claudeTools)
-      continue
-    }
-    // Agent configured with always-ask or unconfigured tool → prompt
-    sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
-    const approved = await requestApproval(
-      window.webContents,
-      tool.approvalTool,
-      {},
-      tool.description,
-      {
-        // When the user clicks "Always allow", persist auto-approval into the agent config
-        // so future messages skip the prompt — same as setting approval=auto in agent settings.
-        onRemember: (wasApproved) => {
-          if (!wasApproved || !agentId) return
-          const current = getAgentConfig(agentId)
-          if (!current) return
-          const currentTools = (current.tools && typeof current.tools === 'object'
-            ? current.tools
-            : {}) as Record<string, unknown>
-          const updatedConfig = {
-            ...current,
-            tools: {
-              ...currentTools,
-              [tool.key]: { ...(currentTools[tool.key] as object ?? {}), enabled: true, approval: 'auto' },
-            },
-          }
-          getDatabase()
-            .prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?')
-            .run(JSON.stringify(updatedConfig), Date.now(), agentId)
-        },
-      },
-    )
-    if (approved) allowedTools.push(...tool.claudeTools)
   }
 
   return allowedTools
+}
+
+async function requestClaudeCliToolPermission(
+  window: BrowserWindow,
+  agentConfig: Record<string, unknown> | null,
+  agentId: string | null,
+  sendActivity: (activity: MobileChatActivity) => void,
+  autoApprove: boolean,
+  toolName: string,
+  input: Record<string, unknown>,
+): Promise<boolean> {
+  const tool = getClaudeCliToolDefinition(toolName)
+  if (!tool) {
+    sendActivity({ state: 'approval', label: `Waiting for ${toolName} approval`, toolName })
+    return requestApproval(
+      window.webContents,
+      `claude-cli:${toolName}`,
+      input,
+      `Allow Claude CLI to use ${toolName}?`,
+    )
+  }
+
+  const policy = getClaudeCliToolPolicies(agentConfig)[tool.key]
+  if (policy?.enabled === false || policy?.approval === 'disabled') return false
+  if (autoApprove || (policy?.enabled === true && policy.approval === 'auto')) return true
+  if (!agentId) {
+    const preference = getClaudeCliGlobalToolPreference(tool.approvalTool)
+    if (preference === 'always_allow') return true
+    if (preference === 'always_deny') return false
+  }
+
+  sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
+  return requestApproval(
+    window.webContents,
+    tool.approvalTool,
+    input,
+    tool.description,
+    agentId
+      ? {
+          onRemember: (wasApproved) => {
+            if (wasApproved) rememberClaudeCliAgentTool(agentId, tool.key)
+          },
+        }
+      : undefined,
+  )
 }
 
 export async function dispatchChatSend(
@@ -943,7 +988,7 @@ export async function dispatchChatSend(
           }
         })()
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
-          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, effectiveAgentId, sendActivity, effectiveFullAutoApprove)
+          ? getClaudeCliAllowedBuiltInTools(agentCfg2, effectiveAgentId, effectiveFullAutoApprove)
           : []
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
         debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
@@ -1005,6 +1050,17 @@ export async function dispatchChatSend(
             permissionMode: (options?.cliModeOverride ?? convRow?.cli_mode_override) ?? undefined,
             extraAllowedDirs: effectiveTerminalSandboxBypass
               ? [path.parse(homedir()).root]
+              : undefined,
+            requestPermission: effectiveBackend === 'claude-cli'
+              ? (toolName, input) => requestClaudeCliToolPermission(
+                  window,
+                  agentCfg2,
+                  effectiveAgentId,
+                  sendActivity,
+                  effectiveFullAutoApprove,
+                  toolName,
+                  input,
+                )
               : undefined,
           },
           cliSendChunk,
