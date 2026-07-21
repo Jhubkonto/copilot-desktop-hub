@@ -2277,7 +2277,7 @@ export type IpcReturnMap = {
   'android:validate-signing-config': { valid: boolean; checks: PreflightCheck[] }
   'android:list-adb-devices': AdbDevice[]
   'android:install-apk': { success: boolean; error?: string }
-  'android:publish-update': { published: boolean; manifest?: AndroidUpdateManifest; error?: string }
+  'android:publish-update': { published: boolean; manifest?: AndroidUpdateManifest; error?: string; warning?: string }
   'android:get-update-manifest': AndroidUpdateManifest | null
   'android:get-publish-history': AndroidUpdateManifest[]
   'android:restore-version': { restored: boolean; manifest?: AndroidUpdateManifest; error?: string }
