@@ -2182,6 +2182,7 @@ export type IpcReturnMap = {
   'model:list-catalog': CatalogModel[]
   'model:catalog-updated': { models: CatalogModel[]; changeSummary?: string }
   'model:list-available': AvailableModelGroup[]
+  'model:cli-models-updated': void
   // Message
   'message:delete': void
   'message:delete-after': void
@@ -2618,6 +2619,7 @@ export type IpcChannels =
   | 'model:list-catalog'
   | 'model:catalog-updated'
   | 'model:list-available'
+  | 'model:cli-models-updated'
   | 'message:delete'
   | 'message:delete-after'
   | 'project:add-agent'

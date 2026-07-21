@@ -505,6 +505,11 @@ const api = {
     typedOn('model:catalog-updated', handler)
     return () => typedOff('model:catalog-updated', handler)
   },
+  onCliModelsUpdated: (callback: () => void) => {
+    const handler = () => callback()
+    typedOn('model:cli-models-updated', handler)
+    return () => typedOff('model:cli-models-updated', handler)
+  },
 
   // Tools
   respondToToolApproval: (requestId: string, approved: boolean, remember: boolean) =>
