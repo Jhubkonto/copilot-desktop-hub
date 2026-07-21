@@ -1583,6 +1583,7 @@ export interface AndroidSigningConfig {
   keystorePassword: string
   keyAlias: string
   keyPassword: string
+  generated?: boolean
 }
 
 export interface AdbDevice {
