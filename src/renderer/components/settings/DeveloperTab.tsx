@@ -388,7 +388,14 @@ export function DeveloperTab({
 
   const latestDesktopBuild = buildRecords[0]
   const latestDesktopOutcome = desktopOutcomeCopy(latestDesktopBuild)
-  const canPublishDesktopPackage = latestDesktopBuild && isDesktopCommand(latestDesktopBuild.command) && latestDesktopBuild.command === 'package' && latestDesktopBuild.status === 'success'
+  // A subsequent typecheck, test, or build does not remove the installer that
+  // a successful package command put in release/.  Looking only at the first
+  // record therefore made publishing unavailable immediately after any later
+  // desktop command completed.
+  const latestSuccessfulDesktopPackage = buildRecords.find(
+    (record) => isDesktopCommand(record.command) && record.command === 'package' && record.status === 'success',
+  )
+  const canPublishDesktopPackage = Boolean(latestSuccessfulDesktopPackage)
   const canLaunchDevBuild = latestDesktopBuild && isDesktopCommand(latestDesktopBuild.command) && latestDesktopBuild.command === 'build' && latestDesktopBuild.status === 'success'
 
   // Preflight worst status for tab badge

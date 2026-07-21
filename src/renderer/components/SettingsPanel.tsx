@@ -741,7 +741,8 @@ export function SettingsPanel() {
     setAndroidPublishResult(null)
     const result = await window.api.androidPublishUpdate()
     if (result.published) {
-      setAndroidPublishResult(`Published v${result.manifest?.versionName ?? '?'} (build ${result.manifest?.versionCode ?? '?'}) to feed`)
+      const successMessage = `Published v${result.manifest?.versionName ?? '?'} (build ${result.manifest?.versionCode ?? '?'}) to feed`
+      setAndroidPublishResult(result.warning ? `${successMessage}. Warning: ${result.warning}` : successMessage)
       setAndroidUpdateManifest(result.manifest ?? null)
       window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {})
     } else {
