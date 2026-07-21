@@ -85,7 +85,12 @@ function createWindow(): void {
       void loadModelCatalog(mainWindow).catch(() => {})
     }
     if (ClaudeAdapter.isAvailable()) {
-      void probeClaudeCliModels().then(cacheClaudeCliPtyModels).catch(() => {})
+      void probeClaudeCliModels()
+        .then((models) => {
+          cacheClaudeCliPtyModels(models)
+          if (models.length > 0) mainWindow?.webContents.send('model:cli-models-updated')
+        })
+        .catch(() => {})
     }
   })
 
