@@ -687,6 +687,11 @@ export function SettingsPanel() {
       return
     }
     setActiveAndroidBuildId(result.buildId)
+    if (cmd === 'assembleRelease' || cmd === 'bundleRelease') {
+      window.api.androidGetSigningConfig().then((config) => {
+        if (config) setSigningDraft(config)
+      }).catch(() => {})
+    }
   }
 
   const handleAndroidCancelCommand = async () => {

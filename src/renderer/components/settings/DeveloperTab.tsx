@@ -116,18 +116,28 @@ function AndroidSigningModal({
       <div className="w-[440px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Android Signing Config</p>
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Use an existing Android signing key</p>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none">&times;</button>
         </div>
 
         {/* Body */}
         <div className="p-4 space-y-3 overflow-y-auto">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-100">
+            <p className="font-semibold">Most projects do not need this.</p>
+            <p className="mt-1 leading-relaxed">
+              Nexy creates a secure release key automatically the first time you run <span className="font-mono">assembleRelease</span>. Keep that key for all future updates so Android accepts them.
+            </p>
+          </div>
+          <div className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+            <p className="font-medium text-gray-800 dark:text-gray-100">Only enter these details if you already have a signing key.</p>
+            <p>Use the same keystore, alias, and passwords as the app currently installed on your devices. Changing keys means Android treats the build as a different app update and will reject it.</p>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <input
               type="text"
               value={signingDraft.keystorePath}
               onChange={(e) => onSetSigningDraft((d) => ({ ...d, keystorePath: e.target.value }))}
-              placeholder="Keystore path"
+              placeholder="Keystore file path (.jks or .p12)"
               className="col-span-2 text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono"
             />
             <input
@@ -141,7 +151,7 @@ function AndroidSigningModal({
               type="text"
               value={signingDraft.keyAlias}
               onChange={(e) => onSetSigningDraft((d) => ({ ...d, keyAlias: e.target.value }))}
-              placeholder="Key alias"
+              placeholder="Key alias (the name inside the keystore)"
               className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
             />
             <input
@@ -971,7 +981,7 @@ export function DeveloperTab({
               <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Signing</p>
               {signingDraft.keystorePath ? (
                 <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
-                  <CheckCircle className="w-3 h-3" /> Configured
+                  <CheckCircle className="w-3 h-3" /> {signingDraft.generated ? 'Auto-generated' : 'Configured'}
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-[10px] text-gray-400">
@@ -984,9 +994,14 @@ export function DeveloperTab({
               onClick={() => setSigningModalOpen(true)}
               className="px-2.5 py-1 rounded"
             >
-              Configure signing…
+              Use existing key…
             </Button>
           </div>
+          {!signingDraft.keystorePath && (
+            <p className="-mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+              No setup is required for your first release. Run <span className="font-mono">assembleRelease</span> and Nexy will create and save a release key automatically. Use an existing key only to continue updating an app signed elsewhere.
+            </p>
+          )}
 
           {signingModalOpen && (
             <AndroidSigningModal
@@ -1017,18 +1032,25 @@ export function DeveloperTab({
             ) : (
               <div className="space-y-1">
                 {adbDevices.map((d) => (
-                  <div key={d.serial} className="flex items-center gap-2 text-[11px]">
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.state === 'device' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                    <span className="font-mono text-gray-600 dark:text-gray-300">{d.model ?? d.serial}</span>
-                    <span className="text-gray-400 text-[10px]">{d.state}</span>
-                    <Button
-                      variant="secondary"
-                      onClick={() => onAndroidInstallApk(d.serial)}
-                      disabled={adbInstalling || d.state !== 'device' || !latestAdbInstallApk}
-                      className="ml-auto px-2 py-0.5 text-[10px]"
-                    >
-                      Install APK
-                    </Button>
+                  <div key={d.serial} className="rounded-md">
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.state === 'device' ? 'bg-green-500' : d.state === 'unauthorized' ? 'bg-amber-500' : 'bg-gray-400'}`} />
+                      <span className="font-mono text-gray-600 dark:text-gray-300">{d.model ?? d.serial}</span>
+                      <span className="text-gray-400 text-[10px]">{d.state}</span>
+                      <Button
+                        variant="secondary"
+                        onClick={() => onAndroidInstallApk(d.serial)}
+                        disabled={adbInstalling || d.state !== 'device' || !latestAdbInstallApk}
+                        className="ml-auto px-2 py-0.5 text-[10px]"
+                      >
+                        Install APK
+                      </Button>
+                    </div>
+                    {d.state === 'unauthorized' && (
+                      <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                        Unlock this phone and accept the “Allow USB debugging?” prompt. If it does not appear, revoke USB debugging authorizations in Android Developer options, reconnect the cable, then refresh here.
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
