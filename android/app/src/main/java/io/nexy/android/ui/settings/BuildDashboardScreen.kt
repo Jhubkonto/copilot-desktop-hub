@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -168,6 +169,10 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                     }
                 }
                 is WsEvent.BuildLogChunk -> {
+                    // build:started and the first log chunks race over the socket; if a
+                    // chunk arrives first, adopt its buildId so streamed output isn't
+                    // dropped while activeBuildId is still null.
+                    if (activeBuildId == null && buildStatus == "running") activeBuildId = event.buildId
                     if (event.buildId == activeBuildId) {
                         if (event.replace && buildLogLines.isNotEmpty()) {
                             buildLogLines[buildLogLines.lastIndex] = event.line
@@ -645,6 +650,7 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 /** Shared build status line + scrolling log output, reused by the desktop and Android build triggers. */
 @Composable
 private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, logListState: LazyListState) {
+    val isRunning = buildStatus == "running"
     buildStatus?.let { status ->
         val statusColor = when (status) {
             "running" -> MaterialTheme.colorScheme.tertiary
@@ -652,26 +658,48 @@ private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, log
             else -> MaterialTheme.colorScheme.error
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (status == "running") CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 2.dp))
+            if (isRunning) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
             Text(status.uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor)
         }
     }
-    if (buildLogLines.isNotEmpty()) {
-        Box(
+    // Mirror desktop's "Output" terminal window: show the log frame the whole time a
+    // build is running — even before the first line streams in — so the user sees the
+    // live command output instead of just a spinner. Commands like typecheck emit
+    // nothing until they finish, so hiding the frame until then looked like nothing
+    // was happening.
+    if (isRunning || buildLogLines.isNotEmpty()) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 200.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(8.dp),
+                .background(MaterialTheme.colorScheme.surface),
         ) {
-            LazyColumn(state = logListState) {
-                items(buildLogLines) { line ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Output", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${buildLogLines.size} lines", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Box(modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp, max = 200.dp).padding(8.dp)) {
+                if (buildLogLines.isEmpty()) {
                     Text(
-                        text = line,
+                        "No output yet…",
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                } else {
+                    LazyColumn(state = logListState) {
+                        items(buildLogLines) { line ->
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         }
