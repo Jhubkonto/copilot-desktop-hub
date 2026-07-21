@@ -247,4 +247,52 @@ describe('ChatMessages normalized live turn fallback', () => {
     // the sentence appears exactly once, as an inline segment above the tool call.
     expect(screen.getAllByText('I want to flag something before running this search.')).toHaveLength(1)
   })
+
+  it('keeps an earlier live thought above an eagerly stored command until the turn settles', () => {
+    const state = {
+      ...createEmptyChatTurnState('conv-1'),
+      turnId: 'turn-1',
+      status: 'active' as const,
+      thinkingBlocks: new Map([
+        ['thinking-0', {
+          blockId: 'thinking-0',
+          content: 'I should inspect the workspace first.',
+          done: true,
+          firstSeenSequence: 1,
+        }],
+      ]),
+      toolCalls: [{
+        id: 'tool-1',
+        toolName: 'PowerShell',
+        serverName: 'claude-cli',
+        args: { command: 'Get-ChildItem -Force' },
+        result: '',
+        success: true,
+        inProgress: true,
+        firstSeenSequence: 2,
+      }],
+    }
+
+    renderChatMessages({
+      messages: [{
+        id: 'optimistic-tool-1',
+        role: 'tool-call',
+        content: '',
+        timestamp: 2,
+        toolCallId: 'tool-1',
+        toolName: 'PowerShell',
+        serverName: 'claude-cli',
+        toolArgs: { command: 'Get-ChildItem -Force' },
+        toolResult: '',
+        toolSuccess: true,
+        toolInProgress: true,
+      }],
+      isGenerating: true,
+      liveTurnState: state,
+    })
+
+    const text = screen.getByRole('log').textContent ?? ''
+    expect(text.indexOf('I should inspect the workspace first.')).toBeLessThan(text.indexOf('PowerShell'))
+    expect(screen.getAllByText(/PowerShell command:/)).toHaveLength(1)
+  })
 })
