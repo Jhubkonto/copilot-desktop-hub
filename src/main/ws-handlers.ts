@@ -7,7 +7,7 @@ import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
-import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, publishAndroidUpdate, restoreAndroidVersion, startAndroidBuildFromMobile, cancelAndroidBuildFromMobile } from './android-handlers'
+import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, getSigningConfig, publishAndroidUpdate, restoreAndroidVersion, startAndroidBuildFromMobile, cancelAndroidBuildFromMobile } from './android-handlers'
 import { getWorkspaceInfo, startBuildFromMobile, cancelMobileBuild, publishArtifactToFeed, runPublishedUpdateInstall } from './build-handlers'
 import { dbListTasks, dbGetTask, dbCreateTask, dbUpdateTask, dbDeleteTask, dbSetTaskEnabled, dbListRuns, schedulerEngine } from './scheduler-engine'
 import { existsSync as fsExistsSync } from 'fs'
@@ -3293,11 +3293,7 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'android:validate-signing') {
-      const config = (() => {
-        const row = db.prepare("SELECT value FROM settings WHERE key = 'android_signing_config'").get() as { value: string } | undefined
-        if (!row?.value) return null
-        try { return JSON.parse(row.value) as { keystorePath: string; keyAlias: string; keystorePassword: string; keyPassword: string } } catch { return null }
-      })()
+      const config = getSigningConfig(db)
       const checks: { label: string; status: string; detail: string }[] = []
       if (!config) {
         checks.push({ label: 'Signing config', status: 'fail', detail: 'No signing config saved' })

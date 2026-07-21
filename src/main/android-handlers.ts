@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from 'crypto'
+import { randomUUID, createHash, randomBytes } from 'crypto'
 import { execSync, spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
@@ -7,7 +7,7 @@ import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, sta
 import { readFile, writeFile } from 'fs/promises'
 import path from 'path'
 import { networkInterfaces } from 'os'
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow, safeStorage } from 'electron'
 import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
@@ -106,14 +106,92 @@ function getGradlew(): string {
   return process.platform === 'win32' ? 'gradlew.bat' : './gradlew'
 }
 
-function getSigningConfig(db: Database.Database): AndroidSigningConfig | null {
+export function getSigningConfig(db: Database.Database): AndroidSigningConfig | null {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'android_signing_config'").get() as { value: string } | undefined
   if (!row?.value) return null
   try {
-    return JSON.parse(row.value) as AndroidSigningConfig
+    const encryptedRow = db.prepare("SELECT value FROM settings WHERE key = 'android_signing_config_encrypted'").get() as { value: string } | undefined
+    const rawValue = encryptedRow?.value === 'true' && safeStorage.isEncryptionAvailable()
+      ? safeStorage.decryptString(Buffer.from(row.value, 'base64'))
+      : row.value
+    return JSON.parse(rawValue) as AndroidSigningConfig
   } catch {
     return null
   }
+}
+
+/**
+ * Android Studio installs platform-tools in the SDK directory, but does not
+ * always add it to the PATH inherited by Electron. Prefer an explicit SDK
+ * location so ADB install works out of the box on those installations.
+ */
+function getAdbCommand(): string {
+  const adbFileName = process.platform === 'win32' ? 'adb.exe' : 'adb'
+  const sdkRoots = [
+    process.env.ANDROID_SDK_ROOT,
+    process.env.ANDROID_HOME,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk') : undefined,
+  ].filter((value): value is string => Boolean(value))
+
+  for (const sdkRoot of sdkRoots) {
+    const adbPath = path.join(sdkRoot, 'platform-tools', adbFileName)
+    if (existsSync(adbPath)) return adbPath
+  }
+
+  return 'adb'
+}
+
+function saveSigningConfig(db: Database.Database, config: AndroidSigningConfig): void {
+  const rawValue = JSON.stringify(config)
+  if (safeStorage.isEncryptionAvailable()) {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config', ?)").run(safeStorage.encryptString(rawValue).toString('base64'))
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config_encrypted', 'true')").run()
+  } else {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config', ?)").run(rawValue)
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config_encrypted', 'false')").run()
+  }
+}
+
+function randomSigningSecret(): string {
+  return randomBytes(24).toString('base64url')
+}
+
+async function ensureAndroidSigningConfig(db: Database.Database): Promise<AndroidSigningConfig> {
+  const existing = getSigningConfig(db)
+  if (existing && (!existing.generated || existsSync(existing.keystorePath))) return existing
+
+  const signingDir = path.join(app.getPath('userData'), 'android-signing')
+  const keystorePath = path.join(signingDir, 'nexy-internal-release.p12')
+  const keyAlias = 'nexy-internal-release'
+  mkdirSync(signingDir, { recursive: true })
+
+  const keystorePassword = randomSigningSecret()
+  const config: AndroidSigningConfig = {
+    keystorePath,
+    keystorePassword,
+    keyAlias,
+    keyPassword: keystorePassword,
+    generated: true,
+  }
+
+  if (!existsSync(keystorePath)) {
+    await execFileAsync('keytool', [
+      '-genkeypair',
+      '-v',
+      '-keystore', keystorePath,
+      '-storetype', 'PKCS12',
+      '-storepass', config.keystorePassword,
+      '-keypass', config.keyPassword,
+      '-alias', config.keyAlias,
+      '-keyalg', 'RSA',
+      '-keysize', '2048',
+      '-validity', '10000',
+      '-dname', 'CN=Nexy Internal Release, OU=Internal, O=Nexy, L=Internal, S=Internal, C=US',
+    ], { timeout: 30000 })
+  }
+
+  saveSigningConfig(db, config)
+  return config
 }
 
 function buildSigningEnv(config: AndroidSigningConfig): NodeJS.ProcessEnv {
@@ -264,9 +342,15 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
   }
   if (!apkSrc) return { published: false, error: 'No release APK found — click the "assembleRelease" button under Android Build first, then Publish.' }
 
-  const unsignedWarning = path.basename(apkSrc).toLowerCase().includes('unsigned')
-    ? 'The release APK is unsigned. It was published to the feed, but Android may refuse to install it or update an existing install unless it is signed with the expected key.'
-    : undefined
+  // An unsigned APK cannot be installed by Android. Do not put one on the feed:
+  // doing so makes the update flow look successful even though every device
+  // will reject the artifact at the final system-installer step.
+  if (path.basename(apkSrc).toLowerCase().includes('unsigned')) {
+    return {
+      published: false,
+      error: 'The release APK is unsigned and cannot be installed. Run assembleRelease from the current Nexy Desktop app (it creates a signing key automatically), then publish the resulting app-release.apk.',
+    }
+  }
 
   mkdirSync(androidFeedDir, { recursive: true })
 
@@ -305,7 +389,7 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
 
   await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
-  return { published: true, manifest, warning: unsignedWarning }
+  return { published: true, manifest }
 }
 
 export async function restoreAndroidVersion(db: Database.Database, versionCode: number): Promise<{ restored: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
@@ -397,6 +481,11 @@ export async function startAndroidBuildFromMobile(
   const buildId = randomUUID()
   const wsInfo = await getAndroidWorkspaceInfo(db)
   const now = Date.now()
+  const gradlew = getGradlew()
+  const args = ANDROID_COMMANDS[command]
+  const useSigningEnv = SIGNING_COMMANDS.has(command)
+  const signingConfig = useSigningEnv ? await ensureAndroidSigningConfig(db) : null
+  const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
 
   db.prepare(
     `INSERT INTO build_records
@@ -405,12 +494,6 @@ export async function startAndroidBuildFromMobile(
   ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.versionName, wsInfo.versionCode, command, now)
 
   startActivity({ id: `android-build:${buildId}`, kind: 'build', label: `Android build (${command})…`, detail: wsInfo.branch ?? undefined })
-
-  const gradlew = getGradlew()
-  const args = ANDROID_COMMANDS[command]
-  const useSigningEnv = SIGNING_COMMANDS.has(command)
-  const signingConfig = useSigningEnv ? getSigningConfig(db) : null
-  const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
 
   runBuildProcess({
     db,
@@ -469,18 +552,17 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
     const wsInfo = await getAndroidWorkspaceInfo(db)
     const now = Date.now()
+    const gradlew = getGradlew()
+    const args = ANDROID_COMMANDS[command]
+    const useSigningEnv = SIGNING_COMMANDS.has(command)
+    const signingConfig = useSigningEnv ? await ensureAndroidSigningConfig(db) : null
+    const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
 
     db.prepare(
       `INSERT INTO build_records
         (id, workspace_path, commit_sha, branch, version, version_code, platform, command, status, started_at)
        VALUES (?, ?, ?, ?, ?, ?, 'android', ?, 'running', ?)`
     ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.versionName, wsInfo.versionCode, command, now)
-
-    const gradlew = getGradlew()
-    const args = ANDROID_COMMANDS[command]
-    const useSigningEnv = SIGNING_COMMANDS.has(command)
-    const signingConfig = useSigningEnv ? getSigningConfig(db) : null
-    const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
 
     runBuildProcess({
       db,
@@ -524,7 +606,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     if (!config.keystorePath || !config.keyAlias || !config.keystorePassword || !config.keyPassword) {
       throw new Error('All signing config fields are required')
     }
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config', ?)").run(JSON.stringify(config))
+    saveSigningConfig(db, { ...config, generated: false })
     return true
   })
 
@@ -560,7 +642,8 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
   safeHandle('android:list-adb-devices', () => {
     try {
-      const output = execSync('adb devices -l', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
+      const adbCommand = getAdbCommand()
+      const output = execSync(`"${adbCommand}" devices -l`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
       const lines = output.split('\n').slice(1) // skip "List of devices attached" header
       const devices: AdbDevice[] = []
       for (const line of lines) {
@@ -602,12 +685,17 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     }
 
     return new Promise<{ success: boolean; error?: string }>((resolve) => {
-      let stderr = ''
-      const child = spawn('adb', ['-s', serial, 'install', '-r', apkPath], { shell: true })
-      child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+      let output = ''
+      // Do not invoke cmd.exe here. Apart from being unnecessary, shell mode
+      // can misquote paths and makes a failed adb invocation look like an APK
+      // install failure. adb reports most install diagnostics on stdout.
+      const child = spawn(getAdbCommand(), ['-s', serial, 'install', '-r', apkPath], { shell: false, windowsHide: true })
+      child.stdout?.on('data', (d: Buffer) => { output += d.toString() })
+      child.stderr?.on('data', (d: Buffer) => { output += d.toString() })
+      child.on('error', (error) => resolve({ success: false, error: `Could not start ADB: ${error.message}` }))
       child.on('close', (code) => {
         if (code === 0) resolve({ success: true })
-        else resolve({ success: false, error: stderr.trim() || `adb install exited with code ${code}` })
+        else resolve({ success: false, error: output.trim() || `adb install exited with code ${code}` })
       })
     })
   })

@@ -27,8 +27,13 @@ vi.mock('util', () => ({
 // ---------------------------------------------------------------------------
 
 vi.mock('electron', () => ({
-  app: { isPackaged: false },
+  app: { isPackaged: false, getPath: vi.fn(() => require('os').tmpdir()) },
   BrowserWindow: class {},
+  safeStorage: {
+    isEncryptionAvailable: vi.fn(() => false),
+    encryptString: vi.fn((value: string) => Buffer.from(value)),
+    decryptString: vi.fn((value: Buffer) => value.toString()),
+  },
 }))
 
 vi.mock('../database', () => ({
@@ -299,6 +304,50 @@ describe('registerAndroidHandlers — android:start-command', () => {
     )
   })
 
+  it('generates and injects an internal signing config for assembleRelease when none exists', async () => {
+    const { app } = await import('electron')
+    const { mkdirSync, rmSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const userDataDir = join(tmpDir, `nexy-user-data-${Date.now()}`)
+    const keystorePath = join(userDataDir, 'android-signing', 'nexy-internal-release.p12')
+
+    mkdirSync(userDataDir, { recursive: true })
+    vi.mocked(app.getPath).mockReturnValue(userDataDir)
+    execFileMock.mockImplementation((command: string) => {
+      if (command === 'keytool') return Promise.resolve({ stdout: '', stderr: '' })
+      return Promise.reject(new Error('metadata unavailable'))
+    })
+
+    try {
+      const handler = handlers.get('android:start-command')
+      await handler?.({}, 'assembleRelease')
+
+      expect(execFileMock).toHaveBeenCalledWith(
+        'keytool',
+        expect.arrayContaining(['-genkeypair', '-keystore', keystorePath, '-alias', 'nexy-internal-release']),
+        expect.objectContaining({ timeout: 30000 })
+      )
+      expect(spawnMock).toHaveBeenCalledWith(
+        expect.any(String),
+        ['assembleRelease'],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            NEXY_KEYSTORE_PATH: keystorePath,
+            NEXY_KEY_ALIAS: 'nexy-internal-release',
+          })
+        })
+      )
+
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'android_signing_config'").get() as { value: string } | undefined
+      const saved = JSON.parse(row?.value ?? '{}')
+      expect(saved.generated).toBe(true)
+      expect(saved.keystorePath).toBe(keystorePath)
+    } finally {
+      rmSync(userDataDir, { recursive: true, force: true })
+    }
+  })
+
   it('does NOT inject signing env vars for assembleDebug', async () => {
     const signingConfig = { keystorePath: '/key.jks', keystorePassword: 'pass', keyAlias: 'key', keyPassword: 'kpass' }
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config', ?)").run(JSON.stringify(signingConfig))
@@ -479,7 +528,7 @@ describe('registerAndroidHandlers — signing config', () => {
 
     const getHandler = handlers.get('android:get-signing-config')
     const retrieved = await getHandler?.({})
-    expect(retrieved).toEqual(config)
+    expect(retrieved).toEqual({ ...config, generated: false })
   })
 
   it('returns null when no config is stored', async () => {
@@ -572,6 +621,7 @@ describe('registerAndroidHandlers — android:install-apk', () => {
     writeFileSync(apkPath, Buffer.from('apk'))
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
     spawnMock.mockReturnValue({
+      stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
       on: vi.fn((event: string, handler: (code: number) => void) => {
         if (event === 'close') handler(0)
@@ -583,7 +633,7 @@ describe('registerAndroidHandlers — android:install-apk', () => {
       const result = await handler?.({}, 'device-1', apkPath)
 
       expect(result).toEqual({ success: true })
-      expect(spawnMock).toHaveBeenCalledWith('adb', ['-s', 'device-1', 'install', '-r', apkPath], { shell: true })
+      expect(spawnMock).toHaveBeenCalledWith(expect.stringMatching(/adb(?:\.exe)?$/i), ['-s', 'device-1', 'install', '-r', apkPath], { shell: false, windowsHide: true })
     } finally {
       rmSync(wsDir, { recursive: true, force: true })
     }
@@ -721,7 +771,7 @@ describe('registerAndroidHandlers — android:publish-update', () => {
     }
   })
 
-  it('publishes an unsigned release APK with a warning', async () => {
+  it('refuses to publish an unsigned release APK', async () => {
     const { mkdirSync, writeFileSync, existsSync, rmSync } = await import('fs')
     const { join } = await import('path')
     const tmpDir = require('os').tmpdir() as string
@@ -741,10 +791,9 @@ describe('registerAndroidHandlers — android:publish-update', () => {
       const handler = handlers.get('android:publish-update')
       const result = await handler?.({})
 
-      expect(result.published).toBe(true)
-      expect(result.warning).toMatch(/unsigned/i)
-      expect(result.manifest?.artifactUrl).toContain('app-release-unsigned.apk')
-      expect(existsSync(join(feedDir, 'android', 'android-update.json'))).toBe(true)
+      expect(result.published).toBe(false)
+      expect(result.error).toMatch(/unsigned/i)
+      expect(existsSync(join(feedDir, 'android', 'android-update.json'))).toBe(false)
     } finally {
       rmSync(wsDir, { recursive: true, force: true })
       rmSync(feedDir, { recursive: true, force: true })
