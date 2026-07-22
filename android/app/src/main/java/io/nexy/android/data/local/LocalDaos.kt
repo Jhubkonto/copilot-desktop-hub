@@ -60,6 +60,25 @@ interface MessageDao {
     @Query("SELECT * FROM local_messages WHERE conversationId = :conversationId AND deleted = 0 ORDER BY timestamp, id")
     suspend fun getForConversation(conversationId: String): List<MessageEntity>
 
+    @Query(
+        """SELECT * FROM local_messages
+           WHERE conversationId = :conversationId
+             AND deleted = 0
+             AND (
+               :beforeTimestamp IS NULL
+               OR timestamp < :beforeTimestamp
+               OR (timestamp = :beforeTimestamp AND id < :beforeId)
+             )
+           ORDER BY timestamp DESC, id DESC
+           LIMIT :limit""",
+    )
+    suspend fun getPageForConversation(
+        conversationId: String,
+        limit: Int,
+        beforeTimestamp: Long?,
+        beforeId: String?,
+    ): List<MessageEntity>
+
     @Query("SELECT * FROM local_messages WHERE id = :id LIMIT 1")
     suspend fun get(id: String): MessageEntity?
 

@@ -48,6 +48,14 @@ import org.json.JSONObject
 
 data class AttachmentDownload(val contentHash: String, val nextOffset: Long)
 
+/** A newest-first cursor window, returned in chronological order for chat rendering. */
+data class LocalHistoryPage(
+    val messages: List<HistoryMessage>,
+    val hasMore: Boolean,
+    val nextBeforeTimestamp: Long?,
+    val nextBeforeId: String?,
+)
+
 // Pure decision extracted from discardOrphanedOperations() for testability: a failed message-sync
 // operation is orphaned if its conversation is gone (never existed locally, or has been tombstoned).
 internal fun isOrphanedConversationReference(conversationId: String?, conversationDeleted: Boolean?): Boolean {
@@ -144,6 +152,35 @@ class LocalDataRepository private constructor(
 
     override suspend fun list(conversationId: String): List<HistoryMessage> =
         database.messages().getForConversation(conversationId).map(MessageEntity::toModel)
+
+    /**
+     * Reads just one history window from Room. The database query runs newest-first so it can use
+     * its ordering directly; the result is reversed before returning because the chat timeline is
+     * chronological.
+     */
+    suspend fun listPage(
+        conversationId: String,
+        limit: Int,
+        beforeTimestamp: Long? = null,
+        beforeId: String? = null,
+    ): LocalHistoryPage {
+        val pageSize = limit.coerceIn(1, 100)
+        val rows = database.messages().getPageForConversation(
+            conversationId = conversationId,
+            limit = pageSize + 1,
+            beforeTimestamp = beforeTimestamp,
+            beforeId = beforeId,
+        )
+        val hasMore = rows.size > pageSize
+        val pageRows = if (hasMore) rows.dropLast(1) else rows
+        val oldest = pageRows.lastOrNull()
+        return LocalHistoryPage(
+            messages = pageRows.asReversed().map(MessageEntity::toModel),
+            hasMore = hasMore,
+            nextBeforeTimestamp = oldest?.timestamp,
+            nextBeforeId = oldest?.id,
+        )
+    }
 
     suspend fun getRetryableUserMessage(id: String, conversationId: String): HistoryMessage? =
         database.messages().get(id)
@@ -1153,7 +1190,14 @@ class LocalDataRepository private constructor(
             is WsEvent.ConversationList -> event.conversations.forEach { mergeRemoteConversation(it) }
             is WsEvent.ConversationMessages -> {
                 val incoming = event.messages.map { it.toEntity(event.conversationId) }
-                database.messages().deleteSyncedForConversation(event.conversationId)
+                // An unpaged response is the complete, authoritative conversation snapshot.
+                // A paged response is only one window of it (including older cursor pages), so
+                // clearing first would evict every cached message outside that window. Besides
+                // making back-navigation needlessly slow, it made loading an older page erase
+                // the newest cached page before the UI could use it again.
+                if (!event.paged) {
+                    database.messages().deleteSyncedForConversation(event.conversationId)
+                }
                 database.messages().upsertAll(incoming)
             }
             is WsEvent.AgentList -> event.agents.forEach { mergeRemoteAgent(it) }

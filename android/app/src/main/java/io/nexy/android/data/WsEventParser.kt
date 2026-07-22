@@ -807,7 +807,14 @@ fun parseWsEvent(
                         model = m.nullableString("model"),
                     )
                 }
-                WsEvent.ConversationMessages(conversationId, messages)
+                WsEvent.ConversationMessages(
+                    conversationId = conversationId,
+                    messages = messages,
+                    paged = data?.optBoolean("paged", false) == true,
+                    hasMore = data?.optBoolean("hasMore", false) == true,
+                    nextBeforeTimestamp = data?.takeUnless { it.isNull("nextBeforeTimestamp") }?.optLong("nextBeforeTimestamp"),
+                    nextBeforeId = data?.nullableString("nextBeforeId"),
+                )
             }
 
             "chat:cost" -> WsEvent.ChatCost(

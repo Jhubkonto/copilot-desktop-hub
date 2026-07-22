@@ -2,6 +2,7 @@ package io.nexy.android.data
 
 import android.app.Application
 import android.app.NotificationManager
+import io.nexy.android.BuildConfig
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.ScheduledTask
@@ -1231,6 +1232,8 @@ object WsRepository : WsClient {
             mapOf(
                 "deviceId" to local.deviceId,
                 "deviceName" to android.os.Build.MODEL,
+                "appVersion" to BuildConfig.VERSION_NAME,
+                "appVersionCode" to BuildConfig.VERSION_CODE,
                 "datasetId" to datasetId,
                 "protocolVersion" to 1,
                 "schemaVersion" to 2,
@@ -1565,7 +1568,28 @@ object WsRepository : WsClient {
             "conversation:get-messages" -> {
                 val conversationId = data["conversationId"] as? String ?: return true
                 scope.launch {
-                    _events.emit(WsEvent.ConversationMessages(conversationId, local.list(conversationId)))
+                    val limit = (data["limit"] as? Number)?.toInt()
+                    if (limit == null) {
+                        // Preserve the legacy local command shape for non-paginated callers.
+                        _events.emit(WsEvent.ConversationMessages(conversationId, local.list(conversationId)))
+                    } else {
+                        val page = local.listPage(
+                            conversationId = conversationId,
+                            limit = limit,
+                            beforeTimestamp = (data["beforeTimestamp"] as? Number)?.toLong(),
+                            beforeId = data["beforeId"] as? String,
+                        )
+                        _events.emit(
+                            WsEvent.ConversationMessages(
+                                conversationId = conversationId,
+                                messages = page.messages,
+                                paged = true,
+                                hasMore = page.hasMore,
+                                nextBeforeTimestamp = page.nextBeforeTimestamp,
+                                nextBeforeId = page.nextBeforeId,
+                            ),
+                        )
+                    }
                 }
             }
             "conversation:search" -> {

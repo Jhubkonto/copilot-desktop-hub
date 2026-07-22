@@ -129,6 +129,10 @@ sealed class WsEvent {
     data class ConversationMessages(
         val conversationId: String,
         val messages: List<HistoryMessage>,
+        val paged: Boolean = false,
+        val hasMore: Boolean = false,
+        val nextBeforeTimestamp: Long? = null,
+        val nextBeforeId: String? = null,
     ) : WsEvent()
     data class AgentList(val agents: List<Agent>) : WsEvent()
     data class ProjectList(val projects: List<Project>) : WsEvent()
