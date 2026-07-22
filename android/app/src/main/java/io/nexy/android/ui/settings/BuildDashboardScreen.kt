@@ -180,7 +180,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                             buildLogLines.add(event.line)
                         }
                         coroutineScope.launch {
-                            logListState.animateScrollToItem(maxOf(0, buildLogLines.size - 1))
+                            logListState.scrollToItem(maxOf(0, buildLogLines.size - 1))
                         }
                     }
                 }

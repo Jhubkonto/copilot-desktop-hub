@@ -98,21 +98,12 @@ fun QuizScreen(
             )
         },
     ) { padding ->
-        AnimatedContent(
-            targetState = state,
-            transitionSpec = {
-                when (targetState) {
-                    is QuizUiState.Summary ->
-                        (slideInVertically(tween(300)) { it / 6 } + fadeIn(tween(250))) togetherWith fadeOut(tween(150))
-                    else ->
-                        (slideInHorizontally(tween(280)) { it / 4 } + fadeIn(tween(250))) togetherWith (slideOutHorizontally(tween(220)) { -it / 4 } + fadeOut(tween(150)))
-                }
-            },
-            label = "quiz-state",
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-        ) { currentState ->
+        ) {
+            val currentState = state
             when (currentState) {
                 is QuizUiState.CheckingExisting -> GeneratingContent()
                 is QuizUiState.Generating -> GeneratingContent()
@@ -147,17 +138,10 @@ fun QuizScreen(
 
 @Composable
 private fun GeneratingContent() {
-    var showLabel by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(600)
-        showLabel = true
-    }
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             androidx.compose.material3.CircularProgressIndicator()
-            AnimatedVisibility(visible = showLabel, enter = fadeIn(tween(400))) {
-                Text("Generating quiz questions…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text("Generating quiz questions…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -168,16 +152,8 @@ private fun QuestionContent(
     onSelect: (Int) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    val progress by animateFloatAsState(
-        targetValue = (state.index + 1).toFloat() / state.total,
-        animationSpec = tween(400),
-        label = "quiz-progress",
-    )
-    val submitAlpha by animateFloatAsState(
-        targetValue = if (state.selected != null) 1f else 0.4f,
-        animationSpec = tween(200),
-        label = "submit-alpha",
-    )
+    val progress = (state.index + 1).toFloat() / state.total
+    val submitAlpha = if (state.selected != null) 1f else 0.4f
 
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -190,16 +166,8 @@ private fun QuestionContent(
                 Text(state.question.question, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 state.question.options.forEachIndexed { i, option ->
                     val isSelected = state.selected == i
-                    val borderColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                        animationSpec = tween(200),
-                        label = "option-border-$i",
-                    )
-                    val bgColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent,
-                        animationSpec = tween(200),
-                        label = "option-bg-$i",
-                    )
+                    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    val bgColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -239,19 +207,10 @@ private fun QuestionContent(
 
 @Composable
 private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
-    var showExplanation by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(150)
-        showExplanation = true
-    }
-
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             QuizPanel(title = "Answer review") {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = slideInVertically(tween(300)) { -it } + fadeIn(tween(300)),
-                ) {
+                run {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = if (state.isCorrect) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer,
@@ -275,24 +234,16 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
                 state.question.options.forEachIndexed { i, option ->
                     val isCorrect = i == state.question.correctIndex
                     val isWrongSelected = i == state.selected && !state.isCorrect
-                    val borderColor by animateColorAsState(
-                        targetValue = when {
+                    val borderColor = when {
                             isCorrect -> Color(0xFF34D399)
                             isWrongSelected -> MaterialTheme.colorScheme.error
                             else -> MaterialTheme.colorScheme.outline
-                        },
-                        animationSpec = tween(300),
-                        label = "feedback-border-$i",
-                    )
-                    val bgColor by animateColorAsState(
-                        targetValue = when {
+                        }
+                    val bgColor = when {
                             isCorrect -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
                             isWrongSelected -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
                             else -> Color.Transparent
-                        },
-                        animationSpec = tween(300),
-                        label = "feedback-bg-$i",
-                    )
+                        }
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -313,7 +264,7 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
                     }
                 }
 
-                AnimatedVisibility(visible = showExplanation, enter = expandVertically(tween(350)) + fadeIn(tween(350))) {
+                run {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
@@ -337,11 +288,7 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
 
 @Composable
 private fun SummaryContent(state: QuizUiState.Summary, onTryAgain: () -> Unit, onDone: () -> Unit) {
-    val animatedScore by animateIntAsState(
-        targetValue = state.score,
-        animationSpec = tween(800),
-        label = "score-count",
-    )
+    val animatedScore = state.score
     val motivationLabel = when {
         state.score == state.total -> "Perfect score!"
         state.score.toFloat() / state.total >= 0.8f -> "Great job!"
@@ -366,21 +313,13 @@ private fun SummaryContent(state: QuizUiState.Summary, onTryAgain: () -> Unit, o
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     categories.chunked(2).forEachIndexed { rowIndex, rowCats ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            rowCats.forEachIndexed { colIndex, (cat, pair) ->
-                                val staggerIndex = rowIndex * 2 + colIndex
-                                var visible by remember { mutableStateOf(false) }
-                                LaunchedEffect(Unit) {
-                                    kotlinx.coroutines.delay(staggerIndex * 100L)
-                                    visible = true
-                                }
-                                AnimatedVisibility(visible = visible, enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 3 }, modifier = Modifier.weight(1f)) {
-                                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            rowCats.forEach { (cat, pair) ->
+                                ElevatedCard(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                         Column(modifier = Modifier.padding(12.dp)) {
                                             Text(cat.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Text("${pair.first} / ${pair.second}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
-                                }
                             }
                             if (rowCats.size == 1) Spacer(modifier = Modifier.weight(1f))
                         }

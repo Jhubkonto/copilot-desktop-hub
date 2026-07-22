@@ -582,13 +582,9 @@ fun ProjectsTab(
                     var menuExpanded by remember { mutableStateOf(false) }
                     val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
                     val isHighlighted = project.id == highlightProjectId
-                    val flashAlpha = remember(project.id) { Animatable(0f) }
+                    val flashAlpha = if (isHighlighted) 1f else 0f
                     LaunchedEffect(isHighlighted) {
                         if (isHighlighted) {
-                            repeat(3) {
-                                flashAlpha.animateTo(1f, tween(200))
-                                flashAlpha.animateTo(0f, tween(200))
-                            }
                             onHighlightConsumed()
                         }
                     }
@@ -598,7 +594,7 @@ fun ProjectsTab(
                             .fillMaxWidth()
                             .border(
                                 width = 2.dp,
-                                color = primaryColor.copy(alpha = flashAlpha.value),
+                                color = primaryColor.copy(alpha = flashAlpha),
                             )
                             .combinedClickable(
                                 onClick = { onOpenProjectHistory(project.id) },
@@ -937,13 +933,9 @@ fun AgentsTab(
                     var menuExpanded by remember { mutableStateOf(false) }
                     val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
                     val isHighlighted = agent.id == highlightAgentId
-                    val flashAlpha = remember(agent.id) { Animatable(0f) }
+                    val flashAlpha = if (isHighlighted) 1f else 0f
                     LaunchedEffect(isHighlighted) {
                         if (isHighlighted) {
-                            repeat(3) {
-                                flashAlpha.animateTo(1f, tween(200))
-                                flashAlpha.animateTo(0f, tween(200))
-                            }
                             onHighlightConsumed()
                         }
                     }
@@ -953,7 +945,7 @@ fun AgentsTab(
                             .fillMaxWidth()
                             .border(
                                 width = 2.dp,
-                                color = primaryColor.copy(alpha = flashAlpha.value),
+                                color = primaryColor.copy(alpha = flashAlpha),
                             )
                             .combinedClickable(
                                 onClick = { onOpenAgentHistory(agent.id) },

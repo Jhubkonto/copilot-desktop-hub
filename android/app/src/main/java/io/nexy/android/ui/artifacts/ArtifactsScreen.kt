@@ -300,7 +300,7 @@ fun ArtifactsScreen(
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         items(filteredArtifacts, key = { it.id }) { artifact ->
-                            Column(modifier = Modifier.animateItem()) {
+                            Column {
                                 ArtifactRow(
                                     artifact = artifact,
                                     deleting = deletingArtifactId == artifact.id,

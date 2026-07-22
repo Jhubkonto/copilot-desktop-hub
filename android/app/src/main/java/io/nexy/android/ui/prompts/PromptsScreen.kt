@@ -317,7 +317,7 @@ fun PromptsScreen(
                                     )
                                 }
                                 items(items, key = { it.id }) { entry ->
-                                    Column(modifier = Modifier.animateItem()) {
+                                    Column {
                                         PromptRow(
                                             entry = entry,
                                             showInsert = onInsert != null,

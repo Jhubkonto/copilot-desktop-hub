@@ -45,13 +45,8 @@ fun ConnectionChip(
     onToggle: () -> Unit,
     onBusyTap: () -> Unit,
 ) {
-    data class ChipState(val mode: EffectiveConnectionMode, val restartExpected: Boolean)
-    AnimatedContent(
-        targetState = ChipState(mode, intentionalRestartExpected),
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
-        label = "connection-chip",
-    ) { (currentMode, restartExpected) ->
-        val presentation = getEffectiveModePresentation(currentMode, restartExpected)
+    run {
+        val presentation = getEffectiveModePresentation(mode, intentionalRestartExpected)
         Text(
             text = "● ${presentation.label}",
             color = presentation.color,

@@ -288,7 +288,7 @@ fun SkillsScreen(
                     } else {
                         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             items(filteredSkills, key = { it.id }) { skill ->
-                                Column(modifier = Modifier.animateItem()) {
+                                Column {
                                     SkillRow(
                                         skill = skill,
                                         usageCount = state.usageBySkillId[skill.id] ?: 0,

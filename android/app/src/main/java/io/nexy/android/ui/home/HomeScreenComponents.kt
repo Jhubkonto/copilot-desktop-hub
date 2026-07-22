@@ -163,10 +163,7 @@ fun ConversationRow(
                                     ),
                             )
                         }
-                        AnimatedVisibility(
-                            visible = isCompleted,
-                            enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.6f),
-                        ) {
+                        if (isCompleted) {
                             Icon(
                                 Icons.Default.CheckCircle,
                                 contentDescription = "Complete",
@@ -325,16 +322,6 @@ fun ConversationRow(
 
 @Composable
 fun PendingConversationRow() {
-    val infiniteTransition = rememberInfiniteTransition(label = "pending-dot")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pending-dot-alpha",
-    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -347,7 +334,7 @@ fun PendingConversationRow() {
             modifier = Modifier
                 .size(7.dp)
                 .background(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                    color = MaterialTheme.colorScheme.primary,
                     shape = CircleShape,
                 ),
         )

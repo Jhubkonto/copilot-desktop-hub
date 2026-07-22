@@ -1037,7 +1037,8 @@ fun AgentConfigScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    AnimatedContent(targetState = editingKnowledgeFile, label = "knowledge-panel") { editing ->
+                    run {
+                        val editing = editingKnowledgeFile
                         if (editing != null) {
                             KnowledgeFileEditorSection(
                                 file = editing,

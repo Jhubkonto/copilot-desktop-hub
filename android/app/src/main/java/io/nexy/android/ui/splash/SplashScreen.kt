@@ -27,14 +27,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
-    val alpha = remember { Animatable(0f) }
-    val scale = remember { Animatable(0.88f) }
-
     LaunchedEffect(Unit) {
-        launch { alpha.animateTo(1f, tween(400, easing = FastOutSlowInEasing)) }
-        launch { scale.animateTo(1f, tween(400, easing = FastOutSlowInEasing)) }
         delay(800)
-        alpha.animateTo(0f, tween(300, easing = FastOutSlowInEasing))
         onFinished()
     }
 
@@ -44,13 +38,7 @@ fun SplashScreen(onFinished: () -> Unit) {
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier.graphicsLayer(
-                alpha = alpha.value,
-                scaleX = scale.value,
-                scaleY = scale.value,
-            ),
-        ) {
+        Box {
             Text(
                 text = buildAnnotatedString {
                     withStyle(SpanStyle(color = NexyViolet)) { append("N") }

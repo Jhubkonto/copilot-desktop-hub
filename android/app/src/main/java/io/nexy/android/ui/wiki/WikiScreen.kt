@@ -383,11 +383,7 @@ private fun WikiExtractionSheet(
                                 }
                             }
                         }
-                        AnimatedVisibility(
-                            visible = expanded,
-                            enter = expandVertically(),
-                            exit = shrinkVertically(),
-                        ) {
+                        if (expanded) {
                             val previewLines = candidate.body.lines().take(5).joinToString("\n")
                             Column {
                                 Surface(

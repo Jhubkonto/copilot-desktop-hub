@@ -150,11 +150,7 @@ fun ProjectAuditScreen(
                             )
                         }
 
-                        AnimatedVisibility(
-                            visible = sessionExpanded,
-                            enter = expandVertically(),
-                            exit = shrinkVertically(),
-                        ) {
+                        if (sessionExpanded) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 when {
@@ -244,11 +240,7 @@ private fun ProjectAuditFileCard(
             }
         }
 
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-        ) {
+        if (expanded) {
             when {
                 !file.diffAvailable -> {
                     Text(

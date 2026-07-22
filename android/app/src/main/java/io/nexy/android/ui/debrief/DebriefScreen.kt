@@ -104,16 +104,12 @@ fun DebriefScreen(
             )
         },
     ) { padding ->
-        AnimatedContent(
-            targetState = state,
-            transitionSpec = {
-                (fadeIn(tween(250)) + slideInVertically(tween(300)) { it / 6 }) togetherWith fadeOut(tween(150))
-            },
-            label = "debrief-state",
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-        ) { currentState ->
+        ) {
+            val currentState = state
             when (currentState) {
                 is DebriefUiState.CheckingExisting -> LoadingContent("Checking for an existing debrief…")
                 is DebriefUiState.ReadyToGenerate -> ReadyToGenerateContent(
@@ -186,18 +182,10 @@ internal fun ReadyToGenerateContent(
 
 @Composable
 private fun LoadingContent(label: String) {
-    var showLabel by remember { mutableStateOf(false) }
-    LaunchedEffect(label) {
-        showLabel = false
-        kotlinx.coroutines.delay(800)
-        showLabel = true
-    }
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             CircularProgressIndicator()
-            AnimatedVisibility(visible = showLabel, enter = fadeIn(tween(400))) {
-                Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

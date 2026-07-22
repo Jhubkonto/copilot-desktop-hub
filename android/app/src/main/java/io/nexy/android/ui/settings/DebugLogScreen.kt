@@ -48,7 +48,7 @@ fun DebugLogScreen(onBack: () -> Unit) {
     val context = LocalContext.current
 
     LaunchedEffect(entries.size) {
-        if (entries.isNotEmpty()) listState.animateScrollToItem(entries.size - 1)
+        if (entries.isNotEmpty()) listState.scrollToItem(entries.size - 1)
     }
 
     Scaffold(

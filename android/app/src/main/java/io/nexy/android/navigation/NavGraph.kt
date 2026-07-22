@@ -296,18 +296,8 @@ fun NavGraph(
                     defaultValue = ""
                 },
             ),
-            enterTransition = {
-                slideInVertically(
-                    initialOffsetY = { it / 6 },
-                    animationSpec = tween(durationMillis = 280),
-                ) + fadeIn(animationSpec = tween(durationMillis = 280))
-            },
-            exitTransition = {
-                slideOutVertically(
-                    targetOffsetY = { it / 8 },
-                    animationSpec = tween(durationMillis = 220),
-                ) + fadeOut(animationSpec = tween(durationMillis = 220))
-            },
+            enterTransition = { androidx.compose.animation.EnterTransition.None },
+            exitTransition = { androidx.compose.animation.ExitTransition.None },
         ) { backStack ->
             val conversationId = backStack.arguments?.getString("conversationId") ?: ""
             val agentId = backStack.arguments?.getString("agentId")?.takeIf { it.isNotBlank() }
@@ -661,12 +651,8 @@ fun NavGraph(
         composable(
             route = "debrief/{conversationId}",
             arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
-            enterTransition = {
-                slideInVertically(initialOffsetY = { it / 6 }, animationSpec = tween(280)) + fadeIn(tween(280))
-            },
-            exitTransition = {
-                slideOutVertically(targetOffsetY = { it / 8 }, animationSpec = tween(220)) + fadeOut(tween(220))
-            },
+            enterTransition = { androidx.compose.animation.EnterTransition.None },
+            exitTransition = { androidx.compose.animation.ExitTransition.None },
         ) { backStackEntry ->
             val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
             DebriefScreen(
@@ -685,12 +671,8 @@ fun NavGraph(
                     defaultValue = ""
                 },
             ),
-            enterTransition = {
-                slideInVertically(initialOffsetY = { it / 6 }, animationSpec = tween(280)) + fadeIn(tween(280))
-            },
-            exitTransition = {
-                slideOutVertically(targetOffsetY = { it / 8 }, animationSpec = tween(220)) + fadeOut(tween(220))
-            },
+            enterTransition = { androidx.compose.animation.EnterTransition.None },
+            exitTransition = { androidx.compose.animation.ExitTransition.None },
         ) { backStackEntry ->
             val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
             val artifactId = backStackEntry.arguments?.getString("artifactId")?.takeIf { it.isNotBlank() }
