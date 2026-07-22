@@ -116,7 +116,7 @@ fun FileTreeView(
                         depth = depth,
                         onToggle = { expandedFolders[fullPath] = !expanded },
                     )
-                    AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+                    if (expanded) {
                         FileTreeView(
                             nodes = node.children,
                             expandedFolders = expandedFolders,
@@ -248,7 +248,7 @@ fun FileLeafRow(
                 contentDescription = null,
             )
         }
-        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+        if (expanded) {
             if (diffContent == null) {
                 Text(
                     "Loading diff…",

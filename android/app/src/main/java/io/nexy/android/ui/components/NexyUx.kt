@@ -361,15 +361,7 @@ fun NexySkeletonLoader(
     modifier: Modifier = Modifier,
     lines: Int = 3,
 ) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val progress by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-        ),
-        label = "skeleton-shimmer",
-    )
+    val progress = 0.4f
     val shimmerColors = listOf(
         MaterialTheme.colorScheme.surfaceVariant,
         MaterialTheme.colorScheme.surface,
@@ -449,11 +441,7 @@ fun NexyExpandableSection(
                 )
             }
         }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-        ) {
+        if (expanded) {
             Column(content = content)
         }
     }
@@ -544,7 +532,7 @@ fun NexyInputValidation(
             keyboardOptions = keyboardOptions,
             modifier = Modifier.fillMaxWidth(),
         )
-        AnimatedVisibility(visible = errorMessage != null) {
+        if (errorMessage != null) {
             Text(
                 text = errorMessage.orEmpty(),
                 style = MaterialTheme.typography.labelSmall,
