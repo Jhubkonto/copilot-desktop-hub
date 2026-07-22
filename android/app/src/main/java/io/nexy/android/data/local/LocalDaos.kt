@@ -54,10 +54,10 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
-    @Query("SELECT * FROM local_messages WHERE conversationId = :conversationId AND deleted = 0 ORDER BY timestamp, id")
+    @Query("SELECT * FROM local_messages WHERE conversationId = :conversationId AND deleted = 0 ORDER BY COALESCE(timelineOrder, timestamp), timestamp, id")
     fun observeForConversation(conversationId: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM local_messages WHERE conversationId = :conversationId AND deleted = 0 ORDER BY timestamp, id")
+    @Query("SELECT * FROM local_messages WHERE conversationId = :conversationId AND deleted = 0 ORDER BY COALESCE(timelineOrder, timestamp), timestamp, id")
     suspend fun getForConversation(conversationId: String): List<MessageEntity>
 
     @Query(

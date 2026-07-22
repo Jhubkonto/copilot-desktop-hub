@@ -1,19 +1,10 @@
 package io.nexy.android.data
 
 import io.nexy.android.data.model.WsEvent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import org.json.JSONObject
-import kotlin.math.ceil
-import kotlin.math.max
-import kotlin.math.min
 
 data class ChatAnimationState(
     val turnId: String? = null,
@@ -31,18 +22,11 @@ data class ChatAnimationState(
 }
 
 /**
- * Process-memory animation state. It deliberately persists no chat content to disk:
- * navigation keeps the controller alive, while process restart restores from desktop.
+ * Process-memory streaming state. Authoritative text is exposed immediately; the
+ * retained shape keeps paired-client compatibility while animation is removed.
  */
 object ChatAnimationRepository {
-    private const val FRAME_MS = 16L
-    private const val TARGET_CATCH_UP_MS = 2800L
-    private const val MIN_CHARS_PER_FRAME = 2
-    private const val MAX_CHARS_PER_FRAME = 64
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val states = mutableMapOf<String, MutableStateFlow<ChatAnimationState>>()
-    private val drainJobs = mutableMapOf<String, Job>()
 
     @Synchronized
     fun observe(conversationId: String): StateFlow<ChatAnimationState> =
@@ -66,14 +50,16 @@ object ChatAnimationRepository {
         when (event.type) {
             "assistant_text_delta" -> {
                 val chunk = JSONObject(event.payloadJson).optString("chunk", "")
+                val text = current.authoritativeText + chunk
                 flow.value = current.copy(
                     turnId = event.turnId,
-                    authoritativeText = current.authoritativeText + chunk,
+                    authoritativeText = text,
+                    displayedText = text,
                     lastSequence = event.sequence,
                     sequenceGaps = sequenceGaps,
-                    oldestPendingAt = current.oldestPendingAt ?: System.currentTimeMillis(),
+                    revealLagMs = 0L,
+                    oldestPendingAt = null,
                 )
-                ensureDrain(event.conversationId, flow)
             }
             "text_segment_done" -> {
                 // A text segment just closed (a tool call is about to interrupt it, or the
@@ -100,18 +86,13 @@ object ChatAnimationRepository {
                 )
             }
             "turn_completed", "turn_failed" -> {
-                // Mark terminal but do NOT snap displayedText to the full authoritativeText
-                // or cancel the drain job here — that would cut the reveal animation short
-                // the instant the backend finishes, decoupled from how much backlog is left.
-                // The drain loop keeps running and reveals any remaining backlog at the
-                // normal pace; it naturally stops once backlog reaches zero.
                 flow.value = current.copy(
                     turnId = event.turnId,
+                    displayedText = current.authoritativeText,
                     lastSequence = event.sequence,
                     terminal = true,
                     sequenceGaps = sequenceGaps,
                 )
-                ensureDrain(event.conversationId, flow)
             }
             else -> flow.value = current.copy(
                 turnId = event.turnId,
@@ -152,7 +133,6 @@ object ChatAnimationRepository {
         // reappearing via the end-of-turn full history refetch. Resetting in place keeps the
         // same instance alive so existing collectors keep receiving updates.
         states[conversationId]?.value = ChatAnimationState()
-        drainJobs.remove(conversationId)?.cancel()
     }
 
     fun shouldApplyPersistedHistory(conversationId: String, persistedAssistantText: String?): Boolean {
@@ -163,33 +143,4 @@ object ChatAnimationRepository {
             persistedAssistantText == current.authoritativeText
     }
 
-    private fun ensureDrain(conversationId: String, flow: MutableStateFlow<ChatAnimationState>) {
-        if (drainJobs[conversationId]?.isActive == true) return
-        drainJobs[conversationId] = scope.launch {
-            while (true) {
-                val current = flow.value
-                val backlog = current.backlogLength
-                // Only stop once the backlog is actually drained — `terminal` marks that the
-                // backend has finished sending text, not that the reveal animation should stop.
-                if (backlog <= 0) break
-                val frames = max(1.0, TARGET_CATCH_UP_MS.toDouble() / FRAME_MS)
-                val frameSize = min(
-                    backlog,
-                    min(MAX_CHARS_PER_FRAME, max(MIN_CHARS_PER_FRAME, ceil(backlog / frames).toInt())),
-                )
-                val offset = current.displayedText.length + frameSize
-                val nextText = current.authoritativeText.take(offset)
-                val stillPending = nextText.length < current.authoritativeText.length
-                flow.value = current.copy(
-                    displayedText = nextText,
-                    revealLagMs = if (stillPending) {
-                        System.currentTimeMillis() - (current.oldestPendingAt ?: System.currentTimeMillis())
-                    } else 0L,
-                    oldestPendingAt = if (stillPending) current.oldestPendingAt else null,
-                )
-                delay(FRAME_MS)
-            }
-            drainJobs.remove(conversationId)
-        }
-    }
 }

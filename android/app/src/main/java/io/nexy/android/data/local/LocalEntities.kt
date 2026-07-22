@@ -58,6 +58,7 @@ data class MessageEntity(
     val provider: String? = null,
     val finishReason: String? = null,
     val timestamp: Long,
+    val timelineOrder: Long? = null,
     val attachmentsJson: String = "[]",
     val thinkingBlocksJson: String = "[]",
     // Ordered response-text bursts when the reply was interrupted by a tool call — mirrors

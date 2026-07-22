@@ -801,6 +801,7 @@ fun parseWsEvent(
                         role = m.optString("role"),
                         content = m.optString("content"),
                         timestamp = m.optLong("timestamp"),
+                        timelineOrder = m.takeUnless { it.isNull("timeline_order") }?.optLong("timeline_order"),
                         attachments = attachmentsFromJson(m.nullableString("attachments")),
                         thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
                         textSegments = parseThinkingBlocks(m.nullableString("text_segments")),

@@ -712,6 +712,7 @@ data class HistoryMessage(
     val role: String,
     val content: String,
     val timestamp: Long,
+    val timelineOrder: Long? = null,
     val attachments: List<AttachmentMeta> = emptyList(),
     val thinkingBlocks: List<ThinkingBlock> = emptyList(),
     // Ordered response-text bursts when the reply was interrupted by a tool call (e.g.
