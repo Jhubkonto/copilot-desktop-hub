@@ -10,6 +10,7 @@ import Bonjour from 'bonjour-service'
 import { getDatabase } from './database'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
 import { debugLog } from './debug-mode'
+import type { ConnectedAndroidDevice } from '../shared/types'
 
 export interface WsPushEvent {
   event: string
@@ -31,6 +32,7 @@ let currentPort: number | null = null
 let currentToken: string | null = null
 let currentCertFingerprint: string | null = null
 const connectedClients = new Set<WebSocket>()
+const clientDeviceInfo = new Map<WebSocket, ConnectedAndroidDevice>()
 let commandHandler: CommandHandler | null = null
 let mobileInForeground = false
 const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
@@ -175,6 +177,7 @@ export function getWsStatus() {
     secure: pairingUrl?.startsWith('wss://') ?? false,
     certFingerprint: currentCertFingerprint,
     connectedClients: connectedClients.size,
+    devices: [...connectedClients].map((client) => clientDeviceInfo.get(client)).filter((device): device is ConnectedAndroidDevice => device !== undefined),
   }
 }
 
@@ -323,12 +326,20 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     const localIp = getLocalIp()
     const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
     const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
-    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl, macAddress, broadcastAddress, mDnsName: getMdnsName(), isPackaged: app.isPackaged } }))
+    ws.send(JSON.stringify({ event: 'connected', data: { version: app.getVersion(), feedUrl, macAddress, broadcastAddress, mDnsName: getMdnsName(), isPackaged: app.isPackaged } }))
 
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(String(raw)) as WsCommand
         if (msg.token !== currentToken) { ws.close(4001, 'Unauthorized'); return }
+        if (msg.command === 'sync:hello' && typeof msg.data?.deviceId === 'string') {
+          const versionName = typeof msg.data.appVersion === 'string' && msg.data.appVersion.trim() ? msg.data.appVersion : null
+          const rawVersionCode = msg.data.appVersionCode
+          const versionCode = typeof rawVersionCode === 'number' && Number.isFinite(rawVersionCode) ? rawVersionCode : null
+          const deviceName = typeof msg.data.deviceName === 'string' && msg.data.deviceName.trim() ? msg.data.deviceName : null
+          clientDeviceInfo.set(ws, { deviceId: msg.data.deviceId, deviceName, versionName, versionCode })
+          onClientCountChange?.(connectedClients.size)
+        }
         commandHandler?.(msg.command, msg.data ?? {}, (event) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
         })
@@ -337,12 +348,14 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
 
     ws.on('close', (code, reason) => {
       connectedClients.delete(ws)
+      clientDeviceInfo.delete(ws)
       if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
       onClientCountChange?.(connectedClients.size)
       debugLog('ws', `client disconnected: code=${code} reason=${reason.toString() || 'none'} remaining=${connectedClients.size}`)
     })
     ws.on('error', (err) => {
       connectedClients.delete(ws)
+      clientDeviceInfo.delete(ws)
       if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
       onClientCountChange?.(connectedClients.size)
       debugLog('ws', `client error: ${err.message} remaining=${connectedClients.size}`)
@@ -414,6 +427,7 @@ export function stopWsServer(): void {
   try { bonjourInstance?.destroy(); bonjourInstance = null } catch { /* best-effort */ }
   for (const client of connectedClients) client.close(1001, 'Server stopping')
   connectedClients.clear()
+  clientDeviceInfo.clear()
   mobileInForeground = false
   releaseWakeLock()
   wss?.close()

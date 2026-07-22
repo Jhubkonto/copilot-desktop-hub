@@ -1390,6 +1390,31 @@ export function registerWsHandlers(): void {
     if (command === 'conversation:get-messages') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
+      const requestedLimit = typeof data.limit === 'number' ? Math.floor(data.limit) : null
+      // Bounded history is opt-in, so desktop and older clients keep their full snapshot.
+      if (requestedLimit != null && requestedLimit > 0) {
+        const limit = Math.min(requestedLimit, 100)
+        const beforeTimestamp = typeof data.beforeTimestamp === 'number' ? data.beforeTimestamp : null
+        const beforeId = typeof data.beforeId === 'string' ? data.beforeId : null
+        const descendingRows = beforeTimestamp != null && beforeId != null
+          ? db.prepare(
+            `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
+               WHERE conversation_id = ? AND (timestamp < ? OR (timestamp = ? AND id < ?))
+               ORDER BY timestamp DESC, id DESC LIMIT ?`
+          ).all(conversationId, beforeTimestamp, beforeTimestamp, beforeId, limit + 1)
+          : db.prepare(
+            `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
+               WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`
+          ).all(conversationId, limit + 1)
+        const hasMore = descendingRows.length > limit
+        const page = (hasMore ? descendingRows.slice(0, limit) : descendingRows).reverse()
+        const oldest = page[0] as { id: string; timestamp: number } | undefined
+        reply({ event: 'conversation:messages', data: {
+          conversationId, messages: page, paged: true, hasMore,
+          nextBeforeTimestamp: oldest?.timestamp ?? null, nextBeforeId: oldest?.id ?? null,
+        } })
+        return
+      }
       const rows = db.prepare(
         `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
            WHERE conversation_id = ? ORDER BY timestamp ASC`

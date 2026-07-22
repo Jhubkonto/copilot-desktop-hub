@@ -32,6 +32,13 @@ import { saveFcmServiceAccount, getFcmConfigStatus } from './fcm-sender'
 import type { ChildProcess } from 'child_process'
 const activeAndroidProcesses = new Map<string, ChildProcess>()
 
+// Keep this in sync with android/app/build.gradle.kts.  Gradle adds this
+// offset to the Git commit count so a release rebuilt from an unchanged commit
+// can still supersede the prior installed APK.  The desktop must advertise the
+// same value in its build records and update manifest.
+const ANDROID_RELEASE_BUILD_OFFSET = 1
+const ANDROID_VERSION_CODE_ENV = 'NEXY_ANDROID_VERSION_CODE'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -64,16 +71,16 @@ export async function getAndroidWorkspaceInfo(db: Database.Database): Promise<An
       execFileAsync('git', ['status', '--porcelain'], { cwd: workspacePath, timeout: 5000 }),
       execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
         .then(({ stdout }) => { info.commitSha = stdout.trim() }),
-      // Mirror the git-based versionCode that app/build.gradle.kts embeds in the
-      // APK (git commit count) so the published manifest's versionCode matches
-      // the installed APK's BuildConfig.VERSION_CODE. Without this the manifest
-      // would fall back to 1 and the Android updater would never offer the build.
+      // Mirror the versionCode that app/build.gradle.kts embeds in the APK so
+      // the published manifest matches BuildConfig.VERSION_CODE. Without this,
+      // an APK can be newer than the manifest advertised to Android and the
+      // companion will correctly decline to install it as an update.
       execFileAsync('git', ['rev-list', '--count', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
         .then(({ stdout }) => {
           const count = parseInt(stdout.trim(), 10)
           if (Number.isFinite(count) && count > 0) {
-            info.versionCode = count
-            info.versionName = `1.0.${count}`
+            info.versionCode = count + ANDROID_RELEASE_BUILD_OFFSET
+            info.versionName = `1.0.${info.versionCode}`
           }
         }),
     ])
@@ -104,6 +111,54 @@ export async function getAndroidWorkspaceInfo(db: Database.Database): Promise<An
 
 function getGradlew(): string {
   return process.platform === 'win32' ? 'gradlew.bat' : './gradlew'
+}
+
+/**
+ * Gradle inherits the desktop process environment. On Windows that can point
+ * at an extension-provided JRE (for example VS Code's Java extension) rather
+ * than a complete JDK. Android's JdkImageTransform requires `jlink`, so make
+ * the Android build use a verified JDK explicitly.
+ */
+function resolveAndroidJdkHome(): string | null {
+  const candidates = [
+    process.env.JAVA_HOME,
+    process.env.JDK_HOME,
+    process.platform === 'win32' ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Android', 'Android Studio', 'jbr') : undefined,
+    process.platform === 'darwin' ? '/Applications/Android Studio.app/Contents/jbr/Contents/Home' : undefined,
+    process.platform === 'linux' ? '/opt/android-studio/jbr' : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate))
+
+  const jlinkName = process.platform === 'win32' ? 'jlink.exe' : 'jlink'
+  return candidates.find((candidate) => existsSync(path.join(candidate, 'bin', jlinkName))) ?? null
+}
+
+function androidGradleArgs(command: AndroidBuildCommandName): string[] {
+  const jdkHome = resolveAndroidJdkHome()
+  if (!jdkHome) {
+    throw new Error('No complete JDK was found for the Android build. Install Android Studio (including its bundled JDK) or set JAVA_HOME to a JDK containing bin/jlink.')
+  }
+  // The command-line property takes precedence over a stale user Gradle/IDE
+  // setting such as the missing VS Code runtime shown in build diagnostics.
+  // Quote the value because Android Studio's default JBR path contains spaces
+  // on Windows; the build runner invokes Gradle through the platform shell.
+  return [`-Dorg.gradle.java.home="${jdkHome}"`, ...ANDROID_COMMANDS[command]]
+}
+
+/**
+ * A user-level Gradle property can override JAVA_HOME. Inject the verified JDK
+ * into the Gradle launcher's JVM options too, so a stale IDE runtime cannot be
+ * selected before project settings are evaluated.
+ */
+function withVerifiedAndroidJdk(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const jdkHome = resolveAndroidJdkHome()
+  if (!jdkHome) return env
+  const jdkOption = `-Dorg.gradle.java.home="${jdkHome}"`
+  return {
+    ...env,
+    JAVA_HOME: jdkHome,
+    JDK_HOME: jdkHome,
+    GRADLE_OPTS: [env.GRADLE_OPTS, jdkOption].filter(Boolean).join(' '),
+  }
 }
 
 export function getSigningConfig(db: Database.Database): AndroidSigningConfig | null {
@@ -375,11 +430,17 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
 
   const checksum = await computeSha256(destApk)
   const wsInfo = await getAndroidWorkspaceInfo(db)
+  // The desktop may have reserved a release code above the Git-derived
+  // fallback. Publish the code recorded for that release build, otherwise the
+  // manifest would advertise an older version than the APK it serves.
+  const builtRelease = db.prepare(
+    "SELECT version_code AS versionCode, version FROM build_records WHERE platform = 'android' AND command = 'assembleRelease' AND status = 'success' ORDER BY finished_at DESC LIMIT 1"
+  ).get() as { versionCode: number | null; version: string | null } | undefined
   const feedLanUrl = await ensureLanFeedServer(db, androidFeedDir)
 
   const manifest: AndroidUpdateManifest = {
-    versionCode: wsInfo.versionCode ?? 1,
-    versionName: wsInfo.versionName ?? '1.0',
+    versionCode: builtRelease?.versionCode ?? wsInfo.versionCode ?? 1,
+    versionName: builtRelease?.version ?? wsInfo.versionName ?? '1.0',
     commitSha: wsInfo.commitSha,
     changelog: '',
     checksum,
@@ -390,6 +451,25 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
   await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
   return { published: true, manifest }
+}
+
+/**
+ * Allocate a code before a release build starts. Git commit count cannot do
+ * this: rebuilding an unchanged checkout would otherwise produce the exact
+ * same APK versionCode and Android would reject it as an update.
+ */
+function reserveReleaseVersionCode(db: Database.Database, fallbackCode: number | null): number {
+  const recorded = db.prepare(
+    "SELECT MAX(version_code) AS versionCode FROM build_records WHERE platform = 'android' AND command IN ('assembleRelease', 'bundleRelease')"
+  ).get() as { versionCode: number | null } | undefined
+  const base = Math.max(fallbackCode ?? 0, recorded?.versionCode ?? 0)
+  return Math.max(base + 1, 1)
+}
+
+function buildAndroidBuildEnv(signingConfig: AndroidSigningConfig | null, versionCode: number | null): NodeJS.ProcessEnv {
+  const env = signingConfig ? buildSigningEnv(signingConfig) : { ...process.env }
+  const withJdk = withVerifiedAndroidJdk(env)
+  return versionCode == null ? withJdk : { ...withJdk, [ANDROID_VERSION_CODE_ENV]: String(versionCode) }
 }
 
 export async function restoreAndroidVersion(db: Database.Database, versionCode: number): Promise<{ restored: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
@@ -479,13 +559,21 @@ export async function startAndroidBuildFromMobile(
   if (!workspacePath) throw new Error('Android workspace path not configured')
 
   const buildId = randomUUID()
-  const wsInfo = await getAndroidWorkspaceInfo(db)
+  const workspaceInfo = await getAndroidWorkspaceInfo(db)
+  const releaseVersionCode = SIGNING_COMMANDS.has(command)
+    ? reserveReleaseVersionCode(db, workspaceInfo.versionCode)
+    : workspaceInfo.versionCode
+  const wsInfo = releaseVersionCode === workspaceInfo.versionCode ? workspaceInfo : {
+    ...workspaceInfo,
+    versionCode: releaseVersionCode,
+    versionName: `1.0.${releaseVersionCode}`,
+  }
   const now = Date.now()
   const gradlew = getGradlew()
-  const args = ANDROID_COMMANDS[command]
+  const args = androidGradleArgs(command)
   const useSigningEnv = SIGNING_COMMANDS.has(command)
   const signingConfig = useSigningEnv ? await ensureAndroidSigningConfig(db) : null
-  const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
+  const env = buildAndroidBuildEnv(signingConfig, SIGNING_COMMANDS.has(command) ? releaseVersionCode : null)
 
   db.prepare(
     `INSERT INTO build_records
@@ -550,13 +638,21 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     // success-shaped object carrying an error field.
     if (!workspacePath) throw new Error('Android workspace path not configured')
 
-    const wsInfo = await getAndroidWorkspaceInfo(db)
+    const workspaceInfo = await getAndroidWorkspaceInfo(db)
+    const releaseVersionCode = SIGNING_COMMANDS.has(command)
+      ? reserveReleaseVersionCode(db, workspaceInfo.versionCode)
+      : workspaceInfo.versionCode
+    const wsInfo = releaseVersionCode === workspaceInfo.versionCode ? workspaceInfo : {
+      ...workspaceInfo,
+      versionCode: releaseVersionCode,
+      versionName: `1.0.${releaseVersionCode}`,
+    }
     const now = Date.now()
     const gradlew = getGradlew()
-    const args = ANDROID_COMMANDS[command]
+    const args = androidGradleArgs(command)
     const useSigningEnv = SIGNING_COMMANDS.has(command)
     const signingConfig = useSigningEnv ? await ensureAndroidSigningConfig(db) : null
-    const env = signingConfig ? buildSigningEnv(signingConfig) : process.env
+    const env = buildAndroidBuildEnv(signingConfig, SIGNING_COMMANDS.has(command) ? releaseVersionCode : null)
 
     db.prepare(
       `INSERT INTO build_records

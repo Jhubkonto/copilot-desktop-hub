@@ -13,7 +13,9 @@ import type { BuildRecord, BuildStatus } from '../shared/types'
  * copy-pasted between the two modules (and twice within build-handlers).
  */
 
-const MAX_LOG_CHARS = 4096
+// Retain the complete Gradle failure diagnostic block (source location,
+// compiler error, task summary, and recovery guidance) in build history.
+const MAX_LOG_CHARS = 256 * 1024
 
 export function mapBuildRecord(row: Record<string, unknown>): BuildRecord {
   return {
@@ -80,8 +82,9 @@ export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
     if (line === lastUniqueLine) {
       repeatCount++
       const summary = `  [repeated ${repeatCount + 1}×]`
-      logLines[logLines.length - 1] = summary
-      emit(logEvent, { buildId, line: summary, stream, replace: true })
+      // Keep the original compiler line; replacing it hides repeated errors.
+      logLines.push(summary)
+      emit(logEvent, { buildId, line: summary, stream })
       return
     }
     lastUniqueLine = line

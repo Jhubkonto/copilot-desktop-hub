@@ -110,7 +110,7 @@ describe('getAndroidWorkspaceInfo', () => {
     expect(info.dirty).toBe(false)
   })
 
-  it('derives versionCode/versionName from the git commit count', async () => {
+  it('derives versionCode/versionName using the APK release offset', async () => {
     execFileMock
       .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' })    // abbrev-ref
       .mockResolvedValueOnce({ stdout: '', stderr: '' })           // status
@@ -123,8 +123,8 @@ describe('getAndroidWorkspaceInfo', () => {
     const { getAndroidWorkspaceInfo } = await import('../android-handlers')
     const info = await getAndroidWorkspaceInfo(db)
 
-    expect(info.versionCode).toBe(1063)
-    expect(info.versionName).toBe('1.0.1063')
+    expect(info.versionCode).toBe(1064)
+    expect(info.versionName).toBe('1.0.1064')
   })
 
   it('returns isGitRepo false when path is not a git repo', async () => {
@@ -269,7 +269,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
-      ['assembleDebug'],
+      expect.arrayContaining(['assembleDebug']),
       expect.objectContaining({ shell: true })
     )
   })
@@ -280,9 +280,30 @@ describe('registerAndroidHandlers — android:start-command', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
-      ['assembleRelease'],
+      expect.arrayContaining(['assembleRelease']),
       expect.any(Object)
     )
+  })
+
+  it('reserves an increasing APK version code for every desktop release build', async () => {
+    const handler = handlers.get('android:start-command')
+
+    await handler?.({}, 'assembleRelease')
+    await handler?.({}, 'assembleRelease')
+
+    const releaseCalls = spawnMock.mock.calls.filter((call) => call[1]?.includes('assembleRelease'))
+    expect(releaseCalls).toHaveLength(2)
+    expect(releaseCalls[0]?.[2]).toEqual(expect.objectContaining({
+      env: expect.objectContaining({ NEXY_ANDROID_VERSION_CODE: '1' }),
+    }))
+    expect(releaseCalls[1]?.[2]).toEqual(expect.objectContaining({
+      env: expect.objectContaining({ NEXY_ANDROID_VERSION_CODE: '2' }),
+    }))
+
+    const codes = db.prepare(
+      "SELECT version_code FROM build_records WHERE platform = 'android' AND command = 'assembleRelease' ORDER BY started_at ASC"
+    ).all() as Array<{ version_code: number }>
+    expect(codes.map((row) => row.version_code)).toEqual([1, 2])
   })
 
   it('injects signing env vars for assembleRelease', async () => {
@@ -294,7 +315,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
-      ['assembleRelease'],
+      expect.arrayContaining(['assembleRelease']),
       expect.objectContaining({
         env: expect.objectContaining({
           NEXY_KEYSTORE_PATH: '/key.jks',
@@ -330,7 +351,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
       )
       expect(spawnMock).toHaveBeenCalledWith(
         expect.any(String),
-        ['assembleRelease'],
+        expect.arrayContaining(['assembleRelease']),
         expect.objectContaining({
           env: expect.objectContaining({
             NEXY_KEYSTORE_PATH: keystorePath,
@@ -366,7 +387,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
-      ['test'],
+      expect.arrayContaining(['test']),
       expect.any(Object)
     )
     const callArgs = spawnMock.mock.calls[0]
