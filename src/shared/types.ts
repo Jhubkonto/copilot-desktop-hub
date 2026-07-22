@@ -1275,6 +1275,7 @@ export interface MessageRow {
   is_edited: number
   previous_content: string | null
   timestamp: number
+  timeline_order: number
   tool_calls: string | null
   attachments: string | null
   context_snapshot: string | null

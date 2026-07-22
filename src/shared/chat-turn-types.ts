@@ -162,4 +162,6 @@ export interface ActiveChatTurnSnapshot {
   // The most recent activity_changed/tool_started label, so a re-fetching client can show
   // "Running X" / "Thinking" instead of a bare status with no explanation.
   activity: ActiveChatTurnActivitySnapshot | null
+  /** Sequence-ordered replay used to restore through the live event reducer. */
+  events: ChatTurnEvent[]
 }
