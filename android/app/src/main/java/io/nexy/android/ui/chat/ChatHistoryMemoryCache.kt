@@ -16,6 +16,8 @@ internal object ChatHistoryMemoryCache {
         0.75f,
         true,
     ) {}
+    data class ViewState(val itemIndex: Int, val itemOffset: Int, val shouldAutoFollow: Boolean)
+    private val viewStates = mutableMapOf<String, ViewState>()
 
     @Synchronized
     fun get(conversationId: String): List<ChatMessage>? = entries[conversationId]
@@ -30,5 +32,16 @@ internal object ChatHistoryMemoryCache {
     }
 
     @Synchronized
-    internal fun clearForTest() = entries.clear()
+    fun getViewState(conversationId: String): ViewState? = viewStates[conversationId]
+
+    @Synchronized
+    fun putViewState(conversationId: String, state: ViewState) {
+        viewStates[conversationId] = state
+    }
+
+    @Synchronized
+    internal fun clearForTest() {
+        entries.clear()
+        viewStates.clear()
+    }
 }

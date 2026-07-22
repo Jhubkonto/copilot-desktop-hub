@@ -231,17 +231,10 @@ fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (isTool) {
-                val pulseTransition = rememberInfiniteTransition(label = "tool-icon-pulse")
-                val pulseAlpha by pulseTransition.animateFloat(
-                    initialValue = 1f,
-                    targetValue = 0.5f,
-                    animationSpec = infiniteRepeatable(tween(1000), repeatMode = RepeatMode.Reverse),
-                    label = "tool-icon-pulse-alpha",
-                )
                 Icon(
                     Icons.Default.Build,
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp).alpha(pulseAlpha),
+                    modifier = Modifier.size(14.dp),
                     tint = blue,
                 )
             } else {
@@ -274,31 +267,11 @@ fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null
 
 @Composable
 fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
-    val transition = rememberInfiniteTransition(label = "typing-dots")
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { index ->
-            val fraction by transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = 1000
-                        0f at 0
-                        1f at 300
-                        0f at 600
-                        0f at 1000
-                    },
-                    repeatMode = RepeatMode.Restart,
-                    initialStartOffset = StartOffset(index * 180),
-                ),
-                label = "typing-dot-$index",
-            )
-            val alpha = 0.35f + fraction * 0.65f
-            val scale = 0.75f + fraction * 0.25f
+        repeat(3) {
             Box(
                 modifier = Modifier
                     .size(8.dp)
-                    .alpha(alpha)
                     .background(
                         dotColor,
                         CircleShape,
@@ -307,7 +280,7 @@ fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
             ) {
                 Box(
                     modifier = Modifier
-                        .size((8 * scale).dp)
+                        .size(8.dp)
                         .background(dotColor, CircleShape),
                 )
             }
@@ -339,18 +312,13 @@ fun ThinkingHistoryBubble(
     // reset to 0 and this LaunchedEffect would refire, replaying the fade every time a
     // historical block scrolls back into view. That's the "jitter" scrolling past a long
     // reasoning-heavy turn. Only a genuinely new live/streaming block should fade in.
-    val alpha = remember { Animatable(if (isLive) 0f else 1f) }
-    LaunchedEffect(Unit) {
-        if (isLive) alpha.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
-    }
-
     val isDark = LocalNexyColors.current.isDark
     val textColor = if (isDark) Purple400 else Purple700
     val iconColor = if (isDark) Purple400 else Purple500
     val contentTextColor = if (isDark) Color(0xFFE9D5FF) else Purple900
 
     ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = isLive), pulse = isLive) {
-        Column(modifier = Modifier.fillMaxWidth().alpha(alpha.value)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -389,11 +357,7 @@ fun ThinkingHistoryBubble(
                     tint = iconColor,
                 )
             }
-            AnimatedVisibility(
-                visible = !collapsed,
-                enter = expandVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
-                exit = shrinkVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
-            ) {
+            if (!collapsed) {
                 SelectionContainer(
                     modifier = Modifier
                         .padding(vertical = 4.dp)
@@ -750,14 +714,6 @@ fun MessageBubble(
         val bubbleShape = RoundedCornerShape(8.dp)
         val displayText = remember(msg.text) { stripInjectedContextBlocks(msg.text) }
 
-        val highlightAlpha = remember { Animatable(0f) }
-        LaunchedEffect(isHighlighted) {
-            if (isHighlighted) {
-                highlightAlpha.snapTo(0.35f)
-                highlightAlpha.animateTo(0f, animationSpec = tween(durationMillis = 1400))
-            }
-        }
-
         Column(
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
             horizontalAlignment = Alignment.End,
@@ -812,14 +768,6 @@ fun MessageBubble(
                         }
                     }
                 }
-            }
-            // Highlight flash overlay drawn on top of the bubble
-            if (highlightAlpha.value > 0f) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(Color.White.copy(alpha = highlightAlpha.value), bubbleShape),
-                )
             }
             } // wrapper Box
             if (timeLabel != null && !msg.isStreaming) {
@@ -881,15 +829,14 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Crossfade(targetState = inProgress, label = "tool-status-icon") { running ->
-                    if (running) {
+                if (inProgress) {
                         Icon(
                             Icons.Default.Psychology,
                             contentDescription = "Tool running",
                             modifier = Modifier.size(14.dp),
                             tint = Blue500,
                         )
-                    } else {
+                } else {
                         Icon(
                             if (msg.toolSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
                             contentDescription = if (msg.toolSuccess) "Tool succeeded" else "Tool failed",
@@ -897,7 +844,6 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
                             tint = if (msg.toolSuccess) Green500 else Red500,
                         )
                     }
-                }
                 Text(
                     msg.toolName ?: "Tool call",
                     style = MaterialTheme.typography.labelMedium,
@@ -940,11 +886,7 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
                     )
                 }
             }
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
-                exit = shrinkVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
-            ) {
+            if (expanded) {
                 Column(
                     modifier = Modifier.padding(vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),

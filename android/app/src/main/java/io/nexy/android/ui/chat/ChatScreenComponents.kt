@@ -333,21 +333,6 @@ fun PromptLibrarySheetContent(
 
 @Composable
 fun EmptyChatContent(agentLabel: String?, projectLabel: String?) {
-    // Sequenced entrance: title fades in (0ms), detail slides up (300ms delay), hint at 450ms
-    val titleAlpha = remember { Animatable(0f) }
-    val detailAlpha = remember { Animatable(0f) }
-    val detailOffsetPx = remember { Animatable(40f) }
-    val hintAlpha = remember { Animatable(0f) }
-    val hintOffsetPx = remember { Animatable(40f) }
-
-    LaunchedEffect(Unit) {
-        titleAlpha.animateTo(1f, animationSpec = tween(durationMillis = 300))
-        detailAlpha.animateTo(1f, animationSpec = tween(durationMillis = 250))
-        detailOffsetPx.animateTo(0f, animationSpec = tween(durationMillis = 250))
-        hintAlpha.animateTo(1f, animationSpec = tween(durationMillis = 250))
-        hintOffsetPx.animateTo(0f, animationSpec = tween(durationMillis = 250))
-    }
-
     val detail = when {
         agentLabel != null && projectLabel != null -> "$agentLabel · $projectLabel"
         agentLabel != null -> agentLabel
@@ -366,25 +351,18 @@ fun EmptyChatContent(agentLabel: String?, projectLabel: String?) {
             "Start a new conversation",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.alpha(titleAlpha.value),
         )
         if (detail != null) {
             Text(
                 detail,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .alpha(detailAlpha.value)
-                    .offset { IntOffset(0, detailOffsetPx.value.roundToInt()) },
             )
         }
         Text(
             "Ask a question or attach a file to begin.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier
-                .alpha(hintAlpha.value)
-                .offset { IntOffset(0, hintOffsetPx.value.roundToInt()) },
         )
     }
 }

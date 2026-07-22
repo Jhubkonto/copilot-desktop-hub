@@ -286,9 +286,13 @@ fun ChatScreen(
             vm.setDraft(prefill)
         }
     }
-    val listState = rememberLazyListState()
-    var shouldAutoFollow by remember { mutableStateOf(true) }
-    var hasInitiallyScrolled by remember { mutableStateOf(false) }
+    val restoredViewState = remember(conversationId) { ChatHistoryMemoryCache.getViewState(conversationId) }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = restoredViewState?.itemIndex ?: 0,
+        initialFirstVisibleItemScrollOffset = restoredViewState?.itemOffset ?: 0,
+    )
+    var shouldAutoFollow by remember(conversationId) { mutableStateOf(restoredViewState?.shouldAutoFollow ?: true) }
+    var hasInitiallyScrolled by remember(conversationId) { mutableStateOf(restoredViewState != null) }
     var programmaticScrollInProgress by remember { mutableStateOf(false) }
     var olderPageArmed by remember { mutableStateOf(true) }
     val context = LocalContext.current
@@ -481,11 +485,7 @@ fun ChatScreen(
                 if (!shouldAutoFollow) return
                 val itemCount = listState.layoutInfo.totalItemsCount
                 if (itemCount <= 0) return
-                if (animated && pass == 0) {
-                    listState.animateScrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
-                } else {
-                    listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
-                }
+                listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
                 // Markwon AndroidView content can report a larger measured height after it is first revealed.
                 withFrameNanos {}
                 if (!listState.canScrollForward) return
@@ -501,12 +501,26 @@ fun ChatScreen(
 
     // Initial entry: a single correction after the first layout is enough for the common case.
     // Further asynchronous height changes are handled by the layout observer below.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(conversationId) {
+        if (restoredViewState != null) return@LaunchedEffect
         snapshotFlow { renderItems != null && listState.layoutInfo.totalItemsCount > 0 }
             .first { it }
         shouldAutoFollow = true
         scrollToBottom(settlePasses = 2)
         hasInitiallyScrolled = true
+    }
+
+    DisposableEffect(conversationId, listState) {
+        onDispose {
+            ChatHistoryMemoryCache.putViewState(
+                conversationId,
+                ChatHistoryMemoryCache.ViewState(
+                    itemIndex = listState.firstVisibleItemIndex,
+                    itemOffset = listState.firstVisibleItemScrollOffset,
+                    shouldAutoFollow = shouldAutoFollow,
+                ),
+            )
+        }
     }
 
     val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
@@ -1112,19 +1126,8 @@ fun ChatScreen(
                         )
                     }
                     if (assistantBusy) {
-                        val stopPulse = rememberInfiniteTransition(label = "stop-pulse")
-                        val stopAlpha by stopPulse.animateFloat(
-                            initialValue = 1f,
-                            targetValue = 0.4f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(700, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse,
-                            ),
-                            label = "stop-alpha",
-                        )
                         IconButton(
                             onClick = { vm.stopStream() },
-                            modifier = Modifier.graphicsLayer { alpha = stopAlpha },
                         ) {
                             Icon(Icons.Default.Stop, contentDescription = "Stop")
                         }
@@ -1181,7 +1184,7 @@ fun ChatScreen(
             shouldAutoFollow = false
             val lazyIdx = itemIdx + lazyHeaderOffset
             try {
-                listState.animateScrollToItem(lazyIdx)
+                listState.scrollToItem(lazyIdx)
             } finally {
                 programmaticScrollInProgress = false
             }
@@ -1312,23 +1315,8 @@ fun ChatScreen(
                             }
                         },
                     ) { item ->
-                        // animateItem() smooths reordering within the list via placementSpec.
-                        // fadeIn/fadeOut used to be enabled here (280ms/180ms, later tried at
-                        // 60ms) to soften the live→settled item swap, but any nonzero fade
-                        // duration means two multi-line text items briefly coexist at partial
-                        // alpha in the same slot — for stacked paragraph text that reads as
-                        // garbled/double-printed rather than a clean cross-dissolve, and it
-                        // reproduced on every new message append, not just the live-item swap.
-                        // Disabled outright: items now appear/disappear at their measured
-                        // position with no alpha-coexistence window. Only smooth repositioning
-                        // (existing items shifting for an insertion) is animated.
                         Column(
                             modifier = Modifier
-                                .animateItem(
-                                    fadeInSpec = null,
-                                    fadeOutSpec = null,
-                                    placementSpec = tween(320, easing = FastOutSlowInEasing),
-                                )
                                 .fillMaxWidth(),
                         ) {
                         when (item) {
@@ -1574,12 +1562,7 @@ fun ChatScreen(
                     .offset { IntOffset(0, topBannersHeightPx) },
             )
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
-            AnimatedVisibility(
-                visible = hasInitiallyScrolled && !isAtBottom,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
+            if (hasInitiallyScrolled && !isAtBottom) {
                 FloatingActionButton(
                     onClick = {
                         scope.launch {
@@ -1589,7 +1572,7 @@ fun ChatScreen(
                     },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).size(40.dp),
                 ) {
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom", modifier = Modifier.size(20.dp))
                 }

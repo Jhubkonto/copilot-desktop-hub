@@ -27,7 +27,7 @@ class ChatAutoScrollState internal constructor(val listState: LazyListState) {
         if (!shouldAutoFollow) return
         val itemCount = listState.layoutInfo.totalItemsCount
         if (itemCount <= 0) return
-        if (animated) listState.animateScrollToItem(itemCount - 1) else listState.scrollToItem(itemCount - 1)
+        listState.scrollToItem(itemCount - 1)
     }
 }
 
@@ -43,7 +43,7 @@ fun rememberChatAutoScrollState(listState: LazyListState = rememberLazyListState
 @Composable
 fun ChatAutoScrollEffect(state: ChatAutoScrollState, contentSignal: Any?) {
     LaunchedEffect(contentSignal) {
-        state.scrollToBottom(animated = true)
+        state.scrollToBottom(animated = false)
     }
     LaunchedEffect(state) {
         var wasScrolling = false

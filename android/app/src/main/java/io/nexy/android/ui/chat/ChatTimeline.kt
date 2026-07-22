@@ -1,10 +1,5 @@
 package io.nexy.android.ui.chat
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,20 +53,6 @@ fun ChatTimelineEntry(
     pulse: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val transition = rememberInfiniteTransition(label = "timeline-bead-pulse")
-    val pulseAlpha = if (pulse) {
-        transition.animateFloat(
-            initialValue = 1f,
-            targetValue = 0.5f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1000, easing = androidx.compose.animation.core.LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "timeline-bead-pulse-alpha",
-        ).value
-    } else {
-        1f
-    }
     val haloColor = MaterialTheme.colorScheme.background
 
     Box(modifier = Modifier.fillMaxWidth()) {
@@ -88,7 +69,7 @@ fun ChatTimelineEntry(
                 .size(10.dp)
                 .background(haloColor, CircleShape)
                 .padding(2.dp)
-                .background(beadColor.copy(alpha = pulseAlpha), CircleShape),
+                .background(beadColor, CircleShape),
         )
     }
 }
