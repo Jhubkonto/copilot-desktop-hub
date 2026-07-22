@@ -142,7 +142,7 @@ export function registerConversationHandlers(): void {
   safeHandle("conversation:get-messages", (_event, conversationId: string) => {
     return db
       .prepare(
-        "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
+        "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC",
       )
       .all(conversationId);
   });

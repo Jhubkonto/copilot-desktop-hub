@@ -78,7 +78,7 @@ function getCompressionSourceMessages(db: Database.Database, conversationId: str
       `SELECT role, content, timestamp
        FROM messages
        WHERE conversation_id = ? AND role != 'system'
-       ORDER BY timestamp ASC`,
+       ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
     )
     .all(conversationId) as CompressionSourceMessage[];
 }

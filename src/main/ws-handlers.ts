@@ -1417,7 +1417,7 @@ export function registerWsHandlers(): void {
       }
       const rows = db.prepare(
         `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
-           WHERE conversation_id = ? ORDER BY timestamp ASC`
+           WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`
       ).all(conversationId)
       reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })
       return

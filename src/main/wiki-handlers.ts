@@ -135,7 +135,7 @@ export function registerWikiHandlers(): void {
 
   safeHandle('wiki:extract-learnings', async (_event, conversationId: string, projectId: string, model?: string): Promise<WikiExtractionResult> => {
     const rows = db.prepare(
-      "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+      "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timeline_order ASC, timestamp ASC, id ASC"
     ).all(conversationId) as { role: string; content: string }[]
 
     if (rows.length === 0) return { candidates: [] }
@@ -291,7 +291,7 @@ export async function extractWikiLearningsForWs(
 ): Promise<{ candidates: { title: string; body: string; tags: string[] }[] }> {
   const db = getDatabase()
   const rows = db.prepare(
-    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timeline_order ASC, timestamp ASC, id ASC"
   ).all(conversationId) as { role: string; content: string }[]
 
   if (rows.length === 0) return { candidates: [] }

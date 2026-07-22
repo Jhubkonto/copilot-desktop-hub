@@ -21,6 +21,7 @@ export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
       status: 'active',
       toolCalls: [],
       activity: null,
+      events: [event],
     })
     return
   }
@@ -29,6 +30,7 @@ export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
   activeChatTurnDiagnostics.recordSequence(current.latestSequence, event.sequence)
   if (event.sequence <= current.latestSequence) return
   current.latestSequence = event.sequence
+  current.events.push(event)
   if (event.type === 'assistant_text_delta') current.assistantText += event.chunk
   if (event.type === 'tool_started') {
     upsertToolCall(current.toolCalls, {
@@ -74,7 +76,7 @@ function upsertToolCall(toolCalls: ActiveChatTurnToolCallSnapshot[], next: Activ
 export function getActiveChatTurnSnapshot(conversationId: string): ActiveChatTurnSnapshot | null {
   pruneActiveChatTurns()
   const turn = turns.get(conversationId)
-  return turn ? {
+  return turn ? structuredClone({
     conversationId: turn.conversationId,
     turnId: turn.turnId,
     latestSequence: turn.latestSequence,
@@ -82,7 +84,8 @@ export function getActiveChatTurnSnapshot(conversationId: string): ActiveChatTur
     status: turn.status,
     toolCalls: turn.toolCalls,
     activity: turn.activity,
-  } : null
+    events: turn.events,
+  }) : null
 }
 
 export function clearActiveChatTurn(conversationId: string, turnId?: string): void {

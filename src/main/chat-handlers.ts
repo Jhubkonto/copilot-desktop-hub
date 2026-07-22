@@ -128,7 +128,7 @@ export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
   const rows = db.prepare(
     `SELECT id, role, content, model, attachments, timestamp, thinking_blocks FROM messages
-       WHERE conversation_id = ? ORDER BY timestamp ASC`,
+       WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
   ).all(conversationId)
   broadcastToMobile({ event: 'conversation:messages', data: { conversationId, messages: rows } })
   for (const win of BrowserWindow.getAllWindows()) {
@@ -787,7 +787,7 @@ export async function dispatchChatSend(
           : undefined
 
       const historyRows = db
-        .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC')
+        .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC')
         .all(conversationId) as { role: string; content: string }[]
       const historyMessages = historyRows.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
       const providerHistoryMessages = historyMessages.filter(
@@ -1161,7 +1161,7 @@ export async function dispatchChatSend(
   const byokKey = byokKeyForModel
 
   const historyRows = db
-    .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC')
+    .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC')
     .all(conversationId) as { role: string; content: string }[]
   const historyMessages = historyRows.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
   const providerHistoryMessages = historyMessages.filter(

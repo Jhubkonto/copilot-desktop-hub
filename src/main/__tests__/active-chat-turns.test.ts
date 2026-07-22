@@ -33,7 +33,34 @@ describe('active chat turns', () => {
       latestSequence: 3,
       assistantText: 'hello world',
       status: 'active',
+      events: [
+        expect.objectContaining({ type: 'turn_started', sequence: 1 }),
+        expect.objectContaining({ type: 'assistant_text_delta', sequence: 2, chunk: 'hello' }),
+        expect.objectContaining({ type: 'assistant_text_delta', sequence: 3, chunk: ' world' }),
+      ],
     })
+  })
+
+  it('preserves exact interleaved replay chronology for re-entry', () => {
+    recordActiveChatTurnEvent(event('turn_started', 1))
+    recordActiveChatTurnEvent(event('assistant_text_delta', 2, { blockId: 'lead', chunk: 'Before' }))
+    recordActiveChatTurnEvent(event('text_segment_done', 3, { blockId: 'lead' }))
+    recordActiveChatTurnEvent(event('thinking_delta', 4, { blockId: 'reason', chunk: 'Check' }))
+    recordActiveChatTurnEvent(event('thinking_done', 5, { blockId: 'reason' }))
+    recordActiveChatTurnEvent(event('tool_started', 6, { id: 'tool-1', name: 'Search' }))
+    recordActiveChatTurnEvent(event('tool_finished', 7, { id: 'tool-1', toolName: 'Search', result: 'ok', success: true }))
+    recordActiveChatTurnEvent(event('assistant_text_delta', 8, { blockId: 'tail', chunk: 'After' }))
+
+    expect(getActiveChatTurnSnapshot('conv-1')?.events.map((item) => [item.sequence, item.type])).toEqual([
+      [1, 'turn_started'],
+      [2, 'assistant_text_delta'],
+      [3, 'text_segment_done'],
+      [4, 'thinking_delta'],
+      [5, 'thinking_done'],
+      [6, 'tool_started'],
+      [7, 'tool_finished'],
+      [8, 'assistant_text_delta'],
+    ])
   })
 
   it('marks terminal snapshots for reconnect recovery', () => {
@@ -55,8 +82,12 @@ describe('active chat turns', () => {
     const desktop = getActiveChatTurnSnapshot('conv-1')
     const android = getActiveChatTurnSnapshot('conv-1')
     expect(desktop).toEqual(android)
-    if (desktop) desktop.assistantText = 'mutated consumer copy'
+    if (desktop) {
+      desktop.assistantText = 'mutated consumer copy'
+      desktop.events[1] = event('assistant_text_delta', 2, { chunk: 'mutated event' })
+    }
     expect(getActiveChatTurnSnapshot('conv-1')?.assistantText).toBe('shared')
+    expect(getActiveChatTurnSnapshot('conv-1')?.events[1]).toMatchObject({ chunk: 'shared' })
   })
 
   it('tracks tool calls (upserted by id) and the latest activity so a re-fetching client can restore what already ran', () => {

@@ -51,7 +51,7 @@ export interface DebriefSectionData {
  */
 export function buildConversationTranscript(db: ReturnType<typeof getDatabase>, conversationId: string): string {
   const rows = db.prepare(
-    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timeline_order ASC, timestamp ASC, id ASC"
   ).all(conversationId) as { role: string; content: string }[]
   if (rows.length === 0) return ''
   const transcript = rows

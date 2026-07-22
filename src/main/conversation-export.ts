@@ -112,7 +112,7 @@ export function buildConversationExport(db: Database.Database, conversationId: s
               timestamp, attachments, context_snapshot
        FROM messages
        WHERE conversation_id = ?
-       ORDER BY timestamp ASC`,
+       ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
     )
     .all(conversationId) as MessageExportRow[];
 

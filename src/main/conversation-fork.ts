@@ -271,7 +271,7 @@ export function forkConversation(
               timestamp, attachments, context_snapshot
        FROM messages
        WHERE conversation_id = ?${cutoff !== null ? " AND timestamp <= ?" : ""}
-       ORDER BY timestamp ASC`,
+       ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
     )
     .all(...(cutoff !== null ? [conversationId, cutoff] : [conversationId])) as MessageExportRow[];
   const rewrittenForkMessages = rows.map((row) => rewriteMessageForTarget(row, now, conversationId));

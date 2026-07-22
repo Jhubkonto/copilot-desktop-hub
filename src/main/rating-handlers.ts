@@ -107,7 +107,7 @@ function buildRatingSnapshot(db: DatabaseType, conversationId: string): Conversa
   const skillNames = skillRows.map((r) => readConfigName(r.config_json) ?? r.skill_id)
 
   const firstUserMessage = db
-    .prepare("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY timestamp ASC LIMIT 1")
+    .prepare("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY timeline_order ASC, timestamp ASC, id ASC LIMIT 1")
     .get(conversationId) as { content: string } | undefined
 
   const keywords = extractKeywords(`${convRow.title} ${firstUserMessage?.content ?? ''}`)

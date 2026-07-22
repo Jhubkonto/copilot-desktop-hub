@@ -1483,6 +1483,42 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 80,
     sql: `ALTER TABLE conversations ADD COLUMN cli_mode_override TEXT`,
   },
+  {
+    // Stable per-conversation order. The trigger makes every legacy INSERT path safe
+    // while explicit ordinals can still be supplied by sync/import code.
+    version: 81,
+    run: (db) => {
+      const columns = db.pragma('table_info(messages)') as Array<{ name: string }>
+      if (!columns.some((column) => column.name === 'timeline_order')) {
+        db.exec('ALTER TABLE messages ADD COLUMN timeline_order INTEGER')
+      }
+      db.exec(`
+        WITH ranked AS (
+          SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY conversation_id ORDER BY timestamp ASC, rowid ASC
+          ) AS ordinal
+          FROM messages
+        )
+        UPDATE messages
+        SET timeline_order = (SELECT ordinal FROM ranked WHERE ranked.id = messages.id)
+        WHERE timeline_order IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_timeline_order
+          ON messages(conversation_id, timeline_order);
+        CREATE TRIGGER IF NOT EXISTS messages_assign_timeline_order
+        AFTER INSERT ON messages
+        WHEN NEW.timeline_order IS NULL
+        BEGIN
+          UPDATE messages
+          SET timeline_order = (
+            SELECT COALESCE(MAX(timeline_order), 0) + 1
+            FROM messages
+            WHERE conversation_id = NEW.conversation_id AND id <> NEW.id
+          )
+          WHERE id = NEW.id;
+        END;
+      `)
+    },
+  },
 ];
 
 
@@ -1516,6 +1552,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       is_edited INTEGER NOT NULL DEFAULT 0,
       previous_content TEXT,
       timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      timeline_order INTEGER,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
 

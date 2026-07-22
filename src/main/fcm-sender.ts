@@ -92,7 +92,7 @@ Return only the summary text, nothing else.`
 export async function generateSpokenSummary(db: Database.Database, conversationId: string, projectId: string | null): Promise<string | null> {
   try {
     const rows = db.prepare(
-      "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+      "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timeline_order ASC, timestamp ASC, id ASC"
     ).all(conversationId) as { role: string; content: string }[]
 
     if (rows.length === 0) return null
