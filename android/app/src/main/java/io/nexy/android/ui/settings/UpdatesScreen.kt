@@ -26,6 +26,7 @@ fun UpdatesScreen(
 ) {
     val androidUpdateManifest by vm.androidUpdateManifest.collectAsStateWithLifecycle()
     val updateInstallState by vm.updateInstallState.collectAsStateWithLifecycle()
+    val desktopVersion by vm.serverVersion.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.refreshUpdateManifest() }
 

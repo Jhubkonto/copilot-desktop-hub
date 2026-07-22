@@ -23,7 +23,19 @@ fun gitCommitCount(root: File): Int = try {
     1
 }
 
+// Keep a release bump available when publishing a new APK from an unchanged
+// commit.  Android only permits installing an APK whose versionCode is newer
+// than the installed one; uncommitted release fixes otherwise retain the same
+// git-derived code.
 val gitVersionCode = gitCommitCount(rootDir)
+val releaseBuildOffset = 1
+// Desktop release builds reserve a code before Gradle starts and provide it in
+// the environment. This makes repeated builds from the same checkout valid
+// Android updates; Git count remains the safe fallback for CLI builds.
+val desktopVersionCode = System.getenv("NEXY_ANDROID_VERSION_CODE")
+    ?.toIntOrNull()
+    ?.takeIf { it > 0 }
+val apkVersionCode = desktopVersionCode ?: (gitVersionCode + releaseBuildOffset)
 
 android {
     namespace = "io.nexy.android"
@@ -37,8 +49,8 @@ android {
         applicationId = "io.nexy.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = gitVersionCode
-        versionName = "1.0.$gitVersionCode"
+        versionCode = apkVersionCode
+        versionName = "1.0.$apkVersionCode"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -76,6 +88,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
     lint {
