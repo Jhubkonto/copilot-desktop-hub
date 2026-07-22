@@ -26,6 +26,8 @@ interface UseChatParams {
   conversationGenerationStartedAt?: number | null
 }
 
+const conversationMessageCache = new Map<string, ChatMessage[]>()
+
 export function useChat({
   conversationId,
   effectiveModel,
@@ -41,6 +43,9 @@ export function useChat({
   const { displayedContent, isDraining, enqueue, flush, reset: resetQueue, snap: snapQueue } = useStreamingQueue()
   const liveTurnState = useChatLiveTurn(conversationId)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const messagesOwnerRef = useRef<string | null>(conversationId)
   const [isGenerating, setIsGenerating] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [loadingFailed, setLoadingFailed] = useState(false)
@@ -64,6 +69,7 @@ export function useChat({
   const liveToolCallsRef = useRef<ChatMessage[]>([])
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
+  const loadGenerationRef = useRef(0)
   // Locked to the conversation that started the current stream; cleared on stream end/error.
   const streamingConversationRef = useRef<string | null>(null)
   // Set to true when the turn completes; isGenerating stays true until the drain queue also empties.
@@ -159,15 +165,26 @@ export function useChat({
   }, [conversationId])
 
   useEffect(() => {
+    const loadGeneration = ++loadGenerationRef.current
+    const previousOwner = messagesOwnerRef.current
+    if (previousOwner && previousOwner !== conversationId && messagesRef.current.length > 0) {
+      conversationMessageCache.set(previousOwner, messagesRef.current)
+    }
+    messagesOwnerRef.current = conversationId
     if (justCreatedConversationRef.current) {
       justCreatedConversationRef.current = false
       return
     }
 
     if (conversationId) {
+      setMessages(conversationMessageCache.get(conversationId) ?? [])
       setIsLoadingMessages(true)
       void window.api.getActiveChatTurn(conversationId).then((snapshot) => {
-        if (!snapshot || snapshot.conversationId !== activeConversationRef.current) return
+        if (
+          loadGeneration !== loadGenerationRef.current
+          || !snapshot
+          || snapshot.conversationId !== activeConversationRef.current
+        ) return
         streamingConversationRef.current = snapshot.conversationId
         streamingContentRef.current = snapshot.assistantText
         setStreamingContent(snapshot.assistantText)
@@ -180,6 +197,7 @@ export function useChat({
       window.api
         .getMessages(conversationId)
         .then((dbMessages) => {
+          if (loadGeneration !== loadGenerationRef.current || conversationId !== activeConversationRef.current) return
           setMessages((prev) => {
             const imageMap = new Map(
               prev.filter((message) => message.images).map((message) => [message.id, message.images!]),
@@ -237,10 +255,12 @@ export function useChat({
           })
         })
         .catch(() => {
+          if (loadGeneration !== loadGenerationRef.current || conversationId !== activeConversationRef.current) return
           addToast('Failed to load messages', 'error')
           setMessages([])
         })
         .then(() => {
+          if (loadGeneration !== loadGenerationRef.current || conversationId !== activeConversationRef.current) return
           // If this conversation is still generating (user navigated away and back),
           // restore the Thinking animation so the UI reflects the active state.
           if (isConversationGenerating) {
@@ -251,7 +271,9 @@ export function useChat({
           }
         })
         .finally(() => {
-          setIsLoadingMessages(false)
+          if (loadGeneration === loadGenerationRef.current && conversationId === activeConversationRef.current) {
+            setIsLoadingMessages(false)
+          }
         })
     } else {
       setMessages([])

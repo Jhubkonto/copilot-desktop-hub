@@ -19,6 +19,10 @@ function liveTurnReducer(state: ChatTurnState, action: ChatLiveTurnAction): Chat
     // indicator with everything already generated invisible until the turn finishes,
     // which is what leaving mid-generation and coming back used to look like.
     if (action.conversationId !== state.conversationId || state.turnId) return state
+    if (action.snapshot.events?.length) {
+      return action.snapshot.events.reduce(chatTurnReducer, createEmptyChatTurnState(action.conversationId))
+    }
+    // Compatibility fallback for snapshots produced by older desktop versions.
     // Restored calls have no meaningful sequence of their own (active-chat-turns.ts
     // doesn't record one per call) — index order is still their real chronological
     // order (upserted in first-seen order). Start at 1, reserving 0 for the restored

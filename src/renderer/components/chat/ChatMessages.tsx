@@ -1,8 +1,6 @@
 import { AlertCircle, Loader2, Wrench } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useGenerationTimer } from '../../hooks/useGenerationTimer'
-import { useThrottledValue } from '../../hooks/useThrottledValue'
-import { CHAT_MARKDOWN_THROTTLE_MS } from '../../../shared/chat-animation'
 import { getModelLabel } from '../../../shared/models'
 import { useAppStore } from '../../store/app-store'
 import { MarkdownRenderer } from '../MarkdownRenderer'
@@ -80,12 +78,12 @@ function isCodexToolCall(serverName: string | undefined): boolean {
 // A status-colored bead sitting directly on the shared timeline border, marking each
 // step's position along it — mirrors the connected dot-and-line action list used for
 // tool calls in Claude Code's own CLI output.
-function TimelineEntry({ children, colorClass, pulse }: { children: ReactNode; colorClass: string; pulse?: boolean }) {
+function TimelineEntry({ children, colorClass, pulse: _pulse }: { children: ReactNode; colorClass: string; pulse?: boolean }) {
   return (
     <div className="relative">
       <span
         aria-hidden="true"
-        className={`absolute -left-[17px] top-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-gray-900 ${colorClass} ${pulse ? 'animate-pulse' : ''}`}
+        className={`absolute -left-[17px] top-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-gray-900 ${colorClass}`}
       />
       {children}
     </div>
@@ -164,7 +162,7 @@ export function ChatMessagesBase({
   isGenerating,
   liveTeamActivity,
   streamingContent,
-  isDraining = false,
+  isDraining: _isDraining = false,
   cliCost,
   generationStartedAt,
   loadingFailed,
@@ -207,7 +205,7 @@ export function ChatMessagesBase({
   // ReactMarkdown + rehype-highlight re-parse their entire input on every render, which is
   // too expensive (and visually flickery on incomplete code fences) to run at the reveal
   // animation's ~60fps cadence — throttle what's handed to MarkdownRenderer while streaming.
-  const throttledStreamingContent = useThrottledValue(liveTrailingText, CHAT_MARKDOWN_THROTTLE_MS, isGenerating)
+  const throttledStreamingContent = liveTrailingText
   const messageElementsRef = useRef(new Map<string, HTMLDivElement>())
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRafRef = useRef<number | null>(null)
@@ -371,7 +369,7 @@ export function ChatMessagesBase({
     const element = messageElementsRef.current.get(requestId)
     if (!element) return
     onNavigateToRequest?.()
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    element.scrollIntoView({ behavior: 'auto', block: 'center' })
     setHighlightedRequestId(requestId)
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
     highlightTimerRef.current = setTimeout(() => setHighlightedRequestId(null), 1600)
@@ -733,9 +731,9 @@ export function ChatMessagesBase({
                 // reply) — so this can't repeat text already shown via a live-text-segment
                 // item earlier in the timeline.
                 return (
-                  <div className={`message-enter text-sm text-gray-900 dark:text-gray-100 transition-opacity duration-150 ease-out ${isDraining ? 'opacity-95' : 'opacity-100'}`} key={item.id}>
+                  <div className="text-sm text-gray-900 dark:text-gray-100" key={item.id}>
                     <MarkdownRenderer content={throttledStreamingContent} />
-                    <span className="animate-pulse text-gray-400">▊</span>
+                    <span className="text-gray-400">▊</span>
                   </div>
                 )
               }
@@ -746,9 +744,9 @@ export function ChatMessagesBase({
                     <div className="text-sm text-gray-500 dark:text-gray-400">
                       <div className="flex items-center gap-2 mb-2">
                         {item.state === 'tool' ? (
-                          <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
+                          <Wrench className="w-3.5 h-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
                         ) : (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                          <Loader2 className="w-3.5 h-3.5 shrink-0" />
                         )}
                         <span>
                           {item.state === 'tool'
@@ -758,9 +756,7 @@ export function ChatMessagesBase({
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
-                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
-                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
                       </div>
                     </div>
                   </TimelineEntry>
@@ -774,13 +770,11 @@ export function ChatMessagesBase({
               <TimelineEntry colorClass="bg-gray-400" pulse>
                 <div className="text-sm text-gray-500 dark:text-gray-400">
                   <div className="flex items-center gap-2 mb-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    <Loader2 className="w-3.5 h-3.5 shrink-0" />
                     <span>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
                   </div>
                 </div>
               </TimelineEntry>

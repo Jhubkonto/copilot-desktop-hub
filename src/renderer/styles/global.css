@@ -79,54 +79,14 @@ body {
   cursor: default;
 }
 
-/* ── Message entrance animation ── */
-@keyframes message-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.message-enter {
-  animation: message-enter 200ms ease-out both;
-}
-
-/* ── Streaming text reveal fade ── */
-@keyframes stream-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.stream-fade-in {
-  animation: stream-fade-in 260ms ease-out both;
-}
-
-/*
- * Honour prefers-reduced-motion globally: previously only .stream-fade-in opted out,
- * so message-enter, the shimmer skeleton, spinners and blinks still animated for users
- * who asked the OS to reduce motion. Collapse every animation/transition to near-instant
- * instead of maintaining a per-class opt-out list. `both` fill-mode still lands the final
- * frame, so elements settle in their intended end state rather than the "from" state.
- */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* ── Shimmer skeleton ── */
-@keyframes shimmer {
-  from { background-position: -400px 0; }
-  to   { background-position:  400px 0; }
+/* Nexy intentionally uses no visual motion. This is unconditional so component-level
+ * utility classes and third-party widgets cannot reintroduce animation or smooth scroll. */
+*,
+*::before,
+*::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
 }
 
 .skeleton-shimmer {
@@ -137,7 +97,7 @@ body {
     theme('colors.gray.100') 75%
   );
   background-size: 800px 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
+  background-position: 0 0;
 }
 
 .dark .skeleton-shimmer {
@@ -148,12 +108,6 @@ body {
     theme('colors.gray.800') 75%
   );
   background-size: 800px 100%;
-}
-
-/* ── Streaming cursor blink ── */
-@keyframes stream-cursor {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
 }
 
 /* ── Chat start divider fade mask ── */

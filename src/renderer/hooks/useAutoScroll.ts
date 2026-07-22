@@ -7,6 +7,14 @@ import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
 // narrower epsilon, producing a visible pause-then-jump right as the user reaches the end.
 const SCROLL_BOTTOM_THRESHOLD = 80
 
+interface SavedChatViewState {
+  scrollTop: number
+  isUserScrolledUp: boolean
+  hasUnreadBelow: boolean
+}
+
+const savedChatViewStates = new Map<unknown, SavedChatViewState>()
+
 export interface UseAutoScrollOptions {
   /** True while new content is actively being generated/streamed in. */
   isGenerating: boolean
@@ -63,8 +71,9 @@ export function useAutoScroll({
   const isProgrammaticScrollRef = useRef(false)
   const suppressAutoFollowUntilRef = useRef(0)
   const prevContentSignalRef = useRef(contentSignal)
+  const activeResetKeyRef = useRef(resetKey)
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = scrollContainerRef.current
     if (!el) return
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
@@ -78,6 +87,13 @@ export function useAutoScroll({
     isUserScrolledUpRef.current = false
     setIsUserScrolledUp(false)
     setHasUnreadBelow(false)
+    if (activeResetKeyRef.current != null) {
+      savedChatViewStates.set(activeResetKeyRef.current, {
+        scrollTop: el.scrollHeight,
+        isUserScrolledUp: false,
+        hasUnreadBelow: false,
+      })
+    }
     onAtBottomChange?.(true)
   }, [onAtBottomChange])
 
@@ -92,7 +108,14 @@ export function useAutoScroll({
       setHasUnreadBelow(false)
       onAtBottomChange?.(true)
     }
-  }, [onAtBottomChange])
+    if (activeResetKeyRef.current != null) {
+      savedChatViewStates.set(activeResetKeyRef.current, {
+        scrollTop: el.scrollTop,
+        isUserScrolledUp: !atBottom,
+        hasUnreadBelow: atBottom ? false : hasUnreadBelow,
+      })
+    }
+  }, [hasUnreadBelow, onAtBottomChange])
 
   const isNearBottom = useCallback(() => {
     const el = scrollContainerRef.current
@@ -165,12 +188,28 @@ export function useAutoScroll({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGenerating])
 
-  // Reset scroll state when resetKey changes (e.g. switching conversations).
+  // Preserve and restore view state when switching conversations.
   useEffect(() => {
-    isUserScrolledUpRef.current = false
-    setIsUserScrolledUp(false)
-    setHasUnreadBelow(false)
-    requestAnimationFrame(() => scrollToBottom('auto'))
+    const previousKey = activeResetKeyRef.current
+    const el = scrollContainerRef.current
+    if (previousKey != null && previousKey !== resetKey && el) {
+      savedChatViewStates.set(previousKey, {
+        scrollTop: el.scrollTop,
+        isUserScrolledUp: isUserScrolledUpRef.current,
+        hasUnreadBelow,
+      })
+    }
+    activeResetKeyRef.current = resetKey
+    const saved = resetKey == null ? undefined : savedChatViewStates.get(resetKey)
+    isUserScrolledUpRef.current = saved?.isUserScrolledUp ?? false
+    setIsUserScrolledUp(saved?.isUserScrolledUp ?? false)
+    setHasUnreadBelow(saved?.hasUnreadBelow ?? false)
+    requestAnimationFrame(() => {
+      const current = scrollContainerRef.current
+      if (!current) return
+      if (saved) current.scrollTo({ top: saved.scrollTop, behavior: 'auto' })
+      else scrollToBottom('auto')
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey])
 

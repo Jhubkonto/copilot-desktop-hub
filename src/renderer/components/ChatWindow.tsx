@@ -42,6 +42,7 @@ const FALLBACK_HERMES_MODELS = [
 ]
 
 const PROMOTABLE_ARTIFACT_KINDS: ArtifactPromotionRequest['kind'][] = ['document', 'prompt', 'plan', 'code', 'other']
+const conversationDraftCache = new Map<string, string>()
 
 function deriveArtifactPromotionTitle(messageContent: string, conversationTitle?: string | null): string {
   const heading = messageContent.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/m)?.[1]?.trim()
@@ -116,6 +117,18 @@ export function ChatWindow() {
   const [pendingTerminalSandboxOverride, setPendingTerminalSandboxOverride] = useState<boolean | null>(null)
   const [pendingCliModeOverride, setPendingCliModeOverride] = useState<CliModeOverride | null>(null)
   const [input, setInput] = useState('')
+  const inputValueRef = useRef(input)
+  inputValueRef.current = input
+  const draftOwnerRef = useRef<string | null>(conversationId)
+
+  useEffect(() => {
+    const previousOwner = draftOwnerRef.current
+    if (previousOwner && previousOwner !== conversationId) {
+      conversationDraftCache.set(previousOwner, inputValueRef.current)
+    }
+    draftOwnerRef.current = conversationId
+    setInput(conversationId ? conversationDraftCache.get(conversationId) ?? '' : '')
+  }, [conversationId])
 
   useEffect(() => {
     if (!pendingComposerPrefill) return
@@ -347,7 +360,7 @@ export function ChatWindow() {
     isConversationGenerating: conversationId ? generatingConversationIds.includes(conversationId) : false,
     conversationGenerationStartedAt: conversationId ? (generatingStartTimes[conversationId] ?? null) : null,
   })
-  const fileInput = useFileInput()
+  const fileInput = useFileInput(conversationId)
   const slashMenu = useSlashMenu()
   const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId, projectRootDir })
   const mergedContextRefs = useMemo(() => {
@@ -1766,10 +1779,10 @@ export function ChatWindow() {
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <button
-              onClick={() => scrollToBottom('smooth')}
+              onClick={() => scrollToBottom('auto')}
               className={`pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full shadow-lg transition-colors ${
                 hasUnreadBelow
-                  ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-400 animate-bounce hover:animate-none'
+                  ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-400'
                   : 'bg-gray-800/70 dark:bg-gray-200/70 text-white dark:text-gray-800 hover:bg-gray-800 dark:hover:bg-gray-200'
               }`}
               aria-label="Scroll to bottom"

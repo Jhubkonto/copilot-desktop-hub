@@ -327,7 +327,7 @@ describe("ChatWindow — Messages Display", () => {
     expect(reference).toHaveTextContent("Explain the renderer scroll behavior");
 
     await userEvent.click(reference);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "center" });
     Element.prototype.scrollIntoView = originalScrollIntoView;
   });
 

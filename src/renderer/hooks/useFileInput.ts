@@ -1,7 +1,9 @@
-import { useCallback, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import type { LocalAttachment, PastedImage } from './chat-types'
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])
+const attachmentCache = new Map<string, LocalAttachment[]>()
+const imageCache = new Map<string, PastedImage[]>()
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -12,11 +14,29 @@ function readFileAsDataUrl(file: File) {
   })
 }
 
-export function useFileInput() {
+export function useFileInput(conversationId: string | null = null) {
   const [pendingAttachments, setPendingAttachments] = useState<LocalAttachment[]>([])
   const [pendingImages, setPendingImages] = useState<PastedImage[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const dragDepthRef = useRef(0)
+  const attachmentsRef = useRef(pendingAttachments)
+  const imagesRef = useRef(pendingImages)
+  const ownerRef = useRef(conversationId)
+  attachmentsRef.current = pendingAttachments
+  imagesRef.current = pendingImages
+
+  useEffect(() => {
+    const previousOwner = ownerRef.current
+    if (previousOwner && previousOwner !== conversationId) {
+      attachmentCache.set(previousOwner, attachmentsRef.current)
+      imageCache.set(previousOwner, imagesRef.current)
+    }
+    ownerRef.current = conversationId
+    setPendingAttachments(conversationId ? attachmentCache.get(conversationId) ?? [] : [])
+    setPendingImages(conversationId ? imageCache.get(conversationId) ?? [] : [])
+    dragDepthRef.current = 0
+    setIsDragging(false)
+  }, [conversationId])
 
   const handleFilePick = useCallback(async () => {
     const files = await window.api.openFileDialog()
