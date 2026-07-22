@@ -946,6 +946,14 @@ export interface WsUrlProfile {
   active: boolean
 }
 
+/** Runtime identity announced by an Android companion after it connects. */
+export interface ConnectedAndroidDevice {
+  deviceId: string
+  deviceName: string | null
+  versionName: string | null
+  versionCode: number | null
+}
+
 export interface AgentGeneratorMessage {
   role: 'user' | 'assistant'
   content: string
@@ -2289,7 +2297,7 @@ export type IpcReturnMap = {
   // WebSocket mobile companion
   'ws:start': { port: number; token: string; qrDataUrl: string | null; pairingUrl?: string | null; secure?: boolean }
   'ws:stop': boolean
-  'ws:status': { enabled: boolean; port: number | null; token: string | null; localIp: string; connectedClients: number; qrDataUrl: string | null; pairingUrl?: string | null; externalUrl?: string | null; secure?: boolean }
+  'ws:status': { enabled: boolean; port: number | null; token: string | null; localIp: string; connectedClients: number; devices: ConnectedAndroidDevice[]; qrDataUrl: string | null; pairingUrl?: string | null; externalUrl?: string | null; secure?: boolean }
   'ws:regenerate-token': { token: string; qrDataUrl: string | null; pairingUrl?: string | null; secure?: boolean }
   'ws:wakelock-enabled': boolean
   'ws:set-wakelock-enabled': boolean
