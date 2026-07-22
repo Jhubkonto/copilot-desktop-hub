@@ -73,6 +73,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
@@ -121,9 +122,53 @@ import io.nexy.android.ui.theme.Purple900
 import io.nexy.android.ui.theme.Purple950
 import io.nexy.android.ui.theme.Red500
 import io.noties.markwon.Markwon
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 val LocalMarkwon = compositionLocalOf<Markwon> { error("No Markwon provided") }
+
+/**
+ * Markdown parsing allocates spans and runs syntax/table plugins. Keeping it out of an
+ * AndroidView update is important: that update runs during Compose's UI-frame work, so a long
+ * history can otherwise freeze before its first frame. Cached entries remain instant; an
+ * uncached visible row uses its raw text for the short interval while parsing happens on Default.
+ */
+@Composable
+private fun rememberParsedMarkdown(markwon: Markwon, markdown: String): android.text.Spanned? {
+    val parsed by produceState<android.text.Spanned?>(
+        initialValue = MarkdownRenderCache.get(markwon, markdown),
+        markwon,
+        markdown,
+    ) {
+        if (value == null) {
+            value = withContext(Dispatchers.Default) {
+                MarkdownRenderCache.getOrParse(markwon, markdown)
+            }
+        }
+    }
+    return parsed
+}
+
+private fun applyMarkdownOrFallback(
+    markwon: Markwon,
+    textView: TextView,
+    markdown: String,
+    parsedMarkdown: android.text.Spanned?,
+) {
+    // A Spanned is used as the tag so a raw fallback and the final rich text are distinct even
+    // though they share the same markdown source. This avoids reparsing/reapplying during
+    // unrelated parent recompositions.
+    if (parsedMarkdown == null) {
+        if (textView.tag == markdown) return
+        textView.text = markdown
+        textView.tag = markdown
+    } else {
+        if (textView.tag === parsedMarkdown) return
+        markwon.setParsedMarkdown(textView, parsedMarkdown)
+        textView.tag = parsedMarkdown
+    }
+}
 
 @Composable
 fun ChatStartHeader() {
@@ -446,6 +491,7 @@ fun TextSegmentBubble(content: String) {
                 when (segment) {
                     is MessageSegment.Text -> {
                         if (segment.markdown.isNotBlank()) {
+                            val parsedMarkdown = rememberParsedMarkdown(markwon, segment.markdown)
                             AndroidView(
                                 modifier = Modifier.fillMaxWidth(),
                                 factory = { ctx ->
@@ -457,7 +503,7 @@ fun TextSegmentBubble(content: String) {
                                 },
                                 update = { tv ->
                                     tv.setTextColor(textColorArgb)
-                                    markwon.setMarkdown(tv, segment.markdown)
+                                    applyMarkdownOrFallback(markwon, tv, segment.markdown, parsedMarkdown)
                                 },
                             )
                         }
@@ -559,6 +605,9 @@ fun MessageBubble(
                                         when (segment) {
                                             is MessageSegment.Text -> {
                                                 if (segment.markdown.isNotBlank()) {
+                                                    val parsedMarkdown = if (msg.isStreaming) null else {
+                                                        rememberParsedMarkdown(markwon, segment.markdown)
+                                                    }
                                                     // Always the same TextView instance — switching between a
                                                     // Compose Text and this AndroidView based on isStreaming
                                                     // caused a hard view-type swap (a visible pop) the instant
@@ -584,8 +633,14 @@ fun MessageBubble(
                                                             tv.setTextColor(textColorArgb)
                                                             if (msg.isStreaming) {
                                                                 tv.text = revealedText
+                                                                tv.tag = null
                                                             } else {
-                                                                markwon.setMarkdown(tv, segment.markdown)
+                                                                applyMarkdownOrFallback(
+                                                                    markwon,
+                                                                    tv,
+                                                                    segment.markdown,
+                                                                    parsedMarkdown,
+                                                                )
                                                             }
                                                         },
                                                     )

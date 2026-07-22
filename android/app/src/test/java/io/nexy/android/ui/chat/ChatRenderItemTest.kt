@@ -6,6 +6,32 @@ import org.junit.Test
 
 class ChatRenderItemTest {
     @Test
+    fun reusesSettledHistoryWhileTheStreamingTailChanges() {
+        val user = ChatMessage(id = "user-1", text = "Hello", isUser = true, isStreaming = false)
+        val cache = ChatRenderTimelineCache()
+
+        val first = cache.build(
+            messages = listOf(user, ChatMessage(id = "assistant-live", text = "One", isUser = false, isStreaming = true)),
+            liveThinkingBlocks = emptyList(),
+            isAwaitingResponse = false,
+            isStreaming = true,
+            activity = null,
+            generationStartedAt = null,
+        )
+        val second = cache.build(
+            messages = listOf(user, ChatMessage(id = "assistant-live", text = "One two", isUser = false, isStreaming = true)),
+            liveThinkingBlocks = emptyList(),
+            isAwaitingResponse = false,
+            isStreaming = true,
+            activity = null,
+            generationStartedAt = null,
+        )
+
+        assertEquals("One two", (second.last() as ChatRenderItem.AssistantMessage).message.text)
+        assertEquals(true, first.first() === second.first())
+    }
+
+    @Test
     fun usesTypeAwareDeletedArtifactLabelsWithAGenericFallback() {
         assertEquals("Quiz deleted", deletedArtifactLabel("quiz"))
         assertEquals("Teach-back deleted", deletedArtifactLabel("teachback"))
@@ -123,5 +149,22 @@ class ChatRenderItemTest {
         assertEquals(1, items.size)
         val assistantItem = items[0] as ChatRenderItem.AssistantMessage
         assertEquals(null, assistantItem.displayText)
+    }
+
+    @Test
+    fun resolvesTheRetrySourceWhileBuildingTheTimeline() {
+        val user = ChatMessage(id = "user-1", text = "Question", isUser = true, isStreaming = false)
+        val assistant = ChatMessage(id = "assistant-1", text = "Answer", isUser = false, isStreaming = false)
+
+        val items = buildChatRenderItems(
+            messages = listOf(user, assistant),
+            liveThinkingBlocks = emptyList(),
+            isAwaitingResponse = false,
+            isStreaming = false,
+            activity = null,
+            generationStartedAt = null,
+        )
+
+        assertEquals(user, (items.last() as ChatRenderItem.AssistantMessage).precedingUserMessage)
     }
 }

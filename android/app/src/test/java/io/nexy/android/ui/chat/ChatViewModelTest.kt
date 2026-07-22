@@ -100,6 +100,55 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun prependsOlderPagedHistoryWithoutReplacingLatestMessages() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m3", "user", "Latest", 3),
+                    HistoryMessage("m4", "assistant", "Current reply", 4),
+                ),
+                paged = true,
+                hasMore = true,
+                nextBeforeTimestamp = 3,
+                nextBeforeId = "m3",
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.loadOlderMessages()
+        assertEquals(
+            SentCommand(
+                "conversation:get-messages",
+                mapOf("conversationId" to "conv-1", "limit" to 60, "beforeTimestamp" to 3L, "beforeId" to "m3"),
+            ),
+            fakeWs.sentCommands.last(),
+        )
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m1", "user", "Older", 1),
+                    HistoryMessage("m2", "assistant", "Earlier reply", 2),
+                ),
+                paged = true,
+                hasMore = false,
+                nextBeforeTimestamp = 1,
+                nextBeforeId = "m1",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf("m1", "m2", "m3", "m4"), vm.messages.value.map { it.id })
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun tracksNormalizedChatTurnEventsForCurrentConversation() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("conv-1", fakeWs)

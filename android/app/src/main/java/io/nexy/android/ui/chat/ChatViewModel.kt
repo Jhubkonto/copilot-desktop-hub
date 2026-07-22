@@ -16,6 +16,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.FlowCollector
@@ -25,9 +26,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private const val ACTIVE_HISTORY_POLL_MS = 2_500L
+private const val HISTORY_PAGE_SIZE = 60
 
 data class PendingAttachment(
     val id: String,
@@ -234,6 +237,11 @@ class ChatViewModel(
     private var awaitingCodeChangeStatus = false
 
     private var historyLoaded = false
+    private var oldestLoadedTimestamp: Long? = null
+    private var oldestLoadedId: String? = null
+    private var hasOlderMessages = false
+    private val _isLoadingOlder = MutableStateFlow(false)
+    val isLoadingOlder: StateFlow<Boolean> = _isLoadingOlder
 
     private var activeHistoryPollJob: Job? = null
 
@@ -326,6 +334,17 @@ class ChatViewModel(
         }
 
     init {
+        // Navigation creates a new ViewModel for this destination. Restore the last rendered
+        // page synchronously so returning to an already opened conversation never waits for a
+        // database dispatcher just to show the same content again.
+        if (wsClient === WsRepository) {
+            restoreInMemoryHistory()
+            viewModelScope.launch {
+                messages.collect { current ->
+                    ChatHistoryMemoryCache.put(conversationId, current)
+                }
+            }
+        }
         if (wsClient === WsRepository) {
             viewModelScope.launch {
                 effectiveAgentId.collect { id -> if (id != null) WsRepository.requestAgentFull(id) }
@@ -365,7 +384,15 @@ class ChatViewModel(
                 }
             }
         }
-        refreshMessages()
+        // Re-opening a chat creates a fresh ViewModel, but the latest page is already in Room
+        // from the previous visit. Hydrate that page first, then reconcile it with the desktop in
+        // the background. Keeping the refresh indicator hidden here avoids making a cached chat
+        // look as though it is loading from scratch every time the user returns to it.
+        if (localData != null) {
+            hydrateCachedHistoryThenRefresh()
+        } else {
+            refreshMessages()
+        }
         if (wsClient === WsRepository) {
             viewModelScope.launch {
                 ChatAnimationRepository.observe(conversationId).collect { animation ->
@@ -434,7 +461,40 @@ class ChatViewModel(
                 when {
                     event is WsEvent.ConversationMessages && event.conversationId == conversationId -> {
                         val messagesBeforeSync = _messages.value
-                        val mapped = event.messages.map { msg -> msg.toChatMessage() }
+                        // History payloads can contain hundreds of messages. Converting them
+                        // also parses attachment and rich-message metadata, so keep that CPU
+                        // work off Compose's main thread and only publish the finished list.
+                        var mapped = if (wsClient === WsRepository) {
+                            withContext(Dispatchers.Default) { event.messages.map { msg -> msg.toChatMessage() } }
+                        } else {
+                            // Deterministic for lightweight test/offline WsClient implementations;
+                            // production mapping remains off Compose's main thread above.
+                            event.messages.map { msg -> msg.toChatMessage() }
+                        }
+                        if (event.paged && _isLoadingOlder.value && oldestLoadedTimestamp != null) {
+                            // Cursor pages are strictly older than the visible history, so do
+                            // not replace the latest page while the user scrolls upward.
+                            val existingIds = messagesBeforeSync.asSequence().map { it.id }.toHashSet()
+                            val older = mapped.filter { it.id !in existingIds }
+                            if (older.isNotEmpty()) _messages.value = older + messagesBeforeSync
+                            oldestLoadedTimestamp = event.nextBeforeTimestamp
+                            oldestLoadedId = event.nextBeforeId
+                            hasOlderMessages = event.hasMore
+                            _isLoadingOlder.value = false
+                            return@collect
+                        }
+                        if (event.paged && messagesBeforeSync.isNotEmpty()) {
+                            // A latest-page refresh must not make already loaded older pages
+                            // vanish. The server's page is authoritative for its own range;
+                            // retain only entries that predate it.
+                            val pageOldestTimestamp = mapped.firstOrNull()?.timestamp
+                            if (pageOldestTimestamp != null) {
+                                val pageIds = mapped.asSequence().map { it.id }.toHashSet()
+                                mapped = messagesBeforeSync
+                                    .filter { it.timestamp < pageOldestTimestamp && it.id !in pageIds }
+                                    .plus(mapped)
+                            }
+                        }
                         val persistedAssistantText = mapped.lastOrNull { !it.isUser && !it.isToolCall }?.text
                         val historyHasAssistantResponse =
                             mapped.lastOrNull { !it.isToolCall }?.isUser == false &&
@@ -534,6 +594,12 @@ class ChatViewModel(
                             }
                             if (!historyHasAssistantResponse && (isAwaitingResponse.value || _drainActive.value) && !turnTerminal) {
                                 startActiveHistoryPolling()
+                            }
+                            if (event.paged) {
+                                oldestLoadedTimestamp = _messages.value.firstOrNull()?.timestamp ?: mapped.firstOrNull()?.timestamp
+                                oldestLoadedId = _messages.value.firstOrNull()?.id ?: mapped.firstOrNull()?.id
+                                hasOlderMessages = event.hasMore
+                                _isLoadingOlder.value = false
                             }
                         }
                     }
@@ -679,7 +745,7 @@ class ChatViewModel(
                             stopActiveHistoryPolling()
                             viewModelScope.launch {
                                 historyLoaded = false
-                                wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+                                requestLatestHistory()
                             }
                         } else if (!isTurnTerminal) {
                             _liveTurnState.value = _liveTurnState.value.copy(
@@ -818,7 +884,7 @@ class ChatViewModel(
                         }
                         viewModelScope.launch {
                             historyLoaded = false
-                            wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+                            requestLatestHistory()
                         }
                     }
                     event is WsEvent.ChatCost && event.conversationId == conversationId -> {
@@ -1000,14 +1066,31 @@ class ChatViewModel(
         _attachments.value = _attachments.value.filter { it.id != id }
     }
 
-    fun refreshMessages() {
-        _isRefreshing.value = true
+    fun refreshMessages(showRefreshIndicator: Boolean = true) {
+        _isRefreshing.value = showRefreshIndicator
         historyLoaded = false
         _liveTurnState.value = _liveTurnState.value.copy(thinkingBlocks = emptyList(), generationStartedAt = null)
-        wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+        requestLatestHistory()
         if (wsClient === WsRepository) {
             wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
         }
+    }
+
+    /** Fetches the page immediately before the oldest message currently displayed. */
+    fun loadOlderMessages() {
+        val beforeTimestamp = oldestLoadedTimestamp ?: return
+        val beforeId = oldestLoadedId ?: return
+        if (!hasOlderMessages || _isLoadingOlder.value) return
+        _isLoadingOlder.value = true
+        wsClient.send(
+            "conversation:get-messages",
+            mapOf(
+                "conversationId" to conversationId,
+                "limit" to HISTORY_PAGE_SIZE,
+                "beforeTimestamp" to beforeTimestamp,
+                "beforeId" to beforeId,
+            ),
+        )
     }
 
     private fun insertArtifactRefMessage(
@@ -1421,13 +1504,56 @@ class ChatViewModel(
             activeHistoryPollJob = null
             if (isTurnTerminal || (!isAwaitingResponse.value && !_drainActive.value)) return@launch
             historyLoaded = false
-            wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+            requestLatestHistory()
         }
     }
 
     private fun stopActiveHistoryPolling() {
         activeHistoryPollJob?.cancel()
         activeHistoryPollJob = null
+    }
+
+    private fun requestLatestHistory() {
+        val payload = if (wsClient === WsRepository) {
+            mapOf("conversationId" to conversationId, "limit" to HISTORY_PAGE_SIZE)
+        } else {
+            // Non-production WsClient implementations retain the original protocol shape.
+            mapOf("conversationId" to conversationId)
+        }
+        wsClient.send("conversation:get-messages", payload)
+    }
+
+    /**
+     * Implements stale-while-revalidate for an existing conversation. Room is the fast path on
+     * entry; the following websocket request is still authoritative, but it must not blank the
+     * cached timeline or show a pull-to-refresh spinner while it is in flight.
+     */
+    private fun hydrateCachedHistoryThenRefresh() {
+        val repository = localData ?: return
+        viewModelScope.launch {
+            val cachedPage = withContext(Dispatchers.IO) {
+                runCatching { repository.listPage(conversationId, HISTORY_PAGE_SIZE) }.getOrNull()
+            }
+            if (cachedPage != null && cachedPage.messages.isNotEmpty()) {
+                val cachedMessages = withContext(Dispatchers.Default) {
+                    cachedPage.messages.map { it.toChatMessage() }
+                }
+                _messages.value = cachedMessages
+                oldestLoadedTimestamp = cachedMessages.firstOrNull()?.timestamp
+                oldestLoadedId = cachedMessages.firstOrNull()?.id
+                hasOlderMessages = cachedPage.hasMore
+            }
+            // Leave historyLoaded false: the incoming desktop page must reconcile even when the
+            // cache is populated. The UI already has content, so this is deliberately silent.
+            refreshMessages(showRefreshIndicator = false)
+        }
+    }
+
+    private fun restoreInMemoryHistory() {
+        val cachedMessages = ChatHistoryMemoryCache.get(conversationId) ?: return
+        _messages.value = cachedMessages
+        oldestLoadedTimestamp = cachedMessages.firstOrNull()?.timestamp
+        oldestLoadedId = cachedMessages.firstOrNull()?.id
     }
 
 }

@@ -84,6 +84,7 @@ import androidx.compose.runtime.key
 import io.nexy.android.ui.theme.Blue500
 import io.nexy.android.ui.theme.Gray400
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -124,6 +125,8 @@ import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.withFrameNanos
 
 /** Small "Completed" indicator shown in the chat header's title area when the open
@@ -201,6 +204,7 @@ fun ChatScreen(
     val isStreaming by vm.isStreaming.collectAsStateWithLifecycle()
     val isAwaitingResponse by vm.isAwaitingResponse.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
+    val isLoadingOlder by vm.isLoadingOlder.collectAsStateWithLifecycle()
     val activityLabel by vm.activityLabel.collectAsStateWithLifecycle()
     val liveActivity by vm.liveActivity.collectAsStateWithLifecycle()
     val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsStateWithLifecycle()
@@ -286,6 +290,7 @@ fun ChatScreen(
     var shouldAutoFollow by remember { mutableStateOf(true) }
     var hasInitiallyScrolled by remember { mutableStateOf(false) }
     var programmaticScrollInProgress by remember { mutableStateOf(false) }
+    var olderPageArmed by remember { mutableStateOf(true) }
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState()
@@ -440,6 +445,34 @@ fun ChatScreen(
         else screenshotPermissionLauncher.launch(screenshotPermission)
     }
 
+    // Expanding a persisted history into timeline items may involve hundreds of reasoning
+    // blocks, tool calls, and timestamp sorts. Do it away from the Compose thread so the
+    // app bar/composer can draw immediately when a conversation is opened. The cache retains
+    // the settled prefix, so token reveal updates only expand the active tail.
+    val renderTimelineCache = remember { ChatRenderTimelineCache() }
+    val renderItems by produceState<List<ChatRenderItem>?>(
+        initialValue = null,
+        messages,
+        isAwaitingResponse,
+        isStreaming,
+        liveThinkingBlocks,
+        liveActivity,
+        generationStartedAt,
+    ) {
+        value = withContext(Dispatchers.Default) {
+            renderTimelineCache.build(
+                messages = messages,
+                liveThinkingBlocks = liveThinkingBlocks,
+                isAwaitingResponse = isAwaitingResponse,
+                isStreaming = isStreaming,
+                activity = liveActivity,
+                generationStartedAt = generationStartedAt,
+            )
+        }
+    }
+    val completedRenderItems = renderItems.orEmpty()
+    val isBuildingInitialRenderItems = renderItems == null
+
     suspend fun scrollToBottom(animated: Boolean = false, settlePasses: Int = 1) {
         if (!shouldAutoFollow) return
         programmaticScrollInProgress = true
@@ -466,12 +499,13 @@ fun ChatScreen(
         derivedStateOf { !listState.canScrollForward }
     }
 
-    // Initial entry: wait for real chat content, then keep correcting while rich text settles.
+    // Initial entry: a single correction after the first layout is enough for the common case.
+    // Further asynchronous height changes are handled by the layout observer below.
     LaunchedEffect(Unit) {
-        snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .first { it > 0 }
+        snapshotFlow { renderItems != null && listState.layoutInfo.totalItemsCount > 0 }
+            .first { it }
         shouldAutoFollow = true
-        scrollToBottom(settlePasses = 12)
+        scrollToBottom(settlePasses = 2)
         hasInitiallyScrolled = true
     }
 
@@ -485,7 +519,7 @@ fun ChatScreen(
     // stay pinned only while auto-follow is enabled.
     LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars, teamActivityResultLength) {
         if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
-        scrollToBottom(settlePasses = 4)
+        scrollToBottom()
     }
 
     // Layout signal: AndroidView/Markwon content can change height after message data is already set.
@@ -503,7 +537,7 @@ fun ChatScreen(
             )
         }.collect {
             if (shouldAutoFollow && !listState.isScrollInProgress && listState.canScrollForward) {
-                scrollToBottom(settlePasses = 2)
+                scrollToBottom()
             }
         }
     }
@@ -627,6 +661,21 @@ fun ChatScreen(
                 else -> {}
             }
         }
+    }
+
+    // Compose retains the first visible item's keyed position when entries are prepended. Start
+    // the request just before the hard top so the next page is ready without a blank boundary.
+    LaunchedEffect(hasInitiallyScrolled) {
+        if (!hasInitiallyScrolled) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: Int.MAX_VALUE }
+            .collect { firstVisibleIndex ->
+                if (firstVisibleIndex > 2) {
+                    olderPageArmed = true
+                } else if (olderPageArmed) {
+                    olderPageArmed = false
+                    vm.loadOlderMessages()
+                }
+            }
     }
 
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
@@ -1124,19 +1173,8 @@ fun ChatScreen(
             )
         },
     ) { padding ->
-        val renderItems = remember(messages, isAwaitingResponse, isStreaming, liveThinkingBlocks, liveActivity, generationStartedAt) {
-            buildChatRenderItems(
-                messages = messages,
-                liveThinkingBlocks = liveThinkingBlocks,
-                isAwaitingResponse = isAwaitingResponse,
-                isStreaming = isStreaming,
-                activity = liveActivity,
-                generationStartedAt = generationStartedAt,
-            )
-        }
-
         // LazyColumn item index offset: item 0 = ChatStartHeader, items 1..N = renderItems
-        val lazyHeaderOffset = if (renderItems.isNotEmpty()) 1 else 0
+        val lazyHeaderOffset = if (completedRenderItems.isNotEmpty()) 1 else 0
 
         val handleScrollToRequest: suspend (Int) -> Unit = { itemIdx ->
             programmaticScrollInProgress = true
@@ -1147,7 +1185,7 @@ fun ChatScreen(
             } finally {
                 programmaticScrollInProgress = false
             }
-            val msgId = (renderItems.getOrNull(itemIdx) as? ChatRenderItem.UserMessage)?.message?.id
+            val msgId = (completedRenderItems.getOrNull(itemIdx) as? ChatRenderItem.UserMessage)?.message?.id
             if (msgId != null) {
                 highlightedMessageId = msgId
                 kotlinx.coroutines.delay(1600)
@@ -1228,7 +1266,30 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
-                    if (renderItems.isEmpty()) {
+                    if (isLoadingOlder) {
+                        item(key = "older-history-loading") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Text(
+                                    "Loading older messages…",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Gray400,
+                                )
+                            }
+                        }
+                    }
+                    if (isBuildingInitialRenderItems) {
+                        item(key = "chat-timeline-building") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Text("Preparing conversation…", style = MaterialTheme.typography.labelSmall, color = Gray400)
+                            }
+                        }
+                    } else if (completedRenderItems.isEmpty()) {
                         item {
                             EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
                         }
@@ -1236,7 +1297,7 @@ fun ChatScreen(
                         item { ChatStartHeader() }
                     }
                     items(
-                        renderItems,
+                        completedRenderItems,
                         key = { item -> item.key },
                         contentType = { item ->
                             when (item) {
@@ -1367,10 +1428,7 @@ fun ChatScreen(
                             }
                             is ChatRenderItem.AssistantMessage -> {
                                 val msg = item.message
-                                val precedingUserMessage = renderItems
-                                    .take(renderItems.indexOf(item))
-                                    .filterIsInstance<ChatRenderItem.UserMessage>()
-                                    .lastOrNull()?.message
+                                val precedingUserMessage = item.precedingUserMessage
                                 val chatProjectId = conversation?.project_id ?: projectId
                                 androidx.compose.foundation.layout.Column {
                                     // Historical (settled) thinking blocks no longer render here — they're
@@ -1508,7 +1566,7 @@ fun ChatScreen(
             // banners instead of stacking on top of them (the reason it was made in-flow before).
             InReplyToBanner(
                 listState = listState,
-                renderItems = renderItems,
+                renderItems = completedRenderItems,
                 lazyHeaderOffset = lazyHeaderOffset,
                 onScrollToRequest = { itemIdx -> scope.launch { handleScrollToRequest(itemIdx) } },
                 modifier = Modifier
@@ -1526,7 +1584,7 @@ fun ChatScreen(
                     onClick = {
                         scope.launch {
                             shouldAutoFollow = true
-                            scrollToBottom(animated = false, settlePasses = 12)
+                            scrollToBottom(animated = false, settlePasses = 2)
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,

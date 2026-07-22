@@ -13,6 +13,9 @@ sealed class ChatRenderItem {
 
     data class AssistantMessage(
         val message: ChatMessage,
+        // Resolved while the timeline is built off the Compose thread. Looking this up in the
+        // item lambda used to scan the entire render list for every visible assistant bubble.
+        val precedingUserMessage: ChatMessage? = null,
         val liveThinkingBlocks: List<ThinkingBlock> = emptyList(),
         // Overrides what MessageBubble actually displays (the tail text segment) while
         // message.text (the full concatenated reply) still goes to copy/share/etc — set
@@ -121,6 +124,7 @@ fun buildChatRenderItems(
     val result = mutableListOf<ChatRenderItem>()
     var pendingToolCalls = mutableListOf<ChatMessage>()
     var toolCallListIdx = 0
+    var precedingUserMessage: ChatMessage? = null
     val finalizedArtifactIds = messages.mapNotNull { message ->
         message.artifactRef?.takeIf { !it.versionId.isNullOrBlank() }?.artifactId
     }.toSet()
@@ -141,6 +145,7 @@ fun buildChatRenderItems(
         } else if (msg.isUser) {
             flushDanglingToolCalls()
             result.add(ChatRenderItem.UserMessage(msg))
+            precedingUserMessage = msg
         } else {
             // Assistant message — thinking blocks, text segments (all but the tail, which
             // becomes this message's own displayed text), and the tool calls that preceded
@@ -182,6 +187,7 @@ fun buildChatRenderItems(
 
             result.add(ChatRenderItem.AssistantMessage(
                 message = msg,
+                precedingUserMessage = precedingUserMessage,
                 liveThinkingBlocks = visibleLiveThinking,
                 displayText = tail?.content,
             ))
@@ -200,4 +206,64 @@ fun buildChatRenderItems(
     }
 
     return result
+}
+
+/**
+ * Reuses the expanded timeline for the settled portion of a conversation while a response is
+ * streaming. A token reveal replaces only the final [ChatMessage], but the old implementation
+ * still walked, sorted, and allocated render items for the whole history on every reveal frame.
+ *
+ * The cache deliberately compares message instances rather than IDs: history reconciliation
+ * replaces an affected [ChatMessage] instance, so edits, retries, pagination, and metadata
+ * updates invalidate the cached prefix automatically. The single active streaming tail is then
+ * expanded separately with the current live-turn state.
+ */
+internal class ChatRenderTimelineCache {
+    private var cachedStableMessages: List<ChatMessage> = emptyList()
+    private var cachedStableItems: List<ChatRenderItem> = emptyList()
+
+    @Synchronized
+    fun build(
+        messages: List<ChatMessage>,
+        liveThinkingBlocks: List<ThinkingBlock>,
+        isAwaitingResponse: Boolean,
+        isStreaming: Boolean,
+        activity: ChatTurnActivity?,
+        generationStartedAt: Long?,
+    ): List<ChatRenderItem> {
+        // A live message is always the tail in normal operation. Keeping anything after the
+        // first live item in the dynamic portion also makes this safe if events briefly arrive
+        // out of order.
+        val firstStreamingIndex = messages.indexOfFirst { it.isStreaming }
+        val stableCount = if (firstStreamingIndex >= 0) firstStreamingIndex else messages.size
+
+        if (!matchesCachedPrefix(messages, stableCount)) {
+            cachedStableMessages = messages.subList(0, stableCount).toList()
+            cachedStableItems = buildChatRenderItems(
+                messages = cachedStableMessages,
+                liveThinkingBlocks = emptyList(),
+                isAwaitingResponse = false,
+                isStreaming = false,
+                activity = null,
+                generationStartedAt = null,
+            )
+        }
+
+        if (stableCount == messages.size && !isAwaitingResponse) return cachedStableItems
+
+        val dynamicItems = buildChatRenderItems(
+            messages = messages.subList(stableCount, messages.size),
+            liveThinkingBlocks = liveThinkingBlocks,
+            isAwaitingResponse = isAwaitingResponse,
+            isStreaming = isStreaming,
+            activity = activity,
+            generationStartedAt = generationStartedAt,
+        )
+        return if (cachedStableItems.isEmpty()) dynamicItems else cachedStableItems + dynamicItems
+    }
+
+    private fun matchesCachedPrefix(messages: List<ChatMessage>, stableCount: Int): Boolean {
+        if (cachedStableMessages.size != stableCount) return false
+        return (0 until stableCount).all { index -> cachedStableMessages[index] === messages[index] }
+    }
 }
