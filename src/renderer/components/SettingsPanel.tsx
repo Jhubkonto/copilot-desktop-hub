@@ -476,7 +476,7 @@ export function SettingsPanel() {
     const offChunk = window.api.onBuildLogChunk(({ buildId, line, replace }) => {
       if (buildId === activeBuildId || activeBuildId === null) {
         setBuildLogLines((prev) => {
-          const trimmed = prev.slice(-299)
+          const trimmed = prev.slice(-1999)
           if (replace && trimmed.length > 0) return [...trimmed.slice(0, -1), line]
           return [...trimmed, line]
         })
@@ -493,7 +493,7 @@ export function SettingsPanel() {
     const offAndroidChunk = window.api.onAndroidLogChunk(({ buildId, line, replace }) => {
       if (buildId === activeAndroidBuildId || activeAndroidBuildId === null) {
         setAndroidLogLines((prev) => {
-          const trimmed = prev.slice(-299)
+          const trimmed = prev.slice(-1999)
           if (replace && trimmed.length > 0) return [...trimmed.slice(0, -1), line]
           return [...trimmed, line]
         })

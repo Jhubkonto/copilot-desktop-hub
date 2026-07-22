@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sun, Moon, Plug, Cpu } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
 import { Button, ToggleSwitch } from '../ui/primitives'
@@ -60,9 +60,16 @@ export function GeneralTab({
   defaultModelMenuRef, defaultModelButtonRef,
 }: Props) {
   const [showManualVoiceSetup, setShowManualVoiceSetup] = useState(false)
+  const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
+  useEffect(() => { void window.api.getVersion().then(setDesktopVersion).catch(() => setDesktopVersion(null)) }, [])
   return (
     <>
       <TabHeader title="General" description="Appearance, default model, and app behaviour." />
+
+      <div className="flex items-center justify-between">
+        <div><p className="text-sm font-medium text-gray-800 dark:text-gray-100">Nexy desktop version</p><p className="text-xs text-gray-500">Version currently running on this computer</p></div>
+        <span className="font-mono text-xs text-gray-700 dark:text-gray-200">v{desktopVersion ?? 'Unknown'}</span>
+      </div>
 
       {/* Theme */}
       <div className="flex items-center justify-between">

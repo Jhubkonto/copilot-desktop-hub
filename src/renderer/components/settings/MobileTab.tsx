@@ -1,7 +1,7 @@
 import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Plus, Trash2, Globe, Wifi, Pencil, Check, X } from 'lucide-react'
 import { ToggleSwitch } from '../ui/primitives'
 import { useState, useRef, useEffect } from 'react'
-import type { WsUrlProfile } from '@shared/types'
+import type { ConnectedAndroidDevice, WsUrlProfile } from '@shared/types'
 import { TabHeader } from './TabHeader'
 
 const IS_MAC = navigator.userAgent.includes('Macintosh')
@@ -173,6 +173,8 @@ export function MobileTab({
 }: Props) {
   const [fcmExpanded, setFcmExpanded] = useState(false)
   const [wolGuideExpanded, setWolGuideExpanded] = useState(false)
+  const [connectedDevices, setConnectedDevices] = useState<ConnectedAndroidDevice[]>([])
+  useEffect(() => { void window.api.wsStatus().then((status) => setConnectedDevices(status.devices)).catch(() => setConnectedDevices([])) }, [mobileClients])
 
   const activeProfile = urlProfiles.find((p) => p.active)
   const isUsingLan = !activeProfile
@@ -273,6 +275,23 @@ export function MobileTab({
               <span className="text-gray-500">Connected devices</span>
               <span className="font-mono text-gray-800 dark:text-gray-200">{mobileClients}</span>
             </div>
+            {connectedDevices.length > 0 && (
+              <div className="space-y-1 pt-1">
+                <span className="text-gray-500">Connected app versions</span>
+                {connectedDevices.map((device) => (
+                  <div key={device.deviceId} className="flex items-center justify-between gap-3 pl-2">
+                    <span className="truncate text-gray-700 dark:text-gray-300">
+                      {device.deviceName ?? device.deviceId}
+                    </span>
+                    <span className="font-mono shrink-0 text-gray-800 dark:text-gray-200">
+                      {device.versionName
+                        ? `v${device.versionName}${device.versionCode != null ? ` (${device.versionCode})` : ""}`
+                        : "Version unavailable"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="pt-0.5">
               <button
                 type="button"

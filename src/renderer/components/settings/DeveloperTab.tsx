@@ -673,7 +673,7 @@ export function DeveloperTab({
                       {isExpanded && (
                         <div className="px-3 pb-3 space-y-2 border-t border-gray-100 dark:border-gray-700">
                           {logLines.length > 0 && (
-                            <BuildLog lines={logLines} resizable={false} maxHeightPx={200} />
+                            <BuildLog lines={logLines} resizable={false} maxHeightPx={480} />
                           )}
                           <Button
                             variant="secondary"
@@ -956,7 +956,7 @@ export function DeveloperTab({
                             </div>
                           )}
                           {logLines.length > 0 && (
-                            <BuildLog lines={logLines} resizable={false} maxHeightPx={200} />
+                            <BuildLog lines={logLines} resizable={false} maxHeightPx={480} />
                           )}
                           <Button
                             variant="secondary"
