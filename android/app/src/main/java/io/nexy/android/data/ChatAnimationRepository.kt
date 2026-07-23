@@ -107,6 +107,15 @@ object ChatAnimationRepository {
         val flow = states.getOrPut(snapshot.conversationId) { MutableStateFlow(ChatAnimationState()) }
         val current = flow.value
         if (current.turnId == snapshot.turnId && current.lastSequence >= snapshot.latestSequence) return
+        if (snapshot.events.isNotEmpty()) {
+            // Replay through the same per-event path a live "chat:turn-event" stream uses
+            // (turn_started resets, then each delta folds in sequence order) instead of
+            // jumping straight to the flat accumulated string below — keeps this state
+            // consistent with whatever a client that stayed connected the whole time would
+            // have ended up with.
+            snapshot.events.forEach { accept(it) }
+            return
+        }
         // Re-entry/cold reconnect policy: accumulated desktop text is immediately visible.
         flow.value = ChatAnimationState(
             turnId = snapshot.turnId,

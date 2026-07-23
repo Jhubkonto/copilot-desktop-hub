@@ -18,6 +18,10 @@ data class Conversation(
     val thinking_effort_override: String? = null,
     val full_auto_approve_override: Boolean? = null,
     val terminal_sandbox_override: Boolean? = null,
+    // Per-conversation CLI permission/sandbox mode. One column holds either family — Claude Code
+    // ('plan'|'acceptEdits'|'bypassPermissions') or Codex ('read-only'|'workspace-write'|
+    // 'danger-full-access'). null = the backend's default behaviour. Only meaningful for CLI chats.
+    val cli_mode_override: String? = null,
     val rating: Int? = null,
     val kind: String? = null, // 'chat' (default) or 'code-change' for wizard mode
 )

@@ -323,6 +323,9 @@ fun parseWsEvent(
                         versionCode = it.optInt("versionCode", 0),
                         versionName = it.optString("versionName"),
                         commitSha = it.nullableString("commitSha"),
+                        buildId = it.nullableString("buildId"),
+                        sourceDirty = it.optBoolean("sourceDirty", false),
+                        builtAt = it.optLong("builtAt", 0L).takeIf { timestamp -> timestamp > 0L },
                         changelog = it.optString("changelog"),
                         checksum = it.optString("checksum"),
                         artifactUrl = it.optString("artifactUrl"),
@@ -779,16 +782,18 @@ fun parseWsEvent(
                 val terminalSandboxOverride = if (data != null && data.has("terminalSandboxOverride") && !data.isNull("terminalSandboxOverride")) {
                     data.optInt("terminalSandboxOverride") != 0
                 } else null
+                val cliModeOverride = data?.nullableString("cliModeOverride")
                 conversations.value = conversations.value.map { conversation ->
                     if (conversation.id == conversationId) {
                         conversation.copy(
                             thinking_effort_override = thinkingEffortOverride,
                             full_auto_approve_override = fullAutoApproveOverride,
                             terminal_sandbox_override = terminalSandboxOverride,
+                            cli_mode_override = cliModeOverride,
                         )
                     } else conversation
                 }
-                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride)
+                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride)
             }
 
             "conversation:messages" -> {
@@ -1413,6 +1418,28 @@ fun parseWsEvent(
                             serverName = it.nullableString("serverName"),
                         )
                     }
+                    // The full sequence-ordered event replay for this turn, in the same
+                    // flattened shape a live "chat:turn-event" message uses (each element's
+                    // own toString() becomes that event's payloadJson) — lets a re-entering
+                    // client rebuild true chronological order via reduceChatTurn instead of
+                    // relying on the flattened toolCalls/assistantText buckets above.
+                    val eventsJson = snapshot.optJSONArray("events")
+                    val events = mutableListOf<WsEvent.ChatTurnEvent>()
+                    if (eventsJson != null) {
+                        for (i in 0 until eventsJson.length()) {
+                            val ev = eventsJson.optJSONObject(i) ?: continue
+                            events.add(
+                                WsEvent.ChatTurnEvent(
+                                    conversationId = ev.optString("conversationId"),
+                                    turnId = ev.optString("turnId"),
+                                    sequence = ev.optLong("sequence", 0L),
+                                    type = ev.optString("type"),
+                                    timestamp = ev.optLong("timestamp", 0L),
+                                    payloadJson = ev.toString(),
+                                ),
+                            )
+                        }
+                    }
                     WsEvent.ChatActiveTurnSnapshot(
                         conversationId = snapshot.optString("conversationId"),
                         turnId = snapshot.optString("turnId"),
@@ -1421,6 +1448,7 @@ fun parseWsEvent(
                         status = snapshot.optString("status", "active"),
                         toolCalls = toolCalls,
                         activity = activity,
+                        events = events,
                     )
                 }
             }
@@ -2894,6 +2922,7 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             thinking_effort_override = row.nullableString("thinking_effort_override"),
             full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
             terminal_sandbox_override = if (row.has("terminal_sandbox_override") && !row.isNull("terminal_sandbox_override")) row.optInt("terminal_sandbox_override") != 0 else null,
+            cli_mode_override = row.nullableString("cli_mode_override"),
             rating = if (row.has("rating") && !row.isNull("rating")) row.optInt("rating") else null,
             kind = row.nullableString("kind"),
         )

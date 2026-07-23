@@ -567,10 +567,6 @@ object WsRepository : WsClient {
                     // updated on reconnect or a manual pull-to-refresh, leaving finished chats
                     // stuck showing "in progress" until one of those happened to fire.
                     is WsEvent.ActivityChanged -> BackgroundActivityTracker.applySnapshot(event.activities)
-                    is WsEvent.ChatTurnEvent -> ChatAnimationRepository.accept(event)
-                    is WsEvent.ChatActiveTurnSnapshot -> {
-                        if (event.turnId.isNotBlank()) ChatAnimationRepository.restore(event)
-                    }
                     is WsEvent.ChatActivity -> {
                         val activeStates = setOf("active", "thinking", "tool")
                         val doneStates = setOf("complete", "error")

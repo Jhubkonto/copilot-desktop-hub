@@ -114,6 +114,12 @@ sealed class WsEvent {
         // chat mid-generation) restore ones that already happened, not just the flat text.
         val toolCalls: List<ActiveTurnToolCall> = emptyList(),
         val activity: ActiveTurnActivity? = null,
+        // Sequence-ordered replay of every event this turn has emitted so far — lets a
+        // client that re-fetches this snapshot rebuild true chronological order (text vs.
+        // thinking vs. tool calls) via reduceChatTurn, instead of the flattened buckets
+        // above which only preserve within-kind order, not across kinds. Empty for
+        // desktop builds older than this field.
+        val events: List<ChatTurnEvent> = emptyList(),
     ) : WsEvent()
     data class ChatTeamActivity(
         val conversationId: String,
@@ -293,7 +299,7 @@ sealed class WsEvent {
     data class CodeChangeStaged(val ok: Boolean, val error: String?) : WsEvent()
     data class CodeChangeUnstaged(val ok: Boolean, val error: String?) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
-    data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?, val terminalSandboxOverride: Boolean?) : WsEvent()
+    data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?, val terminalSandboxOverride: Boolean?, val cliModeOverride: String? = null) : WsEvent()
     data class ConversationCreated(
         val id: String,
         val agentId: String?,
