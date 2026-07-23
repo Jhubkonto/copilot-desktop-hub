@@ -127,6 +127,7 @@ import {
 } from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
 import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
+import { CLAUDE_CLI_MODES, CODEX_CLI_MODES } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
 import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-handlers'
 import { listDirectoryEntriesForRemote, getFsStartRoots } from './file-handlers'
@@ -1319,6 +1320,7 @@ export function registerWsHandlers(): void {
             c.thinking_effort_override,
             c.full_auto_approve_override,
             c.terminal_sandbox_override,
+            c.cli_mode_override,
             c.kind,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
@@ -1353,8 +1355,8 @@ export function registerWsHandlers(): void {
       // Only the field(s) actually present in the payload are touched — see the matching
       // Electron-IPC handler in conversation-handlers.ts for why this can't just default to null.
       const existing = db
-        .prepare('SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override FROM conversations WHERE id = ?')
-        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null } | undefined
+        .prepare('SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override FROM conversations WHERE id = ?')
+        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null } | undefined
       const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
       const thinkingEffortOverride = 'thinkingEffortOverride' in data
         ? (typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride) ? data.thinkingEffortOverride : null)
@@ -1365,10 +1367,16 @@ export function registerWsHandlers(): void {
       const terminalSandboxOverride = 'terminalSandboxOverride' in data
         ? (data.terminalSandboxOverride === true ? 1 : data.terminalSandboxOverride === false ? 0 : null)
         : (existing?.terminal_sandbox_override ?? null)
+      // Untrusted Android payload — validate against the known CLI mode families (either backend's
+      // values live in the single cli_mode_override column) before persisting; anything else clears it.
+      const validCliModes: string[] = [...CLAUDE_CLI_MODES, ...CODEX_CLI_MODES]
+      const cliModeOverride = 'cliModeOverride' in data
+        ? (typeof data.cliModeOverride === 'string' && validCliModes.includes(data.cliModeOverride) ? data.cliModeOverride : null)
+        : (existing?.cli_mode_override ?? null)
       db.prepare(
-        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, updated_at = ? WHERE id = ?'
-      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, Date.now(), conversationId)
-      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride } })
+        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, updated_at = ? WHERE id = ?'
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, Date.now(), conversationId)
+      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride } })
       return
     }
 
@@ -1416,7 +1424,7 @@ export function registerWsHandlers(): void {
         return
       }
       const rows = db.prepare(
-        `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
+        `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
            WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`
       ).all(conversationId)
       reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })
