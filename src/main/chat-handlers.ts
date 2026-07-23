@@ -127,7 +127,7 @@ function persistAssistantMessage(
 export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
   const rows = db.prepare(
-    `SELECT id, role, content, model, attachments, timestamp, thinking_blocks FROM messages
+    `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
        WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
   ).all(conversationId)
   broadcastToMobile({ event: 'conversation:messages', data: { conversationId, messages: rows } })

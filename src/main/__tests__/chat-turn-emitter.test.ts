@@ -2,6 +2,35 @@ import { describe, expect, it } from 'vitest'
 import { ChatTurnEmitter } from '../chat-turn-emitter'
 
 describe('ChatTurnEmitter', () => {
+  it('closes and rekeys text around a tool so clients can preserve chronology', () => {
+    const events: Array<Record<string, unknown>> = []
+    const emitter = new ChatTurnEmitter('conv-order', {
+      sendDesktop: (channel, event) => {
+        if (channel === 'chat:turn-event') events.push(event as Record<string, unknown>)
+      },
+    }, 'turn-order')
+
+    emitter.started()
+    const before = emitter.assistantTextDelta('Before')
+    emitter.cliToolStart('tool-1', 'read_file', {})
+    emitter.cliToolEnd('tool-1', 'ok', false, { name: 'read_file', input: {} })
+    const after = emitter.assistantTextDelta('After')
+
+    expect(events.map((event) => event.type)).toEqual([
+      'turn_started',
+      'assistant_text_delta',
+      'text_segment_done',
+      'tool_started',
+      'tool_finished',
+      'assistant_text_delta',
+    ])
+    const beforeBlockId = (before as { blockId?: string }).blockId
+    const afterBlockId = (after as { blockId?: string }).blockId
+    expect(beforeBlockId).toEqual(expect.any(String))
+    expect(afterBlockId).toEqual(expect.any(String))
+    expect(afterBlockId).not.toBe(beforeBlockId)
+  })
+
   it('emits normalized turn events with ordered compatibility events', () => {
     const desktop: Array<{ channel: string; args: unknown[] }> = []
     const mobile: Array<{ event?: string; data?: unknown }> = []
@@ -21,13 +50,15 @@ describe('ChatTurnEmitter', () => {
     const thinkingDone = emitter.thinkingEnd('reasoning-1')
     const completed = emitter.streamEnd()
 
-    expect([started, activity, delta, thinking, thinkingDone, completed].map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(delta).toMatchObject({ type: 'assistant_text_delta', blockId: expect.any(String) })
+    expect([started, activity, delta, thinking, thinkingDone, completed].map((event) => event.sequence)).toEqual([1, 2, 3, 5, 6, 7])
     expect(desktop.map((entry) => entry.channel)).toEqual([
       'chat:turn-event',
       'chat:turn-event',
       'chat:activity-global',
       'chat:turn-event',
       'chat:stream-response',
+      'chat:turn-event',
       'chat:turn-event',
       'chat:thinking-delta',
       'chat:turn-event',
@@ -41,7 +72,7 @@ describe('ChatTurnEmitter', () => {
     })
     expect(mobile).toContainEqual({
       event: 'chat:stream-end',
-      data: { conversationId: 'conv-1', turnId: 'turn-1', sequence: 6 },
+      data: { conversationId: 'conv-1', turnId: 'turn-1', sequence: 7 },
     })
   })
 

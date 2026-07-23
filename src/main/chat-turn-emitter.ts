@@ -39,6 +39,7 @@ export class ChatTurnEmitter {
   readonly turnId: string
   private sequence = 0
   private readonly sinks: ChatTurnEmitterSinks
+  private openTextBlockId: string | null = null
 
   constructor(conversationId: string, sinks: ChatTurnEmitterSinks, turnId: string = randomUUID()) {
     this.conversationId = conversationId
@@ -60,7 +61,9 @@ export class ChatTurnEmitter {
   }
 
   assistantTextDelta(chunk: string, blockId?: string): ChatTurnEvent {
-    const event = this.emit({ type: 'assistant_text_delta', chunk, ...(blockId ? { blockId } : {}) })
+    const resolvedBlockId = blockId ?? this.openTextBlockId ?? randomUUID()
+    this.openTextBlockId = resolvedBlockId
+    const event = this.emit({ type: 'assistant_text_delta', chunk, blockId: resolvedBlockId })
     this.sinks.sendDesktop?.('chat:stream-response', chunk)
     this.sinks.broadcastMobile?.({
       event: 'chat:stream-chunk',
@@ -70,7 +73,9 @@ export class ChatTurnEmitter {
   }
 
   textSegmentDone(blockId: string): ChatTurnEvent {
-    return this.emit({ type: 'text_segment_done', blockId })
+    const event = this.emit({ type: 'text_segment_done', blockId })
+    if (this.openTextBlockId === blockId) this.openTextBlockId = null
+    return event
   }
 
   activity(activity: MobileChatActivityPayload): ChatTurnEvent {
@@ -119,6 +124,7 @@ export class ChatTurnEmitter {
   }
 
   thinkingDelta(blockId: string, chunk: string): ChatTurnEvent {
+    this.closeOpenTextSegment()
     const event = this.emit({ type: 'thinking_delta', blockId, chunk })
     this.sinks.sendDesktop?.('chat:thinking-delta', { blockId, chunk })
     this.sinks.broadcastMobile?.({
@@ -139,6 +145,7 @@ export class ChatTurnEmitter {
   }
 
   cliToolStart(id: string, name: string, input: Record<string, unknown>): ChatTurnEvent {
+    this.closeOpenTextSegment()
     const event = this.emit({ type: 'tool_started', id, name, input })
     this.sinks.sendDesktop?.('chat:cli-tool-start', { id, name, input })
     return event
@@ -173,6 +180,7 @@ export class ChatTurnEmitter {
   }
 
   toolFinished(payload: ToolFinishedPayload, options: { desktop?: boolean; mobile?: boolean } = {}): ChatTurnEvent {
+    this.closeOpenTextSegment()
     const event = this.emit({ type: 'tool_finished', ...payload })
     const data = this.withMeta({ conversationId: this.conversationId, ...payload }, event)
     if (options.desktop !== false) this.sinks.sendDesktop?.('chat:tool-call-event', data)
@@ -207,6 +215,13 @@ export class ChatTurnEmitter {
     this.sinks.broadcastMobile?.({ event: 'chat:turn-event', data: event })
     debugLog('chat-turn', `${event.conversationId} ${event.turnId} #${event.sequence} ${event.type}`)
     return event
+  }
+
+  private closeOpenTextSegment(): void {
+    if (!this.openTextBlockId) return
+    const blockId = this.openTextBlockId
+    this.openTextBlockId = null
+    this.emit({ type: 'text_segment_done', blockId })
   }
 
   private withMeta<T extends Record<string, unknown>>(data: T, event: ChatTurnEvent): T & { turnId: string; sequence: number } {
