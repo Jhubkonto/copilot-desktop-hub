@@ -6,12 +6,42 @@ import org.junit.Test
 
 class ChatRenderItemTest {
     @Test
+    fun projectsTheActiveTurnInCanonicalEventOrder() {
+        var turn = emptyChatTurnState("conv-1")
+        fun apply(type: String, sequence: Long, payload: String = "") {
+            val json = """{"type":"$type","conversationId":"conv-1","turnId":"turn-1","sequence":$sequence,"timestamp":${1000 + sequence}${if (payload.isBlank()) "" else ",$payload"}}"""
+            turn = reduceChatTurn(turn, io.nexy.android.data.model.WsEvent.ChatTurnEvent(
+                "conv-1", "turn-1", sequence, type, 1000 + sequence, json,
+            ))
+        }
+        apply("turn_started", 1)
+        apply("assistant_text_delta", 2, """"blockId":"before","chunk":"Before"""")
+        apply("text_segment_done", 3, """"blockId":"before"""")
+        apply("tool_started", 4, """"id":"tool-1","name":"read_file"""")
+        apply("assistant_text_delta", 5, """"blockId":"after","chunk":"After"""")
+
+        val items = buildActiveTurnRenderItems(turn)
+
+        assertEquals(
+            listOf(
+                ChatRenderItem.AssistantMessage::class,
+                ChatRenderItem.ToolCall::class,
+                ChatRenderItem.AssistantMessage::class,
+            ),
+            items.map { it::class },
+        )
+        assertEquals("Before", (items[0] as ChatRenderItem.AssistantMessage).message.text)
+        assertEquals("After", (items[2] as ChatRenderItem.AssistantMessage).message.text)
+    }
+
+    @Test
     fun reusesSettledHistoryWhileTheStreamingTailChanges() {
         val user = ChatMessage(id = "user-1", text = "Hello", isUser = true, isStreaming = false)
         val cache = ChatRenderTimelineCache()
 
         val first = cache.build(
             messages = listOf(user, ChatMessage(id = "assistant-live", text = "One", isUser = false, isStreaming = true)),
+            activeTurn = emptyChatTurnState(),
             liveThinkingBlocks = emptyList(),
             isAwaitingResponse = false,
             isStreaming = true,
@@ -20,6 +50,7 @@ class ChatRenderItemTest {
         )
         val second = cache.build(
             messages = listOf(user, ChatMessage(id = "assistant-live", text = "One two", isUser = false, isStreaming = true)),
+            activeTurn = emptyChatTurnState(),
             liveThinkingBlocks = emptyList(),
             isAwaitingResponse = false,
             isStreaming = true,
@@ -119,6 +150,10 @@ class ChatRenderItemTest {
         )
         val textItem = items[0] as ChatRenderItem.TextSegmentItem
         assertEquals("I'll look at the key config files.", textItem.block.content)
+        assertEquals(
+            emptyList<ChatRenderItem.ThinkingBlockItem>(),
+            items.filterIsInstance<ChatRenderItem.ThinkingBlockItem>(),
+        )
         val assistantItem = items[2] as ChatRenderItem.AssistantMessage
         // The tail segment (said after the tool call) is the only text shown in the bubble —
         // not repeated a second time via a TextSegmentItem.
