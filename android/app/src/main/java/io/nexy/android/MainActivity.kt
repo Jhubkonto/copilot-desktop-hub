@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        io.nexy.android.ui.settings.UpdateInstallVerification.verifyPendingInstall(this)
         val state = WsRepository.connectionState.value
         if (state != ConnectionState.CONNECTED && state != ConnectionState.CONNECTING) {
             WsRepository.connectFromStore()

@@ -37,6 +37,20 @@ class NexyApp : Application() {
         })
         io.nexy.android.ui.theme.ThemePreferenceStore.init(this)
         io.nexy.android.data.WsRepository.init(this)
+        val runningBuild = io.nexy.android.ui.settings.UpdateInstallVerification.runningBuild(this)
+        android.util.Log.i(
+            "NexyBuild",
+            "APP_START version=${runningBuild.versionName} code=${runningBuild.versionCode} " +
+                "buildId=${runningBuild.buildId} commit=${runningBuild.commitSha} " +
+                "dirty=${runningBuild.sourceDirty} builtAt=${runningBuild.builtAt}",
+        )
+        io.nexy.android.data.WsRepository.appendDebugLog(
+            "app-build",
+            "APP_START version=${runningBuild.versionName} code=${runningBuild.versionCode} " +
+                "buildId=${runningBuild.buildId} commit=${runningBuild.commitSha} " +
+                "dirty=${runningBuild.sourceDirty} builtAt=${runningBuild.builtAt}",
+        )
+        io.nexy.android.ui.settings.UpdateInstallVerification.verifyPendingInstall(this)
         val channel = NotificationChannel(
             APPROVAL_CHANNEL_ID,
             "Tool Approvals",
