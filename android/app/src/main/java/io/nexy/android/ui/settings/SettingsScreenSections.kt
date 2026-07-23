@@ -378,6 +378,8 @@ fun AppearanceSection(
 fun UpdatesSection(
     androidUpdateManifest: AndroidUpdateManifest?,
     clientVersionCode: Long,
+    runningBuild: RunningBuildIdentity,
+    lastInstallVerification: String?,
     updateInstallState: UpdateInstallState,
     onRefresh: () -> Unit,
     onInstallUpdate: (AndroidUpdateManifest) -> Unit,
@@ -487,6 +489,22 @@ fun UpdatesSection(
                     updateInstallState.error?.let { error ->
                         Text(error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
                     }
+                    Text(
+                        "Running ${runningBuild.versionName} · build ${runningBuild.versionCode} · ${runningBuild.shortBuildId}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    lastInstallVerification?.let { result ->
+                        Text(
+                            result,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (result.startsWith("Verified")) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color(0xFFEF4444)
+                            },
+                        )
+                    }
                 }
             }
 
@@ -516,6 +534,12 @@ fun UpdatesSection(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         SettingsInfoRow("Version", "v${manifest.versionName} (${manifest.versionCode})")
                         SettingsInfoRow("Installed", "build $clientVersionCode")
+                        SettingsInfoRow("Running build ID", runningBuild.buildId)
+                        SettingsInfoRow(
+                            "Running source",
+                            "${runningBuild.commitSha}${if (runningBuild.sourceDirty) " (dirty)" else ""}",
+                        )
+                        SettingsInfoRow("Published build ID", manifest.buildId ?: "Legacy manifest")
                         SettingsInfoRow("Commit", manifest.commitSha ?: "Unknown")
                         SettingsInfoRow("Checksum", checksumPreview(manifest.checksum))
                         SettingsInfoRow("Source desktop", sourceDesktopLabel(manifest.artifactUrl))

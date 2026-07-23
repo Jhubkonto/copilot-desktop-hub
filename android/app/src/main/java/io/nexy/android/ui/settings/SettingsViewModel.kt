@@ -55,6 +55,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _updateInstallState = MutableStateFlow(UpdateInstallState())
     val updateInstallState: StateFlow<UpdateInstallState> = _updateInstallState
     private val updateHttpClient = OkHttpClient()
+    val runningBuild: RunningBuildIdentity
+        get() = UpdateInstallVerification.runningBuild(getApplication())
+    val installVerification: StateFlow<String?> =
+        UpdateInstallVerification.loadStatus(app)
 
     val savedEndpoint: String?
         get() = WsRepository.pairedServer()?.endpoint
@@ -129,6 +133,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     _updateInstallState.value = UpdateInstallState(installing = true, message = "Verifying update…")
                     verifyChecksum(apk, manifest.checksum)
+                    UpdateInstallVerification.recordExpectedInstall(app, manifest)
                     apk
                 }
             }.onSuccess { apk ->
