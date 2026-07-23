@@ -1,5 +1,8 @@
 package io.nexy.android.ui.chat
 
+import android.content.Context
+import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -23,6 +26,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -84,6 +88,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -167,6 +173,159 @@ private fun applyMarkdownOrFallback(
         if (textView.tag === parsedMarkdown) return
         markwon.setParsedMarkdown(textView, parsedMarkdown)
         textView.tag = parsedMarkdown
+    }
+    // LazyColumn can compose/measure this row (e.g. during prefetch, or right as it scrolls
+    // into view) before it has settled on its final width. TextView.setText() only requests a
+    // layout pass if the View is already attached with a live parent; when that first pass
+    // lands against a stale/near-zero width, the resulting StaticLayout wraps one character per
+    // line and never self-corrects because nothing about the (unchanged) text or tag triggers
+    // another measure. Forcing requestLayout() here guarantees a fresh measure against whatever
+    // width Compose is actually imposing right now, instead of leaning on a lucky recycle.
+    textView.requestLayout()
+}
+
+internal fun isMarkdownWidthReady(targetWidthPx: Int, viewWidthPx: Int, parentWidthPx: Int): Boolean =
+    targetWidthPx > 0 && viewWidthPx >= targetWidthPx && parentWidthPx >= targetWidthPx
+
+/**
+ * Compose can update an AndroidView before its holder has completed layout. Setting TextView
+ * content during that window lets TextView create a zero-width StaticLayout which can survive
+ * the later 879px outer layout. Keep only the latest render request and apply it once both the
+ * TextView and its Compose holder have a real width.
+ */
+private class WidthStableMarkdownTextView(context: Context) : TextView(context) {
+    private var targetWidthPx: Int = 1
+    private var pendingRender: (() -> Unit)? = null
+
+    init {
+        addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyPendingIfWidthReady() }
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) {
+                applyPendingIfWidthReady()
+            }
+            override fun onViewDetachedFromWindow(view: View) = Unit
+        })
+    }
+
+    fun submitRender(widthPx: Int, render: () -> Unit): Boolean {
+        targetWidthPx = widthPx.coerceAtLeast(1)
+        pendingRender = render
+        val applied = applyPendingIfWidthReady()
+        if (!applied) requestLayout()
+        return applied
+    }
+
+    private fun applyPendingIfWidthReady(): Boolean {
+        val parentWidth = (parent as? View)?.width ?: 0
+        if (!isMarkdownWidthReady(targetWidthPx, width, parentWidth)) return false
+        val render = pendingRender ?: return true
+        pendingRender = null
+        render()
+        return true
+    }
+}
+
+/** One width-safe Android TextView boundary for all Markwon-backed chat text. */
+@Composable
+private fun ChatMarkdownText(
+    markdown: String,
+    streaming: Boolean,
+    debugKey: String,
+    modifier: Modifier = Modifier,
+) {
+    val textColorArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+    val markwon = LocalMarkwon.current
+    val parsedMarkdown = if (streaming) null else rememberParsedMarkdown(markwon, markdown)
+    val displayedText = if (streaming) rememberRevealedText(markdown) else markdown
+    val fadeAlpha = if (streaming) rememberStreamFadeAlpha(displayedText.length) else 1f
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val exactWidthPx = with(LocalDensity.current) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        LaunchedEffect(debugKey, exactWidthPx) {
+            ChatLayoutDiagnostics.record(
+                debugKey,
+                "markdown-constraints",
+                exactWidthPx,
+                0,
+                "chars=${markdown.length} streaming=$streaming",
+            )
+        }
+        AndroidView(
+            modifier = Modifier
+                .width(maxWidth)
+                .streamFade(fadeAlpha)
+                .onGloballyPositioned { coordinates ->
+                    ChatLayoutDiagnostics.record(
+                        debugKey,
+                        "android-view-holder",
+                        coordinates.size.width,
+                        coordinates.size.height,
+                    )
+                },
+            factory = { context ->
+                WidthStableMarkdownTextView(context).also { view ->
+                    view.layoutParams = ViewGroup.LayoutParams(
+                        exactWidthPx,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    )
+                    view.minWidth = exactWidthPx
+                    view.maxWidth = exactWidthPx
+                    view.textSize = 14f
+                    view.setTextIsSelectable(true)
+                    view.addOnLayoutChangeListener { laidOutView, left, top, right, bottom, _, _, _, _ ->
+                        val textView = laidOutView as TextView
+                        val textLayout = textView.layout
+                        ChatLayoutDiagnostics.record(
+                            debugKey,
+                            "text-view-layout",
+                            right - left,
+                            bottom - top,
+                            "layoutWidth=${textLayout?.width ?: -1} lines=${textLayout?.lineCount ?: -1} " +
+                                "parentWidth=${(textView.parent as? android.view.View)?.width ?: -1}",
+                        )
+                    }
+                }
+            },
+            update = { view ->
+                if (view.layoutParams.width != exactWidthPx) {
+                    view.layoutParams = view.layoutParams.also { it.width = exactWidthPx }
+                }
+                view.minWidth = exactWidthPx
+                view.maxWidth = exactWidthPx
+                view.setTextColor(textColorArgb)
+                val appliedImmediately = view.submitRender(exactWidthPx) {
+                    if (streaming) {
+                        if (view.text.toString() != displayedText || view.tag != null) {
+                            view.text = displayedText
+                            view.tag = null
+                        }
+                        view.requestLayout()
+                    } else {
+                        applyMarkdownOrFallback(markwon, view, markdown, parsedMarkdown)
+                    }
+                }
+                if (!appliedImmediately) {
+                    ChatLayoutDiagnostics.record(
+                        debugKey,
+                        "markdown-deferred",
+                        view.width,
+                        view.height,
+                        "targetWidth=$exactWidthPx parentWidth=${(view.parent as? View)?.width ?: -1}",
+                    )
+                }
+                view.post {
+                    val textLayout = view.layout
+                    ChatLayoutDiagnostics.record(
+                        debugKey,
+                        "text-view",
+                        view.measuredWidth,
+                        view.measuredHeight,
+                        "viewWidth=${view.width} layoutWidth=${textLayout?.width ?: -1} " +
+                            "lines=${textLayout?.lineCount ?: -1} parentWidth=${(view.parent as? View)?.width ?: -1} " +
+                            "attached=${view.isAttachedToWindow}",
+                    )
+                }
+            },
+        )
     }
 }
 
@@ -437,38 +596,28 @@ private fun ThinkingFullscreenDialog(
 }
 
 /**
- * A single settled response-text segment, rendered plainly (Markwon-parsed markdown, no
- * box/border/model-label/action-row) — the Android counterpart of desktop's inline
- * live-text-segment item. Always fully settled (never streaming): a text segment only
- * gets promoted to its own ChatRenderItem.TextSegmentItem once it's already closed.
+ * A single settled piece of the assistant's response. This is deliberately a response-only
+ * component: it has no collapsed state, click handler, line cap, or ellipsis. Reasoning uses
+ * ThinkingHistoryBubble/CodexReasoningActionLine instead and is the only content allowed to
+ * expose expand/collapse controls.
  */
 @Composable
-fun TextSegmentBubble(content: String) {
+fun ExpandedResponseTextSegment(content: String, debugKey: String = "response-text-segment") {
     if (content.isBlank()) return
-    val textColor = MaterialTheme.colorScheme.onSurface
-    val textColorArgb = textColor.toArgb()
-    val markwon = LocalMarkwon.current
     val segments = remember(content) { splitCodeBlocks(content) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         segments.forEachIndexed { index, segment ->
             key(index) {
                 when (segment) {
                     is MessageSegment.Text -> {
                         if (segment.markdown.isNotBlank()) {
-                            val parsedMarkdown = rememberParsedMarkdown(markwon, segment.markdown)
-                            AndroidView(
-                                modifier = Modifier.fillMaxWidth(),
-                                factory = { ctx ->
-                                    TextView(ctx).also { tv ->
-                                        tv.setTextColor(textColorArgb)
-                                        tv.textSize = 14f
-                                        tv.setTextIsSelectable(true)
-                                    }
-                                },
-                                update = { tv ->
-                                    tv.setTextColor(textColorArgb)
-                                    applyMarkdownOrFallback(markwon, tv, segment.markdown, parsedMarkdown)
-                                },
+                            ChatMarkdownText(
+                                segment.markdown,
+                                streaming = false,
+                                debugKey = "$debugKey:$index",
                             )
                         }
                     }
@@ -509,6 +658,7 @@ fun MessageBubble(
     // What's actually rendered in the bubble body — msg.text (the full reply) unless a
     // tail-only override was supplied (see the `displayText` param doc above).
     val effectiveText = displayText ?: msg.text
+    val layoutDebugKey = "message:${msg.id.ifBlank { msg.timestamp.toString() }}"
 
     if (!isUser) {
         // --- Assistant: full-width, no bubble, left-border accent ---
@@ -540,7 +690,19 @@ fun MessageBubble(
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
                     if (onDeleteAfter != null) DropdownMenuItem(text = { Text("Delete from here") }, onClick = { menuExpanded = false; onDeleteAfter() })
                 }
-                Row(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coordinates ->
+                            ChatLayoutDiagnostics.record(
+                                layoutDebugKey,
+                                "assistant-row",
+                                coordinates.size.width,
+                                coordinates.size.height,
+                                "chars=${effectiveText.length} streaming=${msg.isStreaming}",
+                            )
+                        },
+                ) {
                     // left-border accent
                     Box(
                         modifier = Modifier
@@ -554,7 +716,21 @@ fun MessageBubble(
                     )
                     Spacer(Modifier.width(10.dp))
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        // This is a Row child beside the accent and spacer. fillMaxWidth() is
+                        // not a remaining-space contract inside Row: during LazyColumn
+                        // prefetch/reuse it can be measured after the fixed children with a
+                        // near-zero maximum and keep that one-glyph StaticLayout. Weight gives
+                        // it an explicit, stable share of the Row on every measurement pass.
+                        modifier = Modifier
+                            .weight(1f)
+                            .onGloballyPositioned { coordinates ->
+                                ChatLayoutDiagnostics.record(
+                                    layoutDebugKey,
+                                    "assistant-content-column",
+                                    coordinates.size.width,
+                                    coordinates.size.height,
+                                )
+                            },
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         if (effectiveText.isNotBlank()) {
@@ -569,9 +745,6 @@ fun MessageBubble(
                                         when (segment) {
                                             is MessageSegment.Text -> {
                                                 if (segment.markdown.isNotBlank()) {
-                                                    val parsedMarkdown = if (msg.isStreaming) null else {
-                                                        rememberParsedMarkdown(markwon, segment.markdown)
-                                                    }
                                                     // Always the same TextView instance — switching between a
                                                     // Compose Text and this AndroidView based on isStreaming
                                                     // caused a hard view-type swap (a visible pop) the instant
@@ -582,31 +755,10 @@ fun MessageBubble(
                                                     // chunk (rememberRevealedText) instead of snapping straight
                                                     // to it, and fadeAlpha gives newly-revealed text a soft
                                                     // fade-in rather than popping to full opacity.
-                                                    val revealedText = if (msg.isStreaming) rememberRevealedText(segment.markdown) else segment.markdown
-                                                    val fadeAlpha = if (msg.isStreaming) rememberStreamFadeAlpha(revealedText.length) else 1f
-                                                    AndroidView(
-                                                        modifier = Modifier.fillMaxWidth().streamFade(fadeAlpha),
-                                                        factory = { ctx ->
-                                                            TextView(ctx).also { tv ->
-                                                                tv.setTextColor(textColorArgb)
-                                                                tv.textSize = 14f
-                                                                tv.setTextIsSelectable(true)
-                                                            }
-                                                        },
-                                                        update = { tv ->
-                                                            tv.setTextColor(textColorArgb)
-                                                            if (msg.isStreaming) {
-                                                                tv.text = revealedText
-                                                                tv.tag = null
-                                                            } else {
-                                                                applyMarkdownOrFallback(
-                                                                    markwon,
-                                                                    tv,
-                                                                    segment.markdown,
-                                                                    parsedMarkdown,
-                                                                )
-                                                            }
-                                                        },
+                                                    ChatMarkdownText(
+                                                        markdown = segment.markdown,
+                                                        streaming = msg.isStreaming,
+                                                        debugKey = "message:${msg.id.ifBlank { msg.timestamp.toString() }}:$index",
                                                     )
                                                 }
                                             }

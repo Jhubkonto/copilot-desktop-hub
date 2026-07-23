@@ -2,7 +2,6 @@ package io.nexy.android.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.nexy.android.data.ChatAnimationRepository
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.local.LocalDataRepository
@@ -54,6 +53,7 @@ data class ChatMessage(
     // intermediate fragment the model was still mid-turn on.
     val isFrozenMidTurn: Boolean = false,
     val timestamp: Long = 0L,
+    val timelineOrder: Long? = null,
     val attachments: List<AttachmentMeta> = emptyList(),
     val isToolCall: Boolean = false,
     val toolName: String? = null,
@@ -127,6 +127,8 @@ class ChatViewModel(
 
     private val _liveTurnState = MutableStateFlow(emptyChatTurnState(conversationId))
     val liveTurnState: StateFlow<ChatTurnState> = _liveTurnState
+    private val turnCoordinator = ChatTurnCoordinator(conversationId)
+    private var snapshotRequestedForGap = false
 
     // True while the drain coroutine has not yet finished rendering buffered chunks.
     // Set to true on first chunk, cleared by drain finalizer.
@@ -134,14 +136,14 @@ class ChatViewModel(
 
     // isStreaming: true while the typewriter drain is active (cursor shown in message bubble).
     // Combining drainActive with Streaming status handles the gap between status update and drain start.
-    val isStreaming: StateFlow<Boolean> = DerivedBooleanStateFlow(_liveTurnState, _drainActive) { state, drain ->
-        drain || state.status == ChatTurnStatus.Streaming
+    val isStreaming: StateFlow<Boolean> = DerivedStateFlow(_liveTurnState) { state ->
+        state.status == ChatTurnStatus.Streaming
     }
 
     // isAwaitingResponse: true while waiting for first token (Active) but NOT while streaming text.
     // The thinking bubble shows when Active; hides when Streaming or Idle/Completed/Failed.
-    val isAwaitingResponse: StateFlow<Boolean> = DerivedBooleanStateFlow(_liveTurnState, _drainActive) { state, drain ->
-        state.status == ChatTurnStatus.Active && !drain
+    val isAwaitingResponse: StateFlow<Boolean> = DerivedStateFlow(_liveTurnState) { state ->
+        state.status == ChatTurnStatus.Active
     }
 
     val activityLabel: StateFlow<String> = _liveTurnState.map { state ->
@@ -204,6 +206,8 @@ class ChatViewModel(
     val fullAutoApproveOverride: StateFlow<Boolean?> = _fullAutoApproveOverride
     private val _terminalSandboxOverride = MutableStateFlow<Boolean?>(null)
     val terminalSandboxOverride: StateFlow<Boolean?> = _terminalSandboxOverride
+    private val _cliModeOverride = MutableStateFlow<String?>(null)
+    val cliModeOverride: StateFlow<String?> = _cliModeOverride
 
     private val _sendError = MutableStateFlow<String?>(null)
     val sendError: StateFlow<String?> = _sendError
@@ -263,6 +267,27 @@ class ChatViewModel(
     private var currentLiveMessageId: String = UUID.randomUUID().toString()
 
     /**
+     * Folds one sequence-ordered `ChatTurnEvent` into `_liveTurnState` and `_messages`.
+     * Shared by the live `wsClient.events` collector below and by the
+     * `ChatActiveTurnSnapshot` restore branches, which replay a whole turn's worth of these
+     * in order — so a re-entering client ends up in exactly the state it would be in had it
+     * stayed connected the entire time, rather than a separately-derived approximation.
+     */
+    private fun applyChatTurnEvent(event: WsEvent.ChatTurnEvent) {
+        val coordinated = turnCoordinator.accept(event)
+        _liveTurnState.value = coordinated.state
+        if (coordinated.needsSnapshot && !snapshotRequestedForGap && wsClient === WsRepository) {
+            snapshotRequestedForGap = true
+            wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
+        } else if (!coordinated.needsSnapshot) {
+            snapshotRequestedForGap = false
+        }
+        if (event.type == "turn_completed" || event.type == "turn_failed") {
+            stopActiveHistoryPolling()
+        }
+    }
+
+    /**
      * If an assistant message is currently streaming, freezes it in place (stops it from
      * absorbing further text deltas) and records where the next segment should start reading
      * from in the turn's accumulated text. Called just before inserting a tool-call or team-
@@ -303,7 +328,12 @@ class ChatViewModel(
         turnTerminal: Boolean,
     ): List<ChatMessage> {
         if (historyHasAssistantResponse || turnTerminal) return fetched
-        return if (fetched.size < current.size) current else fetched
+        // An in-flight history page is never authoritative for the active turn: persistence
+        // legitimately trails its event stream, and comparing list sizes allows a page with
+        // duplicated/partially-persisted tool rows to replace the canonical projection. Keep the
+        // visible session intact; only use history as the initial base when there is no local
+        // state yet. The active turn itself is rendered from ChatTurnState.timeline.
+        return if (current.isEmpty()) fetched else current
     }
 
     private val isTurnTerminal: Boolean
@@ -347,6 +377,25 @@ class ChatViewModel(
         }
         if (wsClient === WsRepository) {
             viewModelScope.launch {
+                // refreshMessages() only requests chat:get-active-turn once, on ViewModel
+                // creation (chat screen opened). If the socket drops and reconnects while the
+                // screen stays open mid-turn — background/foreground, brief network blip — this
+                // wasn't re-requested, so re-entry ordering only ever caught up on the next
+                // ACTIVE_HISTORY_POLL_MS tick via the flattened `conversation:get-messages`
+                // path instead of the events-replay path above (applyChatTurnEvent), which is
+                // the one that actually gets chronological ordering right. Re-request the
+                // snapshot on every reconnect so that path — not the poll — is what resyncs a
+                // still-open chat after a drop.
+                var wasConnected = WsRepository.connectionState.value == io.nexy.android.data.ConnectionState.CONNECTED
+                WsRepository.connectionState.collect { state ->
+                    val isConnected = state == io.nexy.android.data.ConnectionState.CONNECTED
+                    if (isConnected && !wasConnected && !isTurnTerminal) {
+                        wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
+                    }
+                    wasConnected = isConnected
+                }
+            }
+            viewModelScope.launch {
                 effectiveAgentId.collect { id -> if (id != null) WsRepository.requestAgentFull(id) }
             }
             viewModelScope.launch {
@@ -372,6 +421,7 @@ class ChatViewModel(
                     if ("thinkingEffortOverride" !in flushedKeys) _thinkingEffortOverride.value = conv.thinking_effort_override
                     if ("fullAutoApproveOverride" !in flushedKeys) _fullAutoApproveOverride.value = conv.full_auto_approve_override
                     if ("terminalSandboxOverride" !in flushedKeys) _terminalSandboxOverride.value = conv.terminal_sandbox_override
+                    if ("cliModeOverride" !in flushedKeys) _cliModeOverride.value = conv.cli_mode_override
                 }
             }
         }
@@ -392,69 +442,6 @@ class ChatViewModel(
             hydrateCachedHistoryThenRefresh()
         } else {
             refreshMessages()
-        }
-        if (wsClient === WsRepository) {
-            viewModelScope.launch {
-                ChatAnimationRepository.observe(conversationId).collect { animation ->
-                    if (animation.turnId == null) return@collect
-                    lastAnimationDisplayedLength = animation.displayedText.length
-                    val current = _messages.value
-                    val streamingIdx = current.indexOfFirst { it.id == currentLiveMessageId }
-                    // "Settled" requires both the backend turn to be terminal AND the reveal
-                    // animation to have actually caught up (no backlog left) — using `terminal`
-                    // alone would flip the message to its done/frozen appearance (spinner gone,
-                    // thinking blocks attached) the instant the backend finishes, ahead of
-                    // whatever text is still being animated in.
-                    val settled = animation.terminal && animation.backlogLength <= 0
-                    // ChatAnimationRepository accumulates one continuous string for the whole
-                    // turn, but a tool call mid-turn freezes the streaming message it interrupted
-                    // (see freezeCurrentStreamingMessage) and remembers the offset — so any text
-                    // that streams in *after* the tool call becomes its own message, rendered
-                    // below the tool call rather than invisibly merging into the frozen one above
-                    // it. When no tool call has interrupted the turn, textSegmentStart stays 0 and
-                    // this is exactly the prior single-message behavior.
-                    val segmentText = animation.displayedText.drop(textSegmentStart)
-                    val message = ChatMessage(
-                        id = currentLiveMessageId,
-                        text = segmentText,
-                        isUser = false,
-                        isStreaming = !settled,
-                        thinkingBlocks = if (settled) _liveTurnState.value.thinkingBlocks else emptyList(),
-                        model = _liveTurnState.value.model,
-                    )
-                    val lastAssistant = current.lastOrNull { !it.isUser && !it.isToolCall }
-                    // A settled animation frame whose text already matches the last persisted
-                    // assistant message is a stale replay racing a history sync (e.g. after
-                    // Retry) — applying it would append a second copy of the same answer.
-                    val isStaleReplay = settled && lastAssistant != null &&
-                        !lastAssistant.isStreaming && lastAssistant.text == segmentText
-                    _messages.value = if (streamingIdx >= 0) {
-                        current.toMutableList().also { it[streamingIdx] = message }
-                    } else if (segmentText.isNotEmpty() && !isStaleReplay) {
-                        current + message
-                    } else current
-                    _drainActive.value = animation.backlogLength > 0
-                    // A settled animation frame (terminal backend turn + fully drained reveal) is
-                    // the authoritative "this reply is visually complete" signal. Reconcile the
-                    // live-turn state to it: if the reducer never accepted a matching
-                    // turn_completed — e.g. this ViewModel began collecting mid-turn and
-                    // _liveTurnState still carries a stale turnId, so reduceChatTurn drops the real
-                    // turn_completed via its turnId guard — status would otherwise stay Active and
-                    // the "Thinking · Ns" bubble (isAwaitingResponse) would spin forever beneath the
-                    // finished message. Forcing it terminal here caps it at the exact instant the
-                    // reply is done, independent of which upstream completion channel was missed.
-                    // thinkingBlocks are left intact: the settled `message` above reads them, and a
-                    // second settled frame would rebuild that message from _liveTurnState — wiping
-                    // them here would blank the reply's reasoning on that re-render.
-                    if (settled && !isTurnTerminal) {
-                        _liveTurnState.value = _liveTurnState.value.copy(
-                            status = ChatTurnStatus.Completed,
-                            activity = null,
-                            generationStartedAt = null,
-                        )
-                    }
-                }
-            }
         }
         viewModelScope.launch {
             wsClient.events.collect { event ->
@@ -495,14 +482,8 @@ class ChatViewModel(
                                     .plus(mapped)
                             }
                         }
-                        val persistedAssistantText = mapped.lastOrNull { !it.isUser && !it.isToolCall }?.text
                         val historyHasAssistantResponse =
-                            mapped.lastOrNull { !it.isToolCall }?.isUser == false &&
-                            (wsClient !== WsRepository ||
-                                ChatAnimationRepository.shouldApplyPersistedHistory(
-                                    conversationId,
-                                    persistedAssistantText,
-                                ))
+                            mapped.lastOrNull { !it.isToolCall }?.isUser == false
                         val turnTerminal = isTurnTerminal
                         val shouldApplyHistory =
                             !historyLoaded ||
@@ -515,6 +496,7 @@ class ChatViewModel(
                             historyLoaded = true
                             _isRefreshing.value = false
                             if (historyHasAssistantResponse) {
+                                turnCoordinator.reset()
                                 _liveTurnState.value = emptyChatTurnState(conversationId)
                                 _drainActive.value = false
                                 stopActiveHistoryPolling()
@@ -531,9 +513,6 @@ class ChatViewModel(
                                 // cleaned up. Cancelling the drain job here — the same instant
                                 // we commit to history being authoritative — prevents any
                                 // further stray emissions for this turn.
-                                if (wsClient === WsRepository) {
-                                    ChatAnimationRepository.clear(conversationId)
-                                }
                             }
 
                             // Restore in-progress state from the WsRepository snapshot if the chat
@@ -604,58 +583,39 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.ChatTurnEvent && event.conversationId == conversationId -> {
-                        _liveTurnState.value = reduceChatTurn(_liveTurnState.value, event)
-                        if (event.type == "turn_started") {
-                            textSegmentStart = 0
-                            lastAnimationDisplayedLength = 0
-                            currentLiveMessageId = UUID.randomUUID().toString()
-                        }
-                        if (event.type == "tool_started") {
-                            // Insert an in-progress placeholder the moment the tool call starts,
-                            // rather than waiting for chat:tool-call-event (which only arrives once
-                            // the tool has *finished*). Without this, every tool call on Android
-                            // appeared already-completed the instant it showed up — no equivalent of
-                            // desktop's pulsing blue "running" bubble ever rendered. The matching
-                            // ChatToolCallEvent handler below upserts this same message by id once
-                            // the result comes back, instead of appending a second one.
-                            //
-                            // Guarded by an existence check because tool_started can arrive more
-                            // than once for the same id (e.g. a redelivered/duplicated event) —
-                            // appending unconditionally crashed LazyColumn with "Key ... was
-                            // already used" the instant a second tool_started for the same id
-                            // landed, since two ChatMessage entries then shared one id/key.
-                            val payload = org.json.JSONObject(event.payloadJson)
-                            val id = payload.nullableString("id")
-                            val alreadyPresent = id != null && _messages.value.any { it.id == id && it.isToolCall }
-                            if (!alreadyPresent) {
-                                _messages.value = freezeCurrentStreamingMessage() + ChatMessage(
-                                    id = id ?: UUID.randomUUID().toString(),
-                                    text = "",
-                                    isUser = false,
-                                    isStreaming = true,
-                                    isToolCall = true,
-                                    toolName = payload.optString("name", "Tool call"),
-                                    serverName = payload.nullableString("serverName"),
-                                    toolArgs = payload.optJSONObject("input")?.toString(),
-                                )
-                            }
-                        }
-                        if (event.type == "turn_completed" || event.type == "turn_failed") {
-                            _drainActive.value = false
-                            stopActiveHistoryPolling()
+                        applyChatTurnEvent(event)
+                    }
+                    event is WsEvent.ChatActiveTurnSnapshot && event.conversationId == conversationId && event.status == "active" && event.events.isNotEmpty() -> {
+                        // Preferred path: replay the desktop's sequence-ordered event log
+                        // through the exact same fold the live wsClient.events collector uses
+                        // (applyChatTurnEvent), so re-entering mid-turn lands in the identical
+                        // state — text/thinking/tool-calls positioned in true chronological
+                        // order — that staying connected the whole time would have produced,
+                        // instead of the flattened-bucket approximation in the branch below.
+                        // Guarded so a duplicate/redelivered snapshot (or one that raced behind
+                        // live events that already arrived) doesn't re-run and re-freeze state.
+                        val alreadyReplayed = _liveTurnState.value.turnId == event.turnId &&
+                            _liveTurnState.value.lastSequence >= event.latestSequence
+                        if (!alreadyReplayed) {
+                            val restored = turnCoordinator.restore(event.events)
+                            _liveTurnState.value = restored.state
+                            snapshotRequestedForGap = restored.needsSnapshot
                         }
                     }
                     event is WsEvent.ChatActiveTurnSnapshot && event.conversationId == conversationId && event.status == "active" -> {
-                        // Requested by refreshMessages() on load — restores tool calls that
-                        // already ran (and the current activity) when re-entering a chat
-                        // mid-generation. Without this, only tool calls that happened to start
-                        // *after* re-entry ever appeared; everything from before was invisible
-                        // until the whole turn settled, since neither WsRepository's own
-                        // client-accumulated activeChatSnapshots (only populated while actively
-                        // connected) nor liveTurnState carried it. Insert-if-absent, same as the
-                        // tool_started handler above — a tool call already promoted (from a live
-                        // tool_started/ChatToolCallEvent that raced ahead of this response) must
-                        // not be duplicated.
+                        // Fallback for desktop builds that don't yet send `events` — restores
+                        // tool calls that already ran (and the current activity) when
+                        // re-entering a chat mid-generation. Without this, only tool calls that
+                        // happened to start *after* re-entry ever appeared; everything from
+                        // before was invisible until the whole turn settled, since neither
+                        // WsRepository's own client-accumulated activeChatSnapshots (only
+                        // populated while actively connected) nor liveTurnState carried it.
+                        // Insert-if-absent, same as the tool_started handler above — a tool
+                        // call already promoted (from a live tool_started/ChatToolCallEvent
+                        // that raced ahead of this response) must not be duplicated. Note this
+                        // path always renders all restored text before all restored tool calls
+                        // regardless of their true interleaving — the `events` branch above is
+                        // what actually fixes ordering.
                         if (!isTurnTerminal) {
                             _liveTurnState.value = _liveTurnState.value.copy(status = ChatTurnStatus.Active)
                             if (event.activity != null) {
@@ -712,12 +672,22 @@ class ChatViewModel(
                         if (toInsert.isNotEmpty()) _messages.value = current + toInsert
                     }
                     event is WsEvent.ChatActiveTurnSnapshot && event.conversationId == conversationId -> {
-                        // Authoritative status is "completed"/"failed" here (the "active" case is
-                        // handled by the branch above). This is the correction path for the race
-                        // where refreshMessages() applied stale local/WsRepository state as Active
-                        // before this snapshot came back — without it, a turn missed while
-                        // backgrounded (socket closed, so no live turn_completed/turn_failed push)
-                        // left the "Thinking..." spinner running forever with no way to clear.
+                        // Authoritative status is "completed"/"failed" here (the "active" cases
+                        // are handled by the two branches above). This is the correction path
+                        // for the race where refreshMessages() applied stale local/WsRepository
+                        // state as Active before this snapshot came back — without it, a turn
+                        // missed while backgrounded (socket closed, so no live
+                        // turn_completed/turn_failed push) left the "Thinking..." spinner
+                        // running forever with no way to clear. Replay any not-yet-applied
+                        // events first so the final tool-call/text ordering is correct even for
+                        // a turn that finished entirely while this client was disconnected.
+                        val alreadyReplayed = _liveTurnState.value.turnId == event.turnId &&
+                            _liveTurnState.value.lastSequence >= event.latestSequence
+                        if (!alreadyReplayed && event.events.isNotEmpty()) {
+                            val restored = turnCoordinator.restore(event.events)
+                            _liveTurnState.value = restored.state
+                            snapshotRequestedForGap = restored.needsSnapshot
+                        }
                         if (!isTurnTerminal) {
                             _liveTurnState.value = _liveTurnState.value.copy(
                                 status = if (event.status == "failed") ChatTurnStatus.Failed else ChatTurnStatus.Completed,
@@ -761,7 +731,7 @@ class ChatViewModel(
                             startActiveHistoryPolling()
                         }
                     }
-                    event is WsEvent.ChatToolCallEvent && event.conversationId == conversationId -> {
+                    event is WsEvent.ChatToolCallEvent && event.conversationId == conversationId && wsClient !== WsRepository -> {
                         // Used to clear _liveTurnState.thinkingBlocks here on the theory that a
                         // tool call starts a fresh "thinking cycle" — but thinkingBlocks is keyed
                         // by blockId (reduceChatTurn's upsertThinkingBlock), so a new reasoning
@@ -793,7 +763,7 @@ class ChatViewModel(
                                 )
                             }
                         } else {
-                            freezeCurrentStreamingMessage() + ChatMessage(
+                            current + ChatMessage(
                                 // A stable id (not the default "") so ChatRenderItem.ToolCall's key
                                 // stays fixed for this tool call's whole life in the live-tracked
                                 // list — otherwise its key derived from position among tool-call
@@ -839,7 +809,7 @@ class ChatViewModel(
                         _messages.value = if (idx >= 0) {
                             current.toMutableList().also { it[idx] = teamMessage }
                         } else {
-                            freezeCurrentStreamingMessage() + teamMessage
+                            current + teamMessage
                         }
                     }
                     event is WsEvent.ChatStreamChunk && event.conversationId == conversationId -> {
@@ -1430,6 +1400,7 @@ class ChatViewModel(
         if (retryMessageId == null) {
             _messages.value = _messages.value + optimisticMessage
         }
+        turnCoordinator.reset()
         _liveTurnState.value = emptyChatTurnState(conversationId).copy(
             status = ChatTurnStatus.Active,
             generationStartedAt = System.currentTimeMillis(),
@@ -1437,7 +1408,6 @@ class ChatViewModel(
         // Drop any stale animation state from a prior turn (e.g. Retry) so the observer
         // below can't replay an already-settled ChatAnimationState against the freshly
         // synced history and append a duplicate copy of the previous answer.
-        if (wsClient === WsRepository) ChatAnimationRepository.clear(conversationId)
         startActiveHistoryPolling()
 
         val data = buildMap<String, Any> {

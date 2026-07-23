@@ -209,6 +209,59 @@ fun buildChatRenderItems(
 }
 
 /**
+ * Projects the canonical active-turn sequence directly. No ChatMessage insertion/freezing is
+ * involved, so a later tool or thinking event cannot move text that was already displayed.
+ */
+fun buildActiveTurnRenderItems(turn: ChatTurnState): List<ChatRenderItem> {
+    if (turn.turnId == null || turn.status == ChatTurnStatus.Idle) return emptyList()
+    val result = mutableListOf<ChatRenderItem>()
+    turn.timeline.forEachIndexed { index, item ->
+        when (item) {
+            is ChatTurnItem.TextSegment -> if (item.content.isNotBlank()) {
+                result += ChatRenderItem.AssistantMessage(
+                    message = ChatMessage(
+                        id = "live_${turn.turnId}_text_${item.blockId.ifBlank { "legacy" }}",
+                        text = item.content,
+                        isUser = false,
+                        isStreaming = !item.done && turn.status == ChatTurnStatus.Streaming,
+                        isFrozenMidTurn = item.done && turn.status != ChatTurnStatus.Completed,
+                        model = turn.model,
+                    ),
+                )
+            }
+            is ChatTurnItem.Thinking -> result += ChatRenderItem.ThinkingBlockItem(
+                block = ThinkingBlock(item.blockId, item.content, item.done),
+                messageId = "live_${turn.turnId}",
+                index = index,
+            )
+            is ChatTurnItem.ToolCall -> result += ChatRenderItem.ToolCall(
+                message = ChatMessage(
+                    id = item.id,
+                    text = "",
+                    isUser = false,
+                    isStreaming = item.call.result.isEmpty() && turn.status != ChatTurnStatus.Completed &&
+                        turn.status != ChatTurnStatus.Failed,
+                    isToolCall = true,
+                    toolName = item.call.toolName,
+                    serverName = item.call.serverName,
+                    toolArgs = item.call.argsJson,
+                    toolResult = item.call.result,
+                    toolSuccess = item.call.success,
+                ),
+                listIndex = index,
+            )
+        }
+    }
+    if (turn.status == ChatTurnStatus.Active) {
+        result += ChatRenderItem.LiveActivity(
+            activity = turn.activity ?: ChatTurnActivity("thinking", "Assistant is thinking"),
+            generationStartedAt = turn.generationStartedAt,
+        )
+    }
+    return result
+}
+
+/**
  * Reuses the expanded timeline for the settled portion of a conversation while a response is
  * streaming. A token reveal replaces only the final [ChatMessage], but the old implementation
  * still walked, sorted, and allocated render items for the whole history on every reveal frame.
@@ -225,6 +278,7 @@ internal class ChatRenderTimelineCache {
     @Synchronized
     fun build(
         messages: List<ChatMessage>,
+        activeTurn: ChatTurnState,
         liveThinkingBlocks: List<ThinkingBlock>,
         isAwaitingResponse: Boolean,
         isStreaming: Boolean,
@@ -249,17 +303,22 @@ internal class ChatRenderTimelineCache {
             )
         }
 
-        if (stableCount == messages.size && !isAwaitingResponse) return cachedStableItems
+        val activeItems = buildActiveTurnRenderItems(activeTurn)
+        if (stableCount == messages.size && activeItems.isEmpty() && !isAwaitingResponse) return cachedStableItems
 
         val dynamicItems = buildChatRenderItems(
             messages = messages.subList(stableCount, messages.size),
-            liveThinkingBlocks = liveThinkingBlocks,
-            isAwaitingResponse = isAwaitingResponse,
+            liveThinkingBlocks = if (activeItems.isEmpty()) liveThinkingBlocks else emptyList(),
+            isAwaitingResponse = isAwaitingResponse && activeItems.isEmpty(),
             isStreaming = isStreaming,
             activity = activity,
             generationStartedAt = generationStartedAt,
         )
-        return if (cachedStableItems.isEmpty()) dynamicItems else cachedStableItems + dynamicItems
+        return buildList {
+            addAll(cachedStableItems)
+            addAll(dynamicItems)
+            addAll(activeItems)
+        }
     }
 
     private fun matchesCachedPrefix(messages: List<ChatMessage>, stableCount: Int): Boolean {

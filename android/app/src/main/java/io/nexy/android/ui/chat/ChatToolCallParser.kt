@@ -45,6 +45,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             isUser = false,
             isStreaming = false,
             timestamp = timestamp,
+            timelineOrder = timelineOrder,
             isToolCall = true,
             toolName = "🤝 $label",
             serverName = "Team activity",
@@ -55,7 +56,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
 
     if (role == "system" && content.startsWith(ARTIFACT_REF_PREFIX)) {
         parseArtifactRef(content)?.let { ref ->
-            return ChatMessage(id = id, text = "", isUser = false, isStreaming = false, timestamp = timestamp, artifactRef = ref)
+            return ChatMessage(id = id, text = "", isUser = false, isStreaming = false, timestamp = timestamp, timelineOrder = timelineOrder, artifactRef = ref)
         }
     }
 
@@ -69,6 +70,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             isUser = role == "user",
             isStreaming = false,
             timestamp = timestamp,
+            timelineOrder = timelineOrder,
             attachments = attachments,
             thinkingBlocks = thinkingBlocks,
             textSegments = textSegments,
@@ -83,6 +85,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             isUser = false,
             isStreaming = false,
             timestamp = timestamp,
+            timelineOrder = timelineOrder,
             isToolCall = true,
             toolName = jsonString(content, "toolName"),
             serverName = jsonString(content, "serverName"),

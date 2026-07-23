@@ -208,6 +208,7 @@ fun ChatScreen(
     val activityLabel by vm.activityLabel.collectAsStateWithLifecycle()
     val liveActivity by vm.liveActivity.collectAsStateWithLifecycle()
     val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsStateWithLifecycle()
+    val liveTurnState by vm.liveTurnState.collectAsStateWithLifecycle()
     val generationStartedAt by vm.generationStartedAt.collectAsStateWithLifecycle()
     val selectedModel by vm.selectedModel.collectAsStateWithLifecycle()
     val attachments by vm.attachments.collectAsStateWithLifecycle()
@@ -460,12 +461,14 @@ fun ChatScreen(
         isAwaitingResponse,
         isStreaming,
         liveThinkingBlocks,
+        liveTurnState,
         liveActivity,
         generationStartedAt,
     ) {
         value = withContext(Dispatchers.Default) {
             renderTimelineCache.build(
                 messages = messages,
+                activeTurn = liveTurnState,
                 liveThinkingBlocks = liveThinkingBlocks,
                 isAwaitingResponse = isAwaitingResponse,
                 isStreaming = isStreaming,
@@ -1306,18 +1309,32 @@ fun ChatScreen(
                             when (item) {
                                 is ChatRenderItem.UserMessage -> 0
                                 is ChatRenderItem.ToolCall -> 1
-                                is ChatRenderItem.AssistantMessage -> 2
+                                // Assistant/text-segment rows host Android TextView/WebView
+                                // children. Do not recycle one message's embedded View holder as
+                                // another message: a stale narrow measurement can otherwise
+                                // survive while scrolling historical content. The LazyColumn
+                                // still virtualizes off-screen rows, but these content types make
+                                // each embedded-view row mount with its own width contract.
+                                is ChatRenderItem.AssistantMessage -> "assistant:${item.key}"
                                 is ChatRenderItem.LiveThinking -> 3
                                 is ChatRenderItem.LiveActivity -> 4
                                 is ChatRenderItem.ArtifactCard -> 5
                                 is ChatRenderItem.ThinkingBlockItem -> 6
-                                is ChatRenderItem.TextSegmentItem -> 7
+                                is ChatRenderItem.TextSegmentItem -> "text-segment:${item.key}"
                             }
                         },
                     ) { item ->
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth(),
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    ChatLayoutDiagnostics.record(
+                                        messageKey = item.key,
+                                        stage = "lazy-item-${item::class.simpleName}",
+                                        widthPx = coordinates.size.width,
+                                        heightPx = coordinates.size.height,
+                                    )
+                                },
                         ) {
                         when (item) {
                             is ChatRenderItem.ToolCall -> {
@@ -1349,7 +1366,10 @@ fun ChatScreen(
                             is ChatRenderItem.TextSegmentItem -> {
                                 ChatTimelineGroup {
                                     ChatTimelineEntry(beadColor = Gray400) {
-                                        TextSegmentBubble(item.block.content)
+                                        ExpandedResponseTextSegment(
+                                            content = item.block.content,
+                                            debugKey = item.key,
+                                        )
                                     }
                                 }
                             }

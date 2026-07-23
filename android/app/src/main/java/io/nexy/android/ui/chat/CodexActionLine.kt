@@ -1,6 +1,7 @@
 package io.nexy.android.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -14,10 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,9 +30,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -66,6 +72,19 @@ internal fun isCodexToolCall(serverName: String?): Boolean = serverName == CODEX
 internal fun isCodexReasoning(blocks: List<ThinkingBlock>): Boolean =
     blocks.any { it.blockId.startsWith(CODEX_REASONING_BLOCK_PREFIX) }
 
+internal fun collapsedReasoningPreview(content: String): String {
+    val withoutControlCharacters = content.filter { character ->
+        character == '\n' || character == '\t' || !character.isISOControl()
+    }
+    return withoutControlCharacters
+        .replace(Regex("!\\[([^]]*)]\\([^)]*\\)"), "$1")
+        .replace(Regex("\\[([^]]+)]\\([^)]*\\)"), "$1")
+        .replace(Regex("`([^`]*)`"), "$1")
+        .replace(Regex("(?m)^\\s{0,3}(?:#{1,6}|[-*+]|>)\\s+"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+
 /**
  * Compact CLI-style bullet line for Codex-CLI-originated tool calls — the Android counterpart
  * of desktop's CodexActionLine.tsx. Used instead of [ChatTimelineEntry]-wrapped [ToolCallBubble]
@@ -88,6 +107,7 @@ fun CodexToolActionLine(msg: ChatMessage, inProgress: Boolean) {
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -105,6 +125,7 @@ fun CodexToolActionLine(msg: ChatMessage, inProgress: Boolean) {
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 color = verbColor,
+                modifier = Modifier.weight(1f),
             )
         }
         if (!msg.toolResult.isNullOrBlank()) {
@@ -114,7 +135,7 @@ fun CodexToolActionLine(msg: ChatMessage, inProgress: Boolean) {
             var showFullscreen by remember { mutableStateOf(false) }
             val resultColor = if (!msg.toolSuccess) (if (isDark) Red400 else Red600) else Gray500
             Row(
-                modifier = Modifier.padding(start = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -126,7 +147,7 @@ fun CodexToolActionLine(msg: ChatMessage, inProgress: Boolean) {
                     maxLines = RESULT_VISIBLE_LINES,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .weight(1f, fill = false)
+                        .weight(1f)
                         .combinedClickable(
                             interactionSource = interactionSource,
                             indication = null,
@@ -217,13 +238,49 @@ fun CodexReasoningActionLine(blocks: List<ThinkingBlock>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         blocks.forEach { block ->
             if (block.content.isBlank()) return@forEach
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text("•", fontSize = 12.sp, color = glyphColor)
-                Text(block.content, fontSize = 12.sp, color = textColor)
+            var expanded by rememberSaveable(block.blockId, block.done) {
+                mutableStateOf(!block.done)
+            }
+            val preview = remember(block.content) {
+                collapsedReasoningPreview(block.content).ifBlank { "Thought" }
+            }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("•", fontSize = 12.sp, color = glyphColor)
+                    Text(
+                        if (expanded) "Thought" else preview,
+                        fontSize = 12.sp,
+                        color = textColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (expanded) "Collapse thought" else "Expand thought",
+                        modifier = Modifier.size(16.dp),
+                        tint = glyphColor,
+                    )
+                }
+                if (expanded) {
+                    SelectionContainer(modifier = Modifier.padding(start = 18.dp, end = 4.dp, bottom = 6.dp)) {
+                        Text(
+                            block.content,
+                            fontSize = 12.sp,
+                            color = textColor,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
         }
     }

@@ -58,8 +58,8 @@ fun ChatTimelineEntry(
     Box(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
-                .padding(start = 12.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .padding(start = 12.dp),
         ) {
             content()
         }

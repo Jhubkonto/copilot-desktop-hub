@@ -4,6 +4,7 @@ import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 enum class ChatTurnStatus {
     Idle,
@@ -43,15 +44,33 @@ data class ChatTurnError(
     val retryAfterSeconds: Int? = null,
 )
 
+// One entry in a turn's true chronological order — text/thinking bursts and tool calls,
+// interleaved the way they actually happened, keyed by blockId (text/thinking) or id (tool
+// call) so a later event for the same entry updates it in place instead of appending a
+// duplicate. Backends that don't segment text (no blockId on assistant_text_delta) get a
+// single legacy TextSegment with blockId "" covering the whole turn, per the comment on
+// ChatAssistantTextDeltaEvent.blockId in chat-turn-types.ts.
+sealed class ChatTurnItem {
+    data class TextSegment(val blockId: String, val content: String, val done: Boolean) : ChatTurnItem()
+    data class Thinking(val blockId: String, val content: String, val done: Boolean) : ChatTurnItem()
+    data class ToolCall(val id: String, val call: ChatTurnToolCall) : ChatTurnItem()
+}
+
 data class ChatTurnState(
     val conversationId: String? = null,
     val turnId: String? = null,
     val lastSequence: Long = 0L,
     val status: ChatTurnStatus = ChatTurnStatus.Idle,
+    // Full concatenated text regardless of blockId — kept for existing call sites that only
+    // need the whole reply, not its interleaving with tool calls (e.g. copy/share).
     val text: String = "",
     val thinkingBlocks: List<ThinkingBlock> = emptyList(),
     val pendingThinkingEnds: Set<String> = emptySet(),
     val toolCalls: List<ChatTurnToolCall> = emptyList(),
+    // Same content as text/thinkingBlocks/toolCalls above, but as one sequence-ordered list —
+    // this is what live rendering should walk to reproduce true chronological order instead
+    // of the three separate buckets, which only preserve order within their own kind.
+    val timeline: List<ChatTurnItem> = emptyList(),
     val activity: ChatTurnActivity? = null,
     val cost: ChatTurnCost? = null,
     val model: String? = null,
@@ -86,10 +105,32 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
     return when (event.type) {
         "user_message_committed" -> base.copy(status = ChatTurnStatus.Active)
 
-        "assistant_text_delta" -> base.copy(
-            status = ChatTurnStatus.Streaming,
-            text = state.text + payload.optString("chunk", ""),
-        )
+        "assistant_text_delta" -> {
+            // Omitted by backends that don't segment text yet — the whole turn's text is then
+            // treated as a single legacy block under blockId "" (see ChatTurnItem doc comment).
+            val blockId = payload.optString("blockId", "")
+            val chunk = payload.optString("chunk", "")
+            val existingContent = state.timeline
+                .filterIsInstance<ChatTurnItem.TextSegment>()
+                .firstOrNull { it.blockId == blockId }
+                ?.content
+                .orEmpty()
+            base.copy(
+                status = ChatTurnStatus.Streaming,
+                text = state.text + chunk,
+                timeline = state.timeline.upsertTextSegment(blockId, existingContent + chunk, done = false),
+            )
+        }
+
+        "text_segment_done" -> {
+            val blockId = payload.optString("blockId", "")
+            val existing = state.timeline
+                .filterIsInstance<ChatTurnItem.TextSegment>()
+                .firstOrNull { it.blockId == blockId }
+            if (existing == null) base else base.copy(
+                timeline = state.timeline.upsertTextSegment(blockId, existing.content, done = true),
+            )
+        }
 
         "thinking_delta" -> {
             val blockId = payload.optString("blockId", "")
@@ -100,14 +141,16 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
                 val existing = state.thinkingBlocks.firstOrNull { it.blockId == blockId }
                 val pendingThinkingEnds = state.pendingThinkingEnds - blockId
                 val done = existing?.done == true || blockId in state.pendingThinkingEnds
+                val content = (existing?.content ?: "") + chunk
                 val nextBlock = ThinkingBlock(
                     blockId = blockId,
-                    content = (existing?.content ?: "") + chunk,
+                    content = content,
                     done = done,
                 )
                 base.copy(
                     thinkingBlocks = state.thinkingBlocks.upsertThinkingBlock(nextBlock),
                     pendingThinkingEnds = pendingThinkingEnds,
+                    timeline = state.timeline.upsertThinkingItem(blockId, content, done),
                 )
             }
         }
@@ -122,23 +165,42 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
             } else {
                 base.copy(
                     thinkingBlocks = state.thinkingBlocks.upsertThinkingBlock(existing.copy(done = true)),
+                    timeline = state.timeline.upsertThinkingItem(blockId, existing.content, done = true),
                 )
             }
         }
 
-        "tool_started" -> base.copy(
-            status = ChatTurnStatus.Active,
-            activity = ChatTurnActivity(
-                state = "tool",
-                label = "Running ${payload.optString("name", "tool")}",
-                toolName = payload.nullableString("name"),
-                serverName = payload.nullableString("serverName"),
-            ),
-        )
+        "tool_started" -> {
+            val id = payload.nullableString("id")
+            val timeline = if (id != null) {
+                // Placeholder entry so the timeline positions this tool call the moment it
+                // starts, not just once tool_finished's result arrives — tool_finished below
+                // upserts the same id in place rather than appending a second entry.
+                state.timeline.upsertToolCallItem(id, ChatTurnToolCall(
+                    id = id,
+                    toolName = payload.optString("name", "Tool call"),
+                    serverName = payload.nullableString("serverName"),
+                    argsJson = payload.optJSONObject("input")?.toString(),
+                    result = "",
+                    success = true,
+                ))
+            } else {
+                state.timeline
+            }
+            base.copy(
+                status = ChatTurnStatus.Active,
+                activity = ChatTurnActivity(
+                    state = "tool",
+                    label = "Running ${payload.optString("name", "tool")}",
+                    toolName = payload.nullableString("name"),
+                    serverName = payload.nullableString("serverName"),
+                ),
+                timeline = timeline,
+            )
+        }
 
-        "tool_finished" -> base.copy(
-            status = ChatTurnStatus.Active,
-            toolCalls = state.toolCalls.upsertToolCall(ChatTurnToolCall(
+        "tool_finished" -> {
+            val toolCall = ChatTurnToolCall(
                 id = payload.nullableString("id"),
                 toolName = payload.optString("toolName", "Tool call"),
                 serverName = payload.nullableString("serverName"),
@@ -146,8 +208,17 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
                 result = payload.optString("result", ""),
                 success = payload.optBoolean("success", true),
                 resultImages = payload.optJSONArray("resultImages").toStringMapList(),
-            )),
-        )
+            )
+            base.copy(
+                status = ChatTurnStatus.Active,
+                toolCalls = state.toolCalls.upsertToolCall(toolCall),
+                timeline = if (toolCall.id != null) {
+                    state.timeline.upsertToolCallItem(toolCall.id, toolCall)
+                } else {
+                    state.timeline + ChatTurnItem.ToolCall(UUID.randomUUID().toString(), toolCall)
+                },
+            )
+        }
 
         "activity_changed" -> base.copy(
             activity = ChatTurnActivity(
@@ -172,12 +243,14 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
             status = ChatTurnStatus.Completed,
             thinkingBlocks = state.thinkingBlocks.map { it.copy(done = true) },
             pendingThinkingEnds = emptySet(),
+            timeline = state.timeline.map { it.markDone() },
         )
 
         "turn_failed" -> base.copy(
             status = ChatTurnStatus.Failed,
             thinkingBlocks = state.thinkingBlocks.map { it.copy(done = true) },
             pendingThinkingEnds = emptySet(),
+            timeline = state.timeline.map { it.markDone() },
             error = ChatTurnError(
                 type = payload.optString("errorType", "unknown"),
                 message = payload.optString("message", ""),
@@ -213,6 +286,30 @@ private fun List<ChatTurnToolCall>.upsertToolCall(toolCall: ChatTurnToolCall): L
     } else {
         this + toolCall
     }
+}
+
+private fun List<ChatTurnItem>.upsertTextSegment(blockId: String, content: String, done: Boolean): List<ChatTurnItem> {
+    val item = ChatTurnItem.TextSegment(blockId, content, done)
+    val index = indexOfFirst { it is ChatTurnItem.TextSegment && it.blockId == blockId }
+    return if (index >= 0) toMutableList().also { it[index] = item } else this + item
+}
+
+private fun List<ChatTurnItem>.upsertThinkingItem(blockId: String, content: String, done: Boolean): List<ChatTurnItem> {
+    val item = ChatTurnItem.Thinking(blockId, content, done)
+    val index = indexOfFirst { it is ChatTurnItem.Thinking && it.blockId == blockId }
+    return if (index >= 0) toMutableList().also { it[index] = item } else this + item
+}
+
+private fun List<ChatTurnItem>.upsertToolCallItem(id: String, call: ChatTurnToolCall): List<ChatTurnItem> {
+    val item = ChatTurnItem.ToolCall(id, call)
+    val index = indexOfFirst { it is ChatTurnItem.ToolCall && it.id == id }
+    return if (index >= 0) toMutableList().also { it[index] = item } else this + item
+}
+
+private fun ChatTurnItem.markDone(): ChatTurnItem = when (this) {
+    is ChatTurnItem.TextSegment -> copy(done = true)
+    is ChatTurnItem.Thinking -> copy(done = true)
+    is ChatTurnItem.ToolCall -> this
 }
 
 private fun JSONObject.nullableString(key: String): String? =
