@@ -311,7 +311,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_signing_config', ?)").run(JSON.stringify(signingConfig))
 
     const handler = handlers.get('android:start-command')
-    await handler?.({}, 'assembleRelease')
+    const result = await handler?.({}, 'assembleRelease')
 
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
@@ -320,6 +320,8 @@ describe('registerAndroidHandlers — android:start-command', () => {
         env: expect.objectContaining({
           NEXY_KEYSTORE_PATH: '/key.jks',
           NEXY_KEY_ALIAS: 'key',
+          NEXY_ANDROID_BUILD_ID: result.buildId,
+          NEXY_ANDROID_BUILD_TIMESTAMP: expect.any(String),
         })
       })
     )
@@ -786,6 +788,64 @@ describe('registerAndroidHandlers — android:publish-update', () => {
       expect(manifest).toHaveProperty('checksum')
       expect(manifest).toHaveProperty('artifactUrl')
       expect(manifest).toHaveProperty('publishedAt')
+    } finally {
+      rmSync(wsDir, { recursive: true, force: true })
+      rmSync(feedDir, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes the APK and identity from the same successful build record', async () => {
+    const { createHash } = await import('crypto')
+    const { mkdirSync, writeFileSync, rmSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const wsDir = join(tmpDir, `nexy-android-recorded-${Date.now()}`)
+    const feedDir = join(tmpDir, `nexy-feed-recorded-${Date.now()}`)
+    const apkDir = join(wsDir, 'app', 'build', 'outputs', 'apk', 'release')
+    const recordedApk = join(apkDir, 'recorded-release.apk')
+    const unrelatedApk = join(apkDir, 'newer-but-unrecorded.apk')
+    const body = Buffer.from('recorded release apk')
+    const checksum = createHash('sha256').update(body).digest('hex')
+
+    mkdirSync(apkDir, { recursive: true })
+    mkdirSync(feedDir, { recursive: true })
+    writeFileSync(recordedApk, body)
+    writeFileSync(unrelatedApk, Buffer.from('unrelated apk'))
+
+    try {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('local_update_feed_path', ?)").run(feedDir)
+      db.prepare(
+        `INSERT INTO build_records
+          (id, workspace_path, commit_sha, branch, version, version_code, platform, command, status,
+           artifact_paths, artifact_checksums, started_at, finished_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'android', 'assembleRelease', 'success', ?, ?, ?, ?)`
+      ).run(
+        'release-build-id',
+        wsDir,
+        'deadbee',
+        'main',
+        '1.0.77',
+        77,
+        JSON.stringify([recordedApk]),
+        JSON.stringify({ [recordedApk]: checksum }),
+        1234,
+        2345,
+      )
+
+      const handler = handlers.get('android:publish-update')
+      const result = await handler?.({})
+
+      expect(result.published).toBe(true)
+      expect(result.manifest).toMatchObject({
+        versionCode: 77,
+        versionName: '1.0.77',
+        commitSha: 'deadbee',
+        buildId: 'release-build-id',
+        builtAt: 1234,
+        checksum,
+      })
+      expect(result.manifest.artifactUrl).toContain('recorded-release.apk')
     } finally {
       rmSync(wsDir, { recursive: true, force: true })
       rmSync(feedDir, { recursive: true, force: true })

@@ -38,6 +38,10 @@ const activeAndroidProcesses = new Map<string, ChildProcess>()
 // same value in its build records and update manifest.
 const ANDROID_RELEASE_BUILD_OFFSET = 1
 const ANDROID_VERSION_CODE_ENV = 'NEXY_ANDROID_VERSION_CODE'
+const ANDROID_BUILD_ID_ENV = 'NEXY_ANDROID_BUILD_ID'
+const ANDROID_COMMIT_SHA_ENV = 'NEXY_ANDROID_COMMIT_SHA'
+const ANDROID_SOURCE_DIRTY_ENV = 'NEXY_ANDROID_SOURCE_DIRTY'
+const ANDROID_BUILD_TIMESTAMP_ENV = 'NEXY_ANDROID_BUILD_TIMESTAMP'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -381,9 +385,45 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
   const workspacePath = getAndroidWorkspacePath(db)
   if (!workspacePath) return { published: false, error: 'Android workspace path not configured' }
 
-  const releaseApkDir = path.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'release')
+  const builtRelease = db.prepare(
+    `SELECT id, version_code AS versionCode, version, commit_sha AS commitSha,
+            artifact_paths AS artifactPaths, artifact_checksums AS artifactChecksums,
+            started_at AS startedAt
+       FROM build_records
+      WHERE platform = 'android' AND command = 'assembleRelease' AND status = 'success'
+      ORDER BY finished_at DESC LIMIT 1`
+  ).get() as {
+    id: string
+    versionCode: number | null
+    version: string | null
+    commitSha: string | null
+    artifactPaths: string | null
+    artifactChecksums: string | null
+    startedAt: number
+  } | undefined
+
   let apkSrc: string | null = null
-  if (existsSync(releaseApkDir)) {
+  let recordedChecksum: string | null = null
+  if (builtRelease) {
+    const recordedPaths = JSON.parse(builtRelease.artifactPaths ?? '[]') as string[]
+    apkSrc = recordedPaths.find((candidate) =>
+      candidate.toLowerCase().endsWith('.apk') &&
+      !path.basename(candidate).toLowerCase().includes('unsigned') &&
+      existsSync(candidate)
+    ) ?? null
+    if (!apkSrc) {
+      return {
+        published: false,
+        error: 'The latest successful release build has no installable APK artifact. Run assembleRelease again before publishing.',
+      }
+    }
+    const checksums = JSON.parse(builtRelease.artifactChecksums ?? '{}') as Record<string, string>
+    recordedChecksum = checksums[apkSrc] ?? null
+  }
+
+  // Legacy fallback for build records created before artifact tracking existed.
+  const releaseApkDir = path.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'release')
+  if (!builtRelease && existsSync(releaseApkDir)) {
     let latestMtime = 0
     for (const entry of readdirSync(releaseApkDir)) {
       if (entry.endsWith('.apk')) {
@@ -409,6 +449,16 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
 
   mkdirSync(androidFeedDir, { recursive: true })
 
+  if (recordedChecksum) {
+    const currentChecksum = await computeSha256(apkSrc)
+    if (currentChecksum !== recordedChecksum) {
+      return {
+        published: false,
+        error: 'The release APK changed after its build record was created. Run assembleRelease again so the published metadata and APK cannot get out of sync.',
+      }
+    }
+  }
+
   // Archive the previous release before overwriting so rollback is possible
   const prevManifest = await getAndroidUpdateManifest(db)
   if (prevManifest) {
@@ -430,18 +480,15 @@ export async function publishAndroidUpdate(db: Database.Database): Promise<{ pub
 
   const checksum = await computeSha256(destApk)
   const wsInfo = await getAndroidWorkspaceInfo(db)
-  // The desktop may have reserved a release code above the Git-derived
-  // fallback. Publish the code recorded for that release build, otherwise the
-  // manifest would advertise an older version than the APK it serves.
-  const builtRelease = db.prepare(
-    "SELECT version_code AS versionCode, version FROM build_records WHERE platform = 'android' AND command = 'assembleRelease' AND status = 'success' ORDER BY finished_at DESC LIMIT 1"
-  ).get() as { versionCode: number | null; version: string | null } | undefined
   const feedLanUrl = await ensureLanFeedServer(db, androidFeedDir)
 
   const manifest: AndroidUpdateManifest = {
     versionCode: builtRelease?.versionCode ?? wsInfo.versionCode ?? 1,
     versionName: builtRelease?.version ?? wsInfo.versionName ?? '1.0',
-    commitSha: wsInfo.commitSha,
+    commitSha: builtRelease?.commitSha ?? wsInfo.commitSha,
+    buildId: builtRelease?.id ?? null,
+    sourceDirty: wsInfo.dirty,
+    builtAt: builtRelease?.startedAt ?? null,
     changelog: '',
     checksum,
     artifactUrl: `${feedLanUrl}/android/${apkName}`,
@@ -466,10 +513,23 @@ function reserveReleaseVersionCode(db: Database.Database, fallbackCode: number |
   return Math.max(base + 1, 1)
 }
 
-function buildAndroidBuildEnv(signingConfig: AndroidSigningConfig | null, versionCode: number | null): NodeJS.ProcessEnv {
+function buildAndroidBuildEnv(
+  signingConfig: AndroidSigningConfig | null,
+  versionCode: number | null,
+  buildId: string,
+  workspaceInfo: AndroidWorkspaceInfo,
+  buildTimestamp: number,
+): NodeJS.ProcessEnv {
   const env = signingConfig ? buildSigningEnv(signingConfig) : { ...process.env }
   const withJdk = withVerifiedAndroidJdk(env)
-  return versionCode == null ? withJdk : { ...withJdk, [ANDROID_VERSION_CODE_ENV]: String(versionCode) }
+  return {
+    ...withJdk,
+    ...(versionCode == null ? {} : { [ANDROID_VERSION_CODE_ENV]: String(versionCode) }),
+    [ANDROID_BUILD_ID_ENV]: buildId,
+    [ANDROID_COMMIT_SHA_ENV]: workspaceInfo.commitSha ?? 'unknown',
+    [ANDROID_SOURCE_DIRTY_ENV]: String(workspaceInfo.dirty),
+    [ANDROID_BUILD_TIMESTAMP_ENV]: String(buildTimestamp),
+  }
 }
 
 export async function restoreAndroidVersion(db: Database.Database, versionCode: number): Promise<{ restored: boolean; manifest?: AndroidUpdateManifest; error?: string }> {
@@ -573,7 +633,13 @@ export async function startAndroidBuildFromMobile(
   const args = androidGradleArgs(command)
   const useSigningEnv = SIGNING_COMMANDS.has(command)
   const signingConfig = useSigningEnv ? await ensureAndroidSigningConfig(db) : null
-  const env = buildAndroidBuildEnv(signingConfig, SIGNING_COMMANDS.has(command) ? releaseVersionCode : null)
+  const env = buildAndroidBuildEnv(
+    signingConfig,
+    SIGNING_COMMANDS.has(command) ? releaseVersionCode : null,
+    buildId,
+    workspaceInfo,
+    now,
+  )
 
   db.prepare(
     `INSERT INTO build_records
@@ -652,7 +718,13 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     const args = androidGradleArgs(command)
     const useSigningEnv = SIGNING_COMMANDS.has(command)
     const signingConfig = useSigningEnv ? await ensureAndroidSigningConfig(db) : null
-    const env = buildAndroidBuildEnv(signingConfig, SIGNING_COMMANDS.has(command) ? releaseVersionCode : null)
+    const env = buildAndroidBuildEnv(
+      signingConfig,
+      SIGNING_COMMANDS.has(command) ? releaseVersionCode : null,
+      buildId,
+      workspaceInfo,
+      now,
+    )
 
     db.prepare(
       `INSERT INTO build_records
