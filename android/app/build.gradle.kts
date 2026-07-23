@@ -23,6 +23,20 @@ fun gitCommitCount(root: File): Int = try {
     1
 }
 
+fun gitValue(root: File, vararg args: String): String? = try {
+    val process = ProcessBuilder(listOf("git") + args)
+        .directory(root)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    if (process.waitFor() == 0) output.takeIf { it.isNotBlank() } else null
+} catch (_: Exception) {
+    null
+}
+
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 // Keep a release bump available when publishing a new APK from an unchanged
 // commit.  Android only permits installing an APK whose versionCode is newer
 // than the installed one; uncommitted release fixes otherwise retain the same
@@ -36,6 +50,17 @@ val desktopVersionCode = System.getenv("NEXY_ANDROID_VERSION_CODE")
     ?.toIntOrNull()
     ?.takeIf { it > 0 }
 val apkVersionCode = desktopVersionCode ?: (gitVersionCode + releaseBuildOffset)
+val sourceCommit = System.getenv("NEXY_ANDROID_COMMIT_SHA")
+    ?: gitValue(rootDir, "rev-parse", "--short", "HEAD")
+    ?: "unknown"
+val sourceDirty = System.getenv("NEXY_ANDROID_SOURCE_DIRTY")?.toBooleanStrictOrNull()
+    ?: !gitValue(rootDir, "status", "--porcelain").isNullOrBlank()
+val buildTimestamp = System.getenv("NEXY_ANDROID_BUILD_TIMESTAMP")
+    ?.toLongOrNull()
+    ?: System.currentTimeMillis()
+val nexyBuildId = System.getenv("NEXY_ANDROID_BUILD_ID")
+    ?.takeIf { it.isNotBlank() }
+    ?: "local-$buildTimestamp"
 
 android {
     namespace = "io.nexy.android"
@@ -51,6 +76,10 @@ android {
         targetSdk = 36
         versionCode = apkVersionCode
         versionName = "1.0.$apkVersionCode"
+        buildConfigField("String", "NEXY_BUILD_ID", buildConfigString(nexyBuildId))
+        buildConfigField("String", "NEXY_COMMIT_SHA", buildConfigString(sourceCommit))
+        buildConfigField("boolean", "NEXY_SOURCE_DIRTY", sourceDirty.toString())
+        buildConfigField("long", "NEXY_BUILD_TIMESTAMP", "${buildTimestamp}L")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
