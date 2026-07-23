@@ -1603,10 +1603,13 @@ export interface AdbDevice {
 }
 
 export interface AndroidUpdateManifest {
-  versionCode: number
-  versionName: string
-  commitSha: string | null
-  changelog: string
+    versionCode: number
+    versionName: string
+    commitSha: string | null
+    buildId?: string | null
+    sourceDirty?: boolean
+    builtAt?: number | null
+    changelog: string
   checksum: string
   artifactUrl: string
   publishedAt: number

@@ -407,6 +407,20 @@ export function DeveloperTab({
   )
   const canPublishDesktopPackage = Boolean(latestSuccessfulDesktopPackage)
   const canLaunchDevBuild = latestDesktopBuild && isDesktopCommand(latestDesktopBuild.command) && latestDesktopBuild.command === 'build' && latestDesktopBuild.status === 'success'
+  const latestSuccessfulAndroidRelease = androidBuildRecords.find(
+    (record) => record.command === 'assembleRelease' && record.status === 'success',
+  )
+  const androidReleaseFeedState = (() => {
+    if (!latestSuccessfulAndroidRelease) return 'no-release' as const
+    if (!androidUpdateManifest) return 'not-published' as const
+    if (
+      androidUpdateManifest.versionCode !== latestSuccessfulAndroidRelease.versionCode ||
+      (androidUpdateManifest.buildId != null && androidUpdateManifest.buildId !== latestSuccessfulAndroidRelease.id)
+    ) {
+      return 'mismatch' as const
+    }
+    return androidUpdateManifest.buildId == null ? 'legacy-match' as const : 'match' as const
+  })()
 
   // Preflight worst status for tab badge
   const preflightWorst = preflightChecks?.some((c) => c.status === 'fail') ? 'fail'
@@ -873,12 +887,21 @@ export function DeveloperTab({
               <PathWarning text="No Gradle wrapper found here — point this at the android/ folder inside the Nexy checkout." />
             )}
             {androidWorkspaceInfo && (
-              <div className="flex flex-wrap gap-1.5">
-                {androidWorkspaceInfo.branch && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">{androidWorkspaceInfo.branch}</span>}
-                {androidWorkspaceInfo.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-mono">{androidWorkspaceInfo.commitSha}</span>}
-                {androidWorkspaceInfo.dirty && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">dirty</span>}
-                {androidWorkspaceInfo.versionCode != null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">build {androidWorkspaceInfo.versionCode}</span>}
-                {androidWorkspaceInfo.versionName && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">v{androidWorkspaceInfo.versionName}</span>}
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mr-0.5">Source</span>
+                  {androidWorkspaceInfo.branch && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">{androidWorkspaceInfo.branch}</span>}
+                  {androidWorkspaceInfo.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-mono">{androidWorkspaceInfo.commitSha}</span>}
+                  {androidWorkspaceInfo.dirty && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">dirty</span>}
+                </div>
+                {(androidWorkspaceInfo.versionCode != null || androidWorkspaceInfo.versionName) && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+                    <span className="font-medium text-gray-400 uppercase tracking-wide mr-0.5">Git baseline</span>
+                    {androidWorkspaceInfo.versionName && <span className="font-mono">v{androidWorkspaceInfo.versionName}</span>}
+                    {androidWorkspaceInfo.versionCode != null && <span>build {androidWorkspaceInfo.versionCode}</span>}
+                    <span>· release builds reserve a newer build number</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1088,6 +1111,46 @@ export function DeveloperTab({
               </div>
             </div>
             <div className="p-3 space-y-2.5">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-[11px]">
+                <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5 px-3 py-2.5 bg-white dark:bg-gray-900">
+                  <span className="text-gray-500">Latest assembled APK</span>
+                  {latestSuccessfulAndroidRelease ? (
+                    <span className="flex flex-wrap items-center gap-1.5 text-gray-700 dark:text-gray-200">
+                      <strong>v{latestSuccessfulAndroidRelease.version ?? 'Unknown'}</strong>
+                      <span>build {latestSuccessfulAndroidRelease.versionCode ?? 'Unknown'}</span>
+                      <span className="font-mono text-gray-400">id {latestSuccessfulAndroidRelease.id.slice(0, 12)}</span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">No successful assembleRelease build</span>
+                  )}
+
+                  <span className="text-gray-500">Currently on feed</span>
+                  {androidUpdateManifest ? (
+                    <span className="flex flex-wrap items-center gap-1.5 text-gray-700 dark:text-gray-200">
+                      <strong>v{androidUpdateManifest.versionName}</strong>
+                      <span>build {androidUpdateManifest.versionCode}</span>
+                      <span className="font-mono text-gray-400">
+                        {androidUpdateManifest.buildId ? `id ${androidUpdateManifest.buildId.slice(0, 12)}` : 'legacy manifest'}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">Nothing published</span>
+                  )}
+                </div>
+                <div className={`px-3 py-2 border-t text-[10px] font-medium ${
+                  androidReleaseFeedState === 'match'
+                    ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-300'
+                    : androidReleaseFeedState === 'mismatch'
+                      ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300'
+                }`}>
+                  {androidReleaseFeedState === 'match' && '✓ Feed exactly matches the latest assembled release'}
+                  {androidReleaseFeedState === 'legacy-match' && 'Build number matches, but this older feed entry has no build ID to verify exactly'}
+                  {androidReleaseFeedState === 'mismatch' && '✗ Feed does not match the latest assembled release — publish before installing'}
+                  {androidReleaseFeedState === 'not-published' && 'Latest release has not been published'}
+                  {androidReleaseFeedState === 'no-release' && 'Run assembleRelease to create a publishable APK'}
+                </div>
+              </div>
               <Button
                 variant="secondary"
                 onClick={onAndroidPublishUpdate}
@@ -1103,6 +1166,7 @@ export function DeveloperTab({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-medium">v{androidUpdateManifest.versionName}</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">build {androidUpdateManifest.versionCode}</span>
+                    {androidUpdateManifest.buildId && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/70 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-mono">id {androidUpdateManifest.buildId.slice(0, 12)}</span>}
                     {androidUpdateManifest.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/70 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-mono">{androidUpdateManifest.commitSha}</span>}
                     <span className="text-[10px] text-gray-500 ml-auto">{new Date(androidUpdateManifest.publishedAt).toLocaleString()}</span>
                   </div>
