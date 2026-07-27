@@ -783,6 +783,7 @@ fun parseWsEvent(
                     data.optInt("terminalSandboxOverride") != 0
                 } else null
                 val cliModeOverride = data?.nullableString("cliModeOverride")
+                val codexExecutionModeOverride = data?.nullableString("codexExecutionModeOverride")
                 conversations.value = conversations.value.map { conversation ->
                     if (conversation.id == conversationId) {
                         conversation.copy(
@@ -790,10 +791,11 @@ fun parseWsEvent(
                             full_auto_approve_override = fullAutoApproveOverride,
                             terminal_sandbox_override = terminalSandboxOverride,
                             cli_mode_override = cliModeOverride,
+                            codex_execution_mode_override = codexExecutionModeOverride,
                         )
                     } else conversation
                 }
-                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride)
+                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride)
             }
 
             "conversation:messages" -> {
@@ -2923,6 +2925,7 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
             terminal_sandbox_override = if (row.has("terminal_sandbox_override") && !row.isNull("terminal_sandbox_override")) row.optInt("terminal_sandbox_override") != 0 else null,
             cli_mode_override = row.nullableString("cli_mode_override"),
+            codex_execution_mode_override = row.nullableString("codex_execution_mode_override"),
             rating = if (row.has("rating") && !row.isNull("rating")) row.optInt("rating") else null,
             kind = row.nullableString("kind"),
         )

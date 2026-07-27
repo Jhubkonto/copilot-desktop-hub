@@ -22,6 +22,7 @@ data class Conversation(
     // ('plan'|'acceptEdits'|'bypassPermissions') or Codex ('read-only'|'workspace-write'|
     // 'danger-full-access'). null = the backend's default behaviour. Only meaningful for CLI chats.
     val cli_mode_override: String? = null,
+    val codex_execution_mode_override: String? = null,
     val rating: Int? = null,
     val kind: String? = null, // 'chat' (default) or 'code-change' for wizard mode
 )
