@@ -152,6 +152,7 @@ type ChatSendOptions = {
   fullAutoApproveOverride?: boolean | null
   terminalSandboxOverride?: boolean | null
   cliModeOverride?: string | null
+  codexExecutionModeOverride?: 'plan' | null
 }
 
 type AgentToolPolicy = { enabled?: boolean; approval?: string }
@@ -321,10 +322,17 @@ async function requestClaudeCliToolPermission(
   agentId: string | null,
   sendActivity: (activity: MobileChatActivity) => void,
   autoApprove: boolean,
+  permissionMode: string | undefined,
   toolName: string,
   input: Record<string, unknown>,
   conversationId: string,
 ): Promise<boolean> {
+  // An explicit Claude Code Mode override (Plan / Accept edits / Bypass) governs this turn's
+  // permission behavior. Auto-approve is a separate, coarser toggle meant for when no mode is
+  // selected — letting it short-circuit here would silently defeat Plan's read-only guarantee
+  // and Accept edits' scoping, so it only applies when the user hasn't picked an explicit mode.
+  const autoApproveActive = autoApprove && !permissionMode
+
   const tool = getClaudeCliToolDefinition(toolName)
   if (!tool) {
     sendActivity({ state: 'approval', label: `Waiting for ${toolName} approval`, toolName })
@@ -339,7 +347,7 @@ async function requestClaudeCliToolPermission(
 
   const policy = getClaudeCliToolPolicies(agentConfig)[tool.key]
   if (policy?.enabled === false || policy?.approval === 'disabled') return false
-  if (autoApprove || (policy?.enabled === true && policy.approval === 'auto')) return true
+  if (autoApproveActive || (policy?.enabled === true && policy.approval === 'auto')) return true
   if (!agentId) {
     const preference = getClaudeCliGlobalToolPreference(tool.approvalTool)
     if (preference === 'always_allow') return true
@@ -477,6 +485,12 @@ export async function dispatchChatSend(
           conversationId,
         )
       }
+      if (options?.codexExecutionModeOverride === 'plan') {
+        db.prepare('UPDATE conversations SET codex_execution_mode_override = ? WHERE id = ?').run(
+          options.codexExecutionModeOverride,
+          conversationId,
+        )
+      }
     }
 
     const userMsgId = options?.messageId ?? randomUUID()
@@ -512,7 +526,7 @@ export async function dispatchChatSend(
 
   // ── Provider resolution ────────────────────────────────────────────────────
   const convRow = db
-    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override FROM conversations WHERE id = ?')
+    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?')
     .get(conversationId) as {
       agent_id: string | null
       model: string | null
@@ -521,6 +535,7 @@ export async function dispatchChatSend(
       full_auto_approve_override: number | null
       terminal_sandbox_override: number | null
       cli_mode_override: string | null
+      codex_execution_mode_override: string | null
     } | undefined
   // Auto-heal: if cli_backend is missing but the stored model is a known CLI model, infer and persist it.
   // Skip healing if the model is in the OpenRouter cache — it's a BYOK model, not a CLI one.
@@ -575,6 +590,11 @@ export async function dispatchChatSend(
     convRow?.terminal_sandbox_override === 1 ? true
     : convRow?.terminal_sandbox_override === 0 ? false
     : terminalSandboxProjectDefault
+  const effectivePermissionMode = (options?.cliModeOverride ?? convRow?.cli_mode_override) ?? undefined
+  const effectiveCodexExecutionMode =
+    (options?.codexExecutionModeOverride ?? convRow?.codex_execution_mode_override) === 'plan'
+      ? 'plan'
+      : undefined
   const generationOptions = {
     temperature: Number.isFinite(temperatureSetting) ? Math.min(2, Math.max(0, temperatureSetting)) : 0.7,
     maxTokens: Number.isFinite(maxTokensSetting) ? Math.min(16384, Math.max(256, maxTokensSetting)) : 4096,
@@ -1062,7 +1082,8 @@ export async function dispatchChatSend(
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
             thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
             skipPermissions: effectiveFullAutoApprove,
-            permissionMode: (options?.cliModeOverride ?? convRow?.cli_mode_override) ?? undefined,
+            permissionMode: effectivePermissionMode,
+            executionMode: effectiveCodexExecutionMode,
             extraAllowedDirs: effectiveTerminalSandboxBypass
               ? [path.parse(homedir()).root]
               : undefined,
@@ -1073,6 +1094,7 @@ export async function dispatchChatSend(
                   effectiveAgentId,
                   sendActivity,
                   effectiveFullAutoApprove,
+                  effectivePermissionMode,
                   toolName,
                   input,
                   conversationId,
