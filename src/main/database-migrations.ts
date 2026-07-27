@@ -1519,6 +1519,12 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       `)
     },
   },
+  {
+    // Codex collaboration/execution mode is independent of its approval policy and
+    // filesystem sandbox. NULL = Codex default; currently the only override is 'plan'.
+    version: 82,
+    sql: `ALTER TABLE conversations ADD COLUMN codex_execution_mode_override TEXT`,
+  },
 ];
 
 

@@ -1321,6 +1321,7 @@ export function registerWsHandlers(): void {
             c.full_auto_approve_override,
             c.terminal_sandbox_override,
             c.cli_mode_override,
+            c.codex_execution_mode_override,
             c.kind,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
@@ -1355,8 +1356,8 @@ export function registerWsHandlers(): void {
       // Only the field(s) actually present in the payload are touched — see the matching
       // Electron-IPC handler in conversation-handlers.ts for why this can't just default to null.
       const existing = db
-        .prepare('SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override FROM conversations WHERE id = ?')
-        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null } | undefined
+        .prepare('SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?')
+        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null; codex_execution_mode_override: string | null } | undefined
       const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
       const thinkingEffortOverride = 'thinkingEffortOverride' in data
         ? (typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride) ? data.thinkingEffortOverride : null)
@@ -1373,10 +1374,13 @@ export function registerWsHandlers(): void {
       const cliModeOverride = 'cliModeOverride' in data
         ? (typeof data.cliModeOverride === 'string' && validCliModes.includes(data.cliModeOverride) ? data.cliModeOverride : null)
         : (existing?.cli_mode_override ?? null)
+      const codexExecutionModeOverride = 'codexExecutionModeOverride' in data
+        ? (data.codexExecutionModeOverride === 'plan' ? 'plan' : null)
+        : (existing?.codex_execution_mode_override ?? null)
       db.prepare(
-        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, updated_at = ? WHERE id = ?'
-      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, Date.now(), conversationId)
-      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride } })
+        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?'
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), conversationId)
+      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride } })
       return
     }
 
