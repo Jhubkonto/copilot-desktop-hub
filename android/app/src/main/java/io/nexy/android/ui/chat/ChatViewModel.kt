@@ -208,6 +208,8 @@ class ChatViewModel(
     val terminalSandboxOverride: StateFlow<Boolean?> = _terminalSandboxOverride
     private val _cliModeOverride = MutableStateFlow<String?>(null)
     val cliModeOverride: StateFlow<String?> = _cliModeOverride
+    private val _codexExecutionModeOverride = MutableStateFlow<String?>(null)
+    val codexExecutionModeOverride: StateFlow<String?> = _codexExecutionModeOverride
 
     private val _sendError = MutableStateFlow<String?>(null)
     val sendError: StateFlow<String?> = _sendError
@@ -430,6 +432,7 @@ class ChatViewModel(
                     if ("fullAutoApproveOverride" !in flushedKeys) _fullAutoApproveOverride.value = conv.full_auto_approve_override
                     if ("terminalSandboxOverride" !in flushedKeys) _terminalSandboxOverride.value = conv.terminal_sandbox_override
                     if ("cliModeOverride" !in flushedKeys) _cliModeOverride.value = conv.cli_mode_override
+                    if ("codexExecutionModeOverride" !in flushedKeys) _codexExecutionModeOverride.value = conv.codex_execution_mode_override
                 }
             }
         }
@@ -1362,6 +1365,11 @@ class ChatViewModel(
     fun setCliModeOverride(value: String?) {
         _cliModeOverride.value = value
         sendModeOverride("cliModeOverride", value)
+    }
+
+    fun setCodexExecutionModeOverride(value: String?) {
+        _codexExecutionModeOverride.value = value
+        sendModeOverride("codexExecutionModeOverride", value)
     }
 
     // A draft conversation (unsent first message) only exists as a client-side UUID — sending

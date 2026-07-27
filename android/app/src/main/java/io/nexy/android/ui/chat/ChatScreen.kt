@@ -123,6 +123,7 @@ import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
+import io.nexy.android.ui.model.cliBackendForModel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -245,10 +246,12 @@ fun ChatScreen(
     val chatFullAutoApproveOverride by vm.fullAutoApproveOverride.collectAsStateWithLifecycle()
     val chatTerminalSandboxOverride by vm.terminalSandboxOverride.collectAsStateWithLifecycle()
     val chatCliModeOverride by vm.cliModeOverride.collectAsStateWithLifecycle()
+    val chatCodexExecutionModeOverride by vm.codexExecutionModeOverride.collectAsStateWithLifecycle()
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val activeCliBackend = (chatAgent?.backend ?: modelSource?.backend)
         ?.takeIf { it == "claude-cli" || it == "codex-cli" }
+        ?: cliBackendForModel(models.find { it.id == selectedModel })
     val chatBackend = chatAgent?.backend
     val statusProjectId = conversation?.project_id ?: projectId
     var chatAgentFullAutoApprove by remember { mutableStateOf(false) }
@@ -885,10 +888,12 @@ fun ChatScreen(
                 terminalSandboxOverride = chatTerminalSandboxOverride,
                 activeCliBackend = activeCliBackend,
                 cliModeOverride = chatCliModeOverride,
+                codexExecutionModeOverride = chatCodexExecutionModeOverride,
                 onSetThinkingEffort = { vm.setThinkingEffortOverride(it) },
                 onSetFullAutoApprove = { vm.setFullAutoApproveOverride(it) },
                 onSetTerminalSandboxOverride = { vm.setTerminalSandboxOverride(it) },
                 onSetCliMode = { vm.setCliModeOverride(it) },
+                onSetCodexExecutionMode = { vm.setCodexExecutionModeOverride(it) },
             )
         }
     }

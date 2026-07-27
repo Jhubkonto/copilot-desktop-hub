@@ -2,8 +2,7 @@ package io.nexy.android.ui.chat
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,7 +17,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+
+/** Mirrors desktop's Tailwind color coding for each mode section (ChatModePicker.tsx). */
+private val AutoApproveColor = Color(0xFF3B82F6) // blue-500
+private val TerminalSandboxColor = Color(0xFFF59E0B) // amber-500
+private val CliModeColor = Color(0xFFA855F7) // purple-500
+private val CodexExecutionModeColor = Color(0xFF6366F1) // indigo-500
 
 private val thinkingOptions = listOf(
     null to "Default",
@@ -71,12 +77,20 @@ fun ChatModeSheet(
     terminalSandboxOverride: Boolean?,
     activeCliBackend: String? = null,
     cliModeOverride: String? = null,
+    codexExecutionModeOverride: String? = null,
     onSetThinkingEffort: (String?) -> Unit,
     onSetFullAutoApprove: (Boolean?) -> Unit,
     onSetTerminalSandboxOverride: (Boolean?) -> Unit,
     onSetCliMode: (String?) -> Unit = {},
+    onSetCodexExecutionMode: (String?) -> Unit = {},
 ) {
     val cliModeSection = activeCliBackend?.let { cliModeSections[it] }
+    // Claude's permission mode includes its approval policy, while Codex approval policy and
+    // filesystem sandbox are independent. Codex therefore shows both controls, matching desktop.
+    val showAutoApprove = activeCliBackend != "claude-cli"
+    // Terminal sandbox bypass is currently only implemented by the Claude CLI adapter; showing
+    // it for other backends is a silent no-op.
+    val showTerminalSandboxBypass = activeCliBackend == "claude-cli"
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Chat mode", style = MaterialTheme.typography.titleMedium)
 
@@ -90,47 +104,84 @@ fun ChatModeSheet(
                 options = thinkingOptions,
                 selected = thinkingEffortOverride,
                 onSelect = onSetThinkingEffort,
+                selectedColor = AutoApproveColor,
             )
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "Auto-approve (this chat)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ChoiceChipRow(
-                options = approveOptions,
-                selected = fullAutoApproveOverride,
-                onSelect = onSetFullAutoApprove,
-            )
-            Text(
-                "Overrides the agent's saved default for this conversation only.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        if (activeCliBackend == "codex-cli") {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Codex execution mode (this chat)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ChoiceChipRow(
+                    options = listOf(null to "Default", "plan" to "Plan"),
+                    selected = codexExecutionModeOverride,
+                    onSelect = onSetCodexExecutionMode,
+                    selectedColor = CodexExecutionModeColor,
+                )
+                Text(
+                    "Uses Codex's native collaboration mode, independently of approvals and sandbox access.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        if (showAutoApprove) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "Terminal sandbox bypass (this chat)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ChoiceChipRow(
-                options = approveOptions,
-                selected = terminalSandboxOverride,
-                onSelect = onSetTerminalSandboxOverride,
-            )
-            Text(
-                "Overrides the project's sandbox-bypass default for this conversation only.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (activeCliBackend == "codex-cli") {
+                        "Codex auto-approve (this chat)"
+                    } else {
+                        "Auto-approve (this chat)"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ChoiceChipRow(
+                    options = approveOptions,
+                    selected = fullAutoApproveOverride,
+                    onSelect = onSetFullAutoApprove,
+                    selectedColor = AutoApproveColor,
+                )
+                Text(
+                    if (activeCliBackend == "codex-cli") {
+                        "Controls approval prompts independently of the Codex sandbox level below."
+                    } else {
+                        "Overrides the agent's saved default for this conversation only."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (showTerminalSandboxBypass) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Terminal sandbox bypass (this chat)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ChoiceChipRow(
+                    options = approveOptions,
+                    selected = terminalSandboxOverride,
+                    onSelect = onSetTerminalSandboxOverride,
+                    selectedColor = TerminalSandboxColor,
+                )
+                Text(
+                    "Overrides the project's sandbox-bypass default for this conversation only.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
         if (cliModeSection != null) {
@@ -146,9 +197,10 @@ fun ChatModeSheet(
                     options = cliModeSection.options.map { it.value to it.label },
                     selected = cliModeOverride,
                     onSelect = onSetCliMode,
+                    selectedColor = CliModeColor,
                 )
                 Text(
-                    "Also settable via slash commands (e.g. /plan, /mode-default). Applies from the next message.",
+                    "Applies from the next message.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -157,38 +209,51 @@ fun ChatModeSheet(
     }
 }
 
+private const val CHIP_ROW_COLUMNS = 3
+
 /**
- * A wrapping row of theme-coloured selectable chips. Wrapping (instead of a fixed
- * segmented row) keeps every option the same size and avoids the squashed, uneven
- * two-line labels that a 6-option segmented control produced on narrow screens.
+ * A grid of theme-coloured selectable chips, laid out in fixed-width rows of
+ * [CHIP_ROW_COLUMNS] so every chip in a section is the same width regardless of its
+ * label length — a `FlowRow` sized each chip to its own text and produced visibly
+ * uneven rows (e.g. "Low" much narrower than "Medium").
  */
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T> ChoiceChipRow(
     options: List<Pair<T, String>>,
     selected: T,
     onSelect: (T) -> Unit,
+    selectedColor: Color = MaterialTheme.colorScheme.primary,
 ) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEach { (value, label) ->
-            val isSelected = selected == value
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelect(value) },
-                label = { Text(label, style = MaterialTheme.typography.labelLarge) },
-                leadingIcon = if (isSelected) {
-                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                } else null,
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.chunked(CHIP_ROW_COLUMNS).forEach { rowOptions ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                rowOptions.forEach { (value, label) ->
+                    val isSelected = selected == value
+                    FilterChip(
+                        modifier = Modifier.weight(1f),
+                        selected = isSelected,
+                        onClick = { onSelect(value) },
+                        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        } else null,
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = selectedColor,
+                            selectedLabelColor = Color.White,
+                            selectedLeadingIconColor = Color.White,
+                        ),
+                    )
+                }
+                // Pad the last row with invisible spacers so its chips stay the same
+                // width as full rows above, instead of stretching to fill the row alone.
+                repeat(CHIP_ROW_COLUMNS - rowOptions.size) {
+                    Row(modifier = Modifier.weight(1f)) {}
+                }
+            }
         }
     }
 }
