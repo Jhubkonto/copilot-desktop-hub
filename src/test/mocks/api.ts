@@ -404,7 +404,7 @@ export function createMockApi() {
     saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md'),
 
     // Updates
-    checkForUpdates: vi.fn().mockResolvedValue(undefined),
+    checkForUpdates: vi.fn().mockResolvedValue({ updateAvailable: false, currentVersion: '1.0.0' }),
     downloadUpdate: vi.fn().mockResolvedValue(undefined),
     installUpdate: vi.fn().mockResolvedValue(undefined),
     onUpdateAvailable: vi.fn().mockReturnValue(() => {}),

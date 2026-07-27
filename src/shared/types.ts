@@ -1243,6 +1243,9 @@ export interface ConversationRow {
   completed_at: number | null
   thinking_effort_override: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   full_auto_approve_override: number | null
+  terminal_sandbox_override: number | null
+  cli_mode_override: CliModeOverride | null
+  codex_execution_mode_override: CodexExecutionModeOverride | null
   rating: number | null
 }
 
@@ -1265,6 +1268,10 @@ export type CliModeOverride =
 
 export const CLAUDE_CLI_MODES: CliModeOverride[] = ['plan', 'acceptEdits', 'bypassPermissions']
 export const CODEX_CLI_MODES: CliModeOverride[] = ['read-only', 'workspace-write', 'danger-full-access']
+
+/** Codex collaboration/execution mode, independent of approval and sandbox controls. */
+export type CodexExecutionModeOverride = 'plan'
+export const CODEX_EXECUTION_MODES: CodexExecutionModeOverride[] = ['plan']
 
 export interface MessageRow {
   id: string
@@ -1961,7 +1968,7 @@ export type IpcReturnMap = {
   'skill:reorder-for-agent': boolean
   'skill:update': SkillConfig
   // App
-  'app:check-updates': void
+  'app:check-updates': { updateAvailable: boolean; currentVersion?: string; latestVersion?: string }
   'app:download-update': void
   'app:get-setting': string | null
   'app:get-settings': Record<string, string>

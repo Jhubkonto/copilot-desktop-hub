@@ -89,6 +89,21 @@ body {
   scroll-behavior: auto !important;
 }
 
+/* Exception: loading indicators (spinners, bounce dots, pulse dots) are the user's only
+ * signal that work is in progress, not decorative motion — the no-motion policy above
+ * would otherwise leave them frozen mid-frame, looking broken instead of "busy". */
+.animate-spin {
+  animation: spin 1s linear infinite !important;
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite !important;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+}
+
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
