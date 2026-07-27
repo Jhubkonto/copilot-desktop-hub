@@ -240,6 +240,14 @@ class ChatViewModel(
     private var awaitingCodeChangeUndo = false
     private var awaitingCodeChangeStatus = false
 
+    // True until we have an authoritative answer about whether this conversation already has
+    // content: the in-memory cache restore, the Room cache read, or the first server
+    // conversation:get-messages reply — whichever settles first. Lets the screen show a loading
+    // skeleton instead of misreporting an existing chat as "Start a new conversation" while its
+    // history is still being fetched off the main thread.
+    private val _isInitialHistoryLoading = MutableStateFlow(true)
+    val isInitialHistoryLoading: StateFlow<Boolean> = _isInitialHistoryLoading
+
     private var historyLoaded = false
     private var oldestLoadedTimestamp: Long? = null
     private var oldestLoadedId: String? = null
@@ -447,6 +455,7 @@ class ChatViewModel(
             wsClient.events.collect { event ->
                 when {
                     event is WsEvent.ConversationMessages && event.conversationId == conversationId -> {
+                        _isInitialHistoryLoading.value = false
                         val messagesBeforeSync = _messages.value
                         // History payloads can contain hundreds of messages. Converting them
                         // also parses attachment and rich-message metadata, so keep that CPU
@@ -1350,6 +1359,11 @@ class ChatViewModel(
         sendModeOverride("terminalSandboxOverride", value)
     }
 
+    fun setCliModeOverride(value: String?) {
+        _cliModeOverride.value = value
+        sendModeOverride("cliModeOverride", value)
+    }
+
     // A draft conversation (unsent first message) only exists as a client-side UUID — sending
     // conversation:set-mode for it now would target an id the desktop has never heard of and
     // silently no-op. Queue it instead; the WsRepository.conversations collector in init{} flushes
@@ -1513,6 +1527,10 @@ class ChatViewModel(
                 oldestLoadedId = cachedMessages.firstOrNull()?.id
                 hasOlderMessages = cachedPage.hasMore
             }
+            // The Room read is now the authoritative "did this conversation already have local
+            // history" check — flip the loading flag regardless of the outcome so a genuinely
+            // empty/new conversation still falls through to the empty state promptly.
+            _isInitialHistoryLoading.value = false
             // Leave historyLoaded false: the incoming desktop page must reconcile even when the
             // cache is populated. The UI already has content, so this is deliberately silent.
             refreshMessages(showRefreshIndicator = false)
@@ -1524,6 +1542,7 @@ class ChatViewModel(
         _messages.value = cachedMessages
         oldestLoadedTimestamp = cachedMessages.firstOrNull()?.timestamp
         oldestLoadedId = cachedMessages.firstOrNull()?.id
+        _isInitialHistoryLoading.value = false
     }
 
 }

@@ -129,6 +129,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.withFrameNanos
 
+/**
+ * Snapshot key for the auto-follow re-pin effect. Value-equality across all fields is what makes
+ * `snapshotFlow` emit only on a real change: [lastBottom] (the last visible item's bottom edge) and
+ * [canScrollForward] catch a sibling segment's late height growth displacing the tail below the fold,
+ * which [itemCount] + the last item's own size alone did not.
+ */
+private data class ScrollPinSignal(
+    val follow: Boolean,
+    val itemCount: Int,
+    val lastIndex: Int,
+    val lastBottom: Int,
+    val canScrollForward: Boolean,
+)
+
 /** Small "Completed" indicator shown in the chat header's title area when the open
  * conversation is marked complete — the in-chat counterpart to the checkmark already shown
  * for completed conversations in list screens (e.g. ScopedChatHistoryScreen). */
@@ -205,6 +219,7 @@ fun ChatScreen(
     val isAwaitingResponse by vm.isAwaitingResponse.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val isLoadingOlder by vm.isLoadingOlder.collectAsStateWithLifecycle()
+    val isInitialHistoryLoading by vm.isInitialHistoryLoading.collectAsStateWithLifecycle()
     val activityLabel by vm.activityLabel.collectAsStateWithLifecycle()
     val liveActivity by vm.liveActivity.collectAsStateWithLifecycle()
     val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsStateWithLifecycle()
@@ -229,8 +244,11 @@ fun ChatScreen(
     val chatThinkingEffortOverride by vm.thinkingEffortOverride.collectAsStateWithLifecycle()
     val chatFullAutoApproveOverride by vm.fullAutoApproveOverride.collectAsStateWithLifecycle()
     val chatTerminalSandboxOverride by vm.terminalSandboxOverride.collectAsStateWithLifecycle()
+    val chatCliModeOverride by vm.cliModeOverride.collectAsStateWithLifecycle()
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
+    val activeCliBackend = (chatAgent?.backend ?: modelSource?.backend)
+        ?.takeIf { it == "claude-cli" || it == "codex-cli" }
     val chatBackend = chatAgent?.backend
     val statusProjectId = conversation?.project_id ?: projectId
     var chatAgentFullAutoApprove by remember { mutableStateOf(false) }
@@ -431,23 +449,33 @@ fun ChatScreen(
         vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
     }
 
-    val screenshotPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        Manifest.permission.READ_MEDIA_IMAGES
-    } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
+    // On Android 14+, the system permission dialog offers "Select photos..." as well as
+    // "Allow all". Picking "Select photos..." grants only READ_MEDIA_VISUAL_USER_SELECTED,
+    // not READ_MEDIA_IMAGES — so both must be requested and checked, or a partial grant
+    // is reported back as a denial even though the user did grant access.
+    val screenshotPermissions = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+        )
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    fun hasScreenshotPermission(): Boolean = screenshotPermissions.any {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
 
     val screenshotPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) attachLatestScreenshot()
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results.values.any { it }) attachLatestScreenshot()
         else scope.launch { snackbarHostState.showSnackbar("Permission denied — cannot read screenshots.") }
     }
 
     val onCaptureScreen: () -> Unit = {
-        val granted = ContextCompat.checkSelfPermission(context, screenshotPermission) == PackageManager.PERMISSION_GRANTED
-        if (granted) attachLatestScreenshot()
-        else screenshotPermissionLauncher.launch(screenshotPermission)
+        if (hasScreenshotPermission()) attachLatestScreenshot()
+        else screenshotPermissionLauncher.launch(screenshotPermissions)
     }
 
     // Expanding a persisted history into timeline items may involve hundreds of reasoning
@@ -480,19 +508,68 @@ fun ChatScreen(
     val completedRenderItems = renderItems.orEmpty()
     val isBuildingInitialRenderItems = renderItems == null
 
-    suspend fun scrollToBottom(animated: Boolean = false, settlePasses: Int = 1) {
+    // Snapshot of where the last item sits relative to the viewport, for the truncated-tail hunt.
+    // `tailBelowFold` alongside `canScrollFwd=false` is the contradiction that flags a clipped tail.
+    fun logScrollGeometry(stage: String, extra: String = "") {
+        val layout = listState.layoutInfo
+        val last = layout.visibleItemsInfo.lastOrNull()
+        val lastBottom = last?.let { it.offset + it.size } ?: 0
+        val viewportEnd = layout.viewportEndOffset
+        val tailBelowFold = lastBottom > viewportEnd + 1
+        ChatLayoutDiagnostics.recordScroll(
+            stage,
+            "follow=$shouldAutoFollow items=${layout.totalItemsCount} lastIdx=${last?.index ?: -1} " +
+                "lastBottom=$lastBottom viewportEnd=$viewportEnd tailBelowFold=$tailBelowFold " +
+                "canScrollFwd=${listState.canScrollForward} scrolling=${listState.isScrollInProgress}" +
+                if (extra.isBlank()) "" else " $extra",
+        )
+    }
+
+    // Re-pin to the bottom every frame and keep going until the list is genuinely at rest, rather
+    // than firing a fixed 1-2 passes and hoping the observer re-triggers. The log proved why a small
+    // fixed count is not enough: a message ABOVE the tail can receive its real text (e.g. 135 -> 3143
+    // chars) or finish its Markwon AndroidView measurement many frames AFTER the list first declared
+    // "at-bottom", pushing the tail below the fold. A single settle pass cannot outlast content that
+    // legitimately grows over several frames, and the re-pin snapshotFlow only re-emits on a discrete
+    // signal change — so once geometry stalls at a wrong resting position nothing re-drives it.
+    //
+    // Loop until one of: (a) the true bottom is reached (canScrollForward == false); (b) the tail's
+    // bottom edge has stopped moving for two consecutive frames while still below the fold — a genuine
+    // row-measurement shortfall that more scrolling cannot fix, logged distinctly so it is unambiguous
+    // in the next capture; or (c) the frame budget is spent (guards against streaming, where content
+    // grows every frame — the content-signal effect re-invokes us on the next chunk anyway).
+    suspend fun scrollToBottom(animated: Boolean = false, maxFrames: Int = 12) {
         if (!shouldAutoFollow) return
         programmaticScrollInProgress = true
         try {
-            repeat(settlePasses.coerceAtLeast(1)) { pass ->
+            var lastBottomSeen = Int.MIN_VALUE
+            var stableFrames = 0
+            repeat(maxFrames.coerceAtLeast(1)) { pass ->
                 if (!shouldAutoFollow) return
                 val itemCount = listState.layoutInfo.totalItemsCount
                 if (itemCount <= 0) return
                 listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
                 // Markwon AndroidView content can report a larger measured height after it is first revealed.
                 withFrameNanos {}
-                if (!listState.canScrollForward) return
+                if (!listState.canScrollForward) {
+                    logScrollGeometry("settle-final", "pass=$pass reason=at-bottom")
+                    return
+                }
+                val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+                val bottom = last?.let { it.offset + it.size } ?: 0
+                if (bottom == lastBottomSeen) {
+                    // Height has stopped changing but canScrollForward is still true: content below
+                    // the committed fold that re-pinning cannot reveal (the row itself is short).
+                    if (++stableFrames >= 2) {
+                        logScrollGeometry("settle-final", "pass=$pass reason=stable-below-fold")
+                        return
+                    }
+                } else {
+                    stableFrames = 0
+                    lastBottomSeen = bottom
+                }
             }
+            logScrollGeometry("settle-final", "reason=frames-exhausted")
         } finally {
             programmaticScrollInProgress = false
         }
@@ -509,7 +586,7 @@ fun ChatScreen(
         snapshotFlow { renderItems != null && listState.layoutInfo.totalItemsCount > 0 }
             .first { it }
         shouldAutoFollow = true
-        scrollToBottom(settlePasses = 2)
+        scrollToBottom()
         hasInitiallyScrolled = true
     }
 
@@ -540,21 +617,42 @@ fun ChatScreen(
     }
 
     // Layout signal: AndroidView/Markwon content can change height after message data is already set.
-    // Only watches item count and the last item's size — not scroll position — so normal scrolling
-    // through the list never triggers this. Only fires when auto-follow is on and not mid-scroll.
+    // A single assistant reply is split into several sibling lazy items (thinking blocks, tool calls,
+    // text segments, then the tail AssistantMessage). Watching only the *last visible item's own size*
+    // missed the dominant case: an AndroidView/Markwon TextView in a segment ABOVE the tail finishes
+    // its StaticLayout a frame later and grows, pushing the tail below the fold WITHOUT changing the
+    // tail's own size or the item count — so no re-pin fired and the last segment stayed clipped until
+    // an unrelated relayout (tapping a bubble, a manual scroll) forced a re-measure. So the signal now
+    // also tracks the last visible item's bottom edge (offset + size) and whether content still exists
+    // below the fold (canScrollForward): any late height change that displaces the tail re-triggers the
+    // pin. Still scroll-position-independent for normal reading — the collect guard requires auto-follow
+    // to be on (disabled the moment the user scrolls up) and no in-progress gesture, and it self-
+    // terminates because canScrollForward goes false once the true bottom is reached.
     LaunchedEffect(hasInitiallyScrolled) {
         if (!hasInitiallyScrolled) return@LaunchedEffect
         snapshotFlow {
             val layout = listState.layoutInfo
             val last = layout.visibleItemsInfo.lastOrNull()
-            Triple(
-                if (shouldAutoFollow) 1 else 0,
-                layout.totalItemsCount,
-                last?.size ?: 0,
+            ScrollPinSignal(
+                follow = shouldAutoFollow,
+                itemCount = layout.totalItemsCount,
+                lastIndex = last?.index ?: -1,
+                lastBottom = last?.let { it.offset + it.size } ?: 0,
+                canScrollForward = listState.canScrollForward,
             )
         }.collect {
             if (shouldAutoFollow && !listState.isScrollInProgress && listState.canScrollForward) {
+                logScrollGeometry("repin-fire")
                 scrollToBottom()
+            } else {
+                // Why we did NOT re-pin. If the tail is clipped yet this logs canScrollFwd=false,
+                // the re-pin self-terminated while content was still below the committed fold.
+                val reason = when {
+                    !shouldAutoFollow -> "no-follow"
+                    listState.isScrollInProgress -> "scrolling"
+                    else -> "at-bottom"
+                }
+                logScrollGeometry("repin-skip", "reason=$reason")
             }
         }
     }
@@ -785,9 +883,12 @@ fun ChatScreen(
                 thinkingEffortOverride = chatThinkingEffortOverride,
                 fullAutoApproveOverride = chatFullAutoApproveOverride,
                 terminalSandboxOverride = chatTerminalSandboxOverride,
+                activeCliBackend = activeCliBackend,
+                cliModeOverride = chatCliModeOverride,
                 onSetThinkingEffort = { vm.setThinkingEffortOverride(it) },
                 onSetFullAutoApprove = { vm.setFullAutoApproveOverride(it) },
                 onSetTerminalSandboxOverride = { vm.setTerminalSandboxOverride(it) },
+                onSetCliMode = { vm.setCliModeOverride(it) },
             )
         }
     }
@@ -1122,7 +1223,7 @@ fun ChatScreen(
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Chat mode settings",
-                            tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null || chatTerminalSandboxOverride != null)
+                            tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null || chatTerminalSandboxOverride != null || (activeCliBackend != null && chatCliModeOverride != null))
                                 MaterialTheme.colorScheme.primary
                             else
                                 MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1295,6 +1396,10 @@ fun ChatScreen(
                                 Text("Preparing conversation…", style = MaterialTheme.typography.labelSmall, color = Gray400)
                             }
                         }
+                    } else if (completedRenderItems.isEmpty() && isInitialHistoryLoading) {
+                        item(key = "chat-history-skeleton") {
+                            ChatLoadingSkeleton()
+                        }
                     } else if (completedRenderItems.isEmpty()) {
                         item {
                             EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
@@ -1334,6 +1439,10 @@ fun ChatScreen(
                                         widthPx = coordinates.size.width,
                                         heightPx = coordinates.size.height,
                                     )
+                                    // Late-growth cross-check: did THIS lazy row re-measure taller?
+                                    // Paired with the "holder" stream (Markwon AndroidView height),
+                                    // a holder growth with no matching row growth = clipped tail.
+                                    ChatLayoutDiagnostics.noteHeight(item.key, "row", coordinates.size.height)
                                 },
                         ) {
                         when (item) {
@@ -1587,7 +1696,7 @@ fun ChatScreen(
                     onClick = {
                         scope.launch {
                             shouldAutoFollow = true
-                            scrollToBottom(animated = false, settlePasses = 2)
+                            scrollToBottom(animated = false)
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,

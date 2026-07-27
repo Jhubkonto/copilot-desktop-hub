@@ -1,19 +1,27 @@
 package io.nexy.android.ui.chat
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -364,6 +372,55 @@ fun EmptyChatContent(agentLabel: String?, projectLabel: String?) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )
+    }
+}
+
+// Placeholder rows shown while an existing conversation's history is still loading from disk —
+// alternating alignment/width to loosely echo the user/assistant bubble shapes so the swap to
+// real content doesn't jump the layout around. A shared alpha pulse (not per-row Animatables)
+// keeps every row in sync and avoids restarting the animation on each recomposition.
+private data class SkeletonRow(val alignEnd: Boolean, val widthFraction: Float)
+
+private val chatSkeletonRows = listOf(
+    SkeletonRow(alignEnd = true, widthFraction = 0.45f),
+    SkeletonRow(alignEnd = false, widthFraction = 0.8f),
+    SkeletonRow(alignEnd = false, widthFraction = 0.55f),
+    SkeletonRow(alignEnd = true, widthFraction = 0.3f),
+    SkeletonRow(alignEnd = false, widthFraction = 0.65f),
+)
+
+@Composable
+fun ChatLoadingSkeleton() {
+    val transition = rememberInfiniteTransition(label = "chat-skeleton-pulse")
+    val pulseAlpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "chat-skeleton-pulse-alpha",
+    )
+    val shimmerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.25f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        chatSkeletonRows.forEach { row ->
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .align(if (row.alignEnd) Alignment.CenterEnd else Alignment.CenterStart)
+                        .fillMaxWidth(row.widthFraction)
+                        .height(16.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(shimmerColor),
+                )
+            }
+        }
     }
 }
 

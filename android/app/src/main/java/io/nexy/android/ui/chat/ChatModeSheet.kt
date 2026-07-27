@@ -35,6 +35,33 @@ private val approveOptions = listOf<Pair<Boolean?, String>>(
     false to "Off",
 )
 
+private data class CliModeOption(val value: String?, val label: String, val hint: String)
+
+private data class CliModeSection(val title: String, val options: List<CliModeOption>)
+
+/** Backend-specific mode options — Claude Code permission modes vs Codex sandbox levels.
+ *  Hermes has no mode flags, so it gets no section. Mirrors desktop's CLI_MODE_OPTIONS. */
+private val cliModeSections: Map<String, CliModeSection> = mapOf(
+    "claude-cli" to CliModeSection(
+        title = "Claude Code mode (this chat)",
+        options = listOf(
+            CliModeOption(null, "Default", ""),
+            CliModeOption("plan", "Plan", "Analyse only — no file edits"),
+            CliModeOption("acceptEdits", "Accept edits", "Auto-accept file edits"),
+            CliModeOption("bypassPermissions", "Bypass", "Skip all permission prompts"),
+        ),
+    ),
+    "codex-cli" to CliModeSection(
+        title = "Codex sandbox (this chat)",
+        options = listOf(
+            CliModeOption(null, "Default", ""),
+            CliModeOption("read-only", "Read-only", "No file writes"),
+            CliModeOption("workspace-write", "Workspace", "Writes inside the workspace"),
+            CliModeOption("danger-full-access", "Full access", "No sandbox restrictions"),
+        ),
+    ),
+)
+
 /** Per-conversation overrides for thinking effort and tool auto-approval — the composer-bar
  *  counterpart to the agent-level defaults set in Agent Config. Mirrors desktop's ChatModePicker. */
 @Composable
@@ -42,10 +69,14 @@ fun ChatModeSheet(
     thinkingEffortOverride: String?,
     fullAutoApproveOverride: Boolean?,
     terminalSandboxOverride: Boolean?,
+    activeCliBackend: String? = null,
+    cliModeOverride: String? = null,
     onSetThinkingEffort: (String?) -> Unit,
     onSetFullAutoApprove: (Boolean?) -> Unit,
     onSetTerminalSandboxOverride: (Boolean?) -> Unit,
+    onSetCliMode: (String?) -> Unit = {},
 ) {
+    val cliModeSection = activeCliBackend?.let { cliModeSections[it] }
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Chat mode", style = MaterialTheme.typography.titleMedium)
 
@@ -100,6 +131,28 @@ fun ChatModeSheet(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        if (cliModeSection != null) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    cliModeSection.title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ChoiceChipRow(
+                    options = cliModeSection.options.map { it.value to it.label },
+                    selected = cliModeOverride,
+                    onSelect = onSetCliMode,
+                )
+                Text(
+                    "Also settable via slash commands (e.g. /plan, /mode-default). Applies from the next message.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

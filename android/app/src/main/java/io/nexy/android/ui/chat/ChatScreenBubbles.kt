@@ -77,8 +77,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
@@ -134,26 +134,60 @@ import kotlinx.coroutines.withContext
 
 val LocalMarkwon = compositionLocalOf<Markwon> { error("No Markwon provided") }
 
+// Above this source length an uncached settled row parses off the UI thread instead of
+// synchronously, trading a possible one-frame raw→rich height change (the truncation risk below)
+// for not stalling the frame on a pathologically large single message. Typical Claude CLI replies
+// and their individual text segments are far under this, so they take the synchronous path.
+private const val SYNC_PARSE_MAX_CHARS = 20_000
+
 /**
- * Markdown parsing allocates spans and runs syntax/table plugins. Keeping it out of an
- * AndroidView update is important: that update runs during Compose's UI-frame work, so a long
- * history can otherwise freeze before its first frame. Cached entries remain instant; an
- * uncached visible row uses its raw text for the short interval while parsing happens on Default.
+ * Parsed Markdown for settled (non-streaming) text. Streaming callers pass their own null and
+ * never reach here.
+ *
+ * Parsing must resolve to a non-null Spanned on the FIRST composition, not a frame later. The
+ * embedded Markwon TextView lives in a per-segment LazyColumn item; if the row is first measured
+ * against raw/placeholder text and the parsed rich text (headings, lists, tables — taller) arrives
+ * afterwards, that later height change does not reliably re-drive the item's remeasure. Neither an
+ * in-place raw→rich TextView update nor a Compose Text→AndroidView swap propagates it: LazyColumn
+ * keeps the shorter committed height and the last block-level segment renders truncated until some
+ * unrelated relayout (expanding a sibling tool-call bubble, or a manual refresh that runs against a
+ * now-warm cache) forces the whole list to re-measure. Seeding the parse state synchronously (and
+ * re-seeding it on every markdown change, see below) makes the cold-open path identical to that
+ * known-good warm-cache path: the view is born at its correct rich height, so there is no late
+ * height change to lose.
+ *
+ * Only visible per-segment lazy items compose, so this is bounded to what's on screen (the original
+ * concern — parsing a whole bundled history in one frame — predates segments being separate items).
+ * Cached entries are an instant map lookup; oversized uncached content still parses on Default.
  */
 @Composable
 private fun rememberParsedMarkdown(markwon: Markwon, markdown: String): android.text.Spanned? {
-    val parsed by produceState<android.text.Spanned?>(
-        initialValue = MarkdownRenderCache.get(markwon, markdown),
-        markwon,
-        markdown,
-    ) {
-        if (value == null) {
-            value = withContext(Dispatchers.Default) {
+    // Key the state holder on (markwon, markdown) so a mid-life content change re-seeds
+    // synchronously instead of keeping the previous Spanned. This matters because an assistant
+    // message's body can grow *in place* after the row is already composed — the history load
+    // delivers a short preview (e.g. 135 chars) and the full reply (e.g. 3143 chars) arrives a
+    // beat later against the same LazyColumn key. produceState cannot express this: its
+    // initialValue seed is evaluated only on first composition, and its producer guard
+    // (`if (value == null)`) is false once the short body has parsed, so the new, longer markdown
+    // never reparses. The stale Spanned then makes applyMarkdownOrFallback early-return on tag
+    // identity, and the TextView keeps its short text *and short measured height* — the tail
+    // renders truncated until the item is disposed and recomposed fresh (a scroll nudge, or an
+    // unrelated sibling relayout recycling it). Re-seeding here on every markdown change makes the
+    // in-place update identical to that known-good fresh-composition path.
+    val state = remember(markwon, markdown) {
+        mutableStateOf(
+            MarkdownRenderCache.get(markwon, markdown)
+                ?: if (markdown.length <= SYNC_PARSE_MAX_CHARS) MarkdownRenderCache.getOrParse(markwon, markdown) else null,
+        )
+    }
+    LaunchedEffect(markwon, markdown) {
+        if (state.value == null) {
+            state.value = withContext(Dispatchers.Default) {
                 MarkdownRenderCache.getOrParse(markwon, markdown)
             }
         }
     }
-    return parsed
+    return state.value
 }
 
 private fun applyMarkdownOrFallback(
@@ -223,11 +257,72 @@ private class WidthStableMarkdownTextView(context: Context) : TextView(context) 
         render()
         return true
     }
+
+    /**
+     * Drop any queued (deferred) render without applying it. The settled path applies its markdown
+     * synchronously against the already-pinned width, so a leftover streaming defer from before the
+     * turn settled must be cancelled — otherwise it could fire later and overwrite the rich text
+     * with the raw streaming string.
+     */
+    fun cancelPendingRender() {
+        pendingRender = null
+    }
 }
 
-/** One width-safe Android TextView boundary for all Markwon-backed chat text. */
+/**
+ * Rendering boundary for all Markwon-backed chat text.
+ *
+ * Settled (non-streaming) text is rendered as a Compose [Text] whenever its markdown is made up
+ * only of inline styling (bold/italic/inline-code/strikethrough/links) — see
+ * [spannedToInlineAnnotatedString]. A Compose Text remeasures its height on every recompose, so a
+ * recycled LazyColumn row can never keep a stale/short measurement, which is what made settled
+ * narration segments render "minimized" until tapped. Streaming text, and settled text that carries
+ * block-level markdown (headings, lists, blockquotes, tables, task lists) that has no lossless
+ * inline form, keep going through the width-safe Markwon [android.widget.TextView] path.
+ */
 @Composable
 private fun ChatMarkdownText(
+    markdown: String,
+    streaming: Boolean,
+    debugKey: String,
+    modifier: Modifier = Modifier,
+) {
+    if (!streaming) {
+        val markwon = LocalMarkwon.current
+        val parsed = rememberParsedMarkdown(markwon, markdown)
+        val inlineColors = InlineMarkdownColors(
+            link = MaterialTheme.colorScheme.primary,
+            codeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        )
+        val annotated = remember(parsed, inlineColors) {
+            parsed?.let { spannedToInlineAnnotatedString(it, inlineColors) }
+        }
+        // Only take the Compose Text fast path once parsing has *confirmed* the content is
+        // inline-only (annotated != null). While parsing is still in flight (parsed == null) we must
+        // NOT render a transient raw Compose Text: if the markdown turns out to be block-level, the
+        // node type then swaps Compose Text → Markwon AndroidView, and LazyColumn commits the
+        // shorter Compose-Text height without re-measuring the taller AndroidView — truncating the
+        // last segment on a cold open until a manual refresh (warm parse cache) hides the transient.
+        // Falling through to the AndroidView during parsing updates the same TextView raw→rich in
+        // place (requestLayout remeasures reliably), so no height-dropping view-type swap occurs.
+        if (annotated != null) {
+            SelectionContainer(modifier = modifier.fillMaxWidth()) {
+                Text(
+                    text = annotated,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+            }
+            return
+        }
+    }
+    ChatMarkdownAndroidView(markdown = markdown, streaming = streaming, debugKey = debugKey, modifier = modifier)
+}
+
+/** Width-safe Android TextView boundary for streaming text and block-level Markwon content. */
+@Composable
+private fun ChatMarkdownAndroidView(
     markdown: String,
     streaming: Boolean,
     debugKey: String,
@@ -260,6 +355,9 @@ private fun ChatMarkdownText(
                         coordinates.size.width,
                         coordinates.size.height,
                     )
+                    // Late-growth cross-check: the Markwon view's own measured height. If this grows
+                    // after settling but the hosting "row" stream does not, the row clipped the tail.
+                    ChatLayoutDiagnostics.noteHeight(debugKey, "holder", coordinates.size.height)
                 },
             factory = { context ->
                 WidthStableMarkdownTextView(context).also { view ->
@@ -292,25 +390,38 @@ private fun ChatMarkdownText(
                 view.minWidth = exactWidthPx
                 view.maxWidth = exactWidthPx
                 view.setTextColor(textColorArgb)
-                val appliedImmediately = view.submitRender(exactWidthPx) {
-                    if (streaming) {
+                if (streaming) {
+                    // Streaming text changes on every chunk and its width can still be settling, so
+                    // keep deferring the render until the view has a real width (the original
+                    // one-glyph-StaticLayout guard).
+                    val appliedImmediately = view.submitRender(exactWidthPx) {
                         if (view.text.toString() != displayedText || view.tag != null) {
                             view.text = displayedText
                             view.tag = null
                         }
                         view.requestLayout()
-                    } else {
-                        applyMarkdownOrFallback(markwon, view, markdown, parsedMarkdown)
                     }
-                }
-                if (!appliedImmediately) {
-                    ChatLayoutDiagnostics.record(
-                        debugKey,
-                        "markdown-deferred",
-                        view.width,
-                        view.height,
-                        "targetWidth=$exactWidthPx parentWidth=${(view.parent as? View)?.width ?: -1}",
-                    )
+                    if (!appliedImmediately) {
+                        ChatLayoutDiagnostics.record(
+                            debugKey,
+                            "markdown-deferred",
+                            view.width,
+                            view.height,
+                            "targetWidth=$exactWidthPx parentWidth=${(view.parent as? View)?.width ?: -1}",
+                        )
+                    }
+                } else {
+                    // Settled content: the width is already hard-pinned to exactWidthPx via
+                    // layoutParams.width/minWidth/maxWidth (an exact px from Compose constraints,
+                    // known now), so the StaticLayout cannot wrap to one glyph regardless of attach
+                    // state — the width-deferral used for streaming is not just unnecessary here, it
+                    // caused the "minimized response" bug: withholding the text until the TextView
+                    // reported its own width meant the first layout pass measured an EMPTY view, the
+                    // LazyColumn committed that near-zero height, and the row stayed collapsed until
+                    // a tap forced a relayout. Cancel any leftover streaming defer and apply the
+                    // markdown synchronously so the very first pass measures the true height.
+                    view.cancelPendingRender()
+                    applyMarkdownOrFallback(markwon, view, markdown, parsedMarkdown)
                 }
                 view.post {
                     val textLayout = view.layout
@@ -457,7 +568,9 @@ fun ThinkingHistoryBubble(
     isLive: Boolean = false,
 ) {
     if (blocks.isEmpty()) return
-    var collapsed by remember { mutableStateOf(false) }
+    // Saveable so a collapse/expand the user performs survives LazyColumn recycling on scroll —
+    // same rationale as ToolCallBubble's `expanded`.
+    var collapsed by rememberSaveable { mutableStateOf(false) }
     var showFullscreen by remember { mutableStateOf(false) }
     val totalChars = blocks.sumOf { it.content.length }
     val combinedContent = remember(blocks) { blocks.joinToString("\n\n") { it.content } }
@@ -960,7 +1073,12 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
     val hasDetails = !msg.toolArgs.isNullOrBlank() || !msg.toolResult.isNullOrBlank()
     // Pure user-toggle expand/collapse — desktop removed the timed auto-collapse entirely
     // (ToolCallBlock.tsx no longer has one), so Android must not reintroduce it either.
-    var expanded by remember { mutableStateOf(inProgress && hasDetails) }
+    // rememberSaveable (not remember): LazyColumn disposes an item's composition when it
+    // scrolls off-screen, so a plain remember here loses the user's expanded state and the row
+    // silently re-collapses on scroll-back. LazyColumn retains saveable state per item key, so
+    // an opened tool call stays open after scrolling away and back. Keyed on msg.id so a
+    // different tool call reusing this slot starts from its own default rather than inheriting.
+    var expanded by rememberSaveable(msg.id) { mutableStateOf(inProgress && hasDetails) }
     LaunchedEffect(inProgress, hasDetails) {
         if (inProgress && hasDetails) expanded = true
     }
@@ -1057,7 +1175,9 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
 
 @Composable
 private fun ToolResultPreviewSection(result: String, isError: Boolean) {
-    var expanded by remember { mutableStateOf(false) }
+    // Saveable so the "Show more" expansion survives LazyColumn recycling on scroll — same
+    // rationale as ToolCallBubble's `expanded`.
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val cleaned = remember(result) { stripAnsiEscapes(result) }
     val lineCap = if (isError) RESULT_PREVIEW_LINES + 1 else RESULT_PREVIEW_LINES
     val preview = remember(cleaned, lineCap) { buildResultPreview(cleaned, lineCap) }
