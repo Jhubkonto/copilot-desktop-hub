@@ -354,6 +354,329 @@ function extractToolEvent(line: string):
   }
 }
 
+type AppServerMessage = {
+  id?: string | number
+  method?: string
+  params?: Record<string, unknown>
+  result?: Record<string, unknown>
+  error?: { message?: string }
+}
+
+function codexSandboxMode(permissionMode?: string): 'read-only' | 'workspace-write' | 'danger-full-access' | undefined {
+  return permissionMode === 'read-only' || permissionMode === 'workspace-write' || permissionMode === 'danger-full-access'
+    ? permissionMode
+    : undefined
+}
+
+/**
+ * `codex exec` does not expose collaboration modes. Explicit Plan turns therefore use the
+ * app-server JSONL protocol while ordinary turns stay on the stable exec path below.
+ */
+function sendCodexPlanViaAppServer(
+  req: CliAdapterRequest,
+  onChunk: (chunk: string, blockId?: string) => void,
+  onEvent?: Parameters<CliAgentAdapter['send']>[3],
+  signal?: AbortSignal,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const tempFiles: string[] = []
+    const input: Array<Record<string, unknown>> = []
+    const lastMsg = req.messages[req.messages.length - 1]
+    let prompt = typeof lastMsg?.content === 'string'
+      ? lastMsg.content
+      : JSON.stringify(lastMsg?.content ?? '')
+    if (req.systemPrompt) {
+      prompt = `[System]: ${req.systemPrompt}\n\n${prompt}`
+    }
+    input.push({ type: 'text', text: prompt })
+
+    for (const image of req.images ?? []) {
+      const comma = image.dataUrl.indexOf(',')
+      if (comma === -1) continue
+      const ext = image.dataUrl.startsWith('data:image/png') ? 'png'
+        : image.dataUrl.startsWith('data:image/webp') ? 'webp'
+        : image.dataUrl.startsWith('data:image/gif') ? 'gif'
+        : 'jpg'
+      try {
+        const tempPath = join(tmpdir(), `codex-plan-img-${randomUUID()}.${ext}`)
+        writeFileSync(tempPath, Buffer.from(image.dataUrl.slice(comma + 1), 'base64'))
+        tempFiles.push(tempPath)
+        input.push({ type: 'localImage', path: tempPath })
+      } catch {
+        // Keep the text turn usable when an individual image cannot be materialized.
+      }
+    }
+
+    const cleanup = () => {
+      for (const file of tempFiles) {
+        try { unlinkSync(file) } catch { /* best-effort cleanup */ }
+      }
+    }
+
+    const appServerArgs = ['app-server', '--stdio', ...buildCodexMcpConfigArgs(req)]
+    const isWin = process.platform === 'win32'
+    const [executable, spawnArgs] = isWin
+      ? [process.env.ComSpec || 'cmd.exe', ['/c', 'codex', ...appServerArgs]]
+      : [resolveCliPath('codex') ?? 'codex', appServerArgs]
+    const proc = spawn(executable, spawnArgs, {
+      cwd: req.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: false,
+      env: process.env,
+    })
+
+    let stderrText = ''
+    let fullText = ''
+    let protocolError: string | null = null
+    let turnCompleted = false
+    let settled = false
+    const streamedTextItems = new Set<string>()
+    const openToolIds = new Set<string>()
+    const openReasoningIds = new Set<string>()
+
+    const writeMessage = (message: Record<string, unknown>) => {
+      proc.stdin?.write(`${JSON.stringify(message)}\n`, 'utf8')
+    }
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve(fullText)
+    }
+    const closeInput = () => {
+      if (!proc.stdin?.destroyed) proc.stdin?.end()
+    }
+
+    const emitToolStart = (item: Record<string, unknown>) => {
+      const id = typeof item.id === 'string' ? item.id : `codex-plan-tool-${Date.now()}`
+      if (openToolIds.has(id)) return
+      const type = typeof item.type === 'string' ? item.type : 'tool'
+      if (type === 'agentMessage' || type === 'plan' || type === 'reasoning' || type === 'userMessage') return
+      const name =
+        type === 'commandExecution' ? 'Run Command'
+          : type === 'fileChange' ? 'Edit File'
+          : type === 'mcpToolCall' && typeof item.tool === 'string' ? item.tool
+          : type
+      openToolIds.add(id)
+      onEvent?.({
+        type: 'tool_start',
+        id,
+        name,
+        input: objectFromUnknown(item.arguments ?? {
+          command: item.command,
+          cwd: item.cwd,
+          changes: item.changes,
+        }),
+      })
+    }
+
+    const emitToolEnd = (item: Record<string, unknown>) => {
+      const id = typeof item.id === 'string' ? item.id : ''
+      if (!id || !openToolIds.has(id)) return
+      openToolIds.delete(id)
+      onEvent?.({
+        type: 'tool_end',
+        id,
+        content: textFromUnknown(item.aggregatedOutput ?? item.result ?? item.error ?? ''),
+        isError: item.status === 'failed' || item.status === 'error' || Boolean(item.error),
+      })
+    }
+
+    const handleMessage = (message: AppServerMessage) => {
+      if (message.error) {
+        protocolError = message.error.message ?? 'Codex app-server request failed'
+        closeInput()
+        return
+      }
+
+      if (message.id === 1 && message.result) {
+        writeMessage({ method: 'initialized' })
+        writeMessage({
+          id: 2,
+          method: 'thread/start',
+          params: {
+            model: req.model && req.model !== 'default' ? req.model : null,
+            cwd: req.cwd,
+            approvalPolicy: req.skipPermissions === true ? 'never' : 'on-request',
+            sandbox: codexSandboxMode(req.permissionMode) ?? null,
+            ephemeral: true,
+          },
+        })
+        return
+      }
+
+      if (message.id === 2 && message.result) {
+        const thread = asRecord(message.result.thread)
+        const threadId = typeof thread?.id === 'string' ? thread.id : ''
+        const resolvedModel = typeof message.result.model === 'string'
+          ? message.result.model
+          : req.model
+        if (!threadId || !resolvedModel) {
+          protocolError = 'Codex app-server did not return a thread id or model'
+          closeInput()
+          return
+        }
+        writeMessage({
+          id: 3,
+          method: 'turn/start',
+          params: {
+            threadId,
+            input,
+            collaborationMode: {
+              mode: 'plan',
+              settings: {
+                model: resolvedModel,
+                reasoning_effort: req.thinkingEffort === 'disabled' ? null : (req.thinkingEffort ?? null),
+                developer_instructions: null,
+              },
+            },
+          },
+        })
+        return
+      }
+
+      const method = message.method ?? ''
+      const params = message.params ?? {}
+      if (method === 'item/agentMessage/delta' || method === 'item/plan/delta') {
+        const delta = typeof params.delta === 'string' ? params.delta : ''
+        const itemId = typeof params.itemId === 'string' ? params.itemId : method
+        if (delta) {
+          streamedTextItems.add(itemId)
+          onChunk(delta, `codex-plan-${itemId}`)
+          fullText += delta
+        }
+        return
+      }
+      if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/textDelta') {
+        const delta = typeof params.delta === 'string' ? params.delta : ''
+        const itemId = typeof params.itemId === 'string' ? params.itemId : 'reasoning'
+        openReasoningIds.add(itemId)
+        if (delta) onEvent?.({ type: 'thinking_chunk', blockId: `codex-plan-reasoning-${itemId}`, chunk: delta })
+        return
+      }
+      if (method === 'item/started') {
+        const item = asRecord(params.item)
+        if (item) emitToolStart(item)
+        return
+      }
+      if (method === 'item/completed') {
+        const item = asRecord(params.item)
+        if (!item) return
+        const itemId = typeof item.id === 'string' ? item.id : ''
+        if ((item.type === 'agentMessage' || item.type === 'plan') && !streamedTextItems.has(itemId)) {
+          const text = typeof item.text === 'string' ? item.text : ''
+          if (text) {
+            onChunk(text, `codex-plan-${itemId || 'text'}`)
+            fullText += text
+          }
+        }
+        if (item.type === 'agentMessage' || item.type === 'plan') {
+          onEvent?.({ type: 'text_end', blockId: `codex-plan-${itemId || 'text'}` })
+        } else if (item.type === 'reasoning' && itemId) {
+          onEvent?.({ type: 'thinking_end', blockId: `codex-plan-reasoning-${itemId}` })
+          openReasoningIds.delete(itemId)
+        } else {
+          emitToolEnd(item)
+        }
+        return
+      }
+      if (method === 'thread/tokenUsage/updated') {
+        const tokenUsage = asRecord(params.tokenUsage)
+        const last = asRecord(tokenUsage?.last)
+        if (last) {
+          onEvent?.({
+            type: 'cost',
+            totalCostUsd: 0,
+            inputTokens: typeof last.inputTokens === 'number' ? last.inputTokens : 0,
+            outputTokens: typeof last.outputTokens === 'number' ? last.outputTokens : 0,
+          })
+        }
+        return
+      }
+      if (method === 'error') {
+        const error = asRecord(params.error)
+        if (params.willRetry !== true) {
+          protocolError = typeof error?.message === 'string' ? error.message : 'Codex Plan turn failed'
+        }
+        return
+      }
+      if (method === 'turn/completed') {
+        const turn = asRecord(params.turn)
+        turnCompleted = true
+        if (turn?.status === 'failed') {
+          const error = asRecord(turn.error)
+          protocolError = typeof error?.message === 'string' ? error.message : 'Codex Plan turn failed'
+        }
+        for (const itemId of openReasoningIds) {
+          onEvent?.({ type: 'thinking_end', blockId: `codex-plan-reasoning-${itemId}` })
+        }
+        openReasoningIds.clear()
+        closeInput()
+        return
+      }
+
+      // App-server approval requests must always receive a response. Plan mode should not request
+      // mutations, but declining is the safe fallback unless this chat explicitly auto-approves.
+      if (message.id !== undefined && method === 'item/commandExecution/requestApproval') {
+        writeMessage({ id: message.id, result: { decision: req.skipPermissions ? 'accept' : 'decline' } })
+      } else if (message.id !== undefined && method === 'item/fileChange/requestApproval') {
+        writeMessage({ id: message.id, result: { decision: req.skipPermissions ? 'accept' : 'decline' } })
+      }
+    }
+
+    const lineBuffer = createLineBuffer((line) => {
+      if (!line.trim()) return
+      try {
+        handleMessage(JSON.parse(line) as AppServerMessage)
+      } catch {
+        protocolError = `Invalid Codex app-server response: ${line.slice(0, 200)}`
+        closeInput()
+      }
+    })
+
+    proc.stdout?.on('data', (chunk: Buffer) => lineBuffer.push(chunk))
+    proc.stderr?.on('data', (chunk: Buffer) => { stderrText += chunk.toString('utf8') })
+    proc.on('error', (error) => finish(error))
+    proc.on('close', (code) => {
+      if (lineBuffer.remainder().trim()) {
+        try { handleMessage(JSON.parse(lineBuffer.remainder()) as AppServerMessage) } catch { /* handled below */ }
+      }
+      for (const id of openToolIds) {
+        onEvent?.({ type: 'tool_end', id, content: '', isError: code !== 0 })
+      }
+      if (protocolError) {
+        finish(new Error(`Codex Plan error: ${protocolError}`))
+      } else if (!turnCompleted && code !== 0) {
+        const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
+        finish(new Error(`codex app-server exited with code ${code}${detail}`))
+      } else {
+        finish()
+      }
+    })
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        killProcess(proc)
+        finish(new Error('Codex Plan turn aborted'))
+      }, { once: true })
+    }
+
+    onEvent?.({ type: 'activity', label: 'Starting Codex Plan mode.' })
+    writeMessage({
+      id: 1,
+      method: 'initialize',
+      params: {
+        clientInfo: { name: 'nexy', title: 'Nexy', version: '1' },
+        capabilities: {
+          experimentalApi: true,
+          requestAttestation: false,
+        },
+      },
+    })
+  })
+}
+
 /** Read the configured model from ~/.codex/config.toml if present. */
 export function readCodexConfigModel(): string | null {
   try {
@@ -389,6 +712,9 @@ export const CodexAdapter: CliAgentAdapter = {
     onEvent?: Parameters<CliAgentAdapter['send']>[3],
     signal?: AbortSignal
   ): Promise<string> {
+    if (req.executionMode === 'plan') {
+      return sendCodexPlanViaAppServer(req, onChunk, onEvent, signal)
+    }
     return new Promise((resolve, reject) => {
       if (!CodexAdapter.isAvailable()) {
         reject(new Error('codex CLI not found'))
@@ -435,17 +761,8 @@ export const CodexAdapter: CliAgentAdapter = {
         ? req.permissionMode
         : null
 
-      // Embed system prompt as a text prefix to avoid CLI flag escaping issues. The
-      // [AUTO-APPROVE] directive stays for skipPermissions without an explicit sandbox mode —
-      // with an explicit mode the real --sandbox flag governs and the directive is redundant
-      // (and would fight a deliberately restrictive 'read-only' selection).
-      let effectiveSystemPrompt = req.systemPrompt ?? ''
-      if (req.skipPermissions === true && !sandboxMode) {
-        const autoApproveDirective = '[AUTO-APPROVE] You have full permission to use any tool without asking for confirmation. Execute all actions immediately.'
-        effectiveSystemPrompt = effectiveSystemPrompt
-          ? `${autoApproveDirective}\n\n${effectiveSystemPrompt}`
-          : autoApproveDirective
-      }
+      // Embed system prompt as a text prefix to avoid CLI flag escaping issues.
+      const effectiveSystemPrompt = req.systemPrompt ?? ''
       if (effectiveSystemPrompt) {
         prompt = `[System]: ${effectiveSystemPrompt}\n\n${prompt}`
       }
@@ -467,6 +784,12 @@ export const CodexAdapter: CliAgentAdapter = {
       }
       if (sandboxMode) {
         execArgs.push('--sandbox', sandboxMode)
+      }
+      // Approval policy and filesystem sandbox are separate Codex controls. Keep the selected
+      // sandbox level intact while disabling approval prompts through Codex's real config,
+      // rather than the former advisory system-prompt directive.
+      if (req.skipPermissions === true) {
+        execArgs.push('--config', 'approval_policy="never"')
       }
 
       // On Windows, npm global CLIs (.cmd) can't be spawned directly with shell:false.

@@ -24,6 +24,9 @@ export interface CliAdapterRequest {
   // 'read-only'|'workspace-write'|'danger-full-access' to --sandbox. Adapters ignore values
   // from the other backend's family (one conversation column serves both).
   permissionMode?: string
+  // Codex collaboration/execution mode, independent of approval policy and sandbox.
+  // 'plan' is sent through the app-server protocol because `codex exec` has no Plan flag.
+  executionMode?: 'plan'
   // Directories the CLI's own built-in sandbox should be allowed to touch beyond `cwd` — set
   // when the project/conversation's terminal sandbox bypass is enabled. Not all adapters honor
   // this (currently Claude CLI only, via --add-dir); adapters that don't support it ignore it.
