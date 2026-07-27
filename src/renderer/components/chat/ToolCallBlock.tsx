@@ -234,11 +234,11 @@ export function ToolCallBlock({
       </button>
 
       {summary && (
-        <div className={`whitespace-pre-wrap text-[11px] leading-relaxed ${detailTextClass}`}>{summary}</div>
+        <div className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed ${detailTextClass}`}>{summary}</div>
       )}
 
       {!suppressResult && previewText && (
-        <div className={`whitespace-pre-wrap text-[11px] leading-relaxed ${detailTextClass}`}>
+        <div className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed ${detailTextClass}`}>
           {previewText}
         </div>
       )}
@@ -254,7 +254,7 @@ export function ToolCallBlock({
           <div className="overflow-hidden">
             <div className="space-y-2 pt-1 pb-1.5">
               {resultTruncated && (
-                <pre className={`max-h-40 overflow-x-auto overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed ${detailTextClass}`}>
+                <pre className={`max-h-40 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed ${detailTextClass}`}>
                   {remainderText}
                 </pre>
               )}

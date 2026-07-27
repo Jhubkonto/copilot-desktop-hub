@@ -174,6 +174,16 @@ export function TitleBar() {
     addToast(`Nexy v${version}`, 'info')
   }
 
+  const handleCheckForUpdates = async () => {
+    close()
+    const result = await window.api.checkForUpdates()
+    if (result.updateAvailable) {
+      addToast(`Update v${result.latestVersion} is available`, 'info')
+    } else {
+      addToast(`You're up to date${result.currentVersion ? ` (v${result.currentVersion})` : ''}`, 'info')
+    }
+  }
+
   const sections: SectionDef[] = [
     {
       id: 'file',
@@ -227,7 +237,7 @@ export function TitleBar() {
       label: 'Help',
       items: [
         { type: 'item', label: 'About', action: handleAbout },
-        { type: 'item', label: 'Check for Updates', action: () => { close(); window.api.checkForUpdates() } },
+        { type: 'item', label: 'Check for Updates', action: () => { void handleCheckForUpdates() } },
       ],
     },
   ]

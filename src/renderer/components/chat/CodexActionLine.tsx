@@ -48,7 +48,7 @@ export function CodexActionLine(props: CodexActionLineProps) {
     return (
       <div className="flex items-start gap-1.5 text-xs">
         <span className="mt-px shrink-0 text-gray-400 dark:text-gray-500">•</span>
-        <span className="min-w-0 whitespace-pre-wrap text-gray-600 dark:text-gray-400"><StreamingFadeText text={props.content} /></span>
+        <span className="min-w-0 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-400"><StreamingFadeText text={props.content} /></span>
       </div>
     )
   }
@@ -74,7 +74,7 @@ export function CodexActionLine(props: CodexActionLineProps) {
         </span>
       </div>
       {preview && (
-        <div className={`whitespace-pre-wrap pl-4 text-[11px] leading-relaxed ${success ? 'text-gray-500 dark:text-gray-500' : 'text-red-600 dark:text-red-400'}`}>
+        <div className={`whitespace-pre-wrap break-words pl-4 text-[11px] leading-relaxed ${success ? 'text-gray-500 dark:text-gray-500' : 'text-red-600 dark:text-red-400'}`}>
           <span className="text-gray-400 dark:text-gray-600">{'└ '}</span>
           <StreamingFadeText text={preview} />
           {hiddenLineCount > 0 && <span className="text-gray-400 dark:text-gray-600"> (+{hiddenLineCount} more line{hiddenLineCount === 1 ? '' : 's'})</span>}

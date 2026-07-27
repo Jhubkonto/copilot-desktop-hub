@@ -63,7 +63,7 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
       {content.length > 0 && (
         <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
           <div className="overflow-hidden">
-            <pre className="line-clamp-3 whitespace-pre-wrap py-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-400">
+            <pre className="line-clamp-3 whitespace-pre-wrap break-words py-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-400">
               <StreamingFadeText text={content} />
             </pre>
           </div>
@@ -78,7 +78,7 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
           bodyClassName="flex-1 min-h-0 overflow-y-auto p-5"
           onClose={() => setShowFullscreen(false)}
         >
-          <pre className="whitespace-pre-wrap text-[13px] leading-relaxed text-gray-700 dark:text-gray-300">
+          <pre className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-700 dark:text-gray-300">
             {content}
           </pre>
         </ModalShell>

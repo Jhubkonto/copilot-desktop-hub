@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Star, Upload, Users, X, Zap } from 'lucide-react'
 import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type CliBackend, type CliModeOverride, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
+import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type CliBackend, type CliModeOverride, type CodexExecutionModeOverride, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useAutoScroll } from '../hooks/useAutoScroll'
@@ -116,6 +116,7 @@ export function ChatWindow() {
   const [pendingFullAutoApproveOverride, setPendingFullAutoApproveOverride] = useState<boolean | null>(null)
   const [pendingTerminalSandboxOverride, setPendingTerminalSandboxOverride] = useState<boolean | null>(null)
   const [pendingCliModeOverride, setPendingCliModeOverride] = useState<CliModeOverride | null>(null)
+  const [pendingCodexExecutionModeOverride, setPendingCodexExecutionModeOverride] = useState<CodexExecutionModeOverride | null>(null)
   const [input, setInput] = useState('')
   const inputValueRef = useRef(input)
   inputValueRef.current = input
@@ -639,7 +640,28 @@ export function ChatWindow() {
     setPendingModel(null)
     setPendingThinkingEffortOverride(null)
     setPendingFullAutoApproveOverride(null)
+    setPendingTerminalSandboxOverride(null)
+    setPendingCliModeOverride(null)
+    setPendingCodexExecutionModeOverride(null)
   }, [conversationId])
+
+  // `cli_mode_override` is one shared DB column for both Claude Code mode and Codex sandbox
+  // level — a value set for one backend (e.g. "bypassPermissions") is meaningless for the
+  // other and would otherwise resurface as a highlighted option if the chat switches back.
+  // Clear it whenever it no longer belongs to the newly active backend's own option set.
+  useEffect(() => {
+    const validValues: Record<string, (string | null)[]> = {
+      'claude-cli': [null, 'plan', 'acceptEdits', 'bypassPermissions'],
+      'codex-cli': [null, 'read-only', 'workspace-write', 'danger-full-access'],
+    }
+    const allowed = activeCliBackend ? validValues[activeCliBackend] : undefined
+    const current = currentConversation
+      ? ((currentConversation.cli_mode_override as CliModeOverride | null | undefined) ?? null)
+      : pendingCliModeOverride
+    if (allowed && current !== null && !allowed.includes(current)) {
+      void handleSetConversationMode({ cliModeOverride: null })
+    }
+  }, [activeCliBackend, conversationId])
 
   useEffect(() => {
     const unsubscribe = window.api.onAutoClipboardFocus(async () => {
@@ -1216,11 +1238,12 @@ export function ChatWindow() {
     </div>
   )
 
-  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null }) => {
+  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
     if (mode.thinkingEffortOverride !== undefined) setPendingThinkingEffortOverride(mode.thinkingEffortOverride)
     if (mode.fullAutoApproveOverride !== undefined) setPendingFullAutoApproveOverride(mode.fullAutoApproveOverride)
     if (mode.terminalSandboxOverride !== undefined) setPendingTerminalSandboxOverride(mode.terminalSandboxOverride)
     if (mode.cliModeOverride !== undefined) setPendingCliModeOverride(mode.cliModeOverride)
+    if (mode.codexExecutionModeOverride !== undefined) setPendingCodexExecutionModeOverride(mode.codexExecutionModeOverride)
     await actions.handleSetConversationMode(mode)
   }, [actions])
 
@@ -1305,6 +1328,11 @@ export function ChatWindow() {
         currentConversation
           ? ((currentConversation.cli_mode_override as CliModeOverride | null | undefined) ?? null)
           : pendingCliModeOverride
+      }
+      conversationCodexExecutionModeOverride={
+        currentConversation
+          ? ((currentConversation.codex_execution_mode_override as CodexExecutionModeOverride | null | undefined) ?? null)
+          : pendingCodexExecutionModeOverride
       }
       onSetConversationMode={handleSetConversationMode}
       availableGroups={availableGroups}

@@ -7,7 +7,7 @@ import { SlashCommandMenu } from './SlashCommandMenu'
 import { ModelPicker } from './ModelPicker'
 import { CliLockedModelBadge } from './CliLockedModelBadge'
 import { ChatModePicker } from './ChatModePicker'
-import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend, CliModeOverride } from '../../../shared/types'
+import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend, CliModeOverride, CodexExecutionModeOverride } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
@@ -80,11 +80,13 @@ interface ChatComposerProps {
   conversationTerminalSandboxOverride?: boolean | null
   activeCliBackend?: CliBackend | null
   conversationCliModeOverride?: CliModeOverride | null
+  conversationCodexExecutionModeOverride?: CodexExecutionModeOverride | null
   onSetConversationMode?: (mode: {
     thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
     fullAutoApproveOverride?: boolean | null
     terminalSandboxOverride?: boolean | null
     cliModeOverride?: CliModeOverride | null
+    codexExecutionModeOverride?: CodexExecutionModeOverride | null
   }) => void
 }
 
@@ -152,6 +154,7 @@ export function ChatComposer({
   conversationTerminalSandboxOverride = null,
   activeCliBackend = null,
   conversationCliModeOverride = null,
+  conversationCodexExecutionModeOverride = null,
   onSetConversationMode,
 }: ChatComposerProps) {
   const [showModePicker, setShowModePicker] = useState(false)
@@ -378,6 +381,7 @@ export function ChatComposer({
                     terminalSandboxOverride={conversationTerminalSandboxOverride}
                     activeCliBackend={activeCliBackend}
                     cliModeOverride={conversationCliModeOverride}
+                    codexExecutionModeOverride={conversationCodexExecutionModeOverride}
                     onChange={onSetConversationMode}
                   />
                 )}
