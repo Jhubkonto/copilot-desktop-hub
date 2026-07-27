@@ -90,6 +90,21 @@ fun filterModelsForRemoteEditBackend(
 }
 
 /**
+ * Resolves the CLI backend ("claude-cli"/"codex-cli") a model belongs to, based on its
+ * desktop-reported vendor label. Used as a fallback for surfacing CLI-specific chat mode options
+ * (e.g. Claude Code mode) when a CLI model is selected directly, without a preset agent locking
+ * the conversation to that backend.
+ */
+fun cliBackendForModel(model: ModelOption?): String? {
+    if (model?.isCliSourced != true) return null
+    return when (model.vendor?.trim()?.lowercase()) {
+        "claude cli" -> "claude-cli"
+        "codex cli" -> "codex-cli"
+        else -> null
+    }
+}
+
+/**
  * Entries rendered by ModelPickerSheet's LazyColumn — extracted from the composable so the
  * vendor-grouped vs. flat-list branching (and the mode filter feeding both) is unit-testable
  * without a Compose test harness.

@@ -216,4 +216,25 @@ class ModelFilteringTest {
         assertEquals(listOf(cliModel), filterModelsForRemoteEditBackend(listOf(apiModel, cliModel, codexCli), "claude-cli"))
         assertEquals(listOf(codexCli), filterModelsForRemoteEditBackend(listOf(apiModel, cliModel, codexCli), "codex-cli"))
     }
+
+    // --- cliBackendForModel (Chat mode sheet parity: surface Claude Code mode when a CLI
+    // model is selected directly, without a preset agent locking the backend) ---
+
+    @Test
+    fun cliBackendForModelMatchesClaudeCliVendor() {
+        assertEquals("claude-cli", cliBackendForModel(cliModel))
+    }
+
+    @Test
+    fun cliBackendForModelMatchesCodexCliVendor() {
+        val codexCli = ModelOption("gpt-5.5", "GPT-5.5", "Codex CLI", isCliSourced = true)
+        assertEquals("codex-cli", cliBackendForModel(codexCli))
+    }
+
+    @Test
+    fun cliBackendForModelReturnsNullForNonCliOrUnknownVendor() {
+        assertEquals(null, cliBackendForModel(apiModel))
+        assertEquals(null, cliBackendForModel(null))
+        assertEquals(null, cliBackendForModel(ModelOption("x", "X", vendor = null, isCliSourced = true)))
+    }
 }
