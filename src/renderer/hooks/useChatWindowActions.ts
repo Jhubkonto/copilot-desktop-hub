@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks use stable store functions and refs across conversations. */
 import { useCallback, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
-import { isApiError, type AgentConfig, type CatalogModel, type CliBackend, type CliModeOverride } from '../../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel, type CliBackend, type CliModeOverride, type CodexExecutionModeOverride } from '../../shared/types'
 import { getProviderSlashCommands } from '../provider-slash-commands'
 import type { Theme } from '../store/types'
 import {
@@ -174,6 +174,7 @@ export function useChatWindowActions({
   const pendingFullAutoApproveRef = useRef<boolean | null>(null)
   const pendingTerminalSandboxRef = useRef<boolean | null>(null)
   const pendingCliModeOverrideRef = useRef<CliModeOverride | null>(null)
+  const pendingCodexExecutionModeOverrideRef = useRef<CodexExecutionModeOverride | null>(null)
   // Slash commands (e.g. /debrief, /quiz) run an async IPC round-trip before clearing the
   // composer, so isGenerating alone doesn't block a second Enter press mid-flight. The ref is
   // the synchronous re-entrancy guard (state updates aren't visible synchronously); the state
@@ -900,6 +901,8 @@ export function useChatWindowActions({
       pendingTerminalSandboxRef.current = null
       const effectiveCliModeOverride = pendingCliModeOverrideRef.current
       pendingCliModeOverrideRef.current = null
+      const effectiveCodexExecutionModeOverride = pendingCodexExecutionModeOverrideRef.current
+      pendingCodexExecutionModeOverrideRef.current = null
       const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
@@ -914,6 +917,7 @@ export function useChatWindowActions({
         fullAutoApproveOverride: effectiveFullAutoApproveOverride,
         terminalSandboxOverride: effectiveTerminalSandboxOverride,
         cliModeOverride: effectiveCliModeOverride,
+        codexExecutionModeOverride: effectiveCodexExecutionModeOverride,
       }) as unknown
       if (isApiError(sendResult)) throw new Error(sendResult.error)
       void loadConversations()
@@ -1116,12 +1120,13 @@ export function useChatWindowActions({
   )
 
   const handleSetConversationMode = useCallback(
-    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null }) => {
+    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
       if (!conversationId) {
         if (mode.thinkingEffortOverride !== undefined) pendingThinkingEffortRef.current = mode.thinkingEffortOverride
         if (mode.fullAutoApproveOverride !== undefined) pendingFullAutoApproveRef.current = mode.fullAutoApproveOverride
         if (mode.terminalSandboxOverride !== undefined) pendingTerminalSandboxRef.current = mode.terminalSandboxOverride
         if (mode.cliModeOverride !== undefined) pendingCliModeOverrideRef.current = mode.cliModeOverride
+        if (mode.codexExecutionModeOverride !== undefined) pendingCodexExecutionModeOverrideRef.current = mode.codexExecutionModeOverride
         return
       }
       try {
