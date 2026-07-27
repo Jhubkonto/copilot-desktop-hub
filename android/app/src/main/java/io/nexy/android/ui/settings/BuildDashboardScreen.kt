@@ -137,6 +137,20 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 is WsEvent.BuildRecords -> {
                     desktopRecords = event.records.filter { it.platform != "android" }
                     androidRecords = event.records.filter { it.platform == "android" }
+                    // Reconcile the live status indicator against the DB records: if this
+                    // client missed the build:command-done push (e.g. it was reconnecting,
+                    // or the screen wasn't mounted when a long Android release build
+                    // finished), the tracked build's row here already shows a terminal
+                    // status even though buildStatus is still stuck on "running".
+                    val trackedId = activeBuildId
+                    if (buildStatus == "running" && trackedId != null) {
+                        event.records.firstOrNull { it.id == trackedId }?.let { record ->
+                            if (record.status != "running") {
+                                buildStatus = record.status
+                                activeBuildId = null
+                            }
+                        }
+                    }
                 }
                 is WsEvent.BuildPreflightResult -> {
                     isRunningPreflight = false
@@ -203,6 +217,10 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                         updateFlowActive = false
                         updateFlowDone = true
                     }
+                    // Reconnecting mid-build means we may have missed the
+                    // build:command-done push while disconnected; refetch records so the
+                    // BuildRecords reconciliation above can clear a stuck "running" status.
+                    if (buildStatus == "running") WsRepository.getBuildRecords(platform = null)
                 }
                 else -> {}
             }
