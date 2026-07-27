@@ -4,7 +4,7 @@ import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
-import { readFile } from 'fs/promises'
+import { readFile, writeFile } from 'fs/promises'
 import path from 'path'
 import { app, BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
@@ -63,6 +63,36 @@ function isVersionNewer(candidate: string, current: string): boolean {
     if (diff !== 0) return diff > 0
   }
   return false
+}
+
+// Bumps the patch version in the workspace package.json so a mobile-initiated
+// package build always produces an installer newer than the running app —
+// there's no way to edit package.json from the phone, so the build itself
+// must do it rather than dead-ending with a "bump the version" error.
+async function bumpWorkspaceVersion(workspacePath: string, runningVersion: string): Promise<string> {
+  const pkgPath = path.join(workspacePath, 'package.json')
+  const raw = await readFile(pkgPath, 'utf8')
+  const pkg = JSON.parse(raw) as Record<string, unknown> & { version?: string }
+
+  const toParts = (v: string) => {
+    const parts = v.split('.').map((n) => parseInt(n, 10) || 0)
+    while (parts.length < 3) parts.push(0)
+    return parts
+  }
+
+  const current = toParts(pkg.version ?? '0.0.0')
+  current[2] += 1
+  let next = current.join('.')
+
+  if (!isVersionNewer(next, runningVersion)) {
+    const running = toParts(runningVersion)
+    running[2] += 1
+    next = running.join('.')
+  }
+
+  pkg.version = next
+  await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
+  return next
 }
 
 export async function getWorkspaceInfo(db: Database.Database): Promise<WorkspaceInfo> {
@@ -244,15 +274,17 @@ export async function startBuildFromMobile(command: BuildCommandName, mainWindow
   }
   const db = getDatabase()
   const workspacePath = getWorkspacePath(db)
-  const wsInfo = await getWorkspaceInfo(db)
+  let wsInfo = await getWorkspaceInfo(db)
 
-  // Fail fast, before running a full (multi-minute) package build: the
-  // installer this produces will be rejected at install time anyway if the
-  // workspace version isn't ahead of the version currently running.
+  // The installer a package build produces is rejected at install time if the
+  // workspace version isn't ahead of the version currently running. There's no
+  // way to edit package.json from the phone, so auto-bump the patch version
+  // here instead of dead-ending mobile-triggered builds with an error.
   if (command === 'package' && app.isPackaged) {
     const runningVersion = app.getVersion()
     if (wsInfo.version && !isVersionNewer(wsInfo.version, runningVersion)) {
-      throw new Error(`Workspace package.json version (v${wsInfo.version}) is not newer than the running app (v${runningVersion}). Bump the version in package.json and try again.`)
+      await bumpWorkspaceVersion(workspacePath, runningVersion)
+      wsInfo = await getWorkspaceInfo(db)
     }
   }
 

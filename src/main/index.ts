@@ -200,6 +200,11 @@ app.on('open-url', (_event, url) => {
 app.whenReady().then(() => {
   initLogger()
 
+  // Windows uses the AppUserModelID as the notification/toast sender name.
+  // Without this, Electron falls back to the default "electron.app.Nexy".
+  // Must match the NSIS appId in electron-builder.yml.
+  app.setAppUserModelId('com.nexy.app')
+
   // Remove the default Electron application menu
   Menu.setApplicationMenu(null)
 
