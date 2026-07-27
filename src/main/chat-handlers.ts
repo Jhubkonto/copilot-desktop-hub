@@ -18,7 +18,7 @@ import { activeCliAbortControllers } from './provider-stream-state'
 import { safeHandle } from './safe-handle'
 import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
-import { requestApproval } from './tools'
+import { requestApproval, denyPendingApprovalsForConversation } from './tools'
 import { getAdapter } from './cli-adapters/registry'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendChatCompleteNotification, generateSpokenSummary } from './fcm-sender'
@@ -323,6 +323,7 @@ async function requestClaudeCliToolPermission(
   autoApprove: boolean,
   toolName: string,
   input: Record<string, unknown>,
+  conversationId: string,
 ): Promise<boolean> {
   const tool = getClaudeCliToolDefinition(toolName)
   if (!tool) {
@@ -332,6 +333,7 @@ async function requestClaudeCliToolPermission(
       `claude-cli:${toolName}`,
       input,
       `Allow Claude CLI to use ${toolName}?`,
+      { conversationId },
     )
   }
 
@@ -350,13 +352,16 @@ async function requestClaudeCliToolPermission(
     tool.approvalTool,
     input,
     tool.description,
-    agentId
-      ? {
-          onRemember: (wasApproved) => {
-            if (wasApproved) rememberClaudeCliAgentTool(agentId, tool.key)
-          },
-        }
-      : undefined,
+    {
+      conversationId,
+      ...(agentId
+        ? {
+            onRemember: (wasApproved: boolean) => {
+              if (wasApproved) rememberClaudeCliAgentTool(agentId, tool.key)
+            },
+          }
+        : undefined),
+    },
   )
 }
 
@@ -959,7 +964,7 @@ export async function dispatchChatSend(
                 `mcp__${server.key}`,
                 {},
                 `Allow agent to use ${mcpServers.get(serverId)?.config.name ?? server.key} tools for this message?`,
-                { noRemember: true, autoApprove: cliFullAuto }
+                { noRemember: true, autoApprove: cliFullAuto, conversationId }
               )
               if (approved) approvedServerIds.add(serverId)
               // denied → server excluded from CLI run
@@ -1032,6 +1037,16 @@ export async function dispatchChatSend(
           } catch { /* best-effort audit — never let this break the chat turn */ }
         }
 
+        // Guard against a second CLI turn starting for a conversation that already has one
+        // in flight (e.g. the user re-sends while a prior turn is still blocked waiting on
+        // tool approval). Without this, Android's single-slot pending-approval UI gets
+        // silently overwritten by the new turn's request while the old turn's permission-hook
+        // HTTP call sits invisible until its 60s auto-deny timeout — see
+        // roadmap/bugs/bug-new/cli-approval-relay-concurrent-turns.md.
+        if (activeCliAbortControllers.has(conversationId)) {
+          abortActiveStream(conversationId)
+          denyPendingApprovalsForConversation(conversationId)
+        }
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
         const cliResponseContent = await adapter.send(
@@ -1060,6 +1075,7 @@ export async function dispatchChatSend(
                   effectiveFullAutoApprove,
                   toolName,
                   input,
+                  conversationId,
                 )
               : undefined,
           },

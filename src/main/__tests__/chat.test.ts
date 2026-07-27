@@ -126,7 +126,7 @@ vi.mock('../ws-server', () => ({ broadcastToMobile: state.broadcastToMobile, has
 vi.mock('../auth', () => ({ retrieveAuthMode: vi.fn(() => 'byok') }))
 vi.mock('../wiki-context', () => ({ getRelevantWikiEntries: vi.fn(() => []), formatWikiSection: vi.fn(() => '') }))
 vi.mock('../wiki-handlers', () => ({ insertWikiEntry: vi.fn() }))
-vi.mock('../tools', () => ({ requestApproval: vi.fn(), registerApprovalResolver: vi.fn() }))
+vi.mock('../tools', () => ({ requestApproval: vi.fn(), registerApprovalResolver: vi.fn(), denyPendingApprovalsForConversation: vi.fn() }))
 vi.mock('../context-compression', () => ({
   applyRollingContextCompression: vi.fn((_db, _conversationId, messages) => ({ messages, summary: null })),
 }))
@@ -172,7 +172,7 @@ import { retrieveAuthMode } from '../auth'
 import { getAgentConfig } from '../agents'
 import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
 import { getApiKey, sendOpenAIMessage } from '../providers'
-import { requestApproval } from '../tools'
+import { requestApproval, denyPendingApprovalsForConversation } from '../tools'
 import { runOrchestration } from '../orchestrator'
 import { runProviderMcpToolLoop } from '../tool-loop'
 import { buildChatContext } from '../chat-context-builder'
@@ -192,6 +192,7 @@ describe('chat handlers', () => {
     state.getOverrides.clear()
     state.allOverrides.clear()
     vi.mocked(requestApproval).mockReset()
+    vi.mocked(denyPendingApprovalsForConversation).mockReset()
     vi.mocked(getAdapter).mockReturnValue(undefined)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
     vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
@@ -356,6 +357,38 @@ describe('chat handlers', () => {
     expect(state.events).toContain('mobile:stream-end')
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
     expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
+  })
+
+  it('aborts a still-active CLI turn and denies its pending approval when a second send arrives for the same conversation', async () => {
+    let releaseFirstSend: (() => void) | undefined
+    const firstSendGate = new Promise<void>((resolve) => { releaseFirstSend = resolve })
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { conversationId?: string }) => {
+        if (req.conversationId === 'conv-concurrent') {
+          await firstSendGate
+        }
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+
+    const firstTurn = handler({ sender: {} }, 'conv-concurrent', 'Hello there')
+    // Let the first turn register its CLI abort controller before the second send arrives.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const secondTurn = handler({ sender: {} }, 'conv-concurrent', 'try again')
+    releaseFirstSend?.()
+    await Promise.all([firstTurn, secondTurn])
+
+    expect(state.abortActiveStream).toHaveBeenCalledWith('conv-concurrent')
+    expect(denyPendingApprovalsForConversation).toHaveBeenCalledWith('conv-concurrent')
   })
 
   it('routes through the forced agent CLI backend even when a provider model is supplied', async () => {
@@ -559,7 +592,7 @@ describe('chat handlers', () => {
       'claude-cli:terminal',
       { command: 'Get-ChildItem -Force' },
       'Allow Claude CLI to run terminal commands for this message?',
-      { onRemember: expect.any(Function) },
+      { conversationId: 'conv-terminal', onRemember: expect.any(Function) },
     )
     // always-ask tools are deliberately absent from --allowedTools; the live
     // PermissionRequest hook pauses and asks only if Claude actually calls one.

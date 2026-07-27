@@ -15,7 +15,7 @@ function setToolPreference(toolName: string, value: string): void {
 
 const pendingApprovals = new Map<
   string,
-  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string }
+  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string; conversationId?: string }
 >()
 
 /**
@@ -25,13 +25,15 @@ const pendingApprovals = new Map<
  * Pass `onRemember` to handle the "Always allow" case with custom persistence logic
  * (e.g. updating an agent's tool approval field instead of writing a global preference).
  * Pass `autoApprove: true` to skip all prompts and resolve immediately (fullAutoApprove mode).
+ * Pass `conversationId` so a stale request can be found and denied if that conversation's
+ * turn gets aborted/replaced (see `denyPendingApprovalsForConversation`).
  */
 export async function requestApproval(
   webContents: Electron.WebContents,
   toolName: string,
   args: Record<string, unknown>,
   description: string,
-  options?: { noRemember?: boolean; onRemember?: (approved: boolean) => void; autoApprove?: boolean; agentId?: string }
+  options?: { noRemember?: boolean; onRemember?: (approved: boolean) => void; autoApprove?: boolean; agentId?: string; conversationId?: string }
 ): Promise<boolean> {
   if (options?.autoApprove === true) {
     if (!webContents.isDestroyed()) {
@@ -46,7 +48,7 @@ export async function requestApproval(
     sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
   }
   return new Promise<boolean>((resolve) => {
-    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId })
+    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
     setTimeout(() => {
       if (pendingApprovals.has(requestId)) {
         pendingApprovals.delete(requestId)
@@ -54,6 +56,21 @@ export async function requestApproval(
       }
     }, 60000)
   })
+}
+
+/**
+ * Denies and clears any approval requests still pending for a conversation. Called when a
+ * conversation's in-flight CLI turn is aborted/replaced by a new send, so the previous turn's
+ * permission-hook request doesn't sit invisible in Android's single-slot approval UI until its
+ * 60s timeout — see roadmap/bugs/bug-new/cli-approval-relay-concurrent-turns.md.
+ */
+export function denyPendingApprovalsForConversation(conversationId: string): void {
+  for (const [requestId, pending] of pendingApprovals) {
+    if (pending.conversationId === conversationId) {
+      pending.resolve(false)
+      pendingApprovals.delete(requestId)
+    }
+  }
 }
 
 export function drainPendingApprovals(agentId: string): void {
