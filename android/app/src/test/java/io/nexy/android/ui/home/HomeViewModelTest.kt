@@ -138,6 +138,34 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun secondApprovalRequestIsQueuedNotOverwrittenAndShownAfterFirstResolves() = runTest {
+        val fakeWs = FakeWsClient()
+        val fakeEffects = FakeApprovalEffects()
+        val vm = HomeViewModel(Application(), fakeWs, fakeEffects)
+        advanceUntilIdle()
+
+        val first = WsEvent.ToolApprovalRequest("req-1", "fileWrite", emptyMap())
+        val second = WsEvent.ToolApprovalRequest("req-2", "fileWrite", emptyMap())
+        fakeWs.emit(first)
+        advanceUntilIdle()
+        fakeWs.emit(second)
+        advanceUntilIdle()
+
+        // The second request must not silently overwrite the first while it's unresolved.
+        assertEquals(first, vm.pendingApproval.value)
+        assertEquals(listOf(first), fakeEffects.shownApprovals)
+
+        vm.approveRequest("req-1")
+        advanceUntilIdle()
+
+        // Resolving the first reveals the queued second request instead of leaving it orphaned.
+        assertEquals(second, vm.pendingApproval.value)
+        assertEquals(listOf(first, second), fakeEffects.shownApprovals)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun conversationCreatedEventSetsAndClearsNewConversationId() = runTest {
         val fakeWs = FakeWsClient()
         val vm = HomeViewModel(Application(), fakeWs, FakeApprovalEffects())

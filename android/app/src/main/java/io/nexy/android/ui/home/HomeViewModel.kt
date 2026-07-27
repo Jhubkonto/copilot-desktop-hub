@@ -49,6 +49,30 @@ class HomeViewModel(
     private val _pendingApproval = MutableStateFlow<WsEvent.ToolApprovalRequest?>(null)
     val pendingApproval: StateFlow<WsEvent.ToolApprovalRequest?> = _pendingApproval
 
+    // A second CLI turn can start (e.g. the user re-sends before approving) and broadcast its
+    // own approval request while one is already showing. Queue rather than overwrite so an
+    // earlier request isn't silently orphaned until its 60s server-side auto-deny timeout.
+    private val approvalQueue = ArrayDeque<WsEvent.ToolApprovalRequest>()
+
+    private fun enqueueApproval(event: WsEvent.ToolApprovalRequest) {
+        if (_pendingApproval.value == null) {
+            _pendingApproval.value = event
+            approvalEffects.showApproval(event)
+        } else {
+            approvalQueue.addLast(event)
+        }
+    }
+
+    private fun clearCurrentApproval() {
+        _pendingApproval.value = null
+        approvalEffects.cancelApproval()
+        val next = approvalQueue.removeFirstOrNull()
+        if (next != null) {
+            _pendingApproval.value = next
+            approvalEffects.showApproval(next)
+        }
+    }
+
     private val _isRefreshingConversations = MutableStateFlow(false)
     val isRefreshingConversations: StateFlow<Boolean> = _isRefreshingConversations
 
@@ -85,33 +109,26 @@ class HomeViewModel(
         viewModelScope.launch {
             WsRepository.approvalResolvedViaNotification.collect { _ ->
                 if (_pendingApproval.value != null) {
-                    _pendingApproval.value = null
-                    approvalEffects.cancelApproval()
+                    clearCurrentApproval()
                 }
             }
         }
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
-                    is WsEvent.ToolApprovalRequest -> {
-                        _pendingApproval.value = event
-                        approvalEffects.showApproval(event)
-                    }
+                    is WsEvent.ToolApprovalRequest -> enqueueApproval(event)
                     is WsEvent.ChatToolCallEvent -> {
                         // Tool ran — means any pending approval was resolved (possibly via
                         // notification while the app was backgrounded). Clear the dialog.
-                        val pending = _pendingApproval.value
-                        if (pending != null) {
-                            _pendingApproval.value = null
-                            approvalEffects.cancelApproval()
+                        if (_pendingApproval.value != null) {
+                            clearCurrentApproval()
                         }
                     }
                     is WsEvent.ChatActivity -> {
                         // A complete/error state also means the tool approval request is stale.
                         if (event.state == "complete" || event.state == "error") {
                             if (_pendingApproval.value != null) {
-                                _pendingApproval.value = null
-                                approvalEffects.cancelApproval()
+                                clearCurrentApproval()
                             }
                         }
                     }
@@ -147,15 +164,13 @@ class HomeViewModel(
     fun approveRequest(requestId: String) {
         wsClient.send("tool:approve", mapOf("requestId" to requestId))
         approvalEffects.vibrateDecision(approved = true)
-        _pendingApproval.value = null
-        approvalEffects.cancelApproval()
+        clearCurrentApproval()
     }
 
     fun rejectRequest(requestId: String) {
         wsClient.send("tool:reject", mapOf("requestId" to requestId))
         approvalEffects.vibrateDecision(approved = false)
-        _pendingApproval.value = null
-        approvalEffects.cancelApproval()
+        clearCurrentApproval()
     }
 
     fun clearNewConversation() {
