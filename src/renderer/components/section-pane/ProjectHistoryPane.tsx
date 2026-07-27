@@ -15,7 +15,6 @@ export function ProjectHistoryPane() {
   const selectConversation = useAppStore((s) => s.selectConversation)
   const deleteConversation = useAppStore((s) => s.deleteConversation)
   const newChat = useAppStore((s) => s.newChat)
-  const setPendingComposerPrefill = useAppStore((s) => s.setPendingComposerPrefill)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const completedConversationIds = useAppStore((s) => s.completedConversationIds)
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
@@ -129,19 +128,6 @@ export function ProjectHistoryPane() {
           <Plus className="w-3.5 h-3.5" />
           New
         </button>
-        {historyProjectId && historyProjectId !== '__none__' && (
-          <button
-            onClick={() => {
-              newChat({ projectId: historyProjectId })
-              setPendingComposerPrefill('/code-change ')
-            }}
-            className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
-            aria-label="New code change"
-            title="Start a code change: describe the change you want in the composer"
-          >
-            <GitBranch className="w-3.5 h-3.5" />
-          </button>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">

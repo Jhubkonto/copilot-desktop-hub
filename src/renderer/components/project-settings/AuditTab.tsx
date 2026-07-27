@@ -65,7 +65,7 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
   }
 
   return (
-    <div className="grid min-h-[24rem] gap-4 md:grid-cols-[220px_1fr]">
+    <div className="grid min-h-[24rem] gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/40">
           <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Sessions</p>
@@ -90,7 +90,7 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="min-w-0 space-y-3">
         {workspaceInfo && !workspaceInfo.isGitRepo && (
           <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/20">
             <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Best-effort file audit</p>
@@ -123,7 +123,7 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
               return (
                 <div key={key} className="border-b border-gray-200 last:border-b-0 dark:border-gray-700">
                   <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 dark:bg-gray-900/40">
-                    <span className="flex-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">{file.relativePath}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">{file.relativePath}</span>
                     <span className="text-[10px] text-gray-500">{file.status}</span>
                     <span className="text-[10px] text-gray-400">{file.lastOperation}</span>
                     {file.diffAvailable && (
