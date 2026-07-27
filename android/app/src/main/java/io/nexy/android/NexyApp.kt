@@ -18,6 +18,7 @@ class NexyApp : Application() {
                 resumedActivityCount++
                 if (!isInForeground) {
                     isInForeground = true
+                    io.nexy.android.data.WsRepository.onAppForegrounded()
                     io.nexy.android.data.WsRepository.send("mobile:app-foreground", emptyMap())
                 }
             }
