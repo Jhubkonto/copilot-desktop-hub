@@ -1213,6 +1213,25 @@ object WsRepository : WsClient {
         localData?.setInternetState(InternetState.UNAVAILABLE)
     }
 
+    // Called when the app transitions from background to foreground (e.g. the user
+    // taps a "chat ready" notification while the app was backgrounded). Unlike
+    // onNetworkAvailable(), this does NOT bail out when connectionState reads CONNECTED:
+    // after the OS freezes/Dozes the process, the socket can die silently while the
+    // flag still says CONNECTED, since only the 30s OkHttp ping would eventually notice.
+    // Forcing a fresh reconnect here ensures the chat screen's subsequent
+    // requestLatestHistory() rides a live socket instead of silently sending into a dead one.
+    fun onAppForegrounded() {
+        if (_preferStandaloneMode.value) return
+        if (currentUrl == null || currentToken == null) return
+        if (_connectionState.value == ConnectionState.CONNECTING) return
+        reconnectAttempts = 0
+        _reconnectExhausted.value = false
+        reconnectJob?.cancel()
+        ws?.cancel()
+        _connectionState.value = ConnectionState.DISCONNECTED
+        scheduleReconnect()
+    }
+
     private fun beginStandaloneSync() {
         val local = localData ?: return
         val token = currentToken ?: return
@@ -1510,7 +1529,21 @@ object WsRepository : WsClient {
         // counterpart — they must resolve locally even while connected, or they silently vanish
         // since the desktop has no handler for them.
         if (_connectionState.value != ConnectionState.CONNECTED || command.startsWith("settings:")) {
-            if (handleLocalCommand(command, data)) return
+            if (handleLocalCommand(command, data)) {
+                // The local Room cache can be stale (e.g. a push notification landed while
+                // this device was disconnected). If there's a paired desktop to resync
+                // against, also queue the command for a real round-trip once reconnected,
+                // so the cached answer gets superseded by the authoritative one.
+                if (!command.startsWith("settings:") &&
+                    _connectionState.value != ConnectionState.CONNECTED &&
+                    hasPairedServer()
+                ) {
+                    android.util.Log.d(WS_LOG_TAG, "queuing '$command' to resync after local fallback")
+                    synchronized(pendingCommands) { pendingCommands.add(command to data) }
+                    if (_connectionState.value == ConnectionState.DISCONNECTED) connectFromStore()
+                }
+                return
+            }
         }
         val socket = ws
         val token = currentToken
