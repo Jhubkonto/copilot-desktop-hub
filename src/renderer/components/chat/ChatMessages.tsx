@@ -78,12 +78,12 @@ function isCodexToolCall(serverName: string | undefined): boolean {
 // A status-colored bead sitting directly on the shared timeline border, marking each
 // step's position along it — mirrors the connected dot-and-line action list used for
 // tool calls in Claude Code's own CLI output.
-function TimelineEntry({ children, colorClass, pulse: _pulse }: { children: ReactNode; colorClass: string; pulse?: boolean }) {
+function TimelineEntry({ children, colorClass, pulse }: { children: ReactNode; colorClass: string; pulse?: boolean }) {
   return (
     <div className="relative">
       <span
         aria-hidden="true"
-        className={`absolute -left-[17px] top-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-gray-900 ${colorClass}`}
+        className={`absolute -left-[17px] top-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-gray-900 ${colorClass} ${pulse ? 'animate-pulse' : ''}`}
       />
       {children}
     </div>
@@ -744,9 +744,9 @@ export function ChatMessagesBase({
                     <div className="text-sm text-gray-500 dark:text-gray-400">
                       <div className="flex items-center gap-2 mb-2">
                         {item.state === 'tool' ? (
-                          <Wrench className="w-3.5 h-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
+                          <Wrench className="w-3.5 h-3.5 shrink-0 text-blue-500 dark:text-blue-400 animate-pulse" />
                         ) : (
-                          <Loader2 className="w-3.5 h-3.5 shrink-0" />
+                          <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
                         )}
                         <span>
                           {item.state === 'tool'
@@ -756,7 +756,9 @@ export function ChatMessagesBase({
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
                       </div>
                     </div>
                   </TimelineEntry>
@@ -770,11 +772,13 @@ export function ChatMessagesBase({
               <TimelineEntry colorClass="bg-gray-400" pulse>
                 <div className="text-sm text-gray-500 dark:text-gray-400">
                   <div className="flex items-center gap-2 mb-2">
-                    <Loader2 className="w-3.5 h-3.5 shrink-0" />
+                    <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
                     <span>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
                   </div>
                 </div>
               </TimelineEntry>
