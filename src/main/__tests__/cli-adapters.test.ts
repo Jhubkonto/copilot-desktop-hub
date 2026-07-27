@@ -35,11 +35,15 @@ describe('CLI adapters', () => {
     const proc = new EventEmitter() as EventEmitter & {
       stdout: EventEmitter
       stderr: EventEmitter
-      stdin: { end: ReturnType<typeof vi.fn> }
+      stdin: {
+        write: ReturnType<typeof vi.fn>
+        end: ReturnType<typeof vi.fn>
+        destroyed: boolean
+      }
     }
     proc.stdout = new EventEmitter()
     proc.stderr = new EventEmitter()
-    proc.stdin = { end: vi.fn() }
+    proc.stdin = { write: vi.fn(), end: vi.fn(), destroyed: false }
     return proc
   }
 
@@ -352,7 +356,7 @@ describe('CLI adapters', () => {
     expect(args).toContain('--dangerously-skip-permissions')
   })
 
-  it('CodexAdapter maps permissionMode to --sandbox and drops the [AUTO-APPROVE] prompt hack', async () => {
+  it('CodexAdapter keeps auto-approval and sandbox level as independent real settings', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
 
@@ -374,10 +378,98 @@ describe('CLI adapters', () => {
     const sandboxIndex = spawnArgs.indexOf('--sandbox')
     expect(sandboxIndex).toBeGreaterThan(-1)
     expect(spawnArgs[sandboxIndex + 1]).toBe('read-only')
-    // With a real sandbox flag governing, the prompt directive must not fight a
-    // deliberately restrictive read-only selection.
+    const configIndex = spawnArgs.indexOf('--config')
+    expect(configIndex).toBeGreaterThan(-1)
+    expect(spawnArgs[configIndex + 1]).toBe('approval_policy="never"')
+    // Auto-approval is now a real Codex policy and no longer relies on prompt text.
     const stdinPayload = String(proc.stdin.end.mock.calls[0]?.[0] ?? '')
     expect(stdinPayload).not.toContain('[AUTO-APPROVE]')
+  })
+
+  it('CodexAdapter routes Plan mode through app-server with independent approval and sandbox settings', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const chunks: Array<{ text: string; blockId?: string }> = []
+    const onEvent = vi.fn()
+
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'plan this change' }],
+      cwd: 'C:\\workspace',
+      model: 'gpt-5.5',
+      conversationId: 'conv-plan',
+      systemPrompt: 'Be concise',
+      executionMode: 'plan',
+      permissionMode: 'read-only',
+      skipPermissions: true,
+      thinkingEffort: 'high',
+    }, (text, blockId) => chunks.push({ text, blockId }), onEvent)
+
+    const writes = () => proc.stdin.write.mock.calls.map((call) => JSON.parse(String(call[0]).trim()) as Record<string, unknown>)
+    expect(writes()[0]).toEqual(expect.objectContaining({
+      id: 1,
+      method: 'initialize',
+    }))
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      id: 1,
+      result: { userAgent: 'codex-test' },
+    })}\n`))
+    expect(writes()).toContainEqual({ method: 'initialized' })
+    expect(writes()).toContainEqual(expect.objectContaining({
+      id: 2,
+      method: 'thread/start',
+      params: expect.objectContaining({
+        model: 'gpt-5.5',
+        cwd: 'C:\\workspace',
+        approvalPolicy: 'never',
+        sandbox: 'read-only',
+        ephemeral: true,
+      }),
+    }))
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      id: 2,
+      result: {
+        thread: { id: 'thread-1' },
+        model: 'gpt-5.5',
+      },
+    })}\n`))
+    expect(writes()).toContainEqual(expect.objectContaining({
+      id: 3,
+      method: 'turn/start',
+      params: expect.objectContaining({
+        threadId: 'thread-1',
+        collaborationMode: {
+          mode: 'plan',
+          settings: {
+            model: 'gpt-5.5',
+            reasoning_effort: 'high',
+            developer_instructions: null,
+          },
+        },
+      }),
+    }))
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({ method: 'item/plan/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'plan-1', delta: 'Step one' } }),
+      JSON.stringify({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { type: 'plan', id: 'plan-1', text: 'Step one' } } }),
+      JSON.stringify({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage: { last: { inputTokens: 10, outputTokens: 4 } } } }),
+      JSON.stringify({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', error: null } } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Step one')
+    expect(chunks).toEqual([{ text: 'Step one', blockId: 'codex-plan-plan-1' }])
+    expect(onEvent).toHaveBeenCalledWith({ type: 'text_end', blockId: 'codex-plan-plan-1' })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'cost',
+      totalCostUsd: 0,
+      inputTokens: 10,
+      outputTokens: 4,
+    })
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+    expect(spawnArgs).toEqual(expect.arrayContaining(['app-server', '--stdio']))
   })
 
   it('ClaudeAdapter reports availability from execSync', () => {
@@ -1040,7 +1132,7 @@ describe('CLI adapters', () => {
       expect(spawnArgs).not.toContain('--dangerously-skip-permissions')
     })
 
-    it('CodexAdapter prepends auto-approve directive when skipPermissions is true', async () => {
+    it('CodexAdapter sets the real approval policy when skipPermissions is true', async () => {
       const proc = makeProc()
       mockSpawn.mockReturnValue(proc)
 
@@ -1060,11 +1152,15 @@ describe('CLI adapters', () => {
       proc.emit('close', 0)
       await sendPromise
 
+      const spawnArgs = (mockSpawn.mock.calls[0][1] as string[]).flat()
+      const configIndex = spawnArgs.indexOf('--config')
+      expect(configIndex).toBeGreaterThan(-1)
+      expect(spawnArgs[configIndex + 1]).toBe('approval_policy="never"')
       const writtenStdin = proc.stdin.end.mock.calls[0][0] as string
-      expect(writtenStdin).toContain('[AUTO-APPROVE]')
+      expect(writtenStdin).not.toContain('[AUTO-APPROVE]')
     })
 
-    it('CodexAdapter does NOT prepend auto-approve directive when skipPermissions is false', async () => {
+    it('CodexAdapter leaves approval policy unchanged when skipPermissions is false', async () => {
       const proc = makeProc()
       mockSpawn.mockReturnValue(proc)
 
@@ -1084,6 +1180,8 @@ describe('CLI adapters', () => {
       proc.emit('close', 0)
       await sendPromise
 
+      const spawnArgs = (mockSpawn.mock.calls[0][1] as string[]).flat()
+      expect(spawnArgs).not.toContain('approval_policy="never"')
       const writtenStdin = proc.stdin.end.mock.calls[0][0] as string
       expect(writtenStdin).not.toContain('[AUTO-APPROVE]')
     })

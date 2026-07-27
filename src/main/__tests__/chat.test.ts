@@ -701,6 +701,33 @@ describe('chat handlers', () => {
     expect(capturedReqs[0].permissionMode).toBe('plan')
   })
 
+  it('threads the independent Codex execution mode override into the CLI adapter request', async () => {
+    const capturedReqs: Array<{ executionMode?: string }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { executionMode?: string }) => {
+        capturedReqs.push({ executionMode: req.executionMode })
+        return 'plan response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: 'gpt-5.5',
+      cli_backend: 'codex-cli',
+      cli_mode_override: 'read-only',
+      codex_execution_mode_override: 'plan',
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-codex-plan', 'plan this change')
+
+    expect(capturedReqs).toEqual([{ executionMode: 'plan' }])
+  })
+
   it('labels the assistant message with the explicitly selected model', async () => {
     const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
     await handler({ sender: {} }, 'conv-model-label', 'Hello there', { model: 'gpt-5.4-mini' })

@@ -29,12 +29,18 @@ describe('no visual motion policy', () => {
     expect(violations).toEqual([])
   })
 
-  it('keeps desktop motion disabled globally and chat streaming frame-free', () => {
+  it('keeps desktop motion disabled globally except for busy/loading indicators, and chat streaming frame-free', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/renderer/styles/global.css'), 'utf8')
     expect(css).toContain('animation: none !important')
     expect(css).toContain('transition: none !important')
     expect(css).toContain('scroll-behavior: auto !important')
     expect(css).not.toMatch(/@keyframes/)
+
+    // Loading spinners/bounce/pulse dots are the sole carved-out exception: they signal
+    // in-progress work rather than decorative motion, so they must keep animating.
+    expect(css).toContain('.animate-spin')
+    expect(css).toContain('.animate-bounce')
+    expect(css).toContain('.animate-pulse')
 
     const streaming = readFileSync(resolve(process.cwd(), 'src/renderer/hooks/useStreamingQueue.ts'), 'utf8')
     expect(streaming).not.toMatch(/requestAnimationFrame|cancelAnimationFrame/)
