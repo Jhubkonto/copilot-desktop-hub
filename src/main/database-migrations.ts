@@ -1525,6 +1525,12 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 82,
     sql: `ALTER TABLE conversations ADD COLUMN codex_execution_mode_override TEXT`,
   },
+  {
+    // Provider tool-loop autonomy can be overridden per conversation. NULL inherits the
+    // assigned agent's setting (or false for a plain chat); 1/0 explicitly enables/disables it.
+    version: 83,
+    sql: `ALTER TABLE conversations ADD COLUMN agentic_mode_override INTEGER`,
+  },
 ];
 
 

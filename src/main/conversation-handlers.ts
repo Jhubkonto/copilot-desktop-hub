@@ -213,6 +213,7 @@ export function registerConversationHandlers(): void {
       mode: {
         thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null;
         fullAutoApproveOverride?: boolean | null;
+        agenticModeOverride?: boolean | null;
         terminalSandboxOverride?: boolean | null;
         cliModeOverride?: string | null;
         codexExecutionModeOverride?: CodexExecutionModeOverride | null;
@@ -221,14 +222,17 @@ export function registerConversationHandlers(): void {
       // Only the field(s) actually present in `mode` are touched — a caller updating just one
       // of the overrides must not silently clear the others back to "inherit agent/project default".
       const existing = db
-        .prepare("SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?")
-        .get(id) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null; codex_execution_mode_override: string | null } | undefined;
+        .prepare("SELECT thinking_effort_override, full_auto_approve_override, agentic_mode_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?")
+        .get(id) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; agentic_mode_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null; codex_execution_mode_override: string | null } | undefined;
       const thinkingEffortOverride = "thinkingEffortOverride" in mode
         ? (mode.thinkingEffortOverride ?? null)
         : (existing?.thinking_effort_override ?? null);
       const fullAutoApproveOverride = "fullAutoApproveOverride" in mode
         ? (mode.fullAutoApproveOverride === true ? 1 : mode.fullAutoApproveOverride === false ? 0 : null)
         : (existing?.full_auto_approve_override ?? null);
+      const agenticModeOverride = "agenticModeOverride" in mode
+        ? (mode.agenticModeOverride === true ? 1 : mode.agenticModeOverride === false ? 0 : null)
+        : (existing?.agentic_mode_override ?? null);
       const terminalSandboxOverride = "terminalSandboxOverride" in mode
         ? (mode.terminalSandboxOverride === true ? 1 : mode.terminalSandboxOverride === false ? 0 : null)
         : (existing?.terminal_sandbox_override ?? null);
@@ -239,8 +243,8 @@ export function registerConversationHandlers(): void {
         ? (mode.codexExecutionModeOverride === "plan" ? "plan" : null)
         : (existing?.codex_execution_mode_override ?? null);
       db.prepare(
-        "UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?",
-      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), id);
+        "UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, agentic_mode_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?",
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), id);
       return true;
     },
   );
