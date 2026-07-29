@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FileText, FilePen, Terminal, Globe, Wrench } from 'lucide-react'
+import { FileText, FilePen, Terminal, Globe, ListChecks, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { Button } from './ui/primitives'
 
@@ -22,7 +22,15 @@ function formatArgs(args: Record<string, unknown>): string {
     .join('\n')
 }
 
-function CountdownBar({ requestId, onExpire }: { requestId: string; onExpire: (id: string) => void }) {
+function CountdownBar({
+  requestId,
+  onExpire,
+  planDecision = false,
+}: {
+  requestId: string
+  onExpire: (id: string) => void
+  planDecision?: boolean
+}) {
   const [remaining, setRemaining] = useState(AUTO_DENY_SECONDS)
 
   useEffect(() => {
@@ -45,7 +53,7 @@ function CountdownBar({ requestId, onExpire }: { requestId: string; onExpire: (i
   return (
     <div className="mt-2">
       <div className="flex justify-between text-xs text-gray-400 mb-1">
-        <span>Auto-deny in {remaining}s</span>
+        <span>{planDecision ? 'Auto-cancel' : 'Auto-deny'} in {remaining}s</span>
         <span>{remaining}s</span>
       </div>
       <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -56,7 +64,7 @@ function CountdownBar({ requestId, onExpire }: { requestId: string; onExpire: (i
           aria-valuenow={remaining}
           aria-valuemin={0}
           aria-valuemax={AUTO_DENY_SECONDS}
-          aria-label={`Auto-deny countdown: ${remaining} seconds remaining`}
+          aria-label={`${planDecision ? 'Auto-cancel' : 'Auto-deny'} countdown: ${remaining} seconds remaining`}
         />
       </div>
     </div>
@@ -79,7 +87,8 @@ export function ToolApproval() {
   return (
     <div className="fixed bottom-4 right-4 z-40 space-y-2 max-w-sm">
       {requests.map((req) => {
-        const IconComponent = TOOL_ICONS[req.tool] || Wrench
+        const isPlanDecision = req.tool === 'exit_plan_mode'
+        const IconComponent = isPlanDecision ? ListChecks : TOOL_ICONS[req.tool] || Wrench
         return (
           <div
             key={req.requestId}
@@ -89,10 +98,12 @@ export function ToolApproval() {
               <IconComponent className="w-4 h-4 text-gray-500 dark:text-gray-400" />
               <div>
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                  Tool Request
+                  {isPlanDecision ? 'Plan ready' : 'Tool Request'}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {req.description}
+                  {isPlanDecision
+                    ? 'Choose whether Codex should implement this plan or continue planning.'
+                    : req.description}
                 </p>
               </div>
             </div>
@@ -101,31 +112,60 @@ export function ToolApproval() {
               {formatArgs(req.args)}
             </pre>
 
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                onClick={() => respondToToolApproval(req.requestId, true, false)}
-                className="flex-1 justify-center"
-              >
-                Approve
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => respondToToolApproval(req.requestId, false, false)}
-                className="flex-1 justify-center border border-gray-200 dark:border-gray-700"
-              >
-                Deny
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => respondToToolApproval(req.requestId, true, true)}
-                title="Approve and remember for this tool"
-              >
-                Always
-              </Button>
-            </div>
+            {isPlanDecision ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  onClick={() => respondToToolApproval(req.requestId, true, false)}
+                  className="flex-1 justify-center min-w-32"
+                >
+                  Implement plan
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    void respondToToolApproval(req.requestId, false, false)
+                    window.dispatchEvent(new CustomEvent('nexy:focus-chat-composer'))
+                  }}
+                  className="flex-1 justify-center min-w-32"
+                >
+                  Keep planning
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => respondToToolApproval(req.requestId, false, false)}
+                  className="justify-center border border-gray-200 dark:border-gray-700"
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  variant="primary"
+                  onClick={() => respondToToolApproval(req.requestId, true, false)}
+                  className="flex-1 justify-center"
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => respondToToolApproval(req.requestId, false, false)}
+                  className="flex-1 justify-center border border-gray-200 dark:border-gray-700"
+                >
+                  Deny
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => respondToToolApproval(req.requestId, true, true)}
+                  title="Approve and remember for this tool"
+                >
+                  Always
+                </Button>
+              </div>
+            )}
 
-            <CountdownBar requestId={req.requestId} onExpire={handleExpire} />
+            <CountdownBar requestId={req.requestId} onExpire={handleExpire} planDecision={isPlanDecision} />
           </div>
         )
       })}

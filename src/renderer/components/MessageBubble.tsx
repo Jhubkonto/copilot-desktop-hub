@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench, BookmarkPlus } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -102,6 +102,7 @@ interface MessageBubbleProps {
   isStopped?: boolean
   messageIndex?: number
   onCopy: (content: string) => void
+  onSaveAsPrompt?: (content: string) => void
   onRegenerate?: () => void
   onEdit?: (index: number) => void
   onSaveToWiki?: (messageId: string, content: string) => void
@@ -136,6 +137,7 @@ export function MessageBubbleBase({
   messageIndex = 0,
   timestamp,
   onCopy,
+  onSaveAsPrompt,
   onRegenerate,
   onEdit,
   onSaveToWiki,
@@ -232,6 +234,14 @@ export function MessageBubbleBase({
                 }}
                 tone={copied ? 'success' : 'default'}
               />
+              {onSaveAsPrompt && (
+                <IconActionButton
+                  icon={BookmarkPlus}
+                  label="Save as prompt"
+                  title="Save response as prompt"
+                  onClick={() => onSaveAsPrompt(content)}
+                />
+              )}
               {onSaveToWiki && (
                 <IconActionButton
                   icon={BookOpen}
@@ -404,6 +414,13 @@ export function MessageBubbleBase({
             />
             {isUser && onEdit && (
               <ActionButton icon={Pencil} label="Edit" onClick={() => onEdit(messageIndex)} />
+            )}
+            {onSaveAsPrompt && (
+              <ActionButton
+                icon={BookmarkPlus}
+                label="Save as prompt"
+                onClick={() => onSaveAsPrompt(stripInjectedBlocks(content))}
+              />
             )}
           </div>
         )}

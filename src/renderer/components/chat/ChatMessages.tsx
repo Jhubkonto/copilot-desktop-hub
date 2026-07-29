@@ -34,6 +34,7 @@ interface ChatMessagesProps {
   onScroll?: () => void
   onNavigateToRequest?: () => void
   onCopy: (content: string) => void
+  onSaveAsPrompt?: (content: string) => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onPromoteArtifact?: (messageId: string, content: string) => void
   onCreateCodeChange?: (messageId: string, content: string) => void
@@ -97,6 +98,13 @@ function toolCallDotColor(inProgress: boolean | undefined, success: boolean | un
 
 function thinkingDotColor(done: boolean): string {
   return done ? 'bg-purple-500' : 'bg-purple-400'
+}
+
+export function liveActivityLabel(label: string, elapsedSec: number): string {
+  if (/(~[\d,]+ tokens|context|attachments|project files|project wiki|agent knowledge|past strategies)/i.test(label)) {
+    return label
+  }
+  return elapsedSec > 0 ? `Thinking · ${elapsedSec}s` : 'Thinking...'
 }
 
 type TextSegmentBlock = NonNullable<ChatMessage['textSegments']> extends Map<string, infer V> ? V : never
@@ -172,6 +180,7 @@ export function ChatMessagesBase({
   onScroll,
   onNavigateToRequest,
   onCopy,
+  onSaveAsPrompt,
   onSaveToWiki,
   onPromoteArtifact,
   onCreateCodeChange,
@@ -630,6 +639,7 @@ export function ChatMessagesBase({
                 timestamp={main.timestamp}
                 isHighlighted={main.id === highlightedRequestId}
                 onCopy={onCopy}
+                onSaveAsPrompt={main.role === 'system' ? undefined : onSaveAsPrompt}
                 onSaveToWiki={main.role === 'assistant' ? onSaveToWiki : undefined}
                 onSaveAsArtifact={main.role === 'assistant' ? onPromoteArtifact : undefined}
                 onCreateCodeChange={onCreateCodeChange}
@@ -751,7 +761,7 @@ export function ChatMessagesBase({
                         <span>
                           {item.state === 'tool'
                             ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{item.toolName ?? item.label}</span>{item.serverName ? <span className="text-gray-400 dark:text-gray-500"> · {item.serverName}</span> : null}</>
-                            : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
+                            : <>{liveActivityLabel(item.label, generationElapsedSec)}</>
                           }
                         </span>
                       </div>
@@ -773,7 +783,7 @@ export function ChatMessagesBase({
                 <div className="text-sm text-gray-500 dark:text-gray-400">
                   <div className="flex items-center gap-2 mb-2">
                     <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
-                    <span>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</span>
+                    <span>{liveActivityLabel('Thinking', generationElapsedSec)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />

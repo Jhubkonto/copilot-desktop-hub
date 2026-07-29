@@ -9,6 +9,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
   thinkingEffortOverride: ThinkingEffort | null
   fullAutoApproveOverride: boolean | null
+  agenticModeOverride: boolean | null
   terminalSandboxOverride: boolean | null
   /** The CLI backend answering this chat — shows that backend's mode section; null hides it. */
   activeCliBackend?: CliBackend | null
@@ -17,6 +18,7 @@ interface Props {
   onChange: (mode: {
     thinkingEffortOverride?: ThinkingEffort | null
     fullAutoApproveOverride?: boolean | null
+    agenticModeOverride?: boolean | null
     terminalSandboxOverride?: boolean | null
     cliModeOverride?: CliModeOverride | null
     codexExecutionModeOverride?: CodexExecutionModeOverride | null
@@ -64,7 +66,7 @@ const CLI_MODE_OPTIONS: Partial<Record<CliBackend, { title: string; options: { v
 /** Per-conversation overrides for thinking effort and tool auto-approval — the composer-bar
  *  counterpart to the agent-level defaults set in the agent settings screen. Follows the same
  *  small-button + DropdownPanel pattern as ModelPicker. */
-export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, activeCliBackend = null, cliModeOverride = null, codexExecutionModeOverride = null, onChange }: Props) {
+export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, activeCliBackend = null, cliModeOverride = null, codexExecutionModeOverride = null, onChange }: Props) {
   const cliModeSection = activeCliBackend ? CLI_MODE_OPTIONS[activeCliBackend] : undefined
   // Claude's permission mode already includes its approval policy, so a second auto-approve
   // control would conflict with Plan/Accept edits. Codex keeps approval policy and filesystem
@@ -73,11 +75,16 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
   // Terminal sandbox bypass is currently only implemented by the Claude CLI adapter (--add-dir);
   // showing it for other backends is a silent no-op.
   const showTerminalSandboxBypass = activeCliBackend === 'claude-cli'
+  // Provider (BYOK) chats get a generic plan-mode toggle: the model works read-only and proposes
+  // a plan via exit_plan_mode before editing. CLI chats use their own native plan sections instead.
+  const showByokPlanMode = !activeCliBackend
   const hasOverride =
     thinkingEffortOverride !== null ||
     (showAutoApprove && fullAutoApproveOverride !== null) ||
+    (showByokPlanMode && agenticModeOverride !== null) ||
     (showTerminalSandboxBypass && terminalSandboxOverride !== null) ||
     (activeCliBackend === 'codex-cli' && codexExecutionModeOverride !== null) ||
+    (showByokPlanMode && cliModeOverride !== null) ||
     (cliModeSection != null && cliModeOverride !== null)
   return (
     <DropdownPanel
@@ -121,6 +128,30 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
             ))}
           </div>
         </div>
+        {showByokPlanMode && (
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Agentic mode (this chat)</p>
+            <div className="grid grid-cols-3 gap-1 px-1">
+              {APPROVE_OPTIONS.map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => onChange({ agenticModeOverride: opt.value })}
+                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                    agenticModeOverride === opt.value
+                      ? 'border-emerald-500 bg-emerald-500 text-white'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1 pt-1.5">
+              Lets a tool-capable BYOK model continue using available project tools until the task is complete.
+            </p>
+          </div>
+        )}
         {activeCliBackend === 'codex-cli' && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Codex execution mode (this chat)</p>
@@ -145,6 +176,34 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
               ))}
             </div>
             <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1 pt-1.5">Uses Codex's native collaboration mode, independently of approvals and sandbox access.</p>
+          </div>
+        )}
+        {showByokPlanMode && (
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Execution mode (this chat)</p>
+            <div className="grid grid-cols-2 gap-1 px-1">
+              {([
+                { value: null, label: 'Default', hint: 'Normal execution' },
+                { value: 'plan' as const, label: 'Plan', hint: 'Research read-only, then ask before implementation' },
+              ]).map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => onChange({ cliModeOverride: opt.value })}
+                  title={opt.hint}
+                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                    cliModeOverride === opt.value
+                      ? 'border-indigo-500 bg-indigo-500 text-white'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1 pt-1.5">
+              The model exits Plan mode when its plan is ready; implementation starts only after you approve it.
+            </p>
           </div>
         )}
         {showAutoApprove && (

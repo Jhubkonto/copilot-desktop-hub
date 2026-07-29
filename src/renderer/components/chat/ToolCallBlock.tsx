@@ -97,6 +97,13 @@ function describeToolCall(rawToolName: string, args: Record<string, unknown> | u
   const toolName = shortToolName(rawToolName)
   const a = args ?? {}
 
+  // The plan itself is already shown in full by the floating exit_plan_mode approval
+  // card (ToolApproval.tsx) — folding its `plan` arg into the title here as well would
+  // duplicate the entire plan text inline in the transcript.
+  if (toolName.toLowerCase() === 'exitplanmode') {
+    return { title: 'Plan ready for review', suppressResult: true }
+  }
+
   switch (toolName) {
     case 'Read': {
       const path = pathArg(a)

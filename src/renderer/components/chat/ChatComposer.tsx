@@ -77,6 +77,7 @@ interface ChatComposerProps {
   lockModelToAgentBackend?: boolean
   conversationThinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   conversationFullAutoApproveOverride?: boolean | null
+  conversationAgenticModeOverride?: boolean | null
   conversationTerminalSandboxOverride?: boolean | null
   activeCliBackend?: CliBackend | null
   conversationCliModeOverride?: CliModeOverride | null
@@ -84,6 +85,7 @@ interface ChatComposerProps {
   onSetConversationMode?: (mode: {
     thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
     fullAutoApproveOverride?: boolean | null
+    agenticModeOverride?: boolean | null
     terminalSandboxOverride?: boolean | null
     cliModeOverride?: CliModeOverride | null
     codexExecutionModeOverride?: CodexExecutionModeOverride | null
@@ -151,6 +153,7 @@ export function ChatComposer({
   lockModelToAgentBackend = false,
   conversationThinkingEffortOverride = null,
   conversationFullAutoApproveOverride = null,
+  conversationAgenticModeOverride = null,
   conversationTerminalSandboxOverride = null,
   activeCliBackend = null,
   conversationCliModeOverride = null,
@@ -378,6 +381,7 @@ export function ChatComposer({
                     onOpenChange={setShowModePicker}
                     thinkingEffortOverride={conversationThinkingEffortOverride}
                     fullAutoApproveOverride={conversationFullAutoApproveOverride}
+                    agenticModeOverride={conversationAgenticModeOverride}
                     terminalSandboxOverride={conversationTerminalSandboxOverride}
                     activeCliBackend={activeCliBackend}
                     cliModeOverride={conversationCliModeOverride}

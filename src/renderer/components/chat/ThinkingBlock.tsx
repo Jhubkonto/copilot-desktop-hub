@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Brain, ChevronDown, ChevronRight, Loader2, Maximize2 } from 'lucide-react'
+import { estimateTextTokens, formatEstimatedTokens } from '../../../shared/token-estimate'
 import { ModalShell } from '../ui/primitives'
 import { StreamingFadeText } from './StreamingFadeText'
 
@@ -13,7 +14,12 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
   const [collapsed, setCollapsed] = useState(false)
   const [showFullscreen, setShowFullscreen] = useState(false)
 
-  const charCount = content.length
+  // Providers expose authoritative reasoning usage only once a response (or model call)
+  // completes. While thinking text is streaming, continuously re-tokenize the visible
+  // content locally so the user still gets the same live counter interaction as the
+  // Claude Code UI. The "~" is important: provider tokenizers and hidden reasoning differ.
+  const tokenCount = estimateTextTokens(content)
+  const tokenLabel = formatEstimatedTokens(tokenCount)
 
   const handleToggle = () => {
     if (content.length === 0) return
@@ -34,10 +40,8 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
           disabled={content.length === 0}
         >
           <Brain className="h-3.5 w-3.5 shrink-0 text-purple-500 dark:text-purple-400" />
-          <span className="flex-1 font-medium text-gray-800 dark:text-gray-100">
-            {done
-              ? `${label} · ${charCount > 2000 ? `>${Math.floor(charCount / 1000)}k` : `~${Math.max(100, Math.round(charCount / 100) * 100)}`} chars`
-              : `${label}…`}
+          <span className="flex-1 font-medium text-gray-800 dark:text-gray-100" aria-live="polite">
+            {content.length > 0 ? `${label} · ${tokenLabel}` : `${label}…`}
           </span>
           {!done && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-purple-400" />}
         </button>

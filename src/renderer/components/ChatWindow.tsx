@@ -114,6 +114,7 @@ export function ChatWindow() {
     'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   >(null)
   const [pendingFullAutoApproveOverride, setPendingFullAutoApproveOverride] = useState<boolean | null>(null)
+  const [pendingAgenticModeOverride, setPendingAgenticModeOverride] = useState<boolean | null>(null)
   const [pendingTerminalSandboxOverride, setPendingTerminalSandboxOverride] = useState<boolean | null>(null)
   const [pendingCliModeOverride, setPendingCliModeOverride] = useState<CliModeOverride | null>(null)
   const [pendingCodexExecutionModeOverride, setPendingCodexExecutionModeOverride] = useState<CodexExecutionModeOverride | null>(null)
@@ -160,6 +161,7 @@ export function ChatWindow() {
   const [isForking, setIsForking] = useState(false)
   const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
   const [showPromptLibrary, setShowPromptLibrary] = useState(false)
+  const [promptLibraryDraftOverride, setPromptLibraryDraftOverride] = useState<string | null>(null)
   const [artifactPromotion, setArtifactPromotion] = useState<{
     messageId: string
     content: string
@@ -186,6 +188,12 @@ export function ChatWindow() {
   const prevGeneratingRef = useRef(false)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus())
+    window.addEventListener('nexy:focus-chat-composer', focusComposer)
+    return () => window.removeEventListener('nexy:focus-chat-composer', focusComposer)
+  }, [])
   const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const inputHistoryRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1)
@@ -640,6 +648,7 @@ export function ChatWindow() {
     setPendingModel(null)
     setPendingThinkingEffortOverride(null)
     setPendingFullAutoApproveOverride(null)
+    setPendingAgenticModeOverride(null)
     setPendingTerminalSandboxOverride(null)
     setPendingCliModeOverride(null)
     setPendingCodexExecutionModeOverride(null)
@@ -654,7 +663,7 @@ export function ChatWindow() {
       'claude-cli': [null, 'plan', 'acceptEdits', 'bypassPermissions'],
       'codex-cli': [null, 'read-only', 'workspace-write', 'danger-full-access'],
     }
-    const allowed = activeCliBackend ? validValues[activeCliBackend] : undefined
+    const allowed = activeCliBackend ? validValues[activeCliBackend] : [null, 'plan']
     const current = currentConversation
       ? ((currentConversation.cli_mode_override as CliModeOverride | null | undefined) ?? null)
       : pendingCliModeOverride
@@ -1238,9 +1247,10 @@ export function ChatWindow() {
     </div>
   )
 
-  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
+  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; agenticModeOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
     if (mode.thinkingEffortOverride !== undefined) setPendingThinkingEffortOverride(mode.thinkingEffortOverride)
     if (mode.fullAutoApproveOverride !== undefined) setPendingFullAutoApproveOverride(mode.fullAutoApproveOverride)
+    if (mode.agenticModeOverride !== undefined) setPendingAgenticModeOverride(mode.agenticModeOverride)
     if (mode.terminalSandboxOverride !== undefined) setPendingTerminalSandboxOverride(mode.terminalSandboxOverride)
     if (mode.cliModeOverride !== undefined) setPendingCliModeOverride(mode.cliModeOverride)
     if (mode.codexExecutionModeOverride !== undefined) setPendingCodexExecutionModeOverride(mode.codexExecutionModeOverride)
@@ -1281,7 +1291,10 @@ export function ChatWindow() {
       onAttachFiles={fileInput.handleFilePick}
       onCaptureScreen={handleCaptureScreen}
       onPasteClipboardImage={handlePasteClipboard}
-      onOpenPromptLibrary={() => setShowPromptLibrary(true)}
+      onOpenPromptLibrary={() => {
+        setPromptLibraryDraftOverride(null)
+        setShowPromptLibrary(true)
+      }}
       onAttachArtifact={conversationId ? () => openSectionPane('artifacts') : undefined}
       voiceState={voiceState}
       onToggleVoice={toggleVoice}
@@ -1315,6 +1328,13 @@ export function ChatWindow() {
             : currentConversation.full_auto_approve_override === 0 ? false
             : null
           : pendingFullAutoApproveOverride
+      }
+      conversationAgenticModeOverride={
+        currentConversation
+          ? currentConversation.agentic_mode_override === 1 ? true
+            : currentConversation.agentic_mode_override === 0 ? false
+            : null
+          : pendingAgenticModeOverride
       }
       conversationTerminalSandboxOverride={
         currentConversation
@@ -1359,11 +1379,15 @@ export function ChatWindow() {
     <PromptLibraryModal
       projectId={chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null}
       projectName={chatProject?.name ?? null}
-      draftContent={input}
+      draftContent={promptLibraryDraftOverride ?? input}
+      initialMode={promptLibraryDraftOverride !== null ? 'save' : 'use'}
       onInsert={handleInsertPrompt}
       onRun={handleRunPrompt}
       onAttachInstruction={handleAttachPromptInstruction}
-      onClose={() => setShowPromptLibrary(false)}
+      onClose={() => {
+        setShowPromptLibrary(false)
+        setPromptLibraryDraftOverride(null)
+      }}
     />
   ) : null
 
@@ -1786,6 +1810,10 @@ export function ChatWindow() {
           onScroll={handleScrollContainerScroll}
           onNavigateToRequest={handleNavigateToRequest}
           onCopy={handleCopy}
+          onSaveAsPrompt={(content) => {
+            setPromptLibraryDraftOverride(content)
+            setShowPromptLibrary(true)
+          }}
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}
           onCreateCodeChange={(messageId, content) => void handleCreateCodeChange(messageId, content)}

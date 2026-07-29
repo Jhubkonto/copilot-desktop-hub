@@ -3,6 +3,7 @@
 // this mirrors that instead of the boxed ThinkingBlock/ToolCallBlock cards used for
 // every other backend, so a Codex turn reads like Codex's own CLI session.
 import { stripAnsiEscapes } from '../../../shared/ansi'
+import { estimateTextTokens, formatEstimatedTokens } from '../../../shared/token-estimate'
 import { StreamingFadeText } from './StreamingFadeText'
 
 const RESULT_PREVIEW_LINES = 3
@@ -45,10 +46,17 @@ type CodexActionLineProps = CodexReasoningLineProps | CodexToolLineProps
 export function CodexActionLine(props: CodexActionLineProps) {
   if (props.kind === 'reasoning') {
     if (!props.content) return null
+    const tokenLabel = formatEstimatedTokens(estimateTextTokens(props.content))
     return (
-      <div className="flex items-start gap-1.5 text-xs">
-        <span className="mt-px shrink-0 text-gray-400 dark:text-gray-500">•</span>
-        <span className="min-w-0 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-400"><StreamingFadeText text={props.content} /></span>
+      <div className="text-xs">
+        <div className="flex items-start gap-1.5" aria-live="polite">
+          <span className="mt-px shrink-0 text-gray-400 dark:text-gray-500">•</span>
+          <span className="font-medium text-gray-500 dark:text-gray-400">Reasoning summary · {tokenLabel}</span>
+        </div>
+        <div className="flex items-start gap-1.5 pl-4">
+          <span className="sr-only">Reasoning content:</span>
+          <span className="min-w-0 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-400"><StreamingFadeText text={props.content} /></span>
+        </div>
       </div>
     )
   }
