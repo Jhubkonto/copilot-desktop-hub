@@ -79,6 +79,9 @@ export function BackgroundActivityBridges() {
   }, [])
 
   useEffect(() => {
+    const offSkillLibraryUpdated = window.api.onSkillLibraryUpdated(() => {
+      void useAppStore.getState().loadSkills()
+    })
     const offProjectToken = window.api.onProjectGeneratorToken(() => {
       startActivity('project-generator')
     })
@@ -120,6 +123,7 @@ export function BackgroundActivityBridges() {
     }) ?? (() => {})
 
     return () => {
+      offSkillLibraryUpdated()
       offProjectToken()
       offProjectDone()
       offProjectError()

@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo, useState } from 'react'
-import { Copy, Download, Plus, Search, Sparkles, Trash2, Upload, Wrench, X } from 'lucide-react'
+import { Copy, Download, FileDown, Plus, Search, Sparkles, Trash2, Upload, Wrench, X } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { SkillConfig } from '../../../shared/types'
 import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
@@ -16,6 +16,7 @@ export function SkillsPane() {
   const importSkill = useAppStore((s) => s.importSkill)
   const duplicateSkill = useAppStore((s) => s.duplicateSkill)
   const exportSkill = useAppStore((s) => s.exportSkill)
+  const exportSkillMarkdown = useAppStore((s) => s.exportSkillMarkdown)
   const deleteSkill = useAppStore((s) => s.deleteSkill)
   const setShowSkillGenerator = useAppStore((s) => s.setShowSkillGenerator)
   const [query, setQuery] = useState('')
@@ -123,9 +124,16 @@ export function SkillsPane() {
               <button
                 onClick={(e) => { e.stopPropagation(); void exportSkill(skill.id) }}
                 className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
-                aria-label={`Export ${skill.name}`}
+                aria-label={`Export ${skill.name} as JSON`}
               >
                 <Download className="w-3 h-3" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); void exportSkillMarkdown(skill.id) }}
+                className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+                aria-label={`Export ${skill.name} as SKILL.md`}
+              >
+                <FileDown className="w-3 h-3" />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); void deleteSkill(skill.id) }}
