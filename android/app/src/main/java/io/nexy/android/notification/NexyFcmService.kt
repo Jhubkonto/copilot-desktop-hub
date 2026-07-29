@@ -47,6 +47,18 @@ class NexyFcmService : FirebaseMessagingService() {
                 ChatCompleteNotificationManager.show(this, convId, title, summary)
             }
 
+            "debrief:complete" -> {
+                val convId = data["conversationId"] ?: return
+                val title = data["title"] ?: "Debrief"
+                GenerationNotificationManager.show(this, convId, "debrief", title)
+            }
+
+            "quiz:complete" -> {
+                val convId = data["conversationId"] ?: return
+                val title = data["title"] ?: "Quiz"
+                GenerationNotificationManager.show(this, convId, "quiz", title)
+            }
+
             "desktop:online" -> {
                 val wsUrl = data["wsUrl"]?.takeIf { it.isNotBlank() } ?: return
                 handleDesktopOnline(wsUrl)
