@@ -8,8 +8,9 @@ The core learning milestone is implemented:
 - Phase 1 core: quizzes no longer depend on debrief generation; conversation, existing debrief, and project sources work; natural-language topic/difficulty/count parsing and persisted regeneration specs are wired end to end.
 - Phase 2 core: quiz attempts persist by artifact/version, summaries aggregate historical category performance, and missed concepts can generate a focused re-quiz.
 - Phase 3 complete: `/teachback [topic]` creates a durable artifact, records and transcribes through local Whisper, speaks prompts through local OS TTS, persists version-bound rubric history, supports two interactive viva follow-ups, and is available on paired Android devices.
+- Phase 4 complete: `DebriefArtifactCard` has a Structured/Story toggle backed by `generateDebriefStoryForWs` (`debrief-handlers.ts`), which retells the debrief's structured content as a 3-5 beat narrative with inline line-art SVGs, cached as `story.json` on the debrief's version. The renderer validates each SVG against the closed element/attribute grammar (`src/renderer/lib/story-svg.ts`), falling back to a mood emoji on any violation, and each beat has a "Read aloud" button via `window.speechSynthesis`.
 
-Deferred follow-ups remain in this roadmap: the quiz options popover, non-MCQ question formats, the project knowledge dashboard, scheduled practice, and a role-playing Feynman mode. These are not required for the completed milestone.
+Deferred follow-ups remain in this roadmap: the quiz options popover, non-MCQ question formats, the project knowledge dashboard, scheduled practice, a role-playing Feynman mode, and the brainstormed ideas in the register below (flashcards/spaced repetition, memory-match minigame, etc). These are not required for the completed milestone.
 
 ## Summary
 
@@ -62,6 +63,32 @@ Expand the current quiz/debrief pair into a broader "learn about your projects" 
 3. **Multi-turn viva (implemented).** The model plays examiner across two persisted follow-up turns. The separate role-playing "Feynman mode" remains deferred.
 4. **TTS (implemented).** Desktop uses Electron's local OS speech voices and Android uses `TextToSpeech`; prompts and follow-ups can be read aloud without uploading text to a speech provider.
 
+## Phase 4 — "Story mode": narrative retelling + illustrated beats
+
+`Priority: P3 · Effort: M · Risk: medium (LLM SVG quality is inconsistent)`
+
+Reframes a debrief as a short narrative/analogy instead of a dry structured summary — a tone toggle, not a new artifact kind, plus optional inline line-art per scene.
+
+1. **Story generation.** `STORY_SYSTEM_PROMPT` alongside `DEBRIEF_SYSTEM_PROMPT` (`debrief-handlers.ts:28`). Input is the existing structured `debrief.json` (`summary`, `commandsAndTools`, `reproductionGuide`, `mentalModel`) — not the raw transcript, cheaper and keeps grounding tight. Output is **JSON, not markdown**, so it parses deterministically:
+   ```json
+   {
+     "title": "string",
+     "beats": [
+       { "caption": "≤200 chars", "mood": "problem|attempt|discovery|resolution", "svg": "<svg>...</svg>" }
+     ]
+   }
+   ```
+   3-5 beats, causal chain preserved (what went wrong → what was tried → what worked) so it stays technically accurate under the narrative framing.
+2. **SVG constraints (the actual quality lever).** State explicitly in the system prompt, backed by a worked few-shot example (e.g. a key-in-a-lock icon) so the model has a concrete style anchor instead of inventing its own conventions:
+   - Exactly `viewBox="0 0 100 100"`, no `width`/`height` attributes — renderer controls sizing.
+   - Allowed elements only: `svg, g, circle, rect, line, path, polygon, polyline`. Nothing else.
+   - Forbidden: `script`, `foreignObject`, `image`, `use[href^=http]`, any `on*` attribute, `style` with `url(...)`.
+   - Max 12 elements per icon — keeps it abstract/iconographic by design; more shapes reliably produces worse output.
+   - Colors: `fill="currentColor"` (primary) or `fill="var(--story-accent)"` (secondary) only — no literal hex, so icons theme correctly in light/dark automatically since the SVG is inlined in HTML rather than loaded as an external file.
+3. **Renderer-side validation.** Before render, check each `svg` string against the element/attribute allowlist (a closed grammar, not a full sanitizer) — on any violation, fall back to the `mood`-mapped emoji (🧩 problem / 🔧 attempt / 💡 discovery / ✅ resolution) rather than attempting partial sanitization.
+4. **Storage.** `story.json` written as a sibling file to `debrief.json` via the same version-file helper in `artifacts.ts` — generated lazily on first request, cached thereafter; no new artifact version, no migration. Regenerate only on explicit user action (mirrors `QuizArtifactCard`'s Regenerate button).
+5. **Renderer.** `DebriefArtifactCard.tsx` gets a Structured/Story toggle; Story view renders each beat as a panel (icon + caption), with a per-beat "Read aloud" button wired to the existing local OS TTS bridge built for teach-back.
+
 ## Brainstorm register (captured, not committed)
 
 | Idea | Sketch |
@@ -71,6 +98,12 @@ Expand the current quiz/debrief pair into a broader "learn about your projects" 
 | Cross-conversation glossary | Per-project concept index built from debrief `mentalModel`s, linkable from chat. |
 | Onboarding mode | Generate a guided tour quiz sequence for a project a collaborator hasn't worked in. |
 | Android practice | Implemented: paired Android devices can generate/open teach-back artifacts, dictate or edit answers, hear prompts, receive rubric feedback, continue viva turns, and restore attempt history. |
+| Memory-match minigame | Flip-card term↔definition pairs from a debrief's `mentalModel`/wiki; new `ArtifactKind: 'matchgame'` reusing `QuizArtifactCard`'s step-flow UI. |
+| Speed round | Quiz variant with per-question countdown and score multiplier; same question bank, different pacing wrapper. |
+| Fill-in-the-blank code challenge | Blank key tokens in a real repo snippet; user retypes/selects — ties learning to the actual codebase. |
+| Concept map artifact | Auto-generated node graph from wiki entries or a debrief's `mentalModel`, click-to-expand nodes. |
+| Progress rings / streak bar | Cross-feature XP on the home screen from quiz completions, teach-back sessions, flashcard reviews. |
+| Rapid-fire oral trivia | TTS reads a question, user answers by voice, STT + LLM grades — hands-free Android commute mode. |
 
 ## Acceptance criteria
 
