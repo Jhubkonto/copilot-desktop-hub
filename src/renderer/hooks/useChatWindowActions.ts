@@ -172,6 +172,7 @@ export function useChatWindowActions({
   // conversation row exists — applied when the first message creates it.
   const pendingThinkingEffortRef = useRef<'low' | 'medium' | 'high' | 'max' | 'disabled' | null>(null)
   const pendingFullAutoApproveRef = useRef<boolean | null>(null)
+  const pendingAgenticModeRef = useRef<boolean | null>(null)
   const pendingTerminalSandboxRef = useRef<boolean | null>(null)
   const pendingCliModeOverrideRef = useRef<CliModeOverride | null>(null)
   const pendingCodexExecutionModeOverrideRef = useRef<CodexExecutionModeOverride | null>(null)
@@ -204,7 +205,7 @@ export function useChatWindowActions({
         const content = `__artifact-ref:${JSON.stringify({ artifactId: result.artifactId, kind, pending: true })}`
         const inserted = await window.api.insertConversationMessage(conversationId, 'system', content)
         if (isApiError(inserted)) return { error: 'Failed to attach artifact card.' }
-        setMessages((prev) => [...prev, {
+        setMessages((prev) => prev.some((m) => m.id === inserted.id) ? prev : [...prev, {
           id: inserted.id,
           role: inserted.role as ChatMessage['role'],
           content: inserted.content,
@@ -897,6 +898,8 @@ export function useChatWindowActions({
       pendingThinkingEffortRef.current = null
       const effectiveFullAutoApproveOverride = pendingFullAutoApproveRef.current
       pendingFullAutoApproveRef.current = null
+      const effectiveAgenticModeOverride = pendingAgenticModeRef.current
+      pendingAgenticModeRef.current = null
       const effectiveTerminalSandboxOverride = pendingTerminalSandboxRef.current
       pendingTerminalSandboxRef.current = null
       const effectiveCliModeOverride = pendingCliModeOverrideRef.current
@@ -915,6 +918,7 @@ export function useChatWindowActions({
         displayContent: userDisplayContent,
         thinkingEffortOverride: effectiveThinkingEffortOverride,
         fullAutoApproveOverride: effectiveFullAutoApproveOverride,
+        agenticModeOverride: effectiveAgenticModeOverride,
         terminalSandboxOverride: effectiveTerminalSandboxOverride,
         cliModeOverride: effectiveCliModeOverride,
         codexExecutionModeOverride: effectiveCodexExecutionModeOverride,
@@ -1120,10 +1124,11 @@ export function useChatWindowActions({
   )
 
   const handleSetConversationMode = useCallback(
-    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
+    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; agenticModeOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
       if (!conversationId) {
         if (mode.thinkingEffortOverride !== undefined) pendingThinkingEffortRef.current = mode.thinkingEffortOverride
         if (mode.fullAutoApproveOverride !== undefined) pendingFullAutoApproveRef.current = mode.fullAutoApproveOverride
+        if (mode.agenticModeOverride !== undefined) pendingAgenticModeRef.current = mode.agenticModeOverride
         if (mode.terminalSandboxOverride !== undefined) pendingTerminalSandboxRef.current = mode.terminalSandboxOverride
         if (mode.cliModeOverride !== undefined) pendingCliModeOverrideRef.current = mode.cliModeOverride
         if (mode.codexExecutionModeOverride !== undefined) pendingCodexExecutionModeOverrideRef.current = mode.codexExecutionModeOverride

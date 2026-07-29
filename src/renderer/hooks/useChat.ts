@@ -130,7 +130,7 @@ export function useChat({
       addToastRef.current('Failed to attach artifact', 'error')
       return
     }
-    setMessages((prev) => [...prev, {
+    setMessages((prev) => prev.some((m) => m.id === inserted.id) ? prev : [...prev, {
       id: inserted.id,
       role: inserted.role as ChatMessage['role'],
       content: inserted.content,

@@ -1,4 +1,5 @@
 import type { ContextRef } from '../hooks/chat-types'
+import { estimateCharacterTokens } from '../../shared/token-estimate'
 
 /** Tokens per resolved @ref (rough estimate before actual resolution). */
 export const REF_TOKEN_ESTIMATE: Record<string, number> = {
@@ -10,7 +11,7 @@ export const REF_TOKEN_ESTIMATE: Record<string, number> = {
 }
 
 export function estimateTokens(chars: number): number {
-  return Math.max(1, Math.ceil(chars / 4))
+  return estimateCharacterTokens(chars)
 }
 
 export function estimateRefTokens(ref: Pick<ContextRef, 'key'>): number {
