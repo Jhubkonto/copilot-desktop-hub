@@ -99,6 +99,31 @@ export interface DebriefArtifactResult {
   versionId: string
 }
 
+export type StoryMood = 'problem' | 'attempt' | 'discovery' | 'resolution'
+
+/** Narrative tone for a debrief "Story mode" retelling. Defaults to 'adventure', matching the
+ * original hardcoded STORY_SYSTEM_PROMPT voice. */
+export type DebriefStoryTone = 'adventure' | 'noir' | 'fable' | 'deadpan-technical'
+
+export interface StoryBeat {
+  caption: string
+  mood: StoryMood
+  /** Inline line-art icon for this beat, constrained to a closed SVG grammar — validated
+   * client-side before render, with a mood-based emoji fallback if it fails the check. */
+  svg: string
+}
+
+export interface DebriefStory {
+  title: string
+  beats: StoryBeat[]
+}
+
+export interface DebriefStoryResult {
+  story: DebriefStory
+  artifactId: string
+  versionId: string
+}
+
 // ---------------------------------------------------------------------------
 // Conversation Ratings
 // ---------------------------------------------------------------------------
@@ -1243,6 +1268,7 @@ export interface ConversationRow {
   completed_at: number | null
   thinking_effort_override: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   full_auto_approve_override: number | null
+  agentic_mode_override: number | null
   terminal_sandbox_override: number | null
   cli_mode_override: CliModeOverride | null
   codex_execution_mode_override: CodexExecutionModeOverride | null
@@ -1256,8 +1282,9 @@ export interface ConversationRow {
 export type CliBackend = 'claude-cli' | 'codex-cli' | 'hermes-cli'
 
 /**
- * Per-conversation CLI mode override. One column holds either family — the picker/commands
- * only offer the values valid for the chat's active backend:
+ * Per-conversation permission/sandbox mode override. One column holds either family — the
+ * picker/commands only offer the values valid for the chat's active backend:
+ * - Provider chats: 'plan' enables Nexy's read-only planning tool loop
  * - Claude Code `--permission-mode`: 'plan' | 'acceptEdits' | 'bypassPermissions'
  * - Codex `--sandbox`: 'read-only' | 'workspace-write' | 'danger-full-access'
  * null/absent = the backend's default behavior.
@@ -1960,10 +1987,12 @@ export type IpcReturnMap = {
   'skill:delete': boolean
   'skill:duplicate': SkillConfig | null
   'skill:export': boolean
+  'skill:export-md': boolean
   'skill:get': SkillConfig | null
   'skill:get-agent-links': { skill_id: string; sort_order: number }[]
   'skill:get-agent-usage': { skill_id: string; agent_count: number }[]
   'skill:import': SkillConfig | null
+  'skill:library-updated': void
   'skill:list': SkillConfig[]
   'skill:reorder-for-agent': boolean
   'skill:update': SkillConfig
@@ -2040,6 +2069,7 @@ export type IpcReturnMap = {
   'conversation:generate-debrief': DebriefArtifactResult
   'conversation:start-debrief-generation': { artifactId: string }
   'conversation:get-debrief': DebriefArtifactResult | null
+  'conversation:generate-debrief-story': DebriefStoryResult
   'conversation:mark-complete': boolean
   'conversation:mark-incomplete': boolean
   'conversation:generate-quiz': QuizArtifactResult
@@ -2448,10 +2478,12 @@ export type IpcChannels =
   | 'skill:delete'
   | 'skill:duplicate'
   | 'skill:export'
+  | 'skill:export-md'
   | 'skill:get'
   | 'skill:get-agent-links'
   | 'skill:get-agent-usage'
   | 'skill:import'
+  | 'skill:library-updated'
   | 'skill:list'
   | 'skill:reorder-for-agent'
   | 'skill:update'
@@ -2525,6 +2557,7 @@ export type IpcChannels =
   | 'conversation:generate-debrief'
   | 'conversation:start-debrief-generation'
   | 'conversation:get-debrief'
+  | 'conversation:generate-debrief-story'
   | 'conversation:mark-complete'
   | 'conversation:mark-incomplete'
   | 'conversation:completed'
