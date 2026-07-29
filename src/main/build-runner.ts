@@ -71,7 +71,16 @@ export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
     if (mirrorToMobile) broadcastToMobile({ event, data })
   }
 
-  const child = spawn(spawnCmd, spawnArgs, { shell: true, cwd, env })
+  // On Unix, a detached child becomes the leader of a process group that can
+  // be terminated as a unit. On Windows cancellation is handled with
+  // taskkill /T below. Killing only the shell leaves npm, electron-builder,
+  // node-gyp, Gradle, etc. running in the background.
+  const child = spawn(spawnCmd, spawnArgs, {
+    shell: true,
+    cwd,
+    env,
+    detached: process.platform !== 'win32',
+  })
   registry.set(buildId, child)
 
   const logLines: string[] = []
@@ -115,6 +124,10 @@ export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
   child.on('close', (code) => {
     return (async () => {
       registry.delete(buildId)
+      const existing = db.prepare('SELECT status FROM build_records WHERE id = ?').get(buildId) as { status?: BuildStatus } | undefined
+      // cancelBuildProcess records the terminal state immediately. Do not let
+      // the shell's later close event overwrite it with "failed".
+      if (existing?.status === 'cancelled') return
       const exitCode = code ?? -1
       const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
       const finishedAt = Date.now()
@@ -159,7 +172,33 @@ export function cancelBuildProcess(options: CancelBuildProcessOptions): boolean 
   const { db, buildId, registry, mobileDoneEvent, onCancelled } = options
   const child = registry.get(buildId)
   if (!child) return false
-  child.kill('SIGTERM')
+  if (child.pid != null) {
+    if (process.platform === 'win32') {
+      // npm commands are launched through cmd.exe. child.kill() only stops
+      // that outer shell and orphans electron-builder/native rebuilds.
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      })
+      const fallbackToDirectKill = (): void => {
+        if (!child.killed) child.kill('SIGTERM')
+      }
+      killer.once('error', fallbackToDirectKill)
+      killer.once('close', (code) => {
+        if (code !== 0) fallbackToDirectKill()
+      })
+      killer.unref()
+    } else {
+      // runBuildProcess creates a detached process group on Unix.
+      try {
+        process.kill(-child.pid, 'SIGTERM')
+      } catch {
+        child.kill('SIGTERM')
+      }
+    }
+  } else {
+    child.kill('SIGTERM')
+  }
   registry.delete(buildId)
   onCancelled?.()
   db.prepare(`UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`).run(Date.now(), buildId)
