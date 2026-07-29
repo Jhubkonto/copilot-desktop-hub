@@ -11,6 +11,8 @@ import {
 } from './providers'
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
+import { isMobileInForeground } from './ws-server'
+import { sendQuizCompleteNotification } from './fcm-sender'
 import {
   createPendingArtifactForConversation,
   findArtifactForConversation,
@@ -224,6 +226,10 @@ async function generateQuizForWsInner(conversationId: string, projectId: string 
       { relativePath: 'quiz-spec.json', mediaType: 'application/json', role: 'supporting', content: JSON.stringify(spec, null, 2) },
     ],
   })
+
+  if (!isMobileInForeground()) {
+    void sendQuizCompleteNotification(db, { conversationId, title: `Quiz: ${titleSuffix}` })
+  }
 
   return { questions, artifactId, versionId, spec }
 }

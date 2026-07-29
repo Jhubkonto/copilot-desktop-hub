@@ -71,6 +71,130 @@ export function findFuzzyMatch(
   return null
 }
 
+export type WikiChangeAction = 'create' | 'update' | 'supersede'
+
+export interface WikiChangeProposal {
+  action: WikiChangeAction
+  projectId: string
+  title: string
+  body: string
+  tags: string[]
+  matchingEntryId: string | null
+  matchingEntryTitle: string | null
+  supersededEntryId: string | null
+  supersededEntryTitle: string | null
+}
+
+function parseTags(tags: unknown): string[] {
+  if (Array.isArray(tags)) {
+    return Array.from(new Set(tags.map(String).map((tag) => tag.trim()).filter(Boolean))).slice(0, 12)
+  }
+  return []
+}
+
+export function listRecentWikiEntries(
+  db: Database.Database,
+  projectId: string,
+  limit = 8,
+): WikiEntry[] {
+  const rows = db.prepare(
+    `SELECT * FROM project_wiki_entries
+     WHERE project_id = ? AND superseded_by IS NULL
+     ORDER BY updated_at DESC
+     LIMIT ?`,
+  ).all(projectId, Math.max(1, Math.min(25, limit))) as Parameters<typeof parseRow>[0][]
+  return rows.map(parseRow)
+}
+
+export function proposeWikiChange(
+  db: Database.Database,
+  projectId: string,
+  titleInput: string,
+  bodyInput: string,
+  tagsInput: unknown,
+): WikiChangeProposal {
+  const title = String(titleInput ?? '').slice(0, 200).trim()
+  const body = String(bodyInput ?? '').trim()
+  const tags = parseTags(tagsInput)
+  if (!title) throw new Error('Wiki entry title is required')
+  if (!body) throw new Error('Wiki entry body is required')
+
+  const existingEntries = db.prepare(
+    'SELECT id, title, body FROM project_wiki_entries WHERE project_id = ? AND superseded_by IS NULL',
+  ).all(projectId) as { id: string; title: string; body: string }[]
+  const matchedEntry = findFuzzyMatch(title, existingEntries)
+  if (!matchedEntry) {
+    return {
+      action: 'create',
+      projectId,
+      title,
+      body,
+      tags,
+      matchingEntryId: null,
+      matchingEntryTitle: null,
+      supersededEntryId: null,
+      supersededEntryTitle: null,
+    }
+  }
+
+  const existing = existingEntries.find((entry) => entry.id === matchedEntry.id)
+  const overlap = existing ? computeBodyOverlap(existing.body, body) : 0
+  if (existing && existing.body.trim().length > 0 && overlap < 0.35) {
+    return {
+      action: 'supersede',
+      projectId,
+      title,
+      body,
+      tags,
+      matchingEntryId: null,
+      matchingEntryTitle: null,
+      supersededEntryId: existing.id,
+      supersededEntryTitle: existing.title,
+    }
+  }
+
+  return {
+    action: 'update',
+    projectId,
+    title,
+    body,
+    tags,
+    matchingEntryId: matchedEntry.id,
+    matchingEntryTitle: matchedEntry.title,
+    supersededEntryId: null,
+    supersededEntryTitle: null,
+  }
+}
+
+export function applyWikiChangeProposal(
+  db: Database.Database,
+  proposal: WikiChangeProposal,
+  sourceInfo?: { conversationId?: string; messageId?: string },
+): WikiEntry {
+  if (proposal.action === 'update' && proposal.matchingEntryId) {
+    const now = Date.now()
+    db.prepare(
+      'UPDATE project_wiki_entries SET title = ?, body = ?, tags = ?, source_conversation_id = COALESCE(?, source_conversation_id), source_message_id = COALESCE(?, source_message_id), updated_at = ? WHERE id = ?',
+    ).run(
+      proposal.title,
+      proposal.body,
+      JSON.stringify(proposal.tags),
+      sourceInfo?.conversationId ?? null,
+      sourceInfo?.messageId ?? null,
+      now,
+      proposal.matchingEntryId,
+    )
+    return parseRow(db.prepare('SELECT * FROM project_wiki_entries WHERE id = ?').get(proposal.matchingEntryId) as Parameters<typeof parseRow>[0])
+  }
+
+  const entry = insertWikiEntry(db, proposal.projectId, proposal.title, proposal.body, proposal.tags, sourceInfo)
+  if (proposal.action === 'supersede' && proposal.supersededEntryId) {
+    db.prepare('UPDATE project_wiki_entries SET superseded_by = ?, updated_at = ? WHERE id = ?')
+      .run(entry.id, Date.now(), proposal.supersededEntryId)
+  }
+  return entry
+}
+
 export function insertWikiEntry(
   db: Database.Database,
   projectId: string,

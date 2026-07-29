@@ -57,6 +57,11 @@ vi.mock('../cli-adapters/claude', () => ({
 
 vi.mock('../ws-server', () => ({
   broadcastToMobile: vi.fn(),
+  isMobileInForeground: vi.fn().mockReturnValue(false),
+}))
+
+vi.mock('../fcm-sender', () => ({
+  sendDebriefCompleteNotification: vi.fn(),
 }))
 
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
