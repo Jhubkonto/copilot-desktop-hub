@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.ui.connection.ConnectionStatusIndicator
 import kotlinx.coroutines.delay
 
 @Composable
@@ -269,6 +270,8 @@ fun NexyTopAppBar(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     subtitle: String? = null,
+    showConnectionStatus: Boolean = true,
+    contentSyncInProgress: Boolean = false,
 ) {
     TopAppBar(
         title = {
@@ -292,7 +295,12 @@ fun NexyTopAppBar(
                 }
             }
         },
-        actions = actions,
+        actions = {
+            if (showConnectionStatus) {
+                ConnectionStatusIndicator(contentSyncInProgress = contentSyncInProgress)
+            }
+            actions()
+        },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onSurface,

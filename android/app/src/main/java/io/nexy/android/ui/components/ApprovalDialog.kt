@@ -2,6 +2,8 @@ package io.nexy.android.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,10 +29,12 @@ import io.nexy.android.ui.theme.LocalNexyColors
 fun ApprovalDialog(
     request: WsEvent.ToolApprovalRequest,
     onApprove: () -> Unit,
+    onKeepPlanning: () -> Unit = onApprove,
     onReject: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val nexyColors = LocalNexyColors.current
+    val isPlanDecision = request.toolName == "exit_plan_mode"
 
     AlertDialog(
         onDismissRequest = { /* require explicit action */ },
@@ -40,14 +44,18 @@ fun ApprovalDialog(
         shape = MaterialTheme.shapes.large,
         title = {
             Text(
-                "Tool Request",
+                if (isPlanDecision) "Plan ready" else "Tool Request",
                 style = MaterialTheme.typography.titleMedium,
             )
         },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    text = request.toolName,
+                    text = if (isPlanDecision) {
+                        "Choose whether Codex should implement this plan or continue planning."
+                    } else {
+                        request.description.ifBlank { request.toolName }
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -82,17 +90,36 @@ fun ApprovalDialog(
                 ),
                 shape = MaterialTheme.shapes.small,
             ) {
-                Text("Approve", style = MaterialTheme.typography.labelLarge)
+                Text(if (isPlanDecision) "Implement plan" else "Approve", style = MaterialTheme.typography.labelLarge)
             }
         },
         dismissButton = {
-            NexyDangerButton(
-                text = "Reject",
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onReject()
-                },
-            )
+            if (isPlanDecision) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NexySecondaryButton(
+                        text = "Keep planning",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onKeepPlanning()
+                        },
+                    )
+                    NexyDangerButton(
+                        text = "Cancel",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onReject()
+                        },
+                    )
+                }
+            } else {
+                NexyDangerButton(
+                    text = "Reject",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onReject()
+                    },
+                )
+            }
         },
     )
 }
