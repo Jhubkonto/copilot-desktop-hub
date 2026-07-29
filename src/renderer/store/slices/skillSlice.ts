@@ -18,6 +18,7 @@ export interface SkillSlice {
   deleteSkill: (id: string) => Promise<void>
   duplicateSkill: (id: string) => Promise<void>
   exportSkill: (id: string) => Promise<void>
+  exportSkillMarkdown: (id: string) => Promise<void>
   importSkill: () => Promise<void>
 }
 
@@ -134,6 +135,19 @@ export const createSkillSlice: StateCreator<
         return
       }
       if (result) get().addToast('Skill exported', 'success')
+    } catch {
+      get().addToast('Failed to export skill', 'error')
+    }
+  },
+
+  exportSkillMarkdown: async (id) => {
+    try {
+      const result = await window.api.exportSkillMarkdown(id)
+      if (isApiError(result)) {
+        get().addToast('Failed to export skill', 'error')
+        return
+      }
+      if (result) get().addToast('Skill exported as SKILL.md', 'success')
     } catch {
       get().addToast('Failed to export skill', 'error')
     }

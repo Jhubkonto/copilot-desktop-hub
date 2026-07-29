@@ -12,6 +12,7 @@ export interface Conversation {
   completed_at?: number | null
   thinking_effort_override?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   full_auto_approve_override?: number | null
+  agentic_mode_override?: number | null
   terminal_sandbox_override?: number | null
   cli_mode_override?: string | null
   codex_execution_mode_override?: string | null
