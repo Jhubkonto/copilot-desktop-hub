@@ -248,10 +248,10 @@ fun NavGraph(
             )
         }
 
-        composable("activity-feed") {
+        composable(ACTIVITY_FEED_ROUTE) {
             ActivityFeedScreen(
                 onBack = { navController.popBackStack() },
-                onOpenActivity = { activity -> navController.navigate(activity.route) },
+                onOpenActivity = { activity -> navController.openActivityRoute(activity.route) },
             )
         }
 

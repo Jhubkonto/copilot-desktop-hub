@@ -29,7 +29,7 @@ fun AppShell(
         )
         ActivityEdgeTab(
             visible = backgroundActivities.isNotEmpty(),
-            onClick = { navController.navigate("activity-feed") },
+            onClick = { navController.openActivityFeed() },
             modifier = Modifier.align(Alignment.CenterStart),
         )
     }
