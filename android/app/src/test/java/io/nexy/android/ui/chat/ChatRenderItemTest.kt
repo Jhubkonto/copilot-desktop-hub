@@ -35,6 +35,26 @@ class ChatRenderItemTest {
     }
 
     @Test
+    fun activeTurnTextItemKeysStayUniqueAcrossSegments() {
+        var turn = emptyChatTurnState("conv-1")
+        fun apply(type: String, sequence: Long, payload: String = "") {
+            val json = """{"type":"$type","conversationId":"conv-1","turnId":"turn-1","sequence":$sequence,"timestamp":${1000 + sequence}${if (payload.isBlank()) "" else ",$payload"}}"""
+            turn = reduceChatTurn(turn, io.nexy.android.data.model.WsEvent.ChatTurnEvent(
+                "conv-1", "turn-1", sequence, type, 1000 + sequence, json,
+            ))
+        }
+        apply("turn_started", 1)
+        apply("assistant_text_delta", 2, """"blockId":"before","chunk":"Before"""")
+        apply("text_segment_done", 3, """"blockId":"before"""")
+        apply("tool_started", 4, """"id":"tool-1","name":"read_file"""")
+        apply("assistant_text_delta", 5, """"blockId":"after","chunk":"After"""")
+
+        val keys = buildActiveTurnRenderItems(turn).map { it.key }
+
+        assertEquals(keys, keys.distinct())
+    }
+
+    @Test
     fun reusesSettledHistoryWhileTheStreamingTailChanges() {
         val user = ChatMessage(id = "user-1", text = "Hello", isUser = true, isStreaming = false)
         val cache = ChatRenderTimelineCache()
@@ -60,6 +80,53 @@ class ChatRenderItemTest {
 
         assertEquals("One two", (second.last() as ChatRenderItem.AssistantMessage).message.text)
         assertEquals(true, first.first() === second.first())
+    }
+
+    @Test
+    fun notificationReentryDoesNotDuplicatePersistedAndActiveToolKeys() {
+        var turn = emptyChatTurnState("conv-1")
+        fun apply(type: String, sequence: Long, payload: String = "") {
+            val json = """{"type":"$type","conversationId":"conv-1","turnId":"turn-1","sequence":$sequence,"timestamp":${1000 + sequence}${if (payload.isBlank()) "" else ",$payload"}}"""
+            turn = reduceChatTurn(
+                turn,
+                io.nexy.android.data.model.WsEvent.ChatTurnEvent(
+                    "conv-1", "turn-1", sequence, type, 1000 + sequence, json,
+                ),
+            )
+        }
+        apply("turn_started", 1)
+        apply("assistant_text_delta", 2, """"blockId":"before","chunk":"Let me check.""""")
+        apply("text_segment_done", 3, """"blockId":"before"""")
+        apply("tool_started", 4, """"id":"tool-1","name":"read_file"""")
+        apply("tool_finished", 5, """"id":"tool-1","toolName":"read_file","result":"done","success":true""")
+        apply("assistant_text_delta", 6, """"blockId":"after","chunk":"Still working.""""")
+
+        // This is the state seen after opening an in-progress response from its notification:
+        // the completed call is already persisted, but the active-turn snapshot replays it too.
+        val items = ChatRenderTimelineCache().build(
+            messages = listOf(
+                ChatMessage(id = "user-1", text = "Question", isUser = true, isStreaming = false),
+                ChatMessage(
+                    id = "tool-1",
+                    text = "",
+                    isUser = false,
+                    isStreaming = false,
+                    isToolCall = true,
+                    toolName = "read_file",
+                    toolResult = "done",
+                ),
+            ),
+            activeTurn = turn,
+            liveThinkingBlocks = emptyList(),
+            isAwaitingResponse = false,
+            isStreaming = true,
+            activity = null,
+            generationStartedAt = 1000,
+        )
+
+        val keys = items.map { it.key }
+        assertEquals(keys.distinct(), keys)
+        assertEquals(1, items.count { it is ChatRenderItem.ToolCall && it.key == "tool-1" })
     }
 
     @Test

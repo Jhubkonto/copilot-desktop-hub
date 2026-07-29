@@ -32,6 +32,14 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class StandaloneSyncParserTest {
     @Test
+    fun rejectsOnlyOversizedSyncFramesBeforeJsonExpansion() {
+        assertTrue(isOversizedSyncEvent("""{"event":"sync:welcome","data":{}}padding""", maxChars = 20))
+        assertTrue(isOversizedSyncEvent("""{"event":"sync:ack","data":{}}padding""", maxChars = 20))
+        assertEquals(false, isOversizedSyncEvent("""{"event":"chat:stream","data":{}}padding""", maxChars = 20))
+        assertEquals(false, isOversizedSyncEvent("""{"event":"sync:welcome"}""", maxChars = 100))
+    }
+
+    @Test
     fun parsesWelcomeSnapshotWithoutFlatteningPayload() = runTest {
         val event = parse(
             """
@@ -49,7 +57,7 @@ class StandaloneSyncParserTest {
 
         assertEquals(1, event.protocolVersion)
         assertEquals("desktop-1", event.desktopDeviceId)
-        assertTrue(event.snapshotJson.contains("\"project:project-1\":2"))
+        assertEquals(2, event.snapshot.optJSONObject("versions")?.optInt("project:project-1"))
     }
 
     @Test
