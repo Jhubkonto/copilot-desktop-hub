@@ -9,16 +9,20 @@ import { getAgentConfig } from './agents'
 import { listDirectoryEntries } from './file-handlers'
 import { parseProjectConfig } from './project-handlers'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
-import { insertWikiEntry } from './wiki-handlers'
+import { applyWikiChangeProposal, listRecentWikiEntries, proposeWikiChange } from './wiki-handlers'
 import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './remote-edit/fix-agent'
-import { getSkillConfigsForAgent } from './skills'
+import { getSkillConfigsForAgent, upsertSkillConfigByName } from './skills'
+import { parseSkillMarkdown } from './skill-markdown'
+import type { SkillConfig } from '../shared/types'
 import { extractKeywords } from './rating-handlers'
 import { findSimilarRatedStrategies } from './rating-retrieval'
 import type { ToolDefinition } from './provider-types'
 import { debugLog } from './debug-mode'
 import { NEXY_HELP_CONTENT } from './nexy-help'
+import { broadcastToMobile } from './ws-server'
+import { estimateTextTokens } from '../shared/token-estimate'
 
 export type InlineHandler = (
   args: Record<string, unknown>
@@ -38,7 +42,16 @@ export type ChatContextOptions = {
   projectId?: string
   conversationModel?: string
   fullAutoApprove?: boolean
+  agenticMode?: boolean
   terminalSandboxBypass?: boolean
+  /** When true, the chat is in plan mode: mutating tools (write/terminal) are withheld and an
+   *  `exit_plan_mode` tool is exposed so the model can present a finalized plan for approval. */
+  planMode?: boolean
+  /** Receives the finalized plan so the chat lifecycle can persist it after the
+   *  assistant response has a durable message ID. */
+  onPlanFinalized?: (plan: string) => void
+  /** Emits cheap, provider-neutral estimates while Nexy assembles the prompt. */
+  onContextProgress?: (estimatedInputTokens: number, label: string) => void
 }
 
 export type BuiltContext = {
@@ -50,6 +63,10 @@ export type BuiltContext = {
   wikiInlineHandlers: Map<string, InlineHandler>
   fileToolDefs: ToolDefinition[]
   fileInlineHandlers: Map<string, InlineHandler>
+  skillToolDefs: ToolDefinition[]
+  skillInlineHandlers: Map<string, InlineHandler>
+  planToolDefs: ToolDefinition[]
+  planInlineHandlers: Map<string, InlineHandler>
 }
 
 /**
@@ -110,6 +127,32 @@ export type StoredAttachment = {
   thumbnailDataUrl?: string
 }
 
+function broadcastConversationMode(db: Database, conversationId: string): void {
+  const row = db.prepare(
+    'SELECT thinking_effort_override, full_auto_approve_override, agentic_mode_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?',
+  ).get(conversationId) as {
+    thinking_effort_override: string | null
+    full_auto_approve_override: number | null
+    agentic_mode_override: number | null
+    terminal_sandbox_override: number | null
+    cli_mode_override: string | null
+    codex_execution_mode_override: string | null
+  } | undefined
+  if (!row) return
+  broadcastToMobile({
+    event: 'conversation:mode-updated',
+    data: {
+      conversationId,
+      thinkingEffortOverride: row.thinking_effort_override,
+      fullAutoApproveOverride: row.full_auto_approve_override,
+      agenticModeOverride: row.agentic_mode_override,
+      terminalSandboxOverride: row.terminal_sandbox_override,
+      cliModeOverride: row.cli_mode_override,
+      codexExecutionModeOverride: row.codex_execution_mode_override,
+    },
+  })
+}
+
 export function buildStoredAttachments(
   attachments: ChatContextOptions['attachments'],
   images: ChatContextOptions['images'],
@@ -145,11 +188,25 @@ export async function buildChatContext(
   webContents: WebContents,
   sendActivity: (a: MobileChatActivity) => void,
 ): Promise<BuiltContext> {
-  const { attachments, images: pastedImages = [], agentId, projectId, fullAutoApprove, terminalSandboxBypass } = options
+  const {
+    attachments,
+    images: pastedImages = [],
+    agentId,
+    projectId,
+    fullAutoApprove,
+    agenticMode,
+    terminalSandboxBypass,
+    planMode,
+    onPlanFinalized,
+  } = options
 
   // ── Attachment and image processing ────────────────────────────────────────
   const attachedImages: { id: string; name: string; dataUrl: string }[] = [...pastedImages]
   let augmentedContent = content
+  const reportContextProgress = (label: string) => {
+    options.onContextProgress?.(estimateTextTokens(augmentedContent), label)
+  }
+  reportContextProgress('Collecting message context')
 
   if (attachments && attachments.length > 0) {
     let fileContext = ''
@@ -181,6 +238,7 @@ export async function buildChatContext(
       }
     }
     if (fileContext) augmentedContent = fileContext + content
+    reportContextProgress('Collecting attachments')
   }
 
   // ── Baseline product grounding (unconditional — not gated on a custom agent having its own
@@ -207,6 +265,7 @@ export async function buildChatContext(
   ).count === 1
   if (isFirstMessage) {
     augmentedContent = `[Nexy app reference — background context, not something to repeat verbatim to the user:\n\n${NEXY_HELP_CONTENT}]\n\n${augmentedContent}`
+    reportContextProgress('Adding app context')
   }
 
   // ── Agent system prompt injection ──────────────────────────────────────────
@@ -296,6 +355,7 @@ export async function buildChatContext(
         toolLines.length > 0 ? `\n\n## Tool Usage Guidelines\n${toolLines.join('\n')}` : ''
 
       augmentedContent = `[System Instructions]\n${systemPromptText}${memoryBlock}${knowledgeBlock}${guidelinesBlock}\n[/System Instructions]\n\n${augmentedContent}`
+      reportContextProgress('Adding agent knowledge')
     }
   }
 
@@ -353,6 +413,7 @@ export async function buildChatContext(
           augmentedContent = `${projectBlock}\n\n${content}`
           break
       }
+      reportContextProgress('Adding project context')
     }
 
     if (projCfg.strategyRetrievalEnabled) {
@@ -374,7 +435,8 @@ export async function buildChatContext(
           `These past conversations in this project were rated highly for similar work:\n` +
           `${strategyLines.join('\n')}\n` +
           `[/Similar Past Strategies]`
-        augmentedContent = `${strategyBlock}\n\n${augmentedContent}`
+      augmentedContent = `${strategyBlock}\n\n${augmentedContent}`
+      reportContextProgress('Adding past strategies')
       }
     }
 
@@ -400,6 +462,7 @@ export async function buildChatContext(
         })
       }
       augmentedContent = `${structureBlock}\n\n${augmentedContent}`
+      reportContextProgress('Collecting project files')
     } else if (projCfg.rootDirectory) {
       debugLog('chat', `context-builder: rootDirectory set but path not found on disk: ${JSON.stringify(projCfg.rootDirectory)}`)
     } else {
@@ -430,6 +493,7 @@ export async function buildChatContext(
       }
       const scopeBlock = `[Project Scope]\n${scopeLines.join('\n')}\n[/Project Scope]`
       augmentedContent = `${scopeBlock}\n\n${augmentedContent}`
+      reportContextProgress('Adding project scope')
     }
 
     // Team awareness block — inject when project has ≥2 agents, orchestration disabled
@@ -480,19 +544,28 @@ export async function buildChatContext(
           `or enable orchestration in the project settings to allow automatic delegation.\n` +
           `[/Project Team]`
         augmentedContent = `${teamBlock}\n\n${augmentedContent}`
+        reportContextProgress('Adding project team')
       }
     }
   }
 
-  // Auto-inject relevant wiki entries on the first message
-  const wikiMsgCount = db
-    .prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?')
-    .get(conversationId) as { count: number }
-  if (wikiMsgCount.count === 1 && convProjectId) {
-    const wikiEntries = getRelevantWikiEntries(db, convProjectId, content)
+  // Auto-inject relevant wiki entries on every project turn. Including the last few user
+  // messages keeps short follow-ups anchored to the current topic without flooding context.
+  if (convProjectId) {
+    const recentUserRows = db.prepare(
+      `SELECT content FROM messages
+       WHERE conversation_id = ? AND role = 'user'
+       ORDER BY timeline_order DESC, timestamp DESC, id DESC
+       LIMIT 3`,
+    ).all(conversationId) as { content: string }[]
+    const wikiSearchText = recentUserRows.length > 0
+      ? recentUserRows.map((row) => row.content).reverse().join('\n\n')
+      : content
+    const wikiEntries = getRelevantWikiEntries(db, convProjectId, wikiSearchText, 4)
     if (wikiEntries.length > 0) {
       const wikiBlock = formatWikiSection(wikiEntries)
       augmentedContent = `${wikiBlock}\n\n${augmentedContent}`
+      reportContextProgress('Collecting project wiki')
       if (!webContents.isDestroyed()) {
         webContents.send('chat:wiki-injected', { count: wikiEntries.length })
       }
@@ -510,7 +583,7 @@ export async function buildChatContext(
         function: {
           name: 'search_project_wiki',
           description:
-            'Search the project wiki for relevant knowledge, decisions, procedures, or facts. Use this when the user asks about project-specific information that may have been documented.',
+            'Search the project wiki for relevant knowledge, decisions, procedures, or facts. Use this whenever past project memory may help answer the user.',
           parameters: {
             type: 'object',
             properties: {
@@ -526,9 +599,26 @@ export async function buildChatContext(
       {
         type: 'function' as const,
         function: {
-          name: 'create_wiki_entry',
+          name: 'list_recent_wiki_entries',
           description:
-            'Save a new entry to the project wiki. Use this to preserve important facts, decisions, or procedures. Always requires explicit user approval before saving.',
+            'List recently updated active project wiki entries. Use this to orient yourself when you need a quick view of available project memory.',
+          parameters: {
+            type: 'object',
+            properties: {
+              limit: {
+                type: 'number',
+                description: 'Maximum number of entries to list (default 8, maximum 25)',
+              },
+            },
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'propose_wiki_entry',
+          description:
+            'Propose saving durable project knowledge to the wiki. Nexy will decide whether to create, update, or supersede an entry, and the user must explicitly approve before anything is saved.',
           parameters: {
             type: 'object',
             properties: {
@@ -549,6 +639,7 @@ export async function buildChatContext(
     const capturedProjectId = wikiProjectId
     const capturedDb = db
     const capturedWebContents = webContents
+    const capturedConversationId = conversationId
 
     wikiInlineHandlers.set('search_project_wiki', async (args) => {
       sendActivity({
@@ -564,33 +655,73 @@ export async function buildChatContext(
       return { success: true, result: formatWikiSection(entries) }
     })
 
-    wikiInlineHandlers.set('create_wiki_entry', async (args) => {
+    wikiInlineHandlers.set('list_recent_wiki_entries', async (args) => {
+      sendActivity({
+        state: 'tool',
+        label: 'Listing recent wiki entries',
+        toolName: 'list_recent_wiki_entries',
+        serverName: 'Project Wiki',
+      })
+      const rawLimit = typeof args.limit === 'number' ? args.limit : Number(args.limit ?? 8)
+      const entries = listRecentWikiEntries(capturedDb, capturedProjectId, Number.isFinite(rawLimit) ? rawLimit : 8)
+      if (entries.length === 0) return { success: true, result: 'No active wiki entries exist for this project yet.' }
+      const formatted = entries.map((entry) => {
+        const tags = entry.tags.length > 0 ? ` [${entry.tags.join(', ')}]` : ''
+        return `### ${entry.title}${tags}\n${entry.body.slice(0, 800)}${entry.body.length > 800 ? '...' : ''}`
+      }).join('\n\n')
+      return { success: true, result: `[Recent Project Wiki Entries]\n${formatted}` }
+    })
+
+    wikiInlineHandlers.set('propose_wiki_entry', async (args) => {
       if (capturedWebContents.isDestroyed())
         return { success: false, error: 'Window closed — cannot request approval' }
-      sendActivity({
-        state: 'approval',
-        label: 'Waiting for wiki approval',
-        toolName: 'create_wiki_entry',
-      })
-      const approved = await requestApproval(
-        capturedWebContents,
-        'create_wiki_entry',
-        args,
-        `Save wiki entry: "${args.title}"`,
-        { noRemember: true },
-      )
-      if (!approved) return { success: false, error: 'User declined wiki entry creation' }
       const title = typeof args.title === 'string' ? args.title : String(args.title ?? '')
       const body = typeof args.body === 'string' ? args.body : String(args.body ?? '')
       const tags = Array.isArray(args.tags) ? (args.tags as string[]).map(String) : []
-      insertWikiEntry(capturedDb, capturedProjectId, title, body, tags, { conversationId })
+      let proposal: ReturnType<typeof proposeWikiChange>
+      try {
+        proposal = proposeWikiChange(capturedDb, capturedProjectId, title, body, tags)
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Invalid wiki proposal' }
+      }
+      sendActivity({
+        state: 'approval',
+        label: 'Waiting for wiki approval',
+        toolName: 'propose_wiki_entry',
+      })
+      const actionLabel =
+        proposal.action === 'create' ? 'Create wiki entry'
+        : proposal.action === 'update' ? `Update wiki entry: "${proposal.matchingEntryTitle}"`
+        : `Supersede wiki entry: "${proposal.supersededEntryTitle}"`
+      const approved = await requestApproval(
+        capturedWebContents,
+        'propose_wiki_entry',
+        proposal as unknown as Record<string, unknown>,
+        `${actionLabel} with "${proposal.title}"`,
+        { noRemember: true, conversationId: capturedConversationId },
+      )
+      if (!approved) return { success: false, error: 'User declined the wiki proposal' }
+      const entry = applyWikiChangeProposal(capturedDb, proposal, { conversationId: capturedConversationId })
+      const mobileEntry = {
+        ...entry,
+        projectId: entry.project_id,
+        sourceConversationId: entry.source_conversation_id,
+        sourceMessageId: entry.source_message_id,
+        supersededBy: entry.superseded_by,
+        createdAt: entry.created_at,
+        updatedAt: entry.updated_at,
+      }
+      broadcastToMobile({
+        event: proposal.action === 'create' ? 'wiki:entry-created' : 'wiki:entry-updated',
+        data: { entry: mobileEntry },
+      })
       sendActivity({
         state: 'tool',
         label: 'Saved wiki entry',
-        toolName: 'create_wiki_entry',
+        toolName: 'propose_wiki_entry',
         serverName: 'Project Wiki',
       })
-      return { success: true, result: `Wiki entry "${title}" saved to the project wiki.` }
+      return { success: true, result: `${proposal.action === 'create' ? 'Created' : proposal.action === 'update' ? 'Updated' : 'Superseded'} wiki entry "${entry.title}".` }
     })
   }
 
@@ -602,24 +733,28 @@ export async function buildChatContext(
     const capturedRoot = injectedRootDirectory
     const capturedWebContentsForFiles = webContents
     const capturedFullAutoApprove = fullAutoApprove
+    const capturedAgenticMode = agenticMode
 
-    fileToolDefs.push(
-      {
-        type: 'function' as const,
-        function: {
-          name: 'read_project_file',
-          description:
-            'Read the contents of a file within the project directory. Path may be relative to the project root.',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string', description: 'File path, relative to the project root' },
-            },
-            required: ['path'],
+    fileToolDefs.push({
+      type: 'function' as const,
+      function: {
+        name: 'read_project_file',
+        description:
+          'Read the contents of a file within the project directory. Path may be relative to the project root.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path, relative to the project root' },
           },
+          required: ['path'],
         },
       },
-      {
+    })
+
+    // In plan mode the chat is read-only: the mutating write tool is withheld so the model
+    // researches and plans without editing, then presents its plan via exit_plan_mode.
+    if (!planMode) {
+      fileToolDefs.push({
         type: 'function' as const,
         function: {
           name: 'write_project_file',
@@ -634,8 +769,8 @@ export async function buildChatContext(
             required: ['path', 'content'],
           },
         },
-      },
-    )
+      })
+    }
 
     fileInlineHandlers.set('read_project_file', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
@@ -652,7 +787,7 @@ export async function buildChatContext(
       }
     })
 
-    fileInlineHandlers.set('write_project_file', async (args) => {
+    if (!planMode) fileInlineHandlers.set('write_project_file', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
       const fileContent = typeof args.content === 'string' ? args.content : String(args.content ?? '')
       const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
@@ -665,7 +800,7 @@ export async function buildChatContext(
         'write_project_file',
         { path: requestedPath },
         `Write file: ${requestedPath}`,
-        { noRemember: true, autoApprove: capturedFullAutoApprove },
+        { noRemember: true, autoApprove: capturedFullAutoApprove || capturedAgenticMode },
       )
       if (!approved) return { success: false, error: 'User declined file write' }
       try {
@@ -695,7 +830,7 @@ export async function buildChatContext(
     const terminalCfg = (effectiveAgentId ? getAgentConfig(effectiveAgentId) : null)?.tools as {
       terminal?: { enabled?: boolean; approval?: 'auto' | 'always-ask' | 'disabled' }
     } | null
-    if (terminalCfg?.terminal?.enabled && terminalCfg.terminal.approval !== 'disabled') {
+    if (!planMode && terminalCfg?.terminal?.enabled && terminalCfg.terminal.approval !== 'disabled') {
       const capturedTerminalApprovalAuto = terminalCfg.terminal.approval === 'auto'
       const capturedTerminalSandboxBypass = terminalSandboxBypass === true
 
@@ -748,7 +883,7 @@ export async function buildChatContext(
           'run_terminal_command',
           { command, cwd: resolvedCwd },
           `Run command: ${command}`,
-          { noRemember: true, autoApprove: capturedFullAutoApprove || capturedTerminalApprovalAuto },
+          { noRemember: true, autoApprove: capturedFullAutoApprove || capturedAgenticMode || capturedTerminalApprovalAuto },
         )
         if (!approved) return { success: false, error: 'User declined command execution' }
         sendActivity({ state: 'tool', label: `Running: ${command}`, toolName: 'run_terminal_command' })
@@ -796,6 +931,164 @@ export async function buildChatContext(
     }
   }
 
+  // ── Skill capture tool (persists a skill to the global library) ────────────
+  // Exposed only for agent-backed chats: lets a model, mid-conversation, save a skill it
+  // authored or read from an external `SKILL.md` into Nexy's skill library. Writing to the
+  // global library always requires explicit user approval, and captured skills are tagged
+  // with their provenance so the library never silently fills with model-authored entries.
+  const skillToolDefs: ToolDefinition[] = []
+  const skillInlineHandlers = new Map<string, InlineHandler>()
+
+  if (effectiveAgentId) {
+    const capturedWebContentsForSkill = webContents
+
+    skillToolDefs.push({
+      type: 'function' as const,
+      function: {
+        name: 'save_skill',
+        description:
+          "Save a reusable skill to the user's Nexy skill library so it can be attached to agents later. " +
+          'Use this when you have authored a skill, or read a skill from an external SKILL.md file, that the user asked to keep. ' +
+          'Provide EITHER a complete `markdown` SKILL.md document, OR the structured fields (`name` is required). ' +
+          'Always requires explicit user approval before saving. Re-saving a skill with the same name updates it.',
+        parameters: {
+          type: 'object',
+          properties: {
+            markdown: {
+              type: 'string',
+              description:
+                'A complete SKILL.md document (YAML frontmatter with name/description/allowed-tools + Markdown body). Use this when importing an external skill file. Takes precedence over the structured fields below.',
+            },
+            name: { type: 'string', description: 'Skill name (required unless provided via markdown)' },
+            description: { type: 'string', description: 'Short one-line summary of what the skill does' },
+            instructions: { type: 'string', description: 'The reusable behaviour guidance / body of the skill' },
+            icon: { type: 'string', description: 'Optional emoji icon for the skill' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags to categorise the skill' },
+          },
+        },
+      },
+    })
+
+    skillInlineHandlers.set('save_skill', async (args) => {
+      if (capturedWebContentsForSkill.isDestroyed())
+        return { success: false, error: 'Window closed — cannot request approval' }
+
+      // Build a partial SkillConfig from either the markdown document or the structured fields.
+      let partial: Partial<SkillConfig>
+      const markdown = typeof args.markdown === 'string' ? args.markdown.trim() : ''
+      if (markdown) {
+        partial = parseSkillMarkdown(markdown)
+      } else {
+        partial = {
+          name: typeof args.name === 'string' ? args.name : undefined,
+          description: typeof args.description === 'string' ? args.description : undefined,
+          instructions: typeof args.instructions === 'string' ? args.instructions : undefined,
+          icon: typeof args.icon === 'string' ? args.icon : undefined,
+          tags: Array.isArray(args.tags) ? args.tags.filter((t): t is string => typeof t === 'string') : undefined,
+        }
+      }
+
+      const name = (partial.name ?? '').trim()
+      if (!name) return { success: false, error: 'A skill name is required (provide `name` or a `markdown` document with a name).' }
+      if (!partial.instructions?.trim())
+        return { success: false, error: 'A skill needs instructions (provide `instructions` or a `markdown` body).' }
+
+      sendActivity({ state: 'approval', label: `Waiting for approval to save skill: ${name}`, toolName: 'save_skill' })
+      const approved = await requestApproval(
+        capturedWebContentsForSkill,
+        'save_skill',
+        { name },
+        `Save skill to library: ${name}`,
+        { noRemember: true, conversationId },
+      )
+      if (!approved) return { success: false, error: 'User declined saving the skill' }
+
+      // Tag provenance so model-captured skills are distinguishable in the library.
+      const provenanceTags = Array.from(new Set([
+        ...(partial.tags ?? []),
+        ...(markdown ? ['imported'] : []),
+        'auto-captured',
+      ]))
+      const { skill, created } = upsertSkillConfigByName({ ...partial, name, tags: provenanceTags })
+
+      capturedWebContentsForSkill.send('skill:library-updated')
+      broadcastToMobile({
+        event: created ? 'skill:created' : 'skill:updated',
+        data: { skill },
+      })
+      sendActivity({ state: 'tool', label: `Saved skill: ${name}`, toolName: 'save_skill' })
+      return {
+        success: true,
+        result: `${created ? 'Created' : 'Updated'} skill "${name}" (id: ${skill.id}) in the Nexy skill library.`,
+      }
+    })
+  }
+
+  // ── Plan mode: exit_plan_mode tool ─────────────────────────────────────────
+  // When the chat is in plan mode the model works read-only and, once it has a finalized plan,
+  // calls exit_plan_mode to present it. The user approves before the chat leaves plan mode — this
+  // is the "model decides when the plan is complete, user decides whether to proceed" handoff that
+  // Claude Code's plan mode and Codex's Plan collaboration mode already have natively.
+  const planToolDefs: ToolDefinition[] = []
+  const planInlineHandlers = new Map<string, InlineHandler>()
+
+  if (planMode) {
+    const capturedWebContentsForPlan = webContents
+    const capturedDbForPlan = db
+    const capturedConversationId = conversationId
+
+    planToolDefs.push({
+      type: 'function' as const,
+      function: {
+        name: 'exit_plan_mode',
+        description:
+          'Call this ONLY when you have finished researching and have a complete, concrete implementation plan to present to the user. ' +
+          'This chat is in plan mode (read-only): you cannot edit files or run commands until the user approves your plan. ' +
+          'Pass the full plan as markdown. If the user approves, plan mode is turned off and you may implement it; if they decline, keep refining the plan.',
+        parameters: {
+          type: 'object',
+          properties: {
+            plan: { type: 'string', description: 'The finalized implementation plan, as markdown, for the user to review' },
+          },
+          required: ['plan'],
+        },
+      },
+    })
+
+    planInlineHandlers.set('exit_plan_mode', async (args) => {
+      if (capturedWebContentsForPlan.isDestroyed())
+        return { success: false, error: 'Window closed — cannot request approval' }
+      const plan = typeof args.plan === 'string' ? args.plan.trim() : ''
+      if (!plan) return { success: false, error: 'Provide the finalized plan as the `plan` argument.' }
+
+      onPlanFinalized?.(plan)
+      sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
+      const approved = await requestApproval(
+        capturedWebContentsForPlan,
+        'exit_plan_mode',
+        { plan },
+        'Approve this plan and start implementing?',
+        { noRemember: true, conversationId },
+      )
+      if (!approved) {
+        return {
+          success: true,
+          result: 'The user did not approve the plan. Stay in plan mode: revise the plan based on their feedback and call exit_plan_mode again when ready. Do not attempt to edit files or run commands.',
+        }
+      }
+
+      // Leave plan mode so the next turns can use the mutating tools.
+      capturedDbForPlan.prepare('UPDATE conversations SET cli_mode_override = NULL, updated_at = ? WHERE id = ?')
+        .run(Date.now(), capturedConversationId)
+      broadcastConversationMode(capturedDbForPlan, capturedConversationId)
+      sendActivity({ state: 'tool', label: 'Plan approved — leaving plan mode', toolName: 'exit_plan_mode' })
+      return {
+        success: true,
+        result: 'The user approved the plan and plan mode is now off. You may proceed to implement the plan (file edits and commands are available from your next turn).',
+      }
+    })
+  }
+
   return {
     augmentedContent,
     attachedImages,
@@ -805,5 +1098,9 @@ export async function buildChatContext(
     wikiInlineHandlers,
     fileToolDefs,
     fileInlineHandlers,
+    skillToolDefs,
+    skillInlineHandlers,
+    planToolDefs,
+    planInlineHandlers,
   }
 }

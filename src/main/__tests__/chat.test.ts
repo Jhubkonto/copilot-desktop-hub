@@ -6,6 +6,7 @@ const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const messages: Array<{ role: string; content: string; attachments: string | null; model: string | null; thinkingBlocks: string | null }> = []
   const modelUpdates: Array<{ sql: string; model: unknown; conversationId: unknown }> = []
+  const modeClears: string[] = []
   const events: string[] = []
   const send = vi.fn()
   const broadcastToMobile = vi.fn((payload: { event?: string; data?: { state?: string } }) => {
@@ -19,7 +20,8 @@ const state = vi.hoisted(() => {
   const getOverrides = new Map<string, unknown>()
   const allOverrides = new Map<string, unknown[]>()
   const recordProjectAuditChange = vi.fn()
-  return { handlers, messages, modelUpdates, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange }
+  const saveFinalizedPlanArtifact = vi.fn()
+  return { handlers, messages, modelUpdates, modeClears, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange, saveFinalizedPlanArtifact }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -51,6 +53,12 @@ vi.mock('../database', () => ({
         }
         if (sql.includes('UPDATE conversations SET model = ?')) {
           state.modelUpdates.push({ sql, model: args[0], conversationId: args[1] })
+        }
+        if (sql.includes('UPDATE conversations SET cli_mode_override = NULL')) {
+          state.modeClears.push('claude')
+        }
+        if (sql.includes('UPDATE conversations SET codex_execution_mode_override = NULL')) {
+          state.modeClears.push('codex')
         }
         return { changes: 1 }
       },
@@ -89,6 +97,9 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../agents', () => ({ getAgentConfig: vi.fn(() => null) }))
+vi.mock('../artifacts', () => ({
+  saveFinalizedPlanArtifact: state.saveFinalizedPlanArtifact,
+}))
 vi.mock('../project-handlers', () => ({
   parseProjectConfig: vi.fn(() => ({
     instructions: '',
@@ -185,6 +196,7 @@ describe('chat handlers', () => {
     state.handlers.clear()
     state.messages.length = 0
     state.modelUpdates.length = 0
+    state.modeClears.length = 0
     state.events.length = 0
     state.send.mockClear()
     state.broadcastToMobile.mockClear()
@@ -221,7 +233,19 @@ describe('chat handlers', () => {
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:activity',
-      data: expect.objectContaining({ conversationId: 'conv-1', state: 'thinking', label: 'Generating response' }),
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        state: 'thinking',
+        label: expect.stringMatching(/^Context ready · ~[\d,]+ tokens$/),
+      }),
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:activity',
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        state: 'thinking',
+        label: expect.stringMatching(/^Generating response · ~[\d,]+ tokens$/),
+      }),
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:activity',
@@ -701,6 +725,83 @@ describe('chat handlers', () => {
     expect(capturedReqs[0].permissionMode).toBe('plan')
   })
 
+  it('uses the conversation agentic override for a plain BYOK project chat', async () => {
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: null,
+      cli_backend: null,
+      thinking_effort_override: null,
+      full_auto_approve_override: null,
+      agentic_mode_override: 1,
+      terminal_sandbox_override: null,
+      cli_mode_override: null,
+      codex_execution_mode_override: null,
+    })
+    vi.mocked(buildChatContext).mockResolvedValueOnce({
+      augmentedContent: 'Use the project tool',
+      attachedImages: [],
+      injectedRootDirectory: 'C:\\project',
+      wikiProjectId: 'project-1',
+      wikiToolDefs: [{
+        type: 'function',
+        function: {
+          name: 'search_project_wiki',
+          description: 'Search project memory',
+          parameters: { type: 'object', properties: {} },
+        },
+      }],
+      wikiInlineHandlers: new Map([['search_project_wiki', vi.fn()]]),
+      fileToolDefs: [],
+      fileInlineHandlers: new Map(),
+      skillToolDefs: [],
+      skillInlineHandlers: new Map(),
+      planToolDefs: [],
+      planInlineHandlers: new Map(),
+    })
+    vi.mocked(runProviderMcpToolLoop).mockResolvedValueOnce('Done')
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-plain-agentic', 'Work autonomously', { projectId: 'project-1' })
+
+    expect(runProviderMcpToolLoop).toHaveBeenCalled()
+    expect(vi.mocked(runProviderMcpToolLoop).mock.calls[0][9]).toBe(true)
+  })
+
+  it('does not attach Nexy approval callbacks to Claude CLI turns in bypass mode', async () => {
+    const capturedReqs: Array<{ permissionMode?: string; requestPermission?: unknown }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (
+        _win: unknown,
+        req: { permissionMode?: string; requestPermission?: unknown },
+      ) => {
+        capturedReqs.push({
+          permissionMode: req.permissionMode,
+          requestPermission: req.requestPermission,
+        })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: null,
+      cli_backend: null,
+      cli_mode_override: 'bypassPermissions',
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli-bypass', 'edit the file')
+
+    expect(capturedReqs).toEqual([{
+      permissionMode: 'bypassPermissions',
+      requestPermission: undefined,
+    }])
+  })
+
   it('threads the independent Codex execution mode override into the CLI adapter request', async () => {
     const capturedReqs: Array<{ executionMode?: string }> = []
     const mockAdapter = {
@@ -711,7 +812,7 @@ describe('chat handlers', () => {
       }),
     }
     vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
-    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
     vi.mocked(retrieveAuthMode).mockReturnValue('none')
     vi.mocked(getApiKey).mockReturnValue(null)
     state.getOverrides.set('SELECT agent_id, model, cli_backend', {
@@ -726,6 +827,113 @@ describe('chat handlers', () => {
     await handler({ sender: {} }, 'conv-codex-plan', 'plan this change')
 
     expect(capturedReqs).toEqual([{ executionMode: 'plan' }])
+  })
+
+  it('treats a native Codex plan item as ExitPlanMode and clears Plan mode after approval', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (
+        _win: unknown,
+        _req: unknown,
+        onChunk: (chunk: string, blockId?: string) => void,
+        onEvent: (event: unknown) => void,
+      ) => {
+        onChunk('Step one', 'codex-plan-plan-1')
+        onEvent({ type: 'plan_ready', plan: 'Step one' })
+        return 'Step one'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    vi.mocked(requestApproval).mockResolvedValue(true)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: 'gpt-5.5',
+      cli_backend: 'codex-cli',
+      cli_mode_override: 'read-only',
+      codex_execution_mode_override: 'plan',
+    })
+    state.getOverrides.set('SELECT thinking_effort_override', {
+      thinking_effort_override: null,
+      full_auto_approve_override: null,
+      terminal_sandbox_override: null,
+      cli_mode_override: 'read-only',
+      codex_execution_mode_override: null,
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-codex-exit-plan', 'plan this change')
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ isDestroyed: expect.any(Function) }),
+      'exit_plan_mode',
+      { plan: 'Step one' },
+      'Review the completed plan and choose what Codex should do next.',
+      { noRemember: true, conversationId: 'conv-codex-exit-plan' },
+    )
+    expect(state.modeClears).toContain('codex')
+    expect(state.saveFinalizedPlanArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-codex-exit-plan',
+      plan: 'Step one',
+    }))
+    await vi.waitFor(() => expect(mockAdapter.send).toHaveBeenCalledTimes(2))
+    expect(mockAdapter.send.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      executionMode: undefined,
+    }))
+    expect(state.messages).toContainEqual(expect.objectContaining({
+      role: 'user',
+      content: 'Implement the approved plan now. Continue until it is fully complete, then verify the result.',
+    }))
+  })
+
+  it('clears Claude Plan mode when Claude invokes its native ExitPlanMode tool', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (
+        _win: unknown,
+        req: { requestPermission?: (toolName: string, input: Record<string, unknown>) => Promise<boolean> },
+      ) => {
+        await req.requestPermission?.('ExitPlanMode', { plan: 'Implement in two steps.' })
+        return 'Plan ready'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    vi.mocked(requestApproval).mockResolvedValue(true)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: 'claude-sonnet',
+      cli_backend: 'claude-cli',
+      cli_mode_override: 'plan',
+      codex_execution_mode_override: null,
+    })
+    state.getOverrides.set('SELECT thinking_effort_override', {
+      thinking_effort_override: null,
+      full_auto_approve_override: null,
+      terminal_sandbox_override: null,
+      cli_mode_override: null,
+      codex_execution_mode_override: null,
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-claude-exit-plan', 'plan this change')
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ isDestroyed: expect.any(Function) }),
+      'exit_plan_mode',
+      { plan: 'Implement in two steps.' },
+      'Approve this plan and start implementing?',
+      { noRemember: true, conversationId: 'conv-claude-exit-plan' },
+    )
+    expect(state.modeClears).toContain('claude')
+    expect(state.saveFinalizedPlanArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-claude-exit-plan',
+      plan: 'Implement in two steps.',
+    }))
   })
 
   it('labels the assistant message with the explicitly selected model', async () => {
@@ -778,6 +986,7 @@ describe('chat handlers', () => {
 
     await expect(handler({}, 'conv-1')).resolves.toBe(true)
     expect(state.abortActiveStream).toHaveBeenCalledWith('conv-1')
+    expect(denyPendingApprovalsForConversation).toHaveBeenCalledWith('conv-1')
   })
 
   it('closes out the background activity entry when an unexpected error occurs before any provider/CLI dispatch begins', async () => {
@@ -969,6 +1178,59 @@ describe('chat handlers', () => {
     } finally {
       rmSync(testRoot, { recursive: true, force: true })
     }
+  })
+
+  it('exposes ExitPlanMode to provider chats and clears the persisted mode only after approval', async () => {
+    vi.mocked(requestApproval).mockResolvedValue(true)
+    const updates: string[] = []
+    const stubDb = {
+      prepare: (sql: string) => ({
+        get: () => {
+          if (sql.includes('COUNT(*)')) return { count: 0 }
+          if (sql.includes('SELECT thinking_effort_override')) {
+            return {
+              thinking_effort_override: null,
+              full_auto_approve_override: null,
+              terminal_sandbox_override: null,
+              cli_mode_override: null,
+              codex_execution_mode_override: null,
+            }
+          }
+          return undefined
+        },
+        all: () => [],
+        run: () => {
+          updates.push(sql)
+          return { changes: 1 }
+        },
+      }),
+    } as unknown as Parameters<typeof buildChatContext>[0]
+    const stubWebContents = {
+      isDestroyed: () => false,
+      send: vi.fn(),
+    } as unknown as Parameters<typeof buildChatContext>[4]
+
+    const built = await buildChatContext(
+      stubDb,
+      'conv-provider-plan',
+      'Plan this change',
+      { planMode: true, onPlanFinalized: state.saveFinalizedPlanArtifact },
+      stubWebContents,
+      vi.fn(),
+    )
+
+    expect(built.planToolDefs.map((tool) => tool.function.name)).toEqual(['exit_plan_mode'])
+    const result = await built.planInlineHandlers.get('exit_plan_mode')?.({ plan: '1. Inspect\n2. Implement' })
+    expect(result?.success).toBe(true)
+    expect(state.saveFinalizedPlanArtifact).toHaveBeenCalledWith('1. Inspect\n2. Implement')
+    expect(updates.some((sql) => sql.includes('SET cli_mode_override = NULL'))).toBe(true)
+    expect(requestApproval).toHaveBeenCalledWith(
+      stubWebContents,
+      'exit_plan_mode',
+      { plan: '1. Inspect\n2. Implement' },
+      'Approve this plan and start implementing?',
+      { noRemember: true, conversationId: 'conv-provider-plan' },
+    )
   })
 
   it('broadcasts messages and stream-end to mobile after orchestration completes', async () => {

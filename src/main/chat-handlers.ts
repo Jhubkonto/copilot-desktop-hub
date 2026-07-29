@@ -43,6 +43,8 @@ import { ChatTurnEmitter } from './chat-turn-emitter'
 import { endActivity } from './activity-tracker'
 import { clearActiveChatTurn } from './active-chat-turns'
 import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
+import { estimateInputTokens, formatEstimatedTokens } from '../shared/token-estimate'
+import { saveFinalizedPlanArtifact } from './artifacts'
 
 export { clearDirListingCache } from './chat-context-builder'
 
@@ -150,6 +152,7 @@ type ChatSendOptions = {
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
   thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   fullAutoApproveOverride?: boolean | null
+  agenticModeOverride?: boolean | null
   terminalSandboxOverride?: boolean | null
   cliModeOverride?: string | null
   codexExecutionModeOverride?: 'plan' | null
@@ -326,12 +329,34 @@ async function requestClaudeCliToolPermission(
   toolName: string,
   input: Record<string, unknown>,
   conversationId: string,
+  onPlanFinalized?: (plan: string) => void,
 ): Promise<boolean> {
   // An explicit Claude Code Mode override (Plan / Accept edits / Bypass) governs this turn's
   // permission behavior. Auto-approve is a separate, coarser toggle meant for when no mode is
   // selected — letting it short-circuit here would silently defeat Plan's read-only guarantee
   // and Accept edits' scoping, so it only applies when the user hasn't picked an explicit mode.
   const autoApproveActive = autoApprove && !permissionMode
+
+  // Claude Code owns the native ExitPlanMode tool, but Nexy owns the persisted
+  // per-conversation mode override. Approving the native tool must clear that override or
+  // the next turn would start Claude in Plan mode again.
+  if (toolName.toLowerCase() === 'exitplanmode') {
+    const plan = typeof input.plan === 'string' ? input.plan.trim() : ''
+    if (plan) onPlanFinalized?.(plan)
+    sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
+    const approved = await requestApproval(
+      window.webContents,
+      'exit_plan_mode',
+      input,
+      'Approve this plan and start implementing?',
+      { noRemember: true, conversationId },
+    )
+    if (approved) {
+      clearPersistedPlanMode(conversationId, 'claude')
+      sendActivity({ state: 'tool', label: 'Plan approved — leaving plan mode', toolName: 'exit_plan_mode' })
+    }
+    return approved
+  }
 
   const tool = getClaudeCliToolDefinition(toolName)
   if (!tool) {
@@ -373,6 +398,35 @@ async function requestClaudeCliToolPermission(
   )
 }
 
+function clearPersistedPlanMode(conversationId: string, backend: 'claude' | 'codex'): void {
+  const db = getDatabase()
+  const column = backend === 'codex' ? 'codex_execution_mode_override' : 'cli_mode_override'
+  db.prepare(`UPDATE conversations SET ${column} = NULL, updated_at = ? WHERE id = ?`).run(Date.now(), conversationId)
+  const row = db.prepare(
+    'SELECT thinking_effort_override, full_auto_approve_override, agentic_mode_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?',
+  ).get(conversationId) as {
+    thinking_effort_override: string | null
+    full_auto_approve_override: number | null
+    agentic_mode_override: number | null
+    terminal_sandbox_override: number | null
+    cli_mode_override: string | null
+    codex_execution_mode_override: string | null
+  } | undefined
+  if (!row) return
+  broadcastToMobile({
+    event: 'conversation:mode-updated',
+    data: {
+      conversationId,
+      thinkingEffortOverride: row.thinking_effort_override,
+      fullAutoApproveOverride: row.full_auto_approve_override,
+      agenticModeOverride: row.agentic_mode_override,
+      terminalSandboxOverride: row.terminal_sandbox_override,
+      cliModeOverride: row.cli_mode_override,
+      codexExecutionModeOverride: row.codex_execution_mode_override,
+    },
+  })
+}
+
 export async function dispatchChatSend(
   window: BrowserWindow,
   conversationId: string,
@@ -389,13 +443,31 @@ export async function dispatchChatSend(
   })
   turnEmitter.started()
 
+  let latestContextEstimate: number | null = null
+  let showContextEstimate = true
   const sendActivity = (activity: MobileChatActivity) => {
-    turnEmitter.activity(activity)
+    if (activity.state === 'tool' || activity.state === 'approval') showContextEstimate = false
+    const displayActivity =
+      activity.state === 'thinking' &&
+      showContextEstimate &&
+      latestContextEstimate !== null &&
+      !activity.label.includes('~')
+        ? { ...activity, label: `${activity.label} · ${formatEstimatedTokens(latestContextEstimate)}` }
+        : activity
+    turnEmitter.activity(displayActivity)
+  }
+  const sendContextProgress = (estimatedInputTokens: number, label: string) => {
+    latestContextEstimate = estimatedInputTokens
+    sendActivity({
+      state: 'thinking',
+      label: `${label} · ${formatEstimatedTokens(estimatedInputTokens)}`,
+    })
   }
   const sendChunk = (chunk: string, blockId?: string) => {
+    showContextEstimate = false
     turnEmitter.assistantTextDelta(chunk, blockId)
   }
-  const sendStreamEnd = () => {
+  const sendStreamEnd = (options?: { suppressNotification?: boolean }) => {
     turnEmitter.streamEnd()
     clearActiveChatTurn(conversationId, turnEmitter.turnId)
     sendActivity({ state: 'complete', label: 'Complete' })
@@ -403,7 +475,7 @@ export async function dispatchChatSend(
     const convRow = db.prepare('SELECT title, project_id FROM conversations WHERE id = ?').get(conversationId) as { title: string; project_id: string | null } | undefined
     const convTitle = convRow?.title ?? 'Chat'
     const projectId = convRow?.project_id ?? null
-    if (!isMobileInForeground()) {
+    if (!options?.suppressNotification && !isMobileInForeground()) {
       void (async () => {
         const summary = await generateSpokenSummary(db, conversationId, projectId)
         void sendChatCompleteNotification(db, { conversationId, title: convTitle, summary: summary ?? undefined })
@@ -473,6 +545,12 @@ export async function dispatchChatSend(
           conversationId,
         )
       }
+      if (options?.agenticModeOverride !== undefined && options.agenticModeOverride !== null) {
+        db.prepare('UPDATE conversations SET agentic_mode_override = ? WHERE id = ?').run(
+          options.agenticModeOverride ? 1 : 0,
+          conversationId,
+        )
+      }
       if (options?.terminalSandboxOverride !== undefined && options.terminalSandboxOverride !== null) {
         db.prepare('UPDATE conversations SET terminal_sandbox_override = ? WHERE id = ?').run(
           options.terminalSandboxOverride ? 1 : 0,
@@ -526,13 +604,14 @@ export async function dispatchChatSend(
 
   // ── Provider resolution ────────────────────────────────────────────────────
   const convRow = db
-    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?')
+    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override, agentic_mode_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?')
     .get(conversationId) as {
       agent_id: string | null
       model: string | null
       cli_backend: string | null
       thinking_effort_override: string | null
       full_auto_approve_override: number | null
+      agentic_mode_override: number | null
       terminal_sandbox_override: number | null
       cli_mode_override: string | null
       codex_execution_mode_override: string | null
@@ -590,17 +669,28 @@ export async function dispatchChatSend(
     convRow?.terminal_sandbox_override === 1 ? true
     : convRow?.terminal_sandbox_override === 0 ? false
     : terminalSandboxProjectDefault
-  const effectivePermissionMode = (options?.cliModeOverride ?? convRow?.cli_mode_override) ?? undefined
+  const effectivePermissionMode =
+    options?.cliModeOverride !== undefined
+      ? options.cliModeOverride ?? undefined
+      : convRow?.cli_mode_override ?? undefined
+  const requestedCodexExecutionMode =
+    options?.codexExecutionModeOverride !== undefined
+      ? options.codexExecutionModeOverride
+      : convRow?.codex_execution_mode_override
   const effectiveCodexExecutionMode =
-    (options?.codexExecutionModeOverride ?? convRow?.codex_execution_mode_override) === 'plan'
+    requestedCodexExecutionMode === 'plan'
       ? 'plan'
       : undefined
+  let finalizedPlan: string | null = null
   const generationOptions = {
     temperature: Number.isFinite(temperatureSetting) ? Math.min(2, Math.max(0, temperatureSetting)) : 0.7,
     maxTokens: Number.isFinite(maxTokensSetting) ? Math.min(16384, Math.max(256, maxTokensSetting)) : 4096,
     thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as string | undefined,
   }
-  const agenticMode = agentCfg2?.agenticMode === true
+  const agenticMode =
+    convRow?.agentic_mode_override === 1 ? true
+    : convRow?.agentic_mode_override === 0 ? false
+    : agentCfg2?.agenticMode === true
   const conversationModel = typeof convRow?.model === 'string' ? convRow.model : undefined
   const selectedModel =
     modelOverride && modelOverride !== 'default'
@@ -626,11 +716,27 @@ export async function dispatchChatSend(
     wikiInlineHandlers,
     fileToolDefs,
     fileInlineHandlers,
+    skillToolDefs,
+    skillInlineHandlers,
+    planToolDefs,
+    planInlineHandlers,
   } = await buildChatContext(
       db,
       conversationId,
       content,
-      { attachments, images: pastedImages, agentId, projectId, conversationModel, fullAutoApprove: effectiveFullAutoApprove, terminalSandboxBypass: effectiveTerminalSandboxBypass },
+      {
+        attachments,
+        images: pastedImages,
+        agentId,
+        projectId,
+        conversationModel,
+        fullAutoApprove: effectiveFullAutoApprove,
+        agenticMode,
+        terminalSandboxBypass: effectiveTerminalSandboxBypass,
+        planMode: effectivePermissionMode === 'plan',
+        onPlanFinalized: (plan) => { finalizedPlan = plan },
+        onContextProgress: sendContextProgress,
+      },
       window.webContents,
       sendActivity,
     )
@@ -853,6 +959,10 @@ export async function dispatchChatSend(
       if (historyTurns.length > 0) {
         cliUserContent = `[Prior conversation — for context only, do not repeat]\n${historyTurns.join('\n\n')}\n\n[Current message]\n${augmentedContent}`
       }
+      sendContextProgress(
+        estimateInputTokens(cliUserContent) + estimateInputTokens(cliSystemPrompt),
+        'Context ready',
+      )
       const availableCodexModels = effectiveBackend === 'codex-cli' ? getCliModels('codex-cli') : []
       // Per-conversation override (conversationModel) takes priority over the agent's default
       // cliModel so users can switch models within a backend for a single conversation.
@@ -907,6 +1017,8 @@ export async function dispatchChatSend(
       // tool call interrupts it), so bursts can be persisted and later re-interleaved
       // with the tool calls that separated them instead of collapsing into one blob.
       const cliTextBuffer = new Map<string, ThinkingBlockEntry>()
+      const codexPlanState: { completedPlan: string | null } = { completedPlan: null }
+      let implementApprovedCodexPlan = false
       const cliSendChunk = (chunk: string, blockId?: string) => {
         sendChunk(chunk, blockId)
         if (!blockId) return
@@ -1087,7 +1199,10 @@ export async function dispatchChatSend(
             extraAllowedDirs: effectiveTerminalSandboxBypass
               ? [path.parse(homedir()).root]
               : undefined,
-            requestPermission: effectiveBackend === 'claude-cli'
+            // Bypass is an explicit promise that this turn has no approval gates. Do not
+            // create Nexy's PermissionRequest bridge in that mode; the adapter also guards
+            // this invariant so direct callers cannot accidentally re-enable prompts.
+            requestPermission: effectiveBackend === 'claude-cli' && effectivePermissionMode !== 'bypassPermissions'
               ? (toolName, input) => requestClaudeCliToolPermission(
                   window,
                   agentCfg2,
@@ -1098,6 +1213,7 @@ export async function dispatchChatSend(
                   toolName,
                   input,
                   conversationId,
+                  (plan) => { finalizedPlan = plan },
                 )
               : undefined,
           },
@@ -1154,6 +1270,9 @@ export async function dispatchChatSend(
               turnEmitter.textSegmentDone(event.blockId)
               const existing = cliTextBuffer.get(event.blockId)
               if (existing) cliTextBuffer.set(event.blockId, { ...existing, done: true })
+            } else if (event.type === 'plan_ready') {
+              codexPlanState.completedPlan = event.plan
+              finalizedPlan = event.plan
             } else if (event.type === 'activity') {
               sendActivity({ state: 'thinking', label: event.label })
             }
@@ -1161,6 +1280,32 @@ export async function dispatchChatSend(
           cliAbortController.signal,
         )
         activeCliAbortControllers.delete(conversationId)
+
+        // A native Codex `plan` item is its ExitPlanMode signal. Pause at that boundary,
+        // ask the user to approve the completed plan, and only then clear Nexy's persisted
+        // collaboration-mode override. Plain agent messages (for example a clarifying
+        // question) do not emit plan_ready and therefore keep the conversation in Plan mode.
+        if (effectiveBackend === 'codex-cli' && effectiveCodexExecutionMode === 'plan' && codexPlanState.completedPlan !== null) {
+          const plan = codexPlanState.completedPlan.trim() || cliResponseContent.trim()
+          if (plan) {
+            finalizedPlan = plan
+            sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
+            const approved = await requestApproval(
+              window.webContents,
+              'exit_plan_mode',
+              { plan },
+              'Review the completed plan and choose what Codex should do next.',
+              { noRemember: true, conversationId },
+            )
+            if (approved) {
+              clearPersistedPlanMode(conversationId, 'codex')
+              implementApprovedCodexPlan = true
+              sendActivity({ state: 'tool', label: 'Plan approved — leaving plan mode', toolName: 'exit_plan_mode' })
+            } else {
+              sendActivity({ state: 'thinking', label: 'Plan not approved — staying in plan mode' })
+            }
+          }
+        }
 
         debugLog('chat', `cli-adapter: stream done toolCallsPersisted=${completedToolCalls.length} thinkingBlocks=${cliThinkingBuffer.size}`)
         persistCompletedCliToolCalls()
@@ -1170,8 +1315,40 @@ export async function dispatchChatSend(
           cliThinkingBuffer,
           cliTextBuffer,
         )
+        if (finalizedPlan) {
+          saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
+        }
         broadcastConversationMessages(conversationId)
-        sendStreamEnd()
+        sendStreamEnd({ suppressNotification: implementApprovedCodexPlan })
+        if (implementApprovedCodexPlan) {
+          // Let this turn settle before beginning the implementation turn. The explicit null
+          // override prevents a stale conversation snapshot from re-entering Plan mode, while
+          // the persisted plan remains in history for Codex to implement.
+          setTimeout(() => {
+            const implementationPrompt =
+              'Implement the approved plan now. Continue until it is fully complete, then verify the result.'
+            if (!window.webContents.isDestroyed()) {
+              window.webContents.send('chat:remote-message', {
+                conversationId,
+                content: implementationPrompt,
+              })
+            }
+            void dispatchChatSend(
+              window,
+              conversationId,
+              implementationPrompt,
+              {
+                agentId: effectiveAgentId ?? undefined,
+                model: cliModelForRequest || undefined,
+                cliBackend: 'codex-cli',
+                projectId: orchProjId ?? undefined,
+                codexExecutionModeOverride: null,
+              },
+            ).catch((error) => {
+              debugLog('chat', `approved Codex plan follow-up failed: ${error instanceof Error ? error.message : String(error)}`)
+            })
+          }, 0)
+        }
         return { assistantMsgId }
       } catch (err) {
         debugLog('chat', `cli-adapter error: ${effectiveBackend} failed — ${err instanceof Error ? err.message : String(err)}`)
@@ -1291,13 +1468,18 @@ export async function dispatchChatSend(
       },
     }
   })
-  toolDefs.push(...wikiToolDefs, ...fileToolDefs)
+  toolDefs.push(...wikiToolDefs, ...fileToolDefs, ...skillToolDefs, ...planToolDefs)
+  sendContextProgress(
+    estimateInputTokens(chatMessages) + estimateInputTokens(toolDefs),
+    'Context ready',
+  )
 
-  const inlineHandlers = new Map([...wikiInlineHandlers, ...fileInlineHandlers])
+  const inlineHandlers = new Map([...wikiInlineHandlers, ...fileInlineHandlers, ...skillInlineHandlers, ...planInlineHandlers])
 
   const hasMcpTools = mcpTools.length > 0
   const hasWikiTools = wikiToolDefs.length > 0
   const hasFileTools = fileToolDefs.length > 0
+  const hasFileWriteTool = fileToolDefs.some((tool) => tool.function.name === 'write_project_file')
   const browserDirective = hasMcpTools
     ? `You have browser automation tools available: ${mcpTools.map((t) => t.name).join(', ')}. ` +
       "CRITICAL: Only use these tools when the user's request explicitly requires interacting with a web browser or web page. " +
@@ -1307,17 +1489,32 @@ export async function dispatchChatSend(
       'Continue calling tools until the task is fully finished, then give a brief summary.'
     : ''
   const wikiDirective = hasWikiTools
-    ? 'You have access to the project wiki tools: search_project_wiki and create_wiki_entry. ' +
-      'Use search_project_wiki when the user asks about project-specific knowledge, decisions, or procedures. ' +
-      'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
-      'For all other questions, respond directly without calling any tools.'
+    ? 'You have access to project memory tools: search_project_wiki, list_recent_wiki_entries, and propose_wiki_entry. ' +
+      'Use search_project_wiki whenever past project knowledge, decisions, conventions, or procedures may help answer the user. ' +
+      'Use propose_wiki_entry when a durable fact, decision, convention, solution, or procedure emerges that would likely help future project chats. ' +
+      'Wiki writes always require explicit user approval, even when auto-approve is enabled; do not ask separately before calling the proposal tool.'
     : ''
-  const fileDirective = hasFileTools
+  const fileDirective = hasFileWriteTool
     ? 'You have access to read_project_file and write_project_file tools, scoped to the project root directory. ' +
       'When the user asks you to create, edit, or inspect a file in the project, immediately call the tool in the same turn — never respond with text asking permission first, and never claim you lack file access or that a prior write happened without approval. ' +
       'There is no separate approval step for you to perform: calling write_project_file IS the entire action. Do not describe, narrate, or ask about it beforehand.'
+    : hasFileTools
+      ? 'You have read-only access to project files through read_project_file. Use it to inspect the files needed for the plan, but do not claim that you can edit them while Plan mode is active.'
     : ''
-  const toolDirective = [browserDirective, wikiDirective, fileDirective].filter(Boolean).join('\n\n')
+  const hasSkillTools = skillToolDefs.length > 0
+  const skillDirective = hasSkillTools
+    ? 'You have a save_skill tool that persists a reusable skill to the user\'s Nexy skill library. ' +
+      'Use it only when the user asks to save/keep a skill, or when you have read an external SKILL.md the user wants imported — never spontaneously. ' +
+      'You may pass either a complete SKILL.md `markdown` document or the structured fields (name is required). Saving always requires user approval.'
+    : ''
+  const hasPlanTools = planToolDefs.length > 0
+  const planDirective = hasPlanTools
+    ? 'This chat is in PLAN MODE. You are read-only: you may read files and research, but you must NOT edit files or run commands. ' +
+      'Investigate what the task requires, then write a concrete, step-by-step implementation plan. ' +
+      'When the plan is complete, call the exit_plan_mode tool with the full plan as markdown to present it to the user for approval. ' +
+      'Do not claim you have made changes — in plan mode you cannot. Only after the user approves your plan will editing tools become available.'
+    : ''
+  const toolDirective = [browserDirective, wikiDirective, fileDirective, skillDirective, planDirective].filter(Boolean).join('\n\n')
 
   // Heuristic: when the user's message clearly asks for a file operation and file tools are
   // available, force the model to call a tool on the first iteration instead of leaving
@@ -1327,7 +1524,7 @@ export async function dispatchChatSend(
   const looksLikeFileIntent =
     /\b(create|write|save|edit|update|make)\b[^.?!]{0,60}\.\w{1,8}\b/i.test(content) ||
     /\bfile\s+(called|named)\b/i.test(content)
-  const forceFirstToolChoice = hasFileTools && looksLikeFileIntent
+  const forceFirstToolChoice = hasFileWriteTool && looksLikeFileIntent
 
   let capturedStreamModel: string | null = null
   const handleStreamModel = (m: string) => {
@@ -1411,6 +1608,9 @@ export async function dispatchChatSend(
     capturedStreamModel ?? selectedModel ?? null,
     byokThinkingBuffer,
   )
+  if (finalizedPlan) {
+    saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
+  }
 
   broadcastConversationMessages(conversationId)
 
@@ -1451,6 +1651,9 @@ export function registerChatHandlers(): void {
 
   safeHandle('chat:stop-generation', async (_event, conversationId?: string) => {
     abortActiveStream(conversationId)
+    if (conversationId) {
+      denyPendingApprovalsForConversation(conversationId)
+    }
     return true
   })
 }
