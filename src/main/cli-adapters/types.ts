@@ -48,6 +48,9 @@ export type CliStreamEvent =
   // still being typed" from "that burst already finished, a tool call interrupted it"
   // and would defer an already-closed lead-in sentence to the very end of the turn.
   | { type: 'text_end'; blockId: string }
+  // Native Codex Plan collaboration mode emits a distinct plan item when the model has
+  // finished planning. Nexy uses this event as Codex's ExitPlanMode handoff.
+  | { type: 'plan_ready'; plan: string }
   // A transient status update (e.g. CLI lifecycle narration) — surfaced as the live
   // "Thinking…" activity line, never persisted into message history. Distinct from
   // thinking_chunk/thinking_end, which accumulate into a reasoning block that sticks

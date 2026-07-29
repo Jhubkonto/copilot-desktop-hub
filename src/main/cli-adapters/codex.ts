@@ -573,6 +573,9 @@ function sendCodexPlanViaAppServer(
         }
         if (item.type === 'agentMessage' || item.type === 'plan') {
           onEvent?.({ type: 'text_end', blockId: `codex-plan-${itemId || 'text'}` })
+          if (item.type === 'plan') {
+            onEvent?.({ type: 'plan_ready', plan: typeof item.text === 'string' ? item.text : '' })
+          }
         } else if (item.type === 'reasoning' && itemId) {
           onEvent?.({ type: 'thinking_end', blockId: `codex-plan-reasoning-${itemId}` })
           openReasoningIds.delete(itemId)
@@ -613,6 +616,8 @@ function sendCodexPlanViaAppServer(
         }
         openReasoningIds.clear()
         closeInput()
+        finish()
+        killProcess(proc)
         return
       }
 

@@ -170,6 +170,54 @@ describe('CLI adapters', () => {
     expect(chunks).toEqual(['Hello', ' world'])
   })
 
+  it('ClaudeAdapter scopes delta deduplication to each assistant message across a tool boundary', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const chunks: Array<{ chunk: string; blockId?: string }> = []
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'plan and implement this' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-plan',
+    }, (chunk: string, blockId?: string) => chunks.push({ chunk, blockId }))
+
+    const streamedPlan = JSON.stringify({
+      type: 'content_block_delta',
+      delta: { text: 'Here is the plan.' },
+    })
+    const consolidatedPlanAndTool = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: 'Here is the plan.' },
+          { type: 'tool_use', id: 'toolu_exit', name: 'ExitPlanMode', input: {} },
+        ],
+      },
+    })
+    const toolResult = JSON.stringify({
+      type: 'tool_result',
+      tool_use_id: 'toolu_exit',
+      content: [{ type: 'text', text: 'approved' }],
+      is_error: false,
+    })
+    const batchImplementation = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Implementation complete.' }] },
+    })
+
+    proc.stdout.emit('data', Buffer.from(
+      `${streamedPlan}\n${consolidatedPlanAndTool}\n${toolResult}\n${batchImplementation}\n`,
+    ))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Here is the plan.Implementation complete.')
+    expect(chunks).toEqual([
+      { chunk: 'Here is the plan.', blockId: 'text-0' },
+      { chunk: 'Implementation complete.', blockId: 'text-1' },
+    ])
+  })
+
   it('ClaudeAdapter emits tool_end for tool_result blocks embedded in user messages', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
@@ -288,6 +336,35 @@ describe('CLI adapters', () => {
     expect(args[modeIndex + 1]).toBe('plan')
     // An explicit plan mode must keep the chat read-only even when auto-approve is on.
     expect(args).not.toContain('--dangerously-skip-permissions')
+  })
+
+  it('ClaudeAdapter makes bypass mode fully non-interactive and omits the permission hook', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const requestPermission = vi.fn().mockResolvedValue(false)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'edit the file' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-bypass',
+      permissionMode: 'bypassPermissions',
+      requestPermission,
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'done' }] },
+    })}\n`))
+    proc.emit('close', 0)
+    await expect(sendPromise).resolves.toBe('done')
+
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    expect(args).toContain('--permission-mode')
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('bypassPermissions')
+    expect(args).toContain('--dangerously-skip-permissions')
+    expect(args).not.toContain('--settings')
+    expect(requestPermission).not.toHaveBeenCalled()
   })
 
   it('ClaudeAdapter bridges non-interactive PermissionRequest hooks to Nexy', async () => {
@@ -457,11 +534,12 @@ describe('CLI adapters', () => {
       JSON.stringify({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', error: null } } }),
       '',
     ].join('\n')))
-    proc.emit('close', 0)
 
     await expect(sendPromise).resolves.toBe('Step one')
+    expect(proc.stdin.end).toHaveBeenCalled()
     expect(chunks).toEqual([{ text: 'Step one', blockId: 'codex-plan-plan-1' }])
     expect(onEvent).toHaveBeenCalledWith({ type: 'text_end', blockId: 'codex-plan-plan-1' })
+    expect(onEvent).toHaveBeenCalledWith({ type: 'plan_ready', plan: 'Step one' })
     expect(onEvent).toHaveBeenCalledWith({
       type: 'cost',
       totalCostUsd: 0,

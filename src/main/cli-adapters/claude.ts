@@ -156,7 +156,11 @@ export const ClaudeAdapter: CliAgentAdapter = {
     onEvent?: Parameters<CliAgentAdapter['send']>[3],
     signal?: AbortSignal
   ): Promise<string> {
-    const permissionHook = req.requestPermission
+    // Bypass mode must not install Nexy's PermissionRequest hook: Claude invokes hooks as
+    // policy gates, so retaining one here can reintroduce an approval/denial path even though
+    // the user explicitly selected "Bypass".
+    const bypassPermissions = req.permissionMode === 'bypassPermissions'
+    const permissionHook = req.requestPermission && !bypassPermissions
       ? await startPermissionHookServer(req.requestPermission)
       : null
     return new Promise((resolve, reject) => {
@@ -227,6 +231,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
       if (req.permissionMode && CLAUDE_PERMISSION_MODES.includes(req.permissionMode)) {
         args.push('--permission-mode', req.permissionMode)
         if (req.permissionMode === 'bypassPermissions') {
+          // Use Claude's explicit non-interactive bypass flag as well as the named mode.
+          // This keeps `--print` sessions from falling back to an unavailable terminal
+          // approval prompt on CLI versions that distinguish selection from activation.
+          args.push('--dangerously-skip-permissions')
           console.warn(`[WARN] Agent is running with --permission-mode bypassPermissions. All file and shell operations will execute without confirmation.`)
         }
       } else if (req.skipPermissions === true) {
@@ -260,11 +268,12 @@ export const ClaudeAdapter: CliAgentAdapter = {
 
       let fullText = ''
       let stderrText = ''
-      // Track whether we received per-token delta events. When true, the final
-      // `assistant` message carries the same text and must not be re-emitted.
+      // Track whether the current assistant message received per-token delta events.
+      // Claude follows those deltas with a consolidated `assistant` event carrying the
+      // same content. These flags are reset after that event so a later assistant message
+      // (for example after a tool call) can independently use batch or delta delivery.
       let receivedDeltas = false
-      // Same duplication risk as text: streamed thinking_delta events and the final
-      // consolidated `assistant` message's thinking block both carry the same content.
+      // Same per-assistant-message duplication risk for streamed thinking blocks.
       let receivedThinkingDeltas = false
       const openToolIds = new Set<string>()
       // The Anthropic content-block index resets to 0 for every new `assistant` message,
@@ -350,6 +359,11 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 interruptText()
               }
             }
+            // The consolidated event closes the delta/batch deduplication scope. A single
+            // CLI process can emit more assistant messages after tool calls or plan-mode
+            // transitions, and those messages must choose their delivery mode independently.
+            receivedDeltas = false
+            receivedThinkingDeltas = false
           }
           if (obj.type === 'user' && obj.message) {
             const content = ((obj.message as { content?: ClaudeContentBlock[] }).content ?? []) as ClaudeContentBlock[]
