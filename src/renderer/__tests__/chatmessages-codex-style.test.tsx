@@ -90,8 +90,7 @@ describe('ChatMessages Codex CLI bulleted timeline', () => {
     })
 
     expect(screen.getByText('Checking the file first.')).toBeInTheDocument()
-    // ThinkingBlock renders a "Reasoning…" toggle label; the bulleted variant never does.
-    expect(screen.queryByText(/Reasoning/)).not.toBeInTheDocument()
+    expect(screen.getByText('Reasoning summary · ~6 tokens')).toBeInTheDocument()
   })
 
   it('still renders a non-Codex reasoning burst with the collapsible ThinkingBlock', () => {
@@ -106,6 +105,6 @@ describe('ChatMessages Codex CLI bulleted timeline', () => {
       },
     })
 
-    expect(screen.getByText('Reasoning…')).toBeInTheDocument()
+    expect(screen.getByText('Reasoning · ~5 tokens')).toBeInTheDocument()
   })
 })

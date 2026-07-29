@@ -101,6 +101,33 @@ describe('MessageBubble', () => {
     expect(onSaveToWiki).toHaveBeenCalledWith('msg-1', 'Hello there')
   })
 
+  it('offers save as prompt for a user message and strips injected context', () => {
+    const onSaveAsPrompt = vi.fn()
+    render(
+      <MessageBubble
+        {...baseProps}
+        content={'[Project Context]\nsecret\n[/Project Context]\nReusable prompt'}
+        onSaveAsPrompt={onSaveAsPrompt}
+      />
+    )
+
+    const container = screen.getByText('Reusable prompt').closest('.group')!
+    fireEvent.mouseEnter(container)
+    fireEvent.click(screen.getByRole('button', { name: 'Save as prompt' }))
+
+    expect(onSaveAsPrompt).toHaveBeenCalledWith('Reusable prompt')
+  })
+
+  it('offers save as prompt for an assistant response', () => {
+    const onSaveAsPrompt = vi.fn()
+    render(<MessageBubble {...baseProps} role="assistant" onSaveAsPrompt={onSaveAsPrompt} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save as prompt' }))
+
+    expect(onSaveAsPrompt).toHaveBeenCalledWith('Hello there')
+    expect(screen.getByRole('button', { name: 'Save as prompt' })).toHaveAttribute('title', 'Save response as prompt')
+  })
+
   it('shows saved state for assistant messages linked to wiki entries', () => {
     render(
       <MessageBubble

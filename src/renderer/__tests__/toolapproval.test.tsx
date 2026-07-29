@@ -55,6 +55,23 @@ describe('ToolApproval — Rendering', () => {
     render(<ToolApproval />)
     expect(screen.getByText('Tool Request')).toBeInTheDocument()
   })
+
+  it('renders a completed plan as a plan decision instead of a generic tool request', () => {
+    setupStore({
+      toolApprovalRequests: [{
+        requestId: 'plan-1',
+        tool: 'exit_plan_mode',
+        description: 'Review the completed plan',
+        args: { plan: '1. Inspect\n2. Implement' }
+      }]
+    })
+    render(<ToolApproval />)
+    expect(screen.getByText('Plan ready')).toBeInTheDocument()
+    expect(screen.getByText('Implement plan')).toBeInTheDocument()
+    expect(screen.getByText('Keep planning')).toBeInTheDocument()
+    expect(screen.getByText('Cancel')).toBeInTheDocument()
+    expect(screen.queryByText('Always')).not.toBeInTheDocument()
+  })
 })
 
 describe('ToolApproval — Actions', () => {
@@ -79,6 +96,22 @@ describe('ToolApproval — Actions', () => {
     render(<ToolApproval />)
     await user.click(screen.getByText('Always'))
     expect(mockStore.respondToToolApproval).toHaveBeenCalledWith('req-1', true, true)
+  })
+
+  it('implements or keeps planning using one-shot plan decisions', async () => {
+    const user = userEvent.setup()
+    setupStore({
+      toolApprovalRequests: [{
+        requestId: 'plan-1',
+        tool: 'exit_plan_mode',
+        description: 'Review the completed plan',
+        args: { plan: 'Step one' }
+      }]
+    })
+    render(<ToolApproval />)
+
+    await user.click(screen.getByText('Implement plan'))
+    expect(mockStore.respondToToolApproval).toHaveBeenCalledWith('plan-1', true, false)
   })
 })
 
