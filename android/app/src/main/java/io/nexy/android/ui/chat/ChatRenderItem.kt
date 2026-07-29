@@ -220,7 +220,7 @@ fun buildActiveTurnRenderItems(turn: ChatTurnState): List<ChatRenderItem> {
             is ChatTurnItem.TextSegment -> if (item.content.isNotBlank()) {
                 result += ChatRenderItem.AssistantMessage(
                     message = ChatMessage(
-                        id = "live_${turn.turnId}_text_${item.blockId.ifBlank { "legacy" }}",
+                        id = "live_${turn.turnId}_text_${item.blockId.ifBlank { "legacy" }}_$index",
                         text = item.content,
                         isUser = false,
                         isStreaming = !item.done && turn.status == ChatTurnStatus.Streaming,
@@ -314,9 +314,17 @@ internal class ChatRenderTimelineCache {
             activity = activity,
             generationStartedAt = generationStartedAt,
         )
+        // Notification/reconnect re-entry can deliver two valid views of the unfinished turn
+        // at once: persisted history already contains completed tool-call rows, while
+        // chat:get-active-turn replays those same calls in the canonical active timeline.
+        // Both carry the tool call's stable ID, so handing both to LazyColumn violates its
+        // unique-key contract and crashes Compose. Prefer the active timeline for overlaps:
+        // it has the correct text/thinking/tool chronology and will disappear as soon as the
+        // terminal persisted assistant response becomes authoritative.
+        val activeKeys = activeItems.asSequence().mapTo(hashSetOf()) { it.key }
         return buildList {
-            addAll(cachedStableItems)
-            addAll(dynamicItems)
+            cachedStableItems.filterTo(this) { it.key !in activeKeys }
+            dynamicItems.filterTo(this) { it.key !in activeKeys }
             addAll(activeItems)
         }
     }

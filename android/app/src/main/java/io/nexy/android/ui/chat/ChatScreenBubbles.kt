@@ -524,8 +524,17 @@ fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null
                     }
                 }
             } else {
+                val contextLabel = activity.label.takeIf {
+                    Regex("""~[\d,]+ tokens""", RegexOption.IGNORE_CASE).containsMatchIn(it) ||
+                        it.contains("context", ignoreCase = true) ||
+                        it.contains("attachments", ignoreCase = true) ||
+                        it.contains("project files", ignoreCase = true) ||
+                        it.contains("project wiki", ignoreCase = true) ||
+                        it.contains("agent knowledge", ignoreCase = true) ||
+                        it.contains("past strategies", ignoreCase = true)
+                }
                 Text(
-                    if (elapsedSec > 0) "Thinking · ${elapsedSec}s" else "Thinking...",
+                    contextLabel ?: if (elapsedSec > 0) "Thinking · ${elapsedSec}s" else "Thinking...",
                     style = MaterialTheme.typography.bodyMedium,
                     color = textColor,
                 )
@@ -562,6 +571,14 @@ fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
 // content length or streaming state; the fullscreen dialog is the only way to read past it.
 private const val THINKING_INLINE_MAX_LINES = 3
 
+/** Provider usage arrives after generation, so live reasoning uses the same deliberately
+ * approximate four-characters-per-token counter as desktop. */
+internal fun estimateLiveReasoningTokens(text: String): Int =
+    if (text.isEmpty()) 0 else maxOf(1, (text.length + 3) / 4)
+
+internal fun formatLiveReasoningTokens(tokens: Int): String =
+    "~$tokens ${if (tokens == 1) "token" else "tokens"}"
+
 @Composable
 fun ThinkingHistoryBubble(
     blocks: List<ThinkingBlock>,
@@ -574,6 +591,7 @@ fun ThinkingHistoryBubble(
     var showFullscreen by remember { mutableStateOf(false) }
     val totalChars = blocks.sumOf { it.content.length }
     val combinedContent = remember(blocks) { blocks.joinToString("\n\n") { it.content } }
+    val tokenCount = estimateLiveReasoningTokens(combinedContent)
 
     // Fade in on first appearance — this bubble is often nested inline inside an
     // AssistantMessage item rather than its own lazy item, so it doesn't get the
@@ -606,7 +624,7 @@ fun ThinkingHistoryBubble(
                     tint = iconColor,
                 )
                 Text(
-                    if (isLive) "Reasoning…" else "Reasoning · ${if (totalChars > 2000) ">${totalChars / 1000}k" else "~${maxOf(100, totalChars / 100 * 100)}"} chars",
+                    if (totalChars > 0) "Reasoning · ${formatLiveReasoningTokens(tokenCount)}" else "Reasoning…",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = textColor,
@@ -761,6 +779,7 @@ fun MessageBubble(
     onBranch: (() -> Unit)? = null,
     onAddToProject: (() -> Unit)? = null,
     onSaveAsArtifact: (() -> Unit)? = null,
+    onSaveAsPrompt: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onReadAloud: (() -> Unit)? = null,
     onInvestigateWithAi: (() -> Unit)? = null,
@@ -793,6 +812,7 @@ fun MessageBubble(
             ) {
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(text = { Text("Copy") }, onClick = { menuExpanded = false; onCopy() })
+                    if (onSaveAsPrompt != null) DropdownMenuItem(text = { Text("Save as prompt") }, onClick = { menuExpanded = false; onSaveAsPrompt() })
                     if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { menuExpanded = false; onRetry() })
                     if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { menuExpanded = false; onEditAssistant() })
                     if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
@@ -950,6 +970,7 @@ fun MessageBubble(
                             Icon(Icons.Default.MoreVert, contentDescription = "More message actions", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                            if (onSaveAsPrompt != null) DropdownMenuItem(text = { Text("Save as prompt") }, onClick = { overflowExpanded = false; onSaveAsPrompt() })
                             if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { overflowExpanded = false; onRetry() })
                             if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { overflowExpanded = false; onEditAssistant() })
                             if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { overflowExpanded = false; onBranch() })
@@ -993,6 +1014,7 @@ fun MessageBubble(
             ) {
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(text = { Text("Copy") }, onClick = { menuExpanded = false; onCopy() })
+                    if (onSaveAsPrompt != null) DropdownMenuItem(text = { Text("Save as prompt") }, onClick = { menuExpanded = false; onSaveAsPrompt() })
                     if (onEdit != null) DropdownMenuItem(text = { Text("Edit") }, onClick = { menuExpanded = false; onEdit() })
                     if (onResend != null) DropdownMenuItem(text = { Text("Resend") }, onClick = { menuExpanded = false; onResend() })
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
@@ -1399,6 +1421,7 @@ fun ArtifactRefBubble(
         "debrief" -> "Debrief"
         "quiz" -> "Quiz"
         "teachback" -> "Teach-back"
+        "plan" -> "Plan"
         else -> "Artifact"
     }
     val fallbackTitle = when {
@@ -1410,6 +1433,7 @@ fun ArtifactRefBubble(
         effectiveKind == "debrief" -> "Open debrief"
         effectiveKind == "quiz" -> "Start quiz"
         effectiveKind == "teachback" -> "Start teach-back"
+        effectiveKind == "plan" -> "Open plan"
         else -> "View artifact"
     }
     val icon = when (effectiveKind) {

@@ -63,6 +63,7 @@ import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import kotlin.math.roundToInt
 
 @Composable
@@ -429,7 +430,9 @@ fun ToolApprovalCard(
     approval: WsEvent.ToolApprovalRequest,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
+    onKeepPlanning: () -> Unit = onDeny,
 ) {
+    val isPlanDecision = approval.toolName == "exit_plan_mode"
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -445,12 +448,16 @@ fun ToolApprovalCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "Tool approval requested",
+                if (isPlanDecision) "Plan ready" else "Tool approval requested",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Text(
-                approval.toolName,
+                if (isPlanDecision) {
+                    "Choose whether Codex should implement this plan or continue planning."
+                } else {
+                    approval.description.ifBlank { approval.toolName }
+                },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
@@ -470,16 +477,33 @@ fun ToolApprovalCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                NexyDangerButton(
-                    text = "Deny",
-                    onClick = onDeny,
-                    modifier = Modifier.weight(1f),
-                )
-                NexyPrimaryButton(
-                    text = "Approve",
-                    onClick = onApprove,
-                    modifier = Modifier.weight(1f),
-                )
+                if (isPlanDecision) {
+                    NexySecondaryButton(
+                        text = "Keep planning",
+                        onClick = onKeepPlanning,
+                        modifier = Modifier.weight(1f),
+                    )
+                    NexyDangerButton(
+                        text = "Cancel",
+                        onClick = onDeny,
+                    )
+                    NexyPrimaryButton(
+                        text = "Implement plan",
+                        onClick = onApprove,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    NexyDangerButton(
+                        text = "Deny",
+                        onClick = onDeny,
+                        modifier = Modifier.weight(1f),
+                    )
+                    NexyPrimaryButton(
+                        text = "Approve",
+                        onClick = onApprove,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

@@ -238,6 +238,7 @@ fun CodexReasoningActionLine(blocks: List<ThinkingBlock>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         blocks.forEach { block ->
             if (block.content.isBlank()) return@forEach
+            val tokenCount = estimateLiveReasoningTokens(block.content)
             var expanded by rememberSaveable(block.blockId, block.done) {
                 mutableStateOf(!block.done)
             }
@@ -256,7 +257,7 @@ fun CodexReasoningActionLine(blocks: List<ThinkingBlock>) {
                 ) {
                     Text("•", fontSize = 12.sp, color = glyphColor)
                     Text(
-                        if (expanded) "Thought" else preview,
+                        if (expanded) "Reasoning summary · ${formatLiveReasoningTokens(tokenCount)}" else "$preview · ${formatLiveReasoningTokens(tokenCount)}",
                         fontSize = 12.sp,
                         color = textColor,
                         maxLines = 1,

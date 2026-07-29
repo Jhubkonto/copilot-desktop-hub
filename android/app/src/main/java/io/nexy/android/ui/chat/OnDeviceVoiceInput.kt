@@ -94,6 +94,8 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
             currentError("On-device speech recognition is not available on this device.")
             return
         }
+        recognizer?.destroy()
+        recognizer = null
         val local = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         val recognitionIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -101,7 +103,6 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
         }
-        recognizer?.destroy()
         recognizer = local
         local.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) { listening = true }
@@ -127,6 +128,7 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
                     return
                 }
                 local.destroy()
+                if (recognizer === local) recognizer = null
                 val message = when (error) {
                     SpeechRecognizer.ERROR_AUDIO -> "The microphone could not capture audio."
                     SpeechRecognizer.ERROR_CLIENT -> "The on-device recognizer could not start. Install the offline speech language in Android settings and try again."
@@ -142,6 +144,8 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
             }
             override fun onResults(results: Bundle?) {
                 listening = false
+                local.destroy()
+                if (recognizer === local) recognizer = null
                 results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let(currentText)
             }
             override fun onPartialResults(partialResults: Bundle?) = Unit

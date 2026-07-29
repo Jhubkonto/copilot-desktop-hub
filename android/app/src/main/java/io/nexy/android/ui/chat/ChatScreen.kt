@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -97,6 +98,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.repository.InternetState
 import io.nexy.android.data.model.PromptEntry
@@ -117,6 +119,7 @@ import io.noties.prism4j.Prism4j
 import android.text.SpannableStringBuilder
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
+import io.nexy.android.ui.prompts.CreatePromptSheet
 import io.nexy.android.ui.model.agentBackendLockDetail
 import io.nexy.android.ui.model.agentBackendLockLabel
 import io.nexy.android.ui.model.activeModelDetail
@@ -221,6 +224,7 @@ fun ChatScreen(
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
     val isLoadingOlder by vm.isLoadingOlder.collectAsStateWithLifecycle()
     val isInitialHistoryLoading by vm.isInitialHistoryLoading.collectAsStateWithLifecycle()
+    val isReconcilingHistory by vm.isReconcilingHistory.collectAsStateWithLifecycle()
     val activityLabel by vm.activityLabel.collectAsStateWithLifecycle()
     val liveActivity by vm.liveActivity.collectAsStateWithLifecycle()
     val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsStateWithLifecycle()
@@ -244,6 +248,7 @@ fun ChatScreen(
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatThinkingEffortOverride by vm.thinkingEffortOverride.collectAsStateWithLifecycle()
     val chatFullAutoApproveOverride by vm.fullAutoApproveOverride.collectAsStateWithLifecycle()
+    val chatAgenticModeOverride by vm.agenticModeOverride.collectAsStateWithLifecycle()
     val chatTerminalSandboxOverride by vm.terminalSandboxOverride.collectAsStateWithLifecycle()
     val chatCliModeOverride by vm.cliModeOverride.collectAsStateWithLifecycle()
     val chatCodexExecutionModeOverride by vm.codexExecutionModeOverride.collectAsStateWithLifecycle()
@@ -346,6 +351,14 @@ fun ChatScreen(
     var promoteArtifactScopeType by remember { mutableStateOf("global") }
     var promoteArtifactFilePath by remember { mutableStateOf("output.md") }
     var pendingPromotedMessageId by remember { mutableStateOf<String?>(null) }
+    var savePromptMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var savePromptTitle by remember { mutableStateOf("") }
+    var savePromptBody by remember { mutableStateOf("") }
+    var savePromptDescription by remember { mutableStateOf("") }
+    var savePromptCategory by remember { mutableStateOf("Custom") }
+    var savePromptTags by remember { mutableStateOf("") }
+    var savePromptScope by remember { mutableStateOf("global") }
+    var savePromptPending by remember { mutableStateOf(false) }
     var pendingApproval by remember { mutableStateOf<io.nexy.android.data.model.WsEvent.ToolApprovalRequest?>(null) }
     val promptEntries by WsRepository.promptEntries.collectAsStateWithLifecycle()
     var relaunchFilePicker by remember { mutableStateOf(false) }
@@ -751,6 +764,19 @@ fun ChatScreen(
                         snackbarHostState.showSnackbar(event.message)
                     }
                 }
+                is io.nexy.android.data.model.WsEvent.PromptEntryCreated -> {
+                    if (savePromptPending) {
+                        savePromptPending = false
+                        savePromptMessage = null
+                        snackbarHostState.showSnackbar("Prompt saved")
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.PromptError -> {
+                    if (savePromptPending) {
+                        savePromptPending = false
+                        snackbarHostState.showSnackbar(event.message)
+                    }
+                }
                 is io.nexy.android.data.model.WsEvent.AgentFull -> {
                     if (event.config.id == chatAgentId) chatAgentFullAutoApprove = event.config.fullAutoApprove
                 }
@@ -885,12 +911,15 @@ fun ChatScreen(
             ChatModeSheet(
                 thinkingEffortOverride = chatThinkingEffortOverride,
                 fullAutoApproveOverride = chatFullAutoApproveOverride,
+                agenticModeOverride = chatAgenticModeOverride,
                 terminalSandboxOverride = chatTerminalSandboxOverride,
                 activeCliBackend = activeCliBackend,
+                showAgenticMode = effectiveMode != EffectiveConnectionMode.STANDALONE_BY_CHOICE,
                 cliModeOverride = chatCliModeOverride,
                 codexExecutionModeOverride = chatCodexExecutionModeOverride,
                 onSetThinkingEffort = { vm.setThinkingEffortOverride(it) },
                 onSetFullAutoApprove = { vm.setFullAutoApproveOverride(it) },
+                onSetAgenticMode = { vm.setAgenticModeOverride(it) },
                 onSetTerminalSandboxOverride = { vm.setTerminalSandboxOverride(it) },
                 onSetCliMode = { vm.setCliModeOverride(it) },
                 onSetCodexExecutionMode = { vm.setCodexExecutionModeOverride(it) },
@@ -932,6 +961,41 @@ fun ChatScreen(
             conversationId = conversationId,
             onDismiss = { showInspectorSheet = false },
             sheetState = inspectorSheetState,
+        )
+    }
+
+    savePromptMessage?.let {
+        val chatProjectId = conversation?.project_id ?: projectId
+        CreatePromptSheet(
+            title = savePromptTitle,
+            body = savePromptBody,
+            description = savePromptDescription,
+            category = savePromptCategory,
+            tags = savePromptTags,
+            scope = savePromptScope,
+            showProjectScope = !chatProjectId.isNullOrBlank(),
+            onTitleChange = { savePromptTitle = it },
+            onBodyChange = { savePromptBody = it },
+            onDescriptionChange = { savePromptDescription = it },
+            onCategoryChange = { savePromptCategory = it },
+            onTagsChange = { savePromptTags = it },
+            onScopeChange = { savePromptScope = it },
+            onConfirm = {
+                savePromptPending = true
+                WsRepository.createPrompt(
+                    title = savePromptTitle.trim(),
+                    body = savePromptBody,
+                    description = savePromptDescription.trim(),
+                    category = savePromptCategory.trim().ifBlank { "Custom" },
+                    tags = savePromptTags.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotBlank() },
+                    scope = savePromptScope,
+                    projectId = if (savePromptScope == "project") chatProjectId else null,
+                )
+            },
+            onDismiss = { if (!savePromptPending) savePromptMessage = null },
+            sheetTitle = "Save as prompt",
+            confirmLabel = if (savePromptPending) "Saving…" else "Save",
+            saving = savePromptPending,
         )
     }
 
@@ -1147,6 +1211,7 @@ fun ChatScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
+                contentSyncInProgress = isReconcilingHistory,
                 titleContent = {
                     Column {
                         Text(title, maxLines = 1, style = MaterialTheme.typography.titleMedium)
@@ -1275,7 +1340,10 @@ fun ChatScreen(
                 onAttachFile = { filePicker.launch("*/*") },
                 onCaptureScreen = onCaptureScreen,
                 onInsertPrompt = {
-                    WsRepository.listPrompts()
+                    // Project prompts must be requested with the active project. Calling the
+                    // unscoped list here replaces the repository flow with global prompts only,
+                    // making a newly saved project prompt disappear from this picker.
+                    WsRepository.listPrompts(conversation?.project_id ?: projectId)
                     showPromptSheet = true
                 },
                 onShowInspector = { showInspectorSheet = true },
@@ -1372,9 +1440,10 @@ fun ChatScreen(
                     }
                 }
 
+                Box(modifier = Modifier.weight(1f)) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
@@ -1490,8 +1559,8 @@ fun ChatScreen(
                             is ChatRenderItem.LiveThinking -> {
                                 if (isCodexReasoning(item.blocks)) {
                                     ChatTimelineGroup {
-                                        item.blocks.forEach { block ->
-                                            key(block.blockId) {
+                                        item.blocks.forEachIndexed { index, block ->
+                                            key("${block.blockId}:$index") {
                                                 ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
                                                     CodexReasoningActionLine(listOf(block))
                                                 }
@@ -1500,8 +1569,8 @@ fun ChatScreen(
                                     }
                                 } else {
                                     ChatTimelineGroup {
-                                        item.blocks.forEach { block ->
-                                            key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = true) }
+                                        item.blocks.forEachIndexed { index, block ->
+                                            key("${block.blockId}:$index") { ThinkingHistoryBubble(listOf(block), isLive = true) }
                                         }
                                     }
                                 }
@@ -1538,6 +1607,18 @@ fun ChatScreen(
                                     onResend = { vm.retryMessage(msg.id, msg.text) },
                                     onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                     onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                    onSaveAsPrompt = if (msg.text.isNotBlank()) {
+                                        {
+                                            val body = stripInjectedContextBlocks(msg.text).trim()
+                                            savePromptMessage = msg
+                                            savePromptBody = body
+                                            savePromptTitle = body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(64)
+                                            savePromptDescription = ""
+                                            savePromptCategory = "Custom"
+                                            savePromptTags = ""
+                                            savePromptScope = if (!chatProjectId.isNullOrBlank()) "project" else "global"
+                                        }
+                                    } else null,
                                     isHighlighted = msg.id == highlightedMessageId,
                                     onRetry = null,
                                     onEditAssistant = null,
@@ -1564,8 +1645,8 @@ fun ChatScreen(
                                     if (hasTimelineContent) {
                                         if (isCodexReasoning(item.liveThinkingBlocks) || isCodexReasoning(msg.thinkingBlocks)) {
                                             ChatTimelineGroup {
-                                                item.liveThinkingBlocks.forEach { block ->
-                                                    key(block.blockId) {
+                                                item.liveThinkingBlocks.forEachIndexed { index, block ->
+                                                    key("${block.blockId}:$index") {
                                                         ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
                                                             CodexReasoningActionLine(listOf(block))
                                                         }
@@ -1589,8 +1670,8 @@ fun ChatScreen(
                                                 // every block's content into one combined bubble here (the old
                                                 // behavior) collapsed a multi-phase turn into a single "> 2k chars"
                                                 // blob instead of one bubble per phase.
-                                                item.liveThinkingBlocks.forEach { block ->
-                                                    key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = true) }
+                                                item.liveThinkingBlocks.forEachIndexed { index, block ->
+                                                    key("${block.blockId}:$index") { ThinkingHistoryBubble(listOf(block), isLive = true) }
                                                 }
                                                 // Tool calls grouped inline above the response text
                                                 msg.toolCalls.forEach { tc ->
@@ -1633,6 +1714,18 @@ fun ChatScreen(
                                                 promoteArtifactFilePath = suggestedArtifactFilePath("document")
                                             }
                                         } else null,
+                                        onSaveAsPrompt = if (msg.text.isNotBlank()) {
+                                            {
+                                                val body = msg.text.trim()
+                                                savePromptMessage = msg
+                                                savePromptBody = body
+                                                savePromptTitle = body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(64)
+                                                savePromptDescription = ""
+                                                savePromptCategory = "Custom"
+                                                savePromptTags = ""
+                                                savePromptScope = if (!chatProjectId.isNullOrBlank()) "project" else "global"
+                                            }
+                                        } else null,
                                         onInvestigateWithAi = if (
                                             msg.text.isNotBlank() &&
                                             onOpenRemoteEditWithPrefill != null &&
@@ -1671,6 +1764,10 @@ fun ChatScreen(
                                     WsRepository.send("tool:approve", mapOf("requestId" to approval.requestId))
                                     pendingApproval = null
                                 },
+                                onKeepPlanning = {
+                                    WsRepository.send("tool:reject", mapOf("requestId" to approval.requestId))
+                                    pendingApproval = null
+                                },
                                 onDeny = {
                                     WsRepository.send("tool:reject", mapOf("requestId" to approval.requestId))
                                     pendingApproval = null
@@ -1678,6 +1775,14 @@ fun ChatScreen(
                             )
                         }
                     }
+                }
+                ChatScrollbar(
+                    listState = listState,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                )
                 }
             }
             // Floating overlay, not in-flow: an in-flow banner here previously resized the

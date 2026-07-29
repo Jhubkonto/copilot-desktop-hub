@@ -18,10 +18,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** Mirrors desktop's Tailwind color coding for each mode section (ChatModePicker.tsx). */
 private val AutoApproveColor = Color(0xFF3B82F6) // blue-500
+private val AgenticModeColor = Color(0xFF10B981) // emerald-500
 private val TerminalSandboxColor = Color(0xFFF59E0B) // amber-500
 private val CliModeColor = Color(0xFFA855F7) // purple-500
 private val CodexExecutionModeColor = Color(0xFF6366F1) // indigo-500
@@ -74,12 +76,15 @@ private val cliModeSections: Map<String, CliModeSection> = mapOf(
 fun ChatModeSheet(
     thinkingEffortOverride: String?,
     fullAutoApproveOverride: Boolean?,
+    agenticModeOverride: Boolean?,
     terminalSandboxOverride: Boolean?,
     activeCliBackend: String? = null,
+    showAgenticMode: Boolean = true,
     cliModeOverride: String? = null,
     codexExecutionModeOverride: String? = null,
     onSetThinkingEffort: (String?) -> Unit,
     onSetFullAutoApprove: (Boolean?) -> Unit,
+    onSetAgenticMode: (Boolean?) -> Unit,
     onSetTerminalSandboxOverride: (Boolean?) -> Unit,
     onSetCliMode: (String?) -> Unit = {},
     onSetCodexExecutionMode: (String?) -> Unit = {},
@@ -91,6 +96,7 @@ fun ChatModeSheet(
     // Terminal sandbox bypass is currently only implemented by the Claude CLI adapter; showing
     // it for other backends is a silent no-op.
     val showTerminalSandboxBypass = activeCliBackend == "claude-cli"
+    val showProviderPlanMode = activeCliBackend == null
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Chat mode", style = MaterialTheme.typography.titleMedium)
 
@@ -106,6 +112,28 @@ fun ChatModeSheet(
                 onSelect = onSetThinkingEffort,
                 selectedColor = AutoApproveColor,
             )
+        }
+
+        if (showProviderPlanMode && showAgenticMode) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Agentic mode (this chat)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ChoiceChipRow(
+                    options = approveOptions,
+                    selected = agenticModeOverride,
+                    onSelect = onSetAgenticMode,
+                    selectedColor = AgenticModeColor,
+                )
+                Text(
+                    "Lets a tool-capable BYOK model continue using available project tools until the task is complete.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
         if (activeCliBackend == "codex-cli") {
@@ -124,6 +152,28 @@ fun ChatModeSheet(
                 )
                 Text(
                     "Uses Codex's native collaboration mode, independently of approvals and sandbox access.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (showProviderPlanMode) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Execution mode (this chat)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ChoiceChipRow(
+                    options = listOf(null to "Default", "plan" to "Plan"),
+                    selected = cliModeOverride,
+                    onSelect = onSetCliMode,
+                    selectedColor = CodexExecutionModeColor,
+                )
+                Text(
+                    "The model exits Plan mode when its plan is ready; implementation starts only after you approve it.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -224,9 +274,10 @@ private fun <T> ChoiceChipRow(
     selected: T,
     onSelect: (T) -> Unit,
     selectedColor: Color = MaterialTheme.colorScheme.primary,
+    columns: Int = CHIP_ROW_COLUMNS,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.chunked(CHIP_ROW_COLUMNS).forEach { rowOptions ->
+        options.chunked(columns).forEach { rowOptions ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -237,7 +288,15 @@ private fun <T> ChoiceChipRow(
                         modifier = Modifier.weight(1f),
                         selected = isSelected,
                         onClick = { onSelect(value) },
-                        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+                        label = {
+                            Text(
+                                label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                softWrap = false,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        },
                         leadingIcon = if (isSelected) {
                             { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
                         } else null,
@@ -250,7 +309,7 @@ private fun <T> ChoiceChipRow(
                 }
                 // Pad the last row with invisible spacers so its chips stay the same
                 // width as full rows above, instead of stretching to fill the row alone.
-                repeat(CHIP_ROW_COLUMNS - rowOptions.size) {
+                repeat(columns - rowOptions.size) {
                     Row(modifier = Modifier.weight(1f)) {}
                 }
             }

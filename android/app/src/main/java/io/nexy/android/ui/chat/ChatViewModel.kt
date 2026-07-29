@@ -2,6 +2,7 @@ package io.nexy.android.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.local.LocalDataRepository
@@ -204,6 +205,8 @@ class ChatViewModel(
     val thinkingEffortOverride: StateFlow<String?> = _thinkingEffortOverride
     private val _fullAutoApproveOverride = MutableStateFlow<Boolean?>(null)
     val fullAutoApproveOverride: StateFlow<Boolean?> = _fullAutoApproveOverride
+    private val _agenticModeOverride = MutableStateFlow<Boolean?>(null)
+    val agenticModeOverride: StateFlow<Boolean?> = _agenticModeOverride
     private val _terminalSandboxOverride = MutableStateFlow<Boolean?>(null)
     val terminalSandboxOverride: StateFlow<Boolean?> = _terminalSandboxOverride
     private val _cliModeOverride = MutableStateFlow<String?>(null)
@@ -249,6 +252,12 @@ class ChatViewModel(
     // history is still being fetched off the main thread.
     private val _isInitialHistoryLoading = MutableStateFlow(true)
     val isInitialHistoryLoading: StateFlow<Boolean> = _isInitialHistoryLoading
+
+    // Unlike the visible pull-to-refresh spinner, this remains true during silent
+    // stale-while-revalidate. The app-bar indicator uses it to avoid claiming a cached
+    // conversation is current before the desktop's authoritative page has arrived.
+    private val _isReconcilingHistory = MutableStateFlow(true)
+    val isReconcilingHistory: StateFlow<Boolean> = _isReconcilingHistory
 
     private var historyLoaded = false
     private var oldestLoadedTimestamp: Long? = null
@@ -409,6 +418,36 @@ class ChatViewModel(
                 effectiveAgentId.collect { id -> if (id != null) WsRepository.requestAgentFull(id) }
             }
             viewModelScope.launch {
+                // debrief:ready/quiz:ready/teachback:ready arrive on WsRepository's shared event
+                // flow, which has no replay buffer — if this screen's collector wasn't attached
+                // the instant the event fired (backgrounded, navigated away, brief recomposition),
+                // the local-only "Generating…" pending card never clears and looks hung forever.
+                // BackgroundActivityTracker is driven independently (WsRepository itself, not this
+                // screen-scoped collector) from the server's authoritative activity snapshot, so it
+                // reliably reflects when generation actually finished. Use its transition to "gone"
+                // as a trigger to refetch history, which resolves (or errors) the pending card from
+                // the now-persisted result instead of leaving it stuck.
+                var previouslyActiveIds = emptySet<String>()
+                BackgroundActivityTracker.activities.collect { activities ->
+                    val activeIds = activities.map { it.id }.toSet()
+                    for (kind in listOf("debrief", "quiz", "teachback")) {
+                        val activityId = "$kind-generation:$conversationId"
+                        val justFinished = activityId in previouslyActiveIds && activityId !in activeIds
+                        if (justFinished && _messages.value.any { it.id == pendingArtifactMessageId(kind) }) {
+                            // Clear the stuck placeholder outright — don't rely solely on the
+                            // history refresh below, since preferFullerActiveState keeps the
+                            // current (stale) list as-is when the refreshed page has no new
+                            // trailing assistant/system message, which is exactly what happens
+                            // when generation failed and nothing new was persisted.
+                            removePendingArtifactRefMessage(kind)
+                            historyLoaded = false
+                            requestLatestHistory()
+                        }
+                    }
+                    previouslyActiveIds = activeIds
+                }
+            }
+            viewModelScope.launch {
                 WsRepository.conversations.collect { list ->
                     val conv = list.find { it.id == conversationId } ?: return@collect
                     // Flush any overrides the user set while this was still a draft conversation
@@ -430,6 +469,7 @@ class ChatViewModel(
                     }
                     if ("thinkingEffortOverride" !in flushedKeys) _thinkingEffortOverride.value = conv.thinking_effort_override
                     if ("fullAutoApproveOverride" !in flushedKeys) _fullAutoApproveOverride.value = conv.full_auto_approve_override
+                    if ("agenticModeOverride" !in flushedKeys) _agenticModeOverride.value = conv.agentic_mode_override
                     if ("terminalSandboxOverride" !in flushedKeys) _terminalSandboxOverride.value = conv.terminal_sandbox_override
                     if ("cliModeOverride" !in flushedKeys) _cliModeOverride.value = conv.cli_mode_override
                     if ("codexExecutionModeOverride" !in flushedKeys) _codexExecutionModeOverride.value = conv.codex_execution_mode_override
@@ -470,7 +510,12 @@ class ChatViewModel(
                             // production mapping remains off Compose's main thread above.
                             event.messages.map { msg -> msg.toChatMessage() }
                         }
-                        if (event.paged && _isLoadingOlder.value && oldestLoadedTimestamp != null) {
+                        val isOlderHistoryPage =
+                            event.paged && _isLoadingOlder.value && oldestLoadedTimestamp != null
+                        if (!isOlderHistoryPage) {
+                            _isReconcilingHistory.value = false
+                        }
+                        if (isOlderHistoryPage) {
                             // Cursor pages are strictly older than the visible history, so do
                             // not replace the latest page while the user scrolls upward.
                             val existingIds = messagesBeforeSync.asSequence().map { it.id }.toHashSet()
@@ -898,14 +943,24 @@ class ChatViewModel(
                     }
                     event is WsEvent.DebriefReady && event.debrief.conversationId == conversationId -> {
                         removePendingArtifactRefMessage("debrief")
-                        if (event.artifactId != null) {
+                        // The server pins its own durable pending message row to this
+                        // artifact/version and syncs it via conversation:messages before (or
+                        // around the same time as) this event — inserting unconditionally here
+                        // would add a second, purely local card on top of that synced one.
+                        // Only fall back to a local insert if that sync genuinely hasn't landed
+                        // yet (e.g. this event races ahead of it), so the user never ends up
+                        // with zero cards for a completed debrief either.
+                        val alreadySynced = event.artifactId != null && _messages.value.any {
+                            it.artifactRef?.artifactId == event.artifactId && it.artifactRef?.versionId == event.versionId
+                        }
+                        if (event.artifactId != null && !alreadySynced) {
                             insertArtifactRefMessage(
                                 artifactId = event.artifactId,
                                 versionId = event.versionId,
                                 kind = "debrief",
                                 sourceConversationId = event.debrief.conversationId,
                             )
-                        } else {
+                        } else if (event.artifactId == null) {
                             _slashCommandMessage.value = "Debrief generated."
                         }
                     }
@@ -1050,6 +1105,7 @@ class ChatViewModel(
 
     fun refreshMessages(showRefreshIndicator: Boolean = true) {
         _isRefreshing.value = showRefreshIndicator
+        _isReconcilingHistory.value = true
         historyLoaded = false
         _liveTurnState.value = _liveTurnState.value.copy(thinkingBlocks = emptyList(), generationStartedAt = null)
         requestLatestHistory()
@@ -1246,18 +1302,21 @@ class ChatViewModel(
             }
             "/debrief" -> {
                 insertPendingArtifactRefMessage("debrief")
-                WsRepository.generateDebrief(conversationId, projectId, argText.ifBlank { null })
+                // No trailing model arg -> fall back to whatever model is actively selected for
+                // this conversation, not the project's primary agent's model (matches desktop's
+                // resolveSlashGenerationModel behavior).
+                WsRepository.generateDebrief(conversationId, projectId, argText.ifBlank { null } ?: _selectedModel.value)
             }
             "/quiz" -> {
                 awaitingQuizInsert = true
                 insertPendingArtifactRefMessage("quiz")
-                WsRepository.generateQuiz(conversationId, projectId, argText.ifBlank { null })
+                WsRepository.generateQuiz(conversationId, projectId, argText.ifBlank { null } ?: _selectedModel.value)
             }
             "/teachback" -> {
                 awaitingTeachbackInsert = true
                 insertPendingArtifactRefMessage("teachback")
                 val topic = argText.replace(Regex("^(on|about|regarding)\\s+", RegexOption.IGNORE_CASE), "").ifBlank { null }
-                WsRepository.generateTeachback(conversationId, projectId, topic)
+                WsRepository.generateTeachback(conversationId, projectId, topic, _selectedModel.value)
             }
             "/code-change" -> {
                 // A trailing "[repo]" (as the git-housekeeping commands use) would be ambiguous
@@ -1357,6 +1416,11 @@ class ChatViewModel(
         sendModeOverride("fullAutoApproveOverride", value)
     }
 
+    fun setAgenticModeOverride(value: Boolean?) {
+        _agenticModeOverride.value = value
+        sendModeOverride("agenticModeOverride", value)
+    }
+
     fun setTerminalSandboxOverride(value: Boolean?) {
         _terminalSandboxOverride.value = value
         sendModeOverride("terminalSandboxOverride", value)
@@ -1441,6 +1505,14 @@ class ChatViewModel(
             _selectedModel.value?.let { put("model", it) }
             if (imageAtts.isNotEmpty()) {
                 put("images", imageAtts.map { mapOf("id" to it.id, "name" to it.name, "dataUrl" to it.dataUrl.orEmpty()) })
+            }
+            // Any mode override set while this was still a draft conversation (no server row yet,
+            // so conversation:set-mode had nothing to update — see pendingModeOverrides above)
+            // rides along on this first send instead. dispatchChatSend applies it while creating
+            // the row, so the very first CLI turn honors it rather than silently using defaults.
+            if (pendingModeOverrides.isNotEmpty()) {
+                pendingModeOverrides.forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
+                pendingModeOverrides.clear()
             }
         }
         if (wsClient === WsRepository) WsRepository.markConversationPending(conversationId)
