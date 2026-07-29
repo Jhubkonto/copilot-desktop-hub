@@ -13,6 +13,9 @@ import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.AgentGeneratorSpec
 import io.nexy.android.data.model.AgentGeneratorTools
 import io.nexy.android.data.model.ArtifactGeneratorSpec
+import io.nexy.android.data.model.DebriefStory
+import io.nexy.android.data.model.StoryBeat
+import io.nexy.android.data.model.StoryMood
 import io.nexy.android.data.model.ArtifactOutputFile
 import io.nexy.android.data.model.ArtifactSourceContext
 import io.nexy.android.data.model.ScheduleGeneratorSpec
@@ -90,6 +93,14 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val MAX_SYNC_EVENT_CHARS = 8_000_000
+
+internal fun isOversizedSyncEvent(text: String, maxChars: Int = MAX_SYNC_EVENT_CHARS): Boolean {
+    if (text.length <= maxChars) return false
+    val envelopePrefix = text.take(512)
+    return envelopePrefix.contains("\"sync:welcome\"") || envelopePrefix.contains("\"sync:ack\"")
+}
+
 @Suppress("UNCHECKED_CAST")
 fun parseWsEvent(
     text: String,
@@ -122,6 +133,22 @@ fun parseWsEvent(
     ratingStats: MutableStateFlow<ConversationRatingStats?>,
     desktopIsPackaged: MutableStateFlow<Boolean?> = MutableStateFlow(null),
 ) {
+    // Older desktop builds can send the entire message database in one reconnect frame. Refuse
+    // that frame before JSONObject expands it into a much larger object graph; connected chat
+    // remains usable and the emitted error tells the user to update the desktop.
+    if (isOversizedSyncEvent(text)) {
+        WsRepository.appendDebugLog("WsParse", "Rejected oversized sync event payloadChars=${text.length}")
+        scope.launch {
+            events.emit(
+                WsEvent.SyncError(
+                    code = "snapshot-too-large",
+                    message = "The desktop sent an oversized sync snapshot. Update Nexy Desktop and reconnect.",
+                    supportedProtocolVersion = null,
+                ),
+            )
+        }
+        return
+    }
     try {
         val obj = JSONObject(text)
         val event = obj.optString("event")
@@ -149,7 +176,7 @@ fun parseWsEvent(
                 protocolVersion = data?.optInt("protocolVersion", 0) ?: 0,
                 desktopDeviceId = data?.optString("desktopDeviceId") ?: "",
                 datasetId = data?.optString("datasetId") ?: "",
-                snapshotJson = data?.optJSONObject("snapshot")?.toString() ?: "{}",
+                snapshot = data?.optJSONObject("snapshot") ?: JSONObject(),
             )
 
             "sync:ack" -> {
@@ -158,7 +185,7 @@ fun parseWsEvent(
                     operationIds = if (ids == null) emptyList() else (0 until ids.length()).map(ids::optString),
                     lastReceivedSequence = data?.optLong("lastReceivedSequence", 0L) ?: 0L,
                     conflictsJson = data?.optJSONArray("conflicts")?.toString() ?: "[]",
-                    snapshotJson = data?.optJSONObject("snapshot")?.toString(),
+                    snapshot = data?.optJSONObject("snapshot"),
                 )
             }
 
@@ -196,6 +223,7 @@ fun parseWsEvent(
                 requestId = data?.optString("requestId") ?: "",
                 toolName = data?.optString("toolName") ?: "",
                 args = jsonObjectToMap(data?.optJSONObject("args")),
+                description = data?.optString("description") ?: "",
             )
 
             "chat:tool-call-event" -> WsEvent.ChatToolCallEvent(
@@ -779,6 +807,9 @@ fun parseWsEvent(
                 val fullAutoApproveOverride = if (data != null && data.has("fullAutoApproveOverride") && !data.isNull("fullAutoApproveOverride")) {
                     data.optInt("fullAutoApproveOverride") != 0
                 } else null
+                val agenticModeOverride = if (data != null && data.has("agenticModeOverride") && !data.isNull("agenticModeOverride")) {
+                    data.optInt("agenticModeOverride") != 0
+                } else null
                 val terminalSandboxOverride = if (data != null && data.has("terminalSandboxOverride") && !data.isNull("terminalSandboxOverride")) {
                     data.optInt("terminalSandboxOverride") != 0
                 } else null
@@ -789,13 +820,14 @@ fun parseWsEvent(
                         conversation.copy(
                             thinking_effort_override = thinkingEffortOverride,
                             full_auto_approve_override = fullAutoApproveOverride,
+                            agentic_mode_override = agenticModeOverride,
                             terminal_sandbox_override = terminalSandboxOverride,
                             cli_mode_override = cliModeOverride,
                             codex_execution_mode_override = codexExecutionModeOverride,
                         )
                     } else conversation
                 }
-                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride)
+                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride)
             }
 
             "conversation:messages" -> {
@@ -2132,10 +2164,23 @@ fun parseWsEvent(
                 val debriefObj = data?.optJSONObject("debrief")
                 val debrief = debriefObj?.let { parseConversationDebrief(it) }
                 currentDebrief.value = debrief
-                WsEvent.DebriefLoaded(debrief)
+                WsEvent.DebriefLoaded(data?.nullableString("conversationId"), debrief)
             }
 
             "debrief:error" -> WsEvent.DebriefError(data?.optString("message") ?: "Unknown error")
+
+            "debrief:story-ready" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                val storyObj = data.optJSONObject("story") ?: return
+                WsEvent.DebriefStoryReady(
+                    conversationId = conversationId,
+                    story = parseDebriefStory(storyObj),
+                    artifactId = data.nullableString("artifactId"),
+                    versionId = data.nullableString("versionId"),
+                )
+            }
+
+            "debrief:story-error" -> WsEvent.DebriefStoryError(data?.optString("message") ?: "Unknown error")
 
             "debrief:conversation-completed" -> {
                 val conversationId = data?.optString("conversationId") ?: return
@@ -2376,7 +2421,13 @@ fun parseWsEvent(
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
-    } catch (_: Exception) {}
+    } catch (error: Exception) {
+        val eventName = runCatching { JSONObject(text).optString("event", "unknown") }.getOrDefault("unknown")
+        WsRepository.appendDebugLog(
+            "WsParse",
+            "Dropped event=$eventName error=${error.javaClass.simpleName}: ${error.message.orEmpty()} payloadChars=${text.length}",
+        )
+    }
 }
 
 private fun parseAndroidPublishManifest(m: JSONObject) = AndroidPublishManifest(
@@ -2923,6 +2974,7 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             completed_at = if (row.has("completed_at") && !row.isNull("completed_at")) row.optLong("completed_at") else null,
             thinking_effort_override = row.nullableString("thinking_effort_override"),
             full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
+            agentic_mode_override = if (row.has("agentic_mode_override") && !row.isNull("agentic_mode_override")) row.optInt("agentic_mode_override") != 0 else null,
             terminal_sandbox_override = if (row.has("terminal_sandbox_override") && !row.isNull("terminal_sandbox_override")) row.optInt("terminal_sandbox_override") != 0 else null,
             cli_mode_override = row.nullableString("cli_mode_override"),
             codex_execution_mode_override = row.nullableString("codex_execution_mode_override"),
@@ -2945,6 +2997,21 @@ private fun parseConversationDebrief(obj: JSONObject): ConversationDebrief {
         generatedAt = obj.optLong("generatedAt", 0L),
         createdAt = obj.optLong("createdAt", 0L),
     )
+}
+
+private fun parseDebriefStory(obj: JSONObject): DebriefStory {
+    val beatsArr = obj.optJSONArray("beats")
+    val beats = if (beatsArr != null) {
+        (0 until beatsArr.length()).mapNotNull { i ->
+            val beatObj = beatsArr.optJSONObject(i) ?: return@mapNotNull null
+            StoryBeat(
+                caption = beatObj.optString("caption"),
+                mood = StoryMood.fromRaw(beatObj.optString("mood")),
+                svg = beatObj.optString("svg"),
+            )
+        }
+    } else emptyList()
+    return DebriefStory(title = obj.optString("title"), beats = beats)
 }
 
 private fun JSONObject.optStringList(key: String): List<String> {

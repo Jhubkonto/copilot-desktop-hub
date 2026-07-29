@@ -527,7 +527,18 @@ object WsRepository : WsClient {
     init {
         scope.launch {
             _remoteEvents.collect { event ->
-                localData?.applyRemoteEvent(event)
+                try {
+                    localData?.applyRemoteEvent(event)
+                } catch (error: Exception) {
+                    // A malformed or temporarily unwritable cache row must not bring down the
+                    // process (or cancel the repository's event collectors). The remote event is
+                    // still delivered so connected-mode UI can continue working.
+                    appendDebugLog(
+                        "sync-cache-error",
+                        "${event.javaClass.simpleName}: ${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                    )
+                    android.util.Log.e(WS_LOG_TAG, "Unable to cache remote event", error)
+                }
                 _events.emit(event)
             }
         }
@@ -690,21 +701,20 @@ object WsRepository : WsClient {
                     }
                     is WsEvent.SyncWelcome -> {
                         scope.launch {
-                            localData?.applySyncSnapshot(event.snapshotJson)
-                            acknowledgeStandaloneSnapshot(event.snapshotJson)
-                            resumeAttachmentTransfers(event.snapshotJson)
-                            flushStandaloneOutbox()
+                            applyStandaloneSnapshot(event.snapshot, acknowledgeTombstones = true)
                         }
                     }
                     is WsEvent.SyncAck -> {
                         scope.launch {
-                            localData?.acknowledge(event.operationIds)
-                            localData?.applySyncConflicts(event.conflictsJson)
-                            event.snapshotJson?.let {
-                                localData?.applySyncSnapshot(it)
-                                resumeAttachmentTransfers(it)
+                            try {
+                                localData?.acknowledge(event.operationIds)
+                                localData?.applySyncConflicts(event.conflictsJson)
+                                event.snapshot?.let {
+                                    applyStandaloneSnapshot(it, acknowledgeTombstones = false)
+                                } ?: flushStandaloneOutbox()
+                            } catch (error: Exception) {
+                                reportSyncFailure("ack", error)
                             }
-                            flushStandaloneOutbox()
                         }
                     }
                     is WsEvent.SyncAttachmentStatus -> scope.launch {
@@ -1291,9 +1301,30 @@ object WsRepository : WsClient {
         )
     }
 
-    private fun acknowledgeStandaloneSnapshot(snapshotJson: String) {
+    private suspend fun applyStandaloneSnapshot(
+        snapshot: JSONObject,
+        acknowledgeTombstones: Boolean,
+    ) {
+        try {
+            localData?.applySyncSnapshot(snapshot)
+            if (acknowledgeTombstones) acknowledgeStandaloneSnapshot(snapshot)
+            resumeAttachmentTransfers(snapshot)
+            flushStandaloneOutbox()
+        } catch (error: Exception) {
+            reportSyncFailure("snapshot", error)
+        }
+    }
+
+    private fun reportSyncFailure(stage: String, error: Exception) {
+        _syncInProgress.value = false
+        val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+        _lastError.value = "Android sync failed during $stage: $detail"
+        appendDebugLog("sync-$stage-error", "${error.javaClass.simpleName}: $detail")
+        android.util.Log.e(WS_LOG_TAG, "Standalone sync failed during $stage", error)
+    }
+
+    private fun acknowledgeStandaloneSnapshot(snapshot: JSONObject) {
         val token = currentToken ?: return
-        val snapshot = runCatching { JSONObject(snapshotJson) }.getOrNull() ?: return
         val tombstones = snapshot.optJSONArray("tombstones") ?: org.json.JSONArray()
         val items = (0 until tombstones.length()).mapNotNull { index ->
             val item = tombstones.optJSONObject(index) ?: return@mapNotNull null
@@ -1312,7 +1343,7 @@ object WsRepository : WsClient {
         )
     }
 
-    private suspend fun resumeAttachmentTransfers(snapshotJson: String) {
+    private suspend fun resumeAttachmentTransfers(snapshot: JSONObject) {
         val local = localData ?: return
         local.pendingAttachmentUploads().forEach { attachment ->
             send(
@@ -1327,7 +1358,7 @@ object WsRepository : WsClient {
                 ),
             )
         }
-        local.prepareAttachmentDownloads(snapshotJson).forEach { download ->
+        local.prepareAttachmentDownloads(snapshot).forEach { download ->
             requestAttachmentChunk(download.contentHash, download.nextOffset)
         }
     }
@@ -2604,6 +2635,27 @@ object WsRepository : WsClient {
         })
     }
     fun getDebrief(conversationId: String) { send("conversation:get-debrief", mapOf("conversationId" to conversationId)) }
+
+    // "Story mode" — narrative retelling of an existing debrief. Mirrors desktop's
+    // conversation:generate-debrief-story IPC channel, exposed here over the same debrief:*
+    // WS reply-event naming convention (debrief:story-ready / debrief:story-error).
+    fun generateDebriefStory(
+        conversationId: String,
+        projectId: String? = null,
+        model: String? = null,
+        forceRegenerate: Boolean = false,
+        tone: String? = null,
+        beatCount: Int? = null,
+    ) {
+        send("debrief:generate-story", buildMap {
+            put("conversationId", conversationId)
+            if (projectId != null) put("projectId", projectId)
+            if (model != null) put("model", model)
+            put("forceRegenerate", forceRegenerate)
+            if (tone != null) put("tone", tone)
+            if (beatCount != null) put("beatCount", beatCount)
+        })
+    }
     fun markConversationComplete(conversationId: String) { send("conversation:mark-complete", mapOf("conversationId" to conversationId)) }
     fun markConversationIncomplete(conversationId: String) { send("conversation:mark-incomplete", mapOf("conversationId" to conversationId)) }
 
@@ -2626,11 +2678,27 @@ object WsRepository : WsClient {
     // score-only attempt row — conversation:save-quiz-attempt/list-quiz-attempts no longer exist
     // on desktop, so those wrappers were removed rather than left calling into nothing.
 
-    fun generateQuiz(conversationId: String, projectId: String? = null, model: String? = null) {
+    fun generateQuiz(
+        conversationId: String,
+        projectId: String? = null,
+        model: String? = null,
+        source: String? = null,
+        topic: String? = null,
+        difficulty: String? = null,
+        questionCount: Int? = null,
+    ) {
         send("conversation:generate-quiz", buildMap {
             put("conversationId", conversationId)
             if (projectId != null) put("projectId", projectId)
             if (model != null) put("model", model)
+            if (source != null || topic != null || difficulty != null || questionCount != null) {
+                put("spec", buildMap {
+                    if (source != null) put("source", source)
+                    if (topic != null) put("topic", topic)
+                    if (difficulty != null) put("difficulty", difficulty)
+                    if (questionCount != null) put("questionCount", questionCount)
+                })
+            }
         })
     }
     fun getQuiz(conversationId: String) { send("conversation:get-quiz", mapOf("conversationId" to conversationId)) }
@@ -2645,11 +2713,12 @@ object WsRepository : WsClient {
     }
 
     // ─── Teach-back practice ───────────────────────────────────────────────────
-    fun generateTeachback(conversationId: String, projectId: String? = null, topic: String? = null) {
+    fun generateTeachback(conversationId: String, projectId: String? = null, topic: String? = null, model: String? = null) {
         send("conversation:generate-teachback", buildMap {
             put("conversationId", conversationId)
             if (projectId != null) put("projectId", projectId)
             if (!topic.isNullOrBlank()) put("topic", topic)
+            if (model != null) put("model", model)
         })
     }
     fun getTeachback(conversationId: String) = send("conversation:get-teachback", mapOf("conversationId" to conversationId))

@@ -1,5 +1,7 @@
 package io.nexy.android.data.model
 
+import org.json.JSONObject
+
 data class RemoteEditStagedFileEntry(
     val relativePath: String,
     val diffLineCount: Int,
@@ -28,13 +30,13 @@ sealed class WsEvent {
         val protocolVersion: Int,
         val desktopDeviceId: String,
         val datasetId: String,
-        val snapshotJson: String,
+        val snapshot: JSONObject,
     ) : WsEvent()
     data class SyncAck(
         val operationIds: List<String>,
         val lastReceivedSequence: Long,
         val conflictsJson: String,
-        val snapshotJson: String?,
+        val snapshot: JSONObject?,
     ) : WsEvent()
     data class SyncConflictResolved(val conflictId: String, val resolution: String?) : WsEvent()
     data class SyncError(val code: String, val message: String, val supportedProtocolVersion: Int?) : WsEvent()
@@ -58,6 +60,7 @@ sealed class WsEvent {
         val requestId: String,
         val toolName: String,
         val args: Map<String, Any>,
+        val description: String = "",
     ) : WsEvent()
     data class ChatToolCallEvent(
         val conversationId: String,
@@ -303,6 +306,7 @@ sealed class WsEvent {
         val conversationId: String,
         val thinkingEffortOverride: String?,
         val fullAutoApproveOverride: Boolean?,
+        val agenticModeOverride: Boolean?,
         val terminalSandboxOverride: Boolean?,
         val cliModeOverride: String? = null,
         val codexExecutionModeOverride: String? = null,
@@ -484,8 +488,10 @@ sealed class WsEvent {
     // artifactId/versionId are the debrief's artifact-backed home (desktop Phase 2) — null when
     // talking to an older desktop build that hasn't migrated debrief off conversation_debriefs yet.
     data class DebriefReady(val debrief: ConversationDebrief, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
-    data class DebriefLoaded(val debrief: ConversationDebrief?) : WsEvent()
+    data class DebriefLoaded(val conversationId: String?, val debrief: ConversationDebrief?) : WsEvent()
     data class DebriefError(val message: String) : WsEvent()
+    data class DebriefStoryReady(val conversationId: String, val story: DebriefStory, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
+    data class DebriefStoryError(val message: String) : WsEvent()
     data class DebriefConversationCompleted(val conversationId: String, val completedAt: Long) : WsEvent()
     data class DebriefConversationIncompleted(val conversationId: String) : WsEvent()
     // Ratings

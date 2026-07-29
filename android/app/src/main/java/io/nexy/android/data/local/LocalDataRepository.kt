@@ -431,8 +431,7 @@ class LocalDataRepository private constructor(
         database.attachments().updateTransfer(hash, "synced")
     }
 
-    suspend fun prepareAttachmentDownloads(snapshotJson: String): List<AttachmentDownload> {
-        val snapshot = runCatching { JSONObject(snapshotJson) }.getOrElse { return emptyList() }
+    suspend fun prepareAttachmentDownloads(snapshot: JSONObject): List<AttachmentDownload> {
         val manifests = snapshot.optJSONArray("attachments") ?: return emptyList()
         val downloads = mutableListOf<AttachmentDownload>()
         manifests.forEachObject { manifest ->
@@ -762,8 +761,7 @@ class LocalDataRepository private constructor(
         database.messages().recoverInterruptedTurns()
     }
 
-    suspend fun applySyncSnapshot(snapshotJson: String) {
-        val snapshot = runCatching { JSONObject(snapshotJson) }.getOrElse { return }
+    suspend fun applySyncSnapshot(snapshot: JSONObject) {
         val versions = snapshot.optJSONObject("versions") ?: JSONObject()
 
         database.withTransaction {

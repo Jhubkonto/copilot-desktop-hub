@@ -17,6 +17,7 @@ data class Conversation(
     val completed_at: Long? = null,
     val thinking_effort_override: String? = null,
     val full_auto_approve_override: Boolean? = null,
+    val agentic_mode_override: Boolean? = null,
     val terminal_sandbox_override: Boolean? = null,
     // Per-conversation CLI permission/sandbox mode. One column holds either family — Claude Code
     // ('plan'|'acceptEdits'|'bypassPermissions') or Codex ('read-only'|'workspace-write'|
