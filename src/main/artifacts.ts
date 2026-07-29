@@ -417,6 +417,20 @@ export function createPendingArtifactForConversation(input: {
   return artifactId
 }
 
+/** Inserts the durable `__artifact-ref` pending chat message for a just-created generating
+ * artifact. Shared by every trigger path (desktop IPC, Android WS) so a slash-command run
+ * from either device produces exactly one persisted card, regardless of which side started
+ * generation — callers must still broadcast the change to other devices/windows themselves. */
+export function insertPendingArtifactRefMessage(conversationId: string, artifactId: string, kind: ArtifactKind): string {
+  const db = getDatabase()
+  const id = randomUUID()
+  db.prepare(
+    `INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model)
+     VALUES (?, ?, 'system', ?, NULL, ?, NULL)`,
+  ).run(id, conversationId, artifactRefContent({ artifactId, kind, pending: true }), Date.now())
+  return id
+}
+
 /** Marks an in-progress artifact generation as failed, recording the reason so the chat
  * card and Artifacts tab can surface it instead of spinning forever. */
 export function markArtifactGenerationFailed(artifactId: string, projectId: string | null, errorMessage: string): void {
@@ -434,6 +448,33 @@ export function readArtifactVersionFile(versionId: string, relativePath: string)
   return readFileSync(file.absolutePath, 'utf8')
 }
 
+/**
+ * Writes (or overwrites) a single supporting file onto an *existing* artifact version, without
+ * minting a new version. Used for content that's lazily derived from a version's primary file
+ * (e.g. a debrief's "story" retelling) — it shouldn't bump the version history since it's a
+ * view of the same content, not a revision of it.
+ */
+export function addSupportingFileToVersion(versionId: string, relativePath: string, mediaType: string, content: string): void {
+  const version = getVersionWithFiles(versionId)
+  if (!version || !version.files || version.files.length === 0) throw new Error('Artifact version not found')
+  const db = getDatabase()
+  const sanitized = sanitizeRelativeArtifactPath(relativePath)
+  const versionDir = path.dirname(version.files[0].absolutePath)
+  const absolutePath = path.join(versionDir, ...sanitized.split('/'))
+  mkdirSync(path.dirname(absolutePath), { recursive: true })
+  writeFileSync(absolutePath, content, 'utf8')
+  const sizeBytes = statSync(absolutePath).size
+  const existingFile = version.files.find((f) => f.relativePath === sanitized)
+  if (existingFile) {
+    db.prepare('UPDATE artifact_files SET size_bytes = ? WHERE id = ?').run(sizeBytes, existingFile.id)
+  } else {
+    db.prepare(
+      `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
+       VALUES (?, ?, ?, ?, ?, 'supporting', ?)`
+    ).run(randomUUID(), versionId, sanitized, absolutePath, mediaType, sizeBytes)
+  }
+}
+
 interface ConversationArtifactFileInput {
   relativePath: string
   mediaType: string
@@ -449,6 +490,8 @@ interface WriteArtifactVersionForConversationInput {
   files: ConversationArtifactFileInput[]
   /** Pins the version to a specific pending artifact, avoiding latest-by-kind races. */
   artifactId?: string
+  /** Optional assistant message that produced this version. */
+  sourceMessageId?: string
 }
 
 /**
@@ -507,7 +550,10 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
     title: input.title,
     kind: input.kind,
     createdAt: now,
-    source: { conversationId: input.conversationId },
+    source: {
+      conversationId: input.conversationId,
+      ...(input.sourceMessageId ? { messageId: input.sourceMessageId } : {}),
+    },
     files: writtenFiles.map((f) => ({ path: f.relativePath, mediaType: f.mediaType, role: f.role })),
   })
 
@@ -525,7 +571,18 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
     db.prepare(
       `INSERT INTO artifact_versions (id, artifact_id, version_number, title, notes, spec_json, manifest_json, source_conversation_id, source_message_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(versionId, artifactId, versionNumber, input.title, null, null, manifestJson, input.conversationId, null, now)
+    ).run(
+      versionId,
+      artifactId,
+      versionNumber,
+      input.title,
+      null,
+      null,
+      manifestJson,
+      input.conversationId,
+      input.sourceMessageId ?? null,
+      now,
+    )
     for (const f of writtenFiles) {
       db.prepare(
         `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
@@ -534,8 +591,16 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
     }
     db.prepare(
       `INSERT INTO artifact_chat_refs (id, artifact_id, version_id, project_id, conversation_id, message_id, created_at)
-      VALUES (?, ?, ?, ?, ?, NULL, ?)`
-    ).run(randomUUID(), artifactId, versionId, input.projectId, input.conversationId, now)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      artifactId,
+      versionId,
+      input.projectId,
+      input.conversationId,
+      input.sourceMessageId ?? null,
+      now,
+    )
   })()
 
   pinLatestPendingArtifactRefMessage({
@@ -547,6 +612,53 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
   })
   broadcastArtifactUpdated(artifactId, input.projectId)
   return { artifactId, versionId }
+}
+
+/**
+ * Saves an explicit plan-mode handoff as a versioned Plan artifact and appends a
+ * provider-independent artifact card reference to the conversation.
+ */
+export function saveFinalizedPlanArtifact(input: {
+  conversationId: string
+  sourceMessageId: string
+  plan: string
+}): ConversationArtifactRef | null {
+  const plan = input.plan.trim()
+  if (!plan) return null
+
+  const db = getDatabase()
+  const conversation = db.prepare(
+    'SELECT title, project_id FROM conversations WHERE id = ?',
+  ).get(input.conversationId) as { title: string | null; project_id: string | null } | undefined
+  if (!conversation) return null
+
+  const title = `Plan: ${conversation.title?.trim() || 'Conversation'}`
+  const ref = writeArtifactVersionForConversation({
+    conversationId: input.conversationId,
+    projectId: conversation.project_id,
+    kind: 'plan',
+    title,
+    sourceMessageId: input.sourceMessageId,
+    files: [
+      {
+        relativePath: 'plan.md',
+        mediaType: 'text/markdown',
+        role: 'primary',
+        content: plan,
+      },
+    ],
+  })
+
+  db.prepare(
+    `INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model)
+     VALUES (?, ?, 'system', ?, NULL, ?, NULL)`,
+  ).run(
+    randomUUID(),
+    input.conversationId,
+    artifactRefContent({ artifactId: ref.artifactId, versionId: ref.versionId, kind: 'plan' }),
+    Date.now(),
+  )
+  return ref
 }
 
 /**

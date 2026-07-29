@@ -253,3 +253,37 @@ describe('artifact:promote-message', () => {
     })).toThrow('Only assistant messages can be saved as artifacts')
   })
 })
+
+describe('saveFinalizedPlanArtifact', () => {
+  it('writes a versioned plan with message provenance and appends a chat artifact reference', async () => {
+    const runCalls: Array<{ sql: string; args: unknown[] }> = []
+    mockDb.prepare.mockImplementation(((sql: string) => ({
+      get: vi.fn(() => {
+        if (sql.includes('SELECT title, project_id FROM conversations')) {
+          return { title: 'Unify settings UI', project_id: 'proj-1' }
+        }
+        if (sql.includes('SELECT COUNT(*) as c FROM artifact_versions')) return { c: 0 }
+        return undefined
+      }),
+      all: vi.fn(() => []),
+      run: vi.fn((...args: unknown[]) => {
+        runCalls.push({ sql, args })
+        return { changes: 1 }
+      }),
+    })) as never)
+
+    const { saveFinalizedPlanArtifact } = await import('../artifacts')
+    const result = saveFinalizedPlanArtifact({
+      conversationId: 'conv-1',
+      sourceMessageId: 'assistant-1',
+      plan: '# Plan\n\n1. Inspect\n2. Implement',
+    })
+
+    expect(result).toMatchObject({ artifactId: expect.any(String), versionId: expect.any(String) })
+    const versionInsert = runCalls.find((call) => call.sql.includes('INSERT INTO artifact_versions'))
+    expect(versionInsert?.args[8]).toBe('assistant-1')
+    const refInsert = runCalls.find((call) => call.sql.includes("VALUES (?, ?, 'system'"))
+    expect(refInsert?.args[2]).toContain('__artifact-ref:')
+    expect(refInsert?.args[2]).toContain('"kind":"plan"')
+  })
+})
