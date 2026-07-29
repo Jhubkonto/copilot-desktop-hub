@@ -8,6 +8,12 @@ export const STANDALONE_SYNC_SCHEMA_VERSION = 2
 const SUPPORTED_SYNC_SCHEMA_VERSIONS = [1, STANDALONE_SYNC_SCHEMA_VERSION] as const
 const SUPPORTED_ENTITY_TYPES = ['project', 'agent', 'conversation', 'message', 'wiki', 'prompt', 'skill'] as const
 const MAX_SYNC_BATCH_SIZE = 100
+// A reconnect snapshot is a hydration window, not a full conversation export. Sending every
+// message makes the WebSocket frame and Android's JSON object graph grow without bound; a single
+// long-running chat can then exhaust the mobile heap while the home screen shows "Syncing".
+// Older rows remain available through conversation:get-messages pagination and are cached locally
+// when viewed.
+const SNAPSHOT_MESSAGES_PER_CONVERSATION = 60
 
 interface SyncOperation {
   operationId: string
@@ -401,8 +407,18 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
   const messages = db.prepare(`
     SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
            input_tokens, output_tokens, timestamp
-    FROM messages ORDER BY timestamp, id
-  `).all() as Record<string, unknown>[]
+    FROM (
+      SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
+             input_tokens, output_tokens, timestamp,
+             ROW_NUMBER() OVER (
+               PARTITION BY conversation_id
+               ORDER BY timestamp DESC, id DESC
+             ) AS snapshot_rank
+      FROM messages
+    )
+    WHERE snapshot_rank <= ?
+    ORDER BY timestamp, id
+  `).all(SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]
   const wiki = (db.prepare(`
     SELECT id, project_id, title, body, tags, source_conversation_id, created_at, updated_at
     FROM project_wiki_entries ORDER BY updated_at, id

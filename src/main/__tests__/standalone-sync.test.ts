@@ -95,6 +95,29 @@ describe('standalone peer synchronization', () => {
     )
   })
 
+  it('bounds reconnect message snapshots while retaining the newest history window', () => {
+    state.db!.prepare(
+      "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('long-chat', 'Long chat', 1, 100)",
+    ).run()
+    const insert = state.db!.prepare(
+      'INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)',
+    )
+    for (let index = 0; index < 80; index += 1) {
+      insert.run(`message-${index}`, 'long-chat', index % 2 === 0 ? 'user' : 'assistant', `content-${index}`, index)
+    }
+
+    const result = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 1,
+    })
+    const messages = result.data.snapshot.messages as Array<{ id: string }>
+
+    expect(messages).toHaveLength(60)
+    expect(messages[0].id).toBe('message-20')
+    expect(messages.at(-1)?.id).toBe('message-79')
+  })
+
   it('applies and acknowledges an idempotent Android operation', () => {
     command('sync:hello', {
       deviceId: 'android-1',
