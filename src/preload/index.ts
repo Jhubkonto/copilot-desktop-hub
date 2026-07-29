@@ -252,6 +252,7 @@ const api = {
       displayContent?: string
       thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
       fullAutoApproveOverride?: boolean | null
+      agenticModeOverride?: boolean | null
       terminalSandboxOverride?: boolean | null
       cliModeOverride?: import('../shared/types').CliModeOverride | null
       codexExecutionModeOverride?: import('../shared/types').CodexExecutionModeOverride | null
@@ -374,7 +375,7 @@ const api = {
     typedInvoke('conversation:rename', id, title),
   setConversationModel: (id: string, model: string | null, cliBackend?: string | null) =>
     typedInvoke('conversation:set-model', id, model, cliBackend),
-  setConversationMode: (id: string, mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: import('../shared/types').CliModeOverride | null; codexExecutionModeOverride?: import('../shared/types').CodexExecutionModeOverride | null }) =>
+  setConversationMode: (id: string, mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; agenticModeOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: import('../shared/types').CliModeOverride | null; codexExecutionModeOverride?: import('../shared/types').CodexExecutionModeOverride | null }) =>
     typedInvoke('conversation:set-mode', id, mode),
   setConversationPinned: (id: string, pinned: boolean) =>
     typedInvoke('conversation:set-pinned', id, pinned),
@@ -438,7 +439,13 @@ const api = {
   deleteSkill: (id: string) => typedInvoke('skill:delete', id),
   duplicateSkill: (id: string) => typedInvoke('skill:duplicate', id),
   exportSkill: (id: string) => typedInvoke('skill:export', id),
+  exportSkillMarkdown: (id: string) => typedInvoke('skill:export-md', id),
   importSkill: () => typedInvoke('skill:import'),
+  onSkillLibraryUpdated: (callback: () => void) => {
+    const handler = () => callback()
+    typedOn('skill:library-updated', handler)
+    return () => typedOff('skill:library-updated', handler)
+  },
   getSkillAgentLinks: (agentId: string) => typedInvoke('skill:get-agent-links', agentId),
   attachSkillToAgent: (agentId: string, skillId: string, attach: boolean) =>
     typedInvoke('skill:attach-to-agent', agentId, skillId, attach),
@@ -1023,6 +1030,8 @@ const api = {
     typedInvoke('conversation:start-debrief-generation', conversationId, projectId, model),
   getDebrief: (conversationId: string) =>
     typedInvoke('conversation:get-debrief', conversationId),
+  generateDebriefStory: (conversationId: string, projectId: string | null, model?: string, forceRegenerate?: boolean, tone?: import('../shared/types').DebriefStoryTone, beatCount?: number) =>
+    typedInvoke('conversation:generate-debrief-story', conversationId, projectId, model, forceRegenerate, tone, beatCount),
   markConversationComplete: (conversationId: string) =>
     typedInvoke('conversation:mark-complete', conversationId),
   markConversationIncomplete: (conversationId: string) =>
