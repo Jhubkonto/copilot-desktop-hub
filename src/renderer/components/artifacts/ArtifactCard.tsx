@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Package, PackageX, Copy, CheckCircle, AlertCircle } from 'lucide-react'
+import { Package, PackageX, Copy, CheckCircle, AlertCircle, ChevronDown, ChevronUp, ListChecks } from 'lucide-react'
 
-import type { ArtifactRow } from '@shared/types'
+import type { ArtifactRow, ArtifactVersion } from '@shared/types'
+import { MarkdownRenderer } from '../MarkdownRenderer'
 import { DebriefArtifactCard } from './DebriefArtifactCard'
 import { QuizArtifactCard } from './QuizArtifactCard'
 import { TeachbackArtifactCard } from './TeachbackArtifactCard'
@@ -67,7 +68,69 @@ export function ArtifactCard({
   if (artifact.kind === 'debrief') return <DebriefArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
   if (artifact.kind === 'quiz') return <QuizArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
   if (artifact.kind === 'teachback') return <TeachbackArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
+  if (artifact.kind === 'plan') return <PlanArtifactCard artifact={artifact} versionId={versionId} />
   return <GenericArtifactCard artifact={artifact} />
+}
+
+function PlanArtifactCard({ artifact, versionId }: { artifact: ArtifactRow; versionId?: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const [version, setVersion] = useState<ArtifactVersion | undefined>(artifact.currentVersion)
+  const [content, setContent] = useState<string | null | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const selectedVersion = versionId && versionId !== artifact.currentVersion?.id
+          ? await window.api.artifactGetVersion(versionId)
+          : artifact.currentVersion
+        if (!selectedVersion || cancelled) {
+          if (!cancelled) setContent(null)
+          return
+        }
+        setVersion(selectedVersion)
+        const primaryFile = selectedVersion.files?.find((file) => file.role === 'primary') ?? selectedVersion.files?.[0]
+        if (!primaryFile) {
+          setContent(null)
+          return
+        }
+        const result = await window.api.artifactGetFileContent(selectedVersion.id, primaryFile.relativePath)
+        if (!cancelled) setContent(result.content)
+      } catch {
+        if (!cancelled) setContent(null)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [artifact.currentVersion, versionId])
+
+  return (
+    <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-3 dark:border-purple-700 dark:bg-purple-900/10">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2 text-left"
+        aria-expanded={expanded}
+      >
+        <ListChecks className="h-4 w-4 shrink-0 text-purple-500" />
+        <ArtifactKindBadge kind="plan" />
+        <span className="flex-1 truncate text-xs font-semibold text-gray-800 dark:text-gray-200">
+          {artifactDisplayTitle(artifact.title, artifact.kind)}
+        </span>
+        {version && <span className="text-[10px] text-gray-400">v{version.versionNumber}</span>}
+        {expanded ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
+      </button>
+      {expanded && (
+        <div className="mt-3 max-h-96 overflow-y-auto border-t border-purple-200 pt-3 text-sm dark:border-purple-800">
+          {content === undefined
+            ? <p className="text-xs text-gray-400">Loading plan…</p>
+            : content
+              ? <MarkdownRenderer content={content} />
+              : <p className="text-xs text-gray-400">Plan content unavailable.</p>}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ArtifactLoadingCard() {

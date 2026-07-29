@@ -8,6 +8,7 @@ interface PromptLibraryModalProps {
   projectId: string | null
   projectName?: string | null
   draftContent?: string
+  initialMode?: Mode
   onInsert: (content: string) => void
   onRun?: (content: string) => void | Promise<void>
   onAttachInstruction?: (content: string, title: string) => void
@@ -77,6 +78,7 @@ export function PromptLibraryModal({
   projectId,
   projectName,
   draftContent = '',
+  initialMode = 'use',
   onInsert,
   onRun,
   onAttachInstruction,
@@ -87,7 +89,7 @@ export function PromptLibraryModal({
   const [values, setValues] = useState<Record<string, string>>({})
   const [defaults, setDefaults] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
-  const [mode, setMode] = useState<Mode>('use')
+  const [mode, setMode] = useState<Mode>(initialMode)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<PromptLibraryInput>(() => ({
     ...EMPTY_DRAFT,

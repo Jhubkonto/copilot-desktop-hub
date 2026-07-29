@@ -1,8 +1,111 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrainCircuit, CheckCircle, Loader2, RefreshCw, XCircle } from 'lucide-react'
-import type { ArtifactRow, ArtifactVersion, QuizQuestion, QuizResult, QuizSpec, QuizAttempt, QuizCategoryBreakdown } from '@shared/types'
+import type { ArtifactRow, ArtifactVersion, QuizDifficulty, QuizQuestion, QuizResult, QuizSource, QuizSpec, QuizAttempt, QuizCategoryBreakdown } from '@shared/types'
+import { useAppStore } from '../../store/app-store'
 
 type Step = 'loading' | 'generating' | 'question' | 'feedback' | 'summary'
+
+const QUIZ_SOURCES: { value: QuizSource; label: string }[] = [
+  { value: 'conversation', label: 'This conversation' },
+  { value: 'debrief', label: 'Debrief' },
+  { value: 'project', label: 'Whole project' },
+]
+
+const QUIZ_DIFFICULTIES: { value: QuizDifficulty; label: string }[] = [
+  { value: 'easy', label: 'Easy' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'hard', label: 'Hard' },
+]
+
+/** Small pre-generation picker for the quiz's source/difficulty/topic/count spec, shown before
+ * "Regenerate" actually kicks off generation so the user isn't stuck with whatever the last
+ * spec happened to be. */
+function QuizSpecDialog({ initial, onCancel, onConfirm }: { initial: QuizSpec | null; onCancel: () => void; onConfirm: (spec: QuizSpec) => void }) {
+  const [source, setSource] = useState<QuizSource>(initial?.source ?? 'conversation')
+  const [difficulty, setDifficulty] = useState<QuizDifficulty>(initial?.difficulty ?? 'medium')
+  const [topic, setTopic] = useState(initial?.topic ?? '')
+  const [questionCount, setQuestionCount] = useState<number | ''>(initial?.questionCount ?? '')
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white/70 dark:bg-black/20 p-3 max-w-xl">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">Source</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {QUIZ_SOURCES.map((s) => (
+            <button
+              key={s.value}
+              type="button"
+              onClick={() => setSource(s.value)}
+              className={`px-2 py-0.5 rounded-full text-xs transition-colors ${source === s.value ? 'bg-indigo-500 text-white' : 'bg-indigo-100/70 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300'}`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">Difficulty</p>
+        <div className="flex gap-1.5">
+          {QUIZ_DIFFICULTIES.map((d) => (
+            <button
+              key={d.value}
+              type="button"
+              onClick={() => setDifficulty(d.value)}
+              className={`px-2 py-0.5 rounded-full text-xs transition-colors ${difficulty === d.value ? 'bg-indigo-500 text-white' : 'bg-indigo-100/70 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300'}`}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <label className="flex-1 text-xs text-gray-500 dark:text-gray-400">
+          Focus topic (optional)
+          <input
+            type="text"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="e.g. the IPC layer"
+            className="mt-1 w-full rounded-md border border-gray-200 dark:border-gray-600 bg-transparent px-2 py-1 text-sm text-gray-800 dark:text-gray-200"
+          />
+        </label>
+        <label className="w-28 text-xs text-gray-500 dark:text-gray-400">
+          Questions
+          <input
+            type="number"
+            min={3}
+            max={12}
+            value={questionCount}
+            onChange={(e) => setQuestionCount(e.target.value ? Number(e.target.value) : '')}
+            placeholder="5-8"
+            className="mt-1 w-full rounded-md border border-gray-200 dark:border-gray-600 bg-transparent px-2 py-1 text-sm text-gray-800 dark:text-gray-200"
+          />
+        </label>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2.5 py-1 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm({
+            source,
+            difficulty,
+            topic: topic.trim() || undefined,
+            questionCount: questionCount === '' ? undefined : questionCount,
+          })}
+          className="px-2.5 py-1 text-xs rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
+        >
+          Generate
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
   command: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -41,10 +144,12 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
   const [regenerating, setRegenerating] = useState(false)
   const [spec, setSpec] = useState<QuizSpec | null>(null)
   const [attempts, setAttempts] = useState<QuizAttempt[]>([])
+  const [showSpecDialog, setShowSpecDialog] = useState(false)
   const recordedRef = useRef(false)
 
   const nextBtnRef = useRef<HTMLButtonElement>(null)
   const lockedVersionId = lockedVersion?.artifactId === artifactId ? lockedVersion.versionId : null
+  const conversations = useAppStore((s) => s.conversations)
 
   const load = useCallback(() => {
     setError(null)
@@ -195,19 +300,20 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
     setStep('question')
   }, [])
 
-  const handleRegenerate = useCallback(async () => {
+  const handleRegenerate = useCallback(async (overrideSpec?: QuizSpec) => {
     const conversationId = version?.sourceConversationId ?? artifact?.currentVersion?.sourceConversationId ?? artifact?.conversationId
     if (!conversationId) return
+    const model = conversations.find((c) => c.id === conversationId)?.model ?? undefined
     setRegenerating(true)
     try {
-      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null, undefined, spec ?? undefined, artifactId)
+      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null, model, overrideSpec ?? spec ?? undefined, artifactId)
       load()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to regenerate quiz')
     } finally {
       setRegenerating(false)
     }
-  }, [artifact, artifactId, load, version, spec])
+  }, [artifact, artifactId, conversations, load, version, spec])
 
   // Generates a fresh quiz that re-tests the concepts from the questions just missed. Uses the
   // most recent attempt's missed list, threaded through the spec's focusQuestions.
@@ -215,9 +321,10 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
     const conversationId = version?.sourceConversationId ?? artifact?.currentVersion?.sourceConversationId ?? artifact?.conversationId
     const missed = attempts[0]?.missedQuestions ?? []
     if (!conversationId || missed.length === 0) return
+    const model = conversations.find((c) => c.id === conversationId)?.model ?? undefined
     setRegenerating(true)
     try {
-      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null, undefined, {
+      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null, model, {
         ...(spec ?? {}),
         focusQuestions: missed,
       }, artifactId)
@@ -227,7 +334,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
     } finally {
       setRegenerating(false)
     }
-  }, [artifact, artifactId, attempts, load, version, spec])
+  }, [artifact, artifactId, attempts, conversations, load, version, spec])
 
   const currentQuestion = questions[currentIndex]
   const total = questions.length
@@ -465,6 +572,17 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
             </div>
           )}
 
+          {showSpecDialog && (
+            <QuizSpecDialog
+              initial={spec}
+              onCancel={() => setShowSpecDialog(false)}
+              onConfirm={(nextSpec) => {
+                setShowSpecDialog(false)
+                void handleRegenerate(nextSpec)
+              }}
+            />
+          )}
+
           <div className="flex gap-2">
             <button
               type="button"
@@ -475,7 +593,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
             </button>
             <button
               type="button"
-              onClick={() => void handleRegenerate()}
+              onClick={() => setShowSpecDialog(true)}
               disabled={regenerating}
               className="flex items-center justify-center gap-1.5 flex-1 px-4 py-2 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white disabled:opacity-50 transition-colors"
             >

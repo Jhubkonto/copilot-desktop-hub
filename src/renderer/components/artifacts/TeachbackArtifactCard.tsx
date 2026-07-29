@@ -3,6 +3,7 @@ import { CheckCircle, Loader2, Mic, RefreshCw, RotateCcw, Square, Volume2, Volum
 import type { ArtifactRow, ArtifactVersion, TeachbackArtifactData, TeachbackAttempt, TeachbackFeedback } from '@shared/types'
 import { isApiError } from '@shared/types'
 import { useVoiceInput } from '../../hooks/useVoiceInput'
+import { useAppStore } from '../../store/app-store'
 
 const RUBRIC_LABELS: Array<keyof TeachbackFeedback['rubric']> = ['accuracy', 'completeness', 'clarity']
 
@@ -23,6 +24,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
   const [grading, setGrading] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const lockedVersionId = lockedVersion?.artifactId === artifactId ? lockedVersion.versionId : null
+  const conversations = useAppStore((s) => s.conversations)
 
   const onTranscript = useCallback((text: string) => {
     setTranscript(text)
@@ -176,10 +178,11 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
   const handleRegenerate = useCallback(async () => {
     const conversationId = version?.sourceConversationId ?? artifact?.currentVersion?.sourceConversationId ?? artifact?.conversationId
     if (!conversationId) return
+    const model = conversations.find((c) => c.id === conversationId)?.model ?? undefined
     await cancelVoice()
     setRegenerating(true)
     try {
-      const result = await window.api.startTeachbackGeneration(conversationId, artifact?.projectId ?? null, undefined, exercise?.spec)
+      const result = await window.api.startTeachbackGeneration(conversationId, artifact?.projectId ?? null, model, exercise?.spec)
       if (isApiError(result)) setError(result.error)
       else load()
     } catch (regenerateError) {
@@ -187,7 +190,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
     } finally {
       setRegenerating(false)
     }
-  }, [artifact, cancelVoice, exercise?.spec, load, version])
+  }, [artifact, cancelVoice, conversations, exercise?.spec, load, version])
 
   const resetAttempt = useCallback(async () => {
     await cancelVoice()
