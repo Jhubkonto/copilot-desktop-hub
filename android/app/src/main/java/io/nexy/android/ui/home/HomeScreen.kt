@@ -78,6 +78,7 @@ import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.ApprovalDialog
+import io.nexy.android.ui.connection.StandaloneModeToggle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.ButtonDefaults
@@ -192,6 +193,7 @@ fun HomeScreen(
         ApprovalDialog(
             request = pendingApproval!!,
             onApprove = { vm.approveRequest(pendingApproval!!.requestId) },
+            onKeepPlanning = { vm.rejectRequest(pendingApproval!!.requestId) },
             onReject = { vm.rejectRequest(pendingApproval!!.requestId) },
         )
     }
@@ -324,6 +326,18 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.padding(top = 12.dp),
             )
+            StandaloneModeToggle(
+                isStandaloneModeEnabled = preferStandaloneMode,
+                onToggle = { prefer ->
+                    if (hasActiveActivity(activeConversationIds, pendingConversationIds, syncInProgress, backgroundActivities)) {
+                        scope.launch { snackbarHostState.showSnackbar("Can't switch modes while a chat or generation is in progress") }
+                    } else {
+                        vm.setPreferStandaloneMode(prefer)
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (profiles.size > 1) {
                 Text(
                     "Saved servers",
@@ -437,19 +451,6 @@ fun HomeScreen(
                     }
                 },
                 actions = {
-                    ConnectionChip(
-                        mode = effectiveMode,
-                        intentionalRestartExpected = intentionalRestartExpected,
-                        isBusy = hasActiveActivity(activeConversationIds, pendingConversationIds, syncInProgress, backgroundActivities),
-                        onToggle = {
-                            val switchingTo = if (preferStandaloneMode) "Remote" else "Standalone"
-                            vm.setPreferStandaloneMode(!preferStandaloneMode)
-                            scope.launch { snackbarHostState.showSnackbar("Switched to $switchingTo mode") }
-                        },
-                        onBusyTap = {
-                            scope.launch { snackbarHostState.showSnackbar("Can't switch modes while a chat or generation is in progress") }
-                        },
-                    )
                     IconButton(onClick = { showConnectionSheet = true }) {
                         Icon(Icons.Default.ExpandMore, contentDescription = "Connection details")
                     }

@@ -54,6 +54,7 @@ fun PairingStartScreen(
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Connect to Nexy Desktop", style = MaterialTheme.typography.titleMedium) },
+                showConnectionStatus = false,
             )
         },
     ) { padding ->

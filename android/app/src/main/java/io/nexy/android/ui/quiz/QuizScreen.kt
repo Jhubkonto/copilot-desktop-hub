@@ -18,6 +18,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,7 @@ fun QuizScreen(
     vm: QuizViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val specState by vm.specState.collectAsStateWithLifecycle()
 
     LaunchedEffect(conversationId, artifactId) {
         // A known artifactId (opening an existing quiz card) always loads that exact quiz —
@@ -106,6 +108,14 @@ fun QuizScreen(
             val currentState = state
             when (currentState) {
                 is QuizUiState.CheckingExisting -> GeneratingContent()
+                is QuizUiState.ReadyToGenerate -> QuizSpecDialog(
+                    spec = specState,
+                    onSourceChange = { vm.setSource(it) },
+                    onDifficultyChange = { vm.setDifficulty(it) },
+                    onTopicChange = { vm.setTopic(it) },
+                    onQuestionCountChange = { vm.setQuestionCount(it) },
+                    onGenerate = { vm.generateWithSpec() },
+                )
                 is QuizUiState.Generating -> GeneratingContent()
                 is QuizUiState.Question -> QuestionContent(
                     state = currentState,
@@ -143,6 +153,95 @@ private fun GeneratingContent() {
             androidx.compose.material3.CircularProgressIndicator()
             Text("Generating quiz questions…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+private val QUIZ_SOURCES = listOf("conversation" to "This conversation", "debrief" to "Debrief", "project" to "Whole project")
+private val QUIZ_DIFFICULTIES = listOf("easy" to "Easy", "medium" to "Medium", "hard" to "Hard")
+
+/** Pre-generation picker for source/difficulty/topic/count — mirrors desktop's QuizSpecDialog,
+ *  shown before the first generation (and before "Try Again") instead of silently generating
+ *  with whatever spec was last used. */
+@Composable
+private fun QuizSpecDialog(
+    spec: QuizSpecState,
+    onSourceChange: (String) -> Unit,
+    onDifficultyChange: (String) -> Unit,
+    onTopicChange: (String) -> Unit,
+    onQuestionCountChange: (Int?) -> Unit,
+    onGenerate: () -> Unit,
+) {
+    var questionCountText by remember(spec.questionCount) { mutableStateOf(spec.questionCount?.toString() ?: "") }
+
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            QuizPanel(title = "Generate a quiz") {
+                Text(
+                    "Answer a few questions about this conversation to check what stuck.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Text("Source", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                ) {
+                    QUIZ_SOURCES.forEach { (value, label) ->
+                        SpecChip(label = label, selected = spec.source == value, onClick = { onSourceChange(value) })
+                    }
+                }
+
+                Text("Difficulty", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QUIZ_DIFFICULTIES.forEach { (value, label) ->
+                        SpecChip(label = label, selected = spec.difficulty == value, onClick = { onDifficultyChange(value) })
+                    }
+                }
+
+                androidx.compose.material3.OutlinedTextField(
+                    value = spec.topic,
+                    onValueChange = onTopicChange,
+                    label = { Text("Focus topic (optional)") },
+                    placeholder = { Text("e.g. the IPC layer") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                androidx.compose.material3.OutlinedTextField(
+                    value = questionCountText,
+                    onValueChange = { text ->
+                        questionCountText = text
+                        onQuestionCountChange(text.toIntOrNull())
+                    },
+                    label = { Text("Questions (3-12)") },
+                    placeholder = { Text("5-8") },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                FilledTonalButton(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
+                    Text("Generate quiz")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpecChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+        modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = onClick),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
     }
 }
 

@@ -33,6 +33,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -562,7 +565,7 @@ private fun PromptVersionHistory(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CreatePromptSheet(
+internal fun CreatePromptSheet(
     title: String,
     body: String,
     description: String,
@@ -578,13 +581,16 @@ private fun CreatePromptSheet(
     onScopeChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    sheetTitle: String = "New Prompt",
+    confirmLabel: String = "Create",
+    saving: Boolean = false,
 ) {
     NexyFormSheet(
-        title = "New Prompt",
-        confirmLabel = "Create",
+        title = sheetTitle,
+        confirmLabel = confirmLabel,
         onConfirm = onConfirm,
         onDismiss = onDismiss,
-        confirmEnabled = title.isNotBlank() && body.isNotBlank(),
+        confirmEnabled = !saving && title.isNotBlank() && body.isNotBlank(),
     ) {
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
             OutlinedTextField(value = title, onValueChange = onTitleChange, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true, imeAction = ImeAction.Next))
@@ -598,13 +604,20 @@ private fun CreatePromptSheet(
             OutlinedTextField(value = tags, onValueChange = onTagsChange, label = { Text("Tags (comma-separated)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
             if (showProjectScope) {
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("global", "project").forEach { s ->
-                        TextButton(
-                            onClick = { onScopeChange(s) },
-                            modifier = Modifier.weight(1f),
+                Text(
+                    "Save to",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf("global" to "Global", "project" to "Project only").forEachIndexed { index, (value, label) ->
+                        SegmentedButton(
+                            selected = scope == value,
+                            onClick = { onScopeChange(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
                         ) {
-                            Text(if (s == "global") "Global" else "Project only", style = if (scope == s) MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.primary) else MaterialTheme.typography.labelMedium)
+                            Text(label)
                         }
                     }
                 }

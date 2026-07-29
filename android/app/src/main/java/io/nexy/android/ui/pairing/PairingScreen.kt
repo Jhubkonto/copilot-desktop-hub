@@ -92,6 +92,7 @@ fun PairingScreen(
             NexyTopAppBar(
                 titleContent = { Text("Pair with Desktop", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                showConnectionStatus = false,
             )
         },
     ) { padding ->

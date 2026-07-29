@@ -1,22 +1,7 @@
 package io.nexy.android.ui.home
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import io.nexy.android.data.BackgroundActivity
-import io.nexy.android.data.EffectiveConnectionMode
-import io.nexy.android.ui.connection.getEffectiveModePresentation
 
 // Whether it's safe to flip Standalone/Remote mode right now. Switching mid-stream would yank
 // the active chat/generation/sync out from under itself, so the toggle is gated on all of these
@@ -31,33 +16,6 @@ fun hasActiveActivity(
         pendingConversationIds.isNotEmpty() ||
         syncInProgress ||
         backgroundActivities.isNotEmpty()
-
-/**
- * The ever-present connectivity indicator in the home top bar. Also doubles as the Standalone/
- * Remote mode toggle: tapping it flips the mode immediately when [isBusy] is false, or calls
- * [onBusyTap] (to explain why not) when something is currently active.
- */
-@Composable
-fun ConnectionChip(
-    mode: EffectiveConnectionMode,
-    intentionalRestartExpected: Boolean = false,
-    isBusy: Boolean = false,
-    onToggle: () -> Unit,
-    onBusyTap: () -> Unit,
-) {
-    run {
-        val presentation = getEffectiveModePresentation(mode, intentionalRestartExpected)
-        Text(
-            text = "● ${presentation.label}",
-            color = presentation.color,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = { if (isBusy) onBusyTap() else onToggle() })
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-        )
-    }
-}
 
 fun projectColor(color: String): Color = when (color.lowercase()) {
     "red" -> Color(0xFFEF4444)
