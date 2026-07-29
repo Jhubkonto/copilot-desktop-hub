@@ -3,6 +3,7 @@ import { BrowserWindow, dialog } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
+import { parseSkillMarkdown, skillToMarkdown } from './skill-markdown'
 import type { AgentConfig, SkillConfig, ToolConfig } from '../shared/types'
 
 interface SkillRow {
@@ -83,6 +84,26 @@ export function createSkillConfig(input: Partial<SkillConfig>): SkillConfig {
     now,
   )
   return config
+}
+
+export function findSkillConfigByName(name: string): SkillConfig | null {
+  const target = name.trim().toLowerCase()
+  if (!target) return null
+  return listSkillConfigs().find((s) => s.name.trim().toLowerCase() === target) ?? null
+}
+
+/**
+ * Creates a skill, or updates the existing skill with the same (case-insensitive) name.
+ * Used by model-driven skill capture (`save_skill`) so re-saving a skill updates it in place
+ * rather than piling up duplicates. Returns whether a new row was created.
+ */
+export function upsertSkillConfigByName(input: Partial<SkillConfig>): { skill: SkillConfig; created: boolean } {
+  const name = String(input.name ?? '').trim()
+  const existing = name ? findSkillConfigByName(name) : null
+  if (existing) {
+    return { skill: updateSkillConfig(existing.id, input), created: false }
+  }
+  return { skill: createSkillConfig(input), created: true }
 }
 
 export function updateSkillConfig(id: string, input: Partial<SkillConfig>): SkillConfig {
@@ -244,16 +265,40 @@ export function registerSkillHandlers(): void {
     return true
   })
 
+  safeHandle('skill:export-md', async (_event, id: string) => {
+    const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(id) as SkillRow | undefined
+    if (!row) return false
+    const skill = rowToSkill(row)
+    const win = BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: `${skill.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.SKILL.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    })
+    if (result.canceled || !result.filePath) return false
+    await writeFile(result.filePath, skillToMarkdown(skill), 'utf-8')
+    return true
+  })
+
   safeHandle('skill:import', async () => {
     const win = BrowserWindow.getAllWindows()[0]
     const result = await dialog.showOpenDialog(win, {
       properties: ['openFile'],
-      filters: [{ name: 'JSON', extensions: ['json'] }],
+      filters: [
+        { name: 'Skill', extensions: ['json', 'md'] },
+        { name: 'JSON', extensions: ['json'] },
+        { name: 'Markdown', extensions: ['md'] },
+      ],
     })
     if (result.canceled || result.filePaths.length === 0) return null
     try {
-      const content = await readFile(result.filePaths[0], 'utf-8')
-      const parsed = JSON.parse(content) as Record<string, unknown>
+      const filePath = result.filePaths[0]
+      const content = await readFile(filePath, 'utf-8')
+      // Route by extension, with a content sniff fallback: a `.md`/SKILL.md file (or any file
+      // whose content is not JSON) is parsed via the SKILL.md codec; otherwise treat it as JSON.
+      const isMarkdown = /\.md$/i.test(filePath) || !content.trimStart().startsWith('{')
+      const parsed = isMarkdown
+        ? parseSkillMarkdown(content)
+        : (JSON.parse(content) as Record<string, unknown>)
       return createSkillConfig(parsed)
     } catch {
       return null

@@ -106,10 +106,10 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { HermesAdapter } from './cli-adapters/hermes'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
-import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
+import { startDebriefGeneration, generateDebriefStoryForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
 import { generateQuizForWs, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
 import { generateTeachbackForWs, getTeachbackForWs, getTeachbackByArtifactIdForWs, gradeTeachbackForWs, listTeachbackAttempts } from './teachback-handlers'
-import type { QuizSpec, QuizSource, QuizDifficulty } from '../shared/types'
+import type { QuizSpec, QuizSource, QuizDifficulty, DebriefStoryTone } from '../shared/types'
 import {
   submitRatingForConversation,
   getRatingForConversation,
@@ -1242,6 +1242,24 @@ export function registerWsHandlers(): void {
           typeof (img as Record<string, unknown>).dataUrl === 'string'
       )
       if (!conversationId || (!content && images.length === 0)) return
+      // A brand-new conversation (client-generated draft id) has no server-side row yet, so
+      // a mode override the user sets before the first message can't reach the server via the
+      // normal conversation:set-mode message (there's nothing to update). Android instead threads
+      // its current override state straight through this first send; dispatchChatSend applies it
+      // while creating the row (see chat-handlers.ts's `!convo` branch) so the very first CLI turn
+      // honors it instead of silently falling back to defaults for one turn.
+      const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
+      const thinkingEffortOverride = typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride)
+        ? (data.thinkingEffortOverride as 'low' | 'medium' | 'high' | 'max' | 'disabled')
+        : undefined
+      const fullAutoApproveOverride = data.fullAutoApproveOverride === true ? true : data.fullAutoApproveOverride === false ? false : undefined
+      const agenticModeOverride = data.agenticModeOverride === true ? true : data.agenticModeOverride === false ? false : undefined
+      const terminalSandboxOverride = data.terminalSandboxOverride === true ? true : data.terminalSandboxOverride === false ? false : undefined
+      const validCliModes: string[] = [...CLAUDE_CLI_MODES, ...CODEX_CLI_MODES]
+      const cliModeOverride = typeof data.cliModeOverride === 'string' && validCliModes.includes(data.cliModeOverride)
+        ? data.cliModeOverride
+        : undefined
+      const codexExecutionModeOverride = data.codexExecutionModeOverride === 'plan' ? 'plan' as const : undefined
       // Deduplicate: Android race-connect can open multiple sockets simultaneously,
       // causing the same chat:send-message to arrive multiple times. Skip if we're
       // already dispatching this conversation.
@@ -1289,7 +1307,19 @@ export function registerWsHandlers(): void {
       }
       routeLog(`inferredCliBackend=${inferredCliBackend ?? 'none'}`)
       activeAndroidDispatches.add(conversationId)
-      void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined, cliBackend: inferredCliBackend })
+      void dispatchChatSend(wins[0], conversationId, content, {
+        model,
+        agentId,
+        projectId,
+        images: images.length > 0 ? images : undefined,
+        cliBackend: inferredCliBackend,
+        thinkingEffortOverride,
+        fullAutoApproveOverride,
+        agenticModeOverride,
+        terminalSandboxOverride,
+        cliModeOverride,
+        codexExecutionModeOverride,
+      })
         ?.then(() => { activeAndroidDispatches.delete(conversationId) })
         ?.catch((err: unknown) => {
           activeAndroidDispatches.delete(conversationId)
@@ -1319,6 +1349,7 @@ export function registerWsHandlers(): void {
             c.completed_at,
             c.thinking_effort_override,
             c.full_auto_approve_override,
+            c.agentic_mode_override,
             c.terminal_sandbox_override,
             c.cli_mode_override,
             c.codex_execution_mode_override,
@@ -1356,8 +1387,8 @@ export function registerWsHandlers(): void {
       // Only the field(s) actually present in the payload are touched — see the matching
       // Electron-IPC handler in conversation-handlers.ts for why this can't just default to null.
       const existing = db
-        .prepare('SELECT thinking_effort_override, full_auto_approve_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?')
-        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null; codex_execution_mode_override: string | null } | undefined
+        .prepare('SELECT thinking_effort_override, full_auto_approve_override, agentic_mode_override, terminal_sandbox_override, cli_mode_override, codex_execution_mode_override FROM conversations WHERE id = ?')
+        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null; agentic_mode_override: number | null; terminal_sandbox_override: number | null; cli_mode_override: string | null; codex_execution_mode_override: string | null } | undefined
       const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
       const thinkingEffortOverride = 'thinkingEffortOverride' in data
         ? (typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride) ? data.thinkingEffortOverride : null)
@@ -1365,6 +1396,9 @@ export function registerWsHandlers(): void {
       const fullAutoApproveOverride = 'fullAutoApproveOverride' in data
         ? (data.fullAutoApproveOverride === true ? 1 : data.fullAutoApproveOverride === false ? 0 : null)
         : (existing?.full_auto_approve_override ?? null)
+      const agenticModeOverride = 'agenticModeOverride' in data
+        ? (data.agenticModeOverride === true ? 1 : data.agenticModeOverride === false ? 0 : null)
+        : (existing?.agentic_mode_override ?? null)
       const terminalSandboxOverride = 'terminalSandboxOverride' in data
         ? (data.terminalSandboxOverride === true ? 1 : data.terminalSandboxOverride === false ? 0 : null)
         : (existing?.terminal_sandbox_override ?? null)
@@ -1378,9 +1412,9 @@ export function registerWsHandlers(): void {
         ? (data.codexExecutionModeOverride === 'plan' ? 'plan' : null)
         : (existing?.codex_execution_mode_override ?? null)
       db.prepare(
-        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?'
-      ).run(thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), conversationId)
-      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride } })
+        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, agentic_mode_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?'
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), conversationId)
+      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride } })
       return
     }
 
@@ -3477,9 +3511,32 @@ export function registerWsHandlers(): void {
       const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const model = typeof data.model === 'string' ? data.model : undefined
       if (!conversationId) return
-      void generateDebriefForWs(conversationId, projectId, model)
-        .then((result) => reply({ event: 'debrief:ready', data: result }))
-        .catch((err: unknown) => reply({ event: 'debrief:error', data: { message: String(err) } }))
+      // Routed through startDebriefGeneration (not generateDebriefForWs directly) so an
+      // Android-triggered debrief gets the same durable pending artifact + chat message row
+      // desktop's trigger creates — without it, generation had nothing to pin its result onto
+      // and the finished debrief showed up only as an orphan artifact, never as a chat card.
+      // generateDebriefForWs (called inside startDebriefGeneration) already broadcasts
+      // 'debrief:ready' to all mobile clients (including this requester) — replying here too
+      // would deliver the event twice to the same device and produce a duplicate debrief card.
+      try {
+        startDebriefGeneration(conversationId, projectId, model, true)
+      } catch (err) {
+        reply({ event: 'debrief:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'debrief:generate-story') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
+      const model = typeof data.model === 'string' ? data.model : undefined
+      const forceRegenerate = data.forceRegenerate === true
+      const tone = typeof data.tone === 'string' ? data.tone as DebriefStoryTone : undefined
+      const beatCount = typeof data.beatCount === 'number' ? data.beatCount : undefined
+      if (!conversationId) return
+      void generateDebriefStoryForWs(conversationId, projectId, model, forceRegenerate, tone, beatCount)
+        .then((result) => reply({ event: 'debrief:story-ready', data: { ...result, conversationId } }))
+        .catch((err: unknown) => reply({ event: 'debrief:story-error', data: { message: err instanceof Error ? err.message : String(err) } }))
       return
     }
 
@@ -3487,7 +3544,7 @@ export function registerWsHandlers(): void {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
       const result = getDebriefForWs(conversationId)
-      reply({ event: 'debrief:loaded', data: { debrief: result?.debrief ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
+      reply({ event: 'debrief:loaded', data: { conversationId, debrief: result?.debrief ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
       return
     }
 

@@ -42,13 +42,16 @@ export async function requestApproval(
     return true
   }
   const requestId = randomUUID()
-  webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
-  broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
-  if (!isMobileInForeground()) {
-    sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
-  }
   return new Promise<boolean>((resolve) => {
+    // Register the resolver before publishing the request. Both the renderer IPC listener and
+    // the Android WebSocket client can answer immediately; publishing first creates a race where
+    // that answer is treated as stale and the request later times out as a false denial.
     pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
+    webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
+    broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
+    if (!isMobileInForeground()) {
+      sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
+    }
     setTimeout(() => {
       if (pendingApprovals.has(requestId)) {
         pendingApprovals.delete(requestId)

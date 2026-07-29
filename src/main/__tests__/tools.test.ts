@@ -83,6 +83,17 @@ beforeEach(() => {
 
 /* ── Tests ─────────────────────────────────────── */
 describe('Tools — tool:approval-response', () => {
+  it('accepts an approval response that arrives synchronously while the request is published', async () => {
+    const send = vi.fn((channel: string, payload: { requestId?: string }) => {
+      if (channel === 'tool:request-approval' && payload.requestId) {
+        void invokeHandler('tool:approval-response', payload.requestId, true, false)
+      }
+    })
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+
+    await expect(requestApproval(wc, 'myTool', {}, 'desc')).resolves.toBe(true)
+  })
+
   it('resolves a pending approval and remembers the preference when no onRemember/noRemember override is given', async () => {
     const send = vi.fn()
     const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents

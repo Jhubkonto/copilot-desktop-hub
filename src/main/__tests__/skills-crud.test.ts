@@ -24,6 +24,7 @@ import {
   listSkillConfigs,
   reorderSkillsForAgent,
   setSkillAgentAttachment,
+  upsertSkillConfigByName,
   updateSkillConfig,
 } from '../skills'
 
@@ -142,5 +143,23 @@ describe('skill persistence helpers', () => {
       { skill_id: review.id, agent_count: 1 },
       { skill_id: test.id, agent_count: 1 },
     ]))
+  })
+
+  it('upserts model-captured skills by case-insensitive name', () => {
+    const first = upsertSkillConfigByName({
+      name: 'Release Notes',
+      instructions: 'Summarize user-facing changes.',
+    })
+    const second = upsertSkillConfigByName({
+      name: ' release notes ',
+      instructions: 'Summarize user-facing changes and migrations.',
+      tags: ['auto-captured'],
+    })
+
+    expect(first.created).toBe(true)
+    expect(second.created).toBe(false)
+    expect(second.skill.id).toBe(first.skill.id)
+    expect(second.skill.instructions).toContain('migrations')
+    expect(listSkillConfigs().filter((skill) => skill.id === first.skill.id)).toHaveLength(1)
   })
 })

@@ -459,6 +459,25 @@ describe('ws handlers', () => {
     })
   })
 
+  it('updates a conversation agentic override over mobile websocket', () => {
+    sendCommand('conversation:set-mode', {
+      conversationId: 'conv-1',
+      agenticModeOverride: true,
+    })
+
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      sql: expect.stringContaining('agentic_mode_override = ?'),
+      args: [null, null, 1, null, null, null, expect.any(Number), 'conv-1'],
+    }))
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'conversation:mode-updated',
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        agenticModeOverride: 1,
+      }),
+    })
+  })
+
   it('serves the Android update manifest over the paired websocket', async () => {
     const manifest = {
       versionCode: 42,
