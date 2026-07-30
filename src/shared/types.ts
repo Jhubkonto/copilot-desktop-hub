@@ -10,6 +10,13 @@ export interface Message {
   attachments?: Attachment[]
 }
 
+export type {
+  MessageSpokenOutput,
+  SaveSpokenOutputInput,
+  SpokenOutputGenerationKind,
+  SpokenOutputKind,
+} from './spoken-output'
+
 export interface Attachment {
   id: string
   name: string
@@ -21,6 +28,7 @@ export interface Conversation {
   id: string
   agentId: string | null
   title: string
+  kind?: 'chat' | 'code-change' | 'project-conversation-mode'
   createdAt: number
   updatedAt: number
   completedAt: number | null
@@ -217,7 +225,12 @@ export interface BackgroundActivity {
   label: string
   detail?: string
   projectId?: string
+  projectName?: string
   conversationId?: string
+  conversationTitle?: string
+  agentId?: string
+  agentName?: string
+  model?: string
   startedAt: number
 }
 
@@ -1273,6 +1286,7 @@ export interface ConversationRow {
   cli_mode_override: CliModeOverride | null
   codex_execution_mode_override: CodexExecutionModeOverride | null
   rating: number | null
+  kind: 'chat' | 'code-change' | 'project-conversation-mode'
 }
 
 // ---------------------------------------------------------------------------
@@ -2374,6 +2388,8 @@ export type IpcReturnMap = {
   'voice:get-status': { executablePath: string; modelPath: string; ready: boolean }
   'voice:install-local': { installed: boolean; executablePath: string; modelPath: string } | { error: string }
   'voice:transcribe': { text: string } | { error: string }
+  'voice:save-spoken-output': import('./spoken-output').MessageSpokenOutput
+  'voice:generate-ai-recap': import('./spoken-output').MessageSpokenOutput | null
   // Tool
   'tool:approval-response': boolean
   'tool:auto-approved': void
@@ -2421,6 +2437,7 @@ export type IpcReturnMap = {
   'artifact:move-to-project': { ok: boolean }
   'artifact:promote-message': ArtifactPromotionResult
   'artifact:export': { exportPath: string }
+  'artifact:download': { canceled: boolean; downloadPath?: string }
   'artifact:open-folder': { ok: boolean }
   'artifact:get-file-content': { content: string }
   'artifact-generator:chat': { started: boolean }
@@ -2755,6 +2772,8 @@ export type IpcChannels =
   | 'voice:get-status'
   | 'voice:install-local'
   | 'voice:transcribe'
+  | 'voice:save-spoken-output'
+  | 'voice:generate-ai-recap'
   | 'tool:approval-response'
   | 'tool:auto-approved'
   | 'tool:request-approval'
@@ -2852,6 +2871,7 @@ export type IpcChannels =
   | 'artifact:delete'
   | 'artifact:delete-version'
   | 'artifact:export'
+  | 'artifact:download'
   | 'artifact:open-folder'
   | 'artifact:promote-message'
   | 'artifact:get-file-content'

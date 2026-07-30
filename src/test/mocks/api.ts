@@ -343,6 +343,9 @@ export function createMockApi() {
 
     // Voice
     getVoiceStatus: vi.fn().mockResolvedValue({ ready: false }),
+  transcribeVoice: vi.fn().mockResolvedValue({ text: '' }),
+  saveSpokenOutput: vi.fn().mockResolvedValue(null),
+  generateAiRecap: vi.fn().mockResolvedValue(null),
     onMobileClientCount: vi.fn().mockReturnValue(() => {}),
 
     // Providers
@@ -657,6 +660,7 @@ export function createMockApi() {
     artifactPromoteMessage: vi.fn().mockResolvedValue({ artifactId: 'art-1', versionId: 'ver-1', title: 'Artifact' }),
     artifactGetFileContent: vi.fn().mockResolvedValue({ content: '' }),
     artifactExport: vi.fn().mockResolvedValue({ exportPath: '/tmp/export' }),
+    artifactDownload: vi.fn().mockResolvedValue({ canceled: false, downloadPath: '/tmp/download' }),
     artifactOpenFolder: vi.fn().mockResolvedValue({ ok: true }),
     artifactGeneratorChat: vi.fn().mockResolvedValue({ started: true }),
     artifactGeneratorGenerate: vi.fn().mockResolvedValue({ started: true }),
