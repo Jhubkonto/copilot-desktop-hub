@@ -77,6 +77,7 @@ interface UseChatWindowActionsParams {
   setGenerationStartedAt: Dispatch<SetStateAction<number | null>>
   setStreamingContent: Dispatch<SetStateAction<string>>
   resetQueue: () => void
+  clearStoppedGeneration: () => void
   setLoadingFailed: Dispatch<SetStateAction<boolean>>
   setLiveTeamActivity: Dispatch<SetStateAction<TeamActivityStep[]>>
   addToast: (message: string, type?: ToastType) => void
@@ -150,6 +151,7 @@ export function useChatWindowActions({
   setGenerationStartedAt,
   setStreamingContent,
   resetQueue,
+  clearStoppedGeneration,
   setLoadingFailed,
   setLiveTeamActivity,
   addToast,
@@ -1149,7 +1151,6 @@ export function useChatWindowActions({
     try {
       await window.api.stopGeneration(conversationId ?? undefined)
       const stoppedConvId = streamingConversationRef.current ?? conversationId ?? ''
-      streamingConversationRef.current = null
       markConversationDoneGenerating(stoppedConvId)
       const partialContent = streamingContentRef.current
       if (partialContent) {
@@ -1165,11 +1166,7 @@ export function useChatWindowActions({
           },
         ])
       }
-      streamingContentRef.current = ''
-      streamModelRef.current = null
-      setStreamingContent('')
-      setIsGenerating(false)
-      setGenerationStartedAt(null)
+      clearStoppedGeneration()
     } catch {
       addToast('Failed to stop generation', 'error')
     }
@@ -1180,9 +1177,7 @@ export function useChatWindowActions({
     streamingContentRef,
     streamModelRef,
     setMessages,
-    setStreamingContent,
-    setIsGenerating,
-    setGenerationStartedAt,
+    clearStoppedGeneration,
     addToast,
   ])
 

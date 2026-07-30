@@ -70,6 +70,9 @@ export function useChat({
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
   const loadGenerationRef = useRef(0)
+  // Incremented by an explicit Stop so an active-turn snapshot requested before the
+  // stop cannot arrive later and resurrect isGenerating for an already-aborted turn.
+  const stopGenerationEpochRef = useRef(0)
   // Locked to the conversation that started the current stream; cleared on stream end/error.
   const streamingConversationRef = useRef<string | null>(null)
   // Set to true when the turn completes; isGenerating stays true until the drain queue also empties.
@@ -177,11 +180,13 @@ export function useChat({
     }
 
     if (conversationId) {
+      const stopGenerationEpoch = stopGenerationEpochRef.current
       setMessages(conversationMessageCache.get(conversationId) ?? [])
       setIsLoadingMessages(true)
       void window.api.getActiveChatTurn(conversationId).then((snapshot) => {
         if (
           loadGeneration !== loadGenerationRef.current
+          || stopGenerationEpoch !== stopGenerationEpochRef.current
           || !snapshot
           || snapshot.conversationId !== activeConversationRef.current
         ) return
@@ -944,6 +949,21 @@ export function useChat({
     setIsEditingMessage(false)
   }, [])
 
+  const clearStoppedGeneration = useCallback(() => {
+    stopGenerationEpochRef.current += 1
+    streamEndedRef.current = false
+    pendingFinalizeRef.current = null
+    resetQueue()
+    streamingConversationRef.current = null
+    streamingContentRef.current = ''
+    streamModelRef.current = null
+    setStreamingContent('')
+    setIsGenerating(false)
+    setGenerationStartedAt(null)
+    setLiveTeamActivity([])
+    liveToolCallsRef.current = []
+  }, [resetQueue])
+
   return {
     messages,
     liveTurnState,
@@ -973,6 +993,7 @@ export function useChat({
     editCutoffTimestampRef,
     cancelEdit,
     clearEditState,
+    clearStoppedGeneration,
     handleRegenerate,
     handleEdit,
     pushSystemMessage,

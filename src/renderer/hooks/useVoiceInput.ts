@@ -1,95 +1,144 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isApiError } from '../../shared/types'
+import {
+  encodeVoiceWav,
+  PcmVoiceRecorder,
+  type VoiceRecorderSnapshot,
+} from '../lib/pcm-voice-recorder'
+import { usableVoiceTranscript } from '../lib/voice-transcript'
 
-type VoiceState = 'idle' | 'recording' | 'transcribing'
+export type VoiceState = 'idle' | 'recording' | 'transcribing'
 
-function encodeWav(chunks: Float32Array[], sourceRate: number): Uint8Array {
-  const source = new Float32Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0))
-  let offset = 0
-  for (const chunk of chunks) { source.set(chunk, offset); offset += chunk.length }
-  const targetRate = 16_000
-  const ratio = sourceRate / targetRate
-  const samples = new Float32Array(Math.max(1, Math.floor(source.length / ratio)))
-  for (let i = 0; i < samples.length; i += 1) {
-    const start = Math.floor(i * ratio)
-    const end = Math.min(source.length, Math.floor((i + 1) * ratio))
-    let total = 0
-    for (let j = start; j < end; j += 1) total += source[j]
-    samples[i] = total / Math.max(1, end - start)
-  }
-  const buffer = new ArrayBuffer(44 + samples.length * 2)
-  const view = new DataView(buffer)
-  const ascii = (at: number, value: string) => [...value].forEach((char, i) => view.setUint8(at + i, char.charCodeAt(0)))
-  ascii(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); ascii(8, 'WAVE')
-  ascii(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
-  view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
-  ascii(36, 'data'); view.setUint32(40, samples.length * 2, true)
-  samples.forEach((sample, i) => view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true))
-  return new Uint8Array(buffer)
-}
+const EMPTY_SNAPSHOT: VoiceRecorderSnapshot = { durationMs: 0, level: 0, bytes: 0 }
 
-export function useVoiceInput(onText: (text: string) => void, onError: (message: string) => void) {
+export function useVoiceInput(
+  onText: (text: string) => void,
+  onError: (message: string) => void,
+  contextKey?: string | null,
+) {
   const [state, setState] = useState<VoiceState>('idle')
-  const streamRef = useRef<MediaStream | null>(null)
-  const contextRef = useRef<AudioContext | null>(null)
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
-  const chunksRef = useRef<Float32Array[]>([])
+  const [snapshot, setSnapshot] = useState<VoiceRecorderSnapshot>(EMPTY_SNAPSHOT)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const recorderRef = useRef<PcmVoiceRecorder | null>(null)
+  const stateRef = useRef<VoiceState>('idle')
+  const operationPendingRef = useRef(false)
+  const operationEpochRef = useRef(0)
+  const onTextRef = useRef(onText)
+  const onErrorRef = useRef(onError)
+  onTextRef.current = onText
+  onErrorRef.current = onError
 
-  const teardown = useCallback(() => {
-    const context = contextRef.current
-    processorRef.current?.disconnect()
-    streamRef.current?.getTracks().forEach((track) => track.stop())
-    streamRef.current = null; processorRef.current = null; contextRef.current = null; chunksRef.current = []
-    return context
+  const updateState = useCallback((next: VoiceState) => {
+    stateRef.current = next
+    setState(next)
+  }, [])
+
+  const reportError = useCallback((message: string) => {
+    setVoiceError(message)
+    onErrorRef.current(message)
   }, [])
 
   const cancel = useCallback(async () => {
-    const context = teardown()
-    setState('idle')
-    await context?.close()
-  }, [teardown])
+    operationEpochRef.current += 1
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    await recorder?.cancel()
+    operationPendingRef.current = false
+    setSnapshot(EMPTY_SNAPSHOT)
+    updateState('idle')
+  }, [updateState])
 
   const stop = useCallback(async () => {
-    const chunks = chunksRef.current
-    const context = teardown()
-    if (!context || chunks.length === 0) { setState('idle'); await context?.close(); return }
-    const wav = encodeWav(chunks, context.sampleRate)
-    await context.close()
-    setState('transcribing')
+    if (stateRef.current !== 'recording' || operationPendingRef.current) return
+    operationPendingRef.current = true
+    const operationEpoch = operationEpochRef.current
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    updateState('transcribing')
     try {
+      const recording = await recorder?.stop()
+      if (!recording || recording.bytes <= 0 || !recording.chunks.some((chunk) => chunk.length > 0)) return
+      const wav = encodeVoiceWav(recording.chunks, recording.sampleRate)
       const result = await window.api.transcribeVoice(wav)
-      if (isApiError(result)) onError(result.error)
-      else onText(result.text)
+      if (operationEpoch !== operationEpochRef.current) return
+      if (isApiError(result)) reportError(result.error)
+      else {
+        const transcript = usableVoiceTranscript(result.text)
+        if (transcript) onTextRef.current(transcript)
+      }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Voice transcription failed.')
+      reportError(error instanceof Error ? error.message : 'Voice transcription failed.')
     } finally {
-      setState('idle')
+      operationPendingRef.current = false
+      setSnapshot(EMPTY_SNAPSHOT)
+      updateState('idle')
     }
-  }, [onError, onText, teardown])
+  }, [reportError, updateState])
 
   const start = useCallback(async () => {
+    if (stateRef.current !== 'idle' || operationPendingRef.current) return
+    operationPendingRef.current = true
+    const operationEpoch = operationEpochRef.current
+    setVoiceError(null)
     try {
       const status = await window.api.getVoiceStatus()
       if (isApiError(status) || !status.ready) {
-        onError(isApiError(status) ? status.error : 'Install local Whisper in Settings → General before using voice input.')
+        reportError(isApiError(status) ? status.error : 'Install local Whisper in Settings → General before using voice input.')
         return
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
-      const context = new AudioContext()
-      const source = context.createMediaStreamSource(stream)
-      const processor = context.createScriptProcessor(4096, 1, 1)
-      chunksRef.current = []
-      processor.onaudioprocess = (event) => chunksRef.current.push(new Float32Array(event.inputBuffer.getChannelData(0)))
-      source.connect(processor); processor.connect(context.destination)
-      streamRef.current = stream; contextRef.current = context; processorRef.current = processor
-      setState('recording')
+      const recorder = new PcmVoiceRecorder({
+        onSnapshot: setSnapshot,
+        onLimit: (limit) => {
+          reportError(limit === 'duration'
+            ? 'Voice recording reached the 10-minute safety limit and is being transcribed.'
+            : 'Voice recording reached the 50 MiB safety limit and is being transcribed.')
+          void stop()
+        },
+      })
+      recorderRef.current = recorder
+      await recorder.start()
+      if (operationEpoch !== operationEpochRef.current) {
+        recorderRef.current = null
+        await recorder.cancel()
+        return
+      }
+      updateState('recording')
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Microphone access failed.')
-      setState('idle')
+      recorderRef.current = null
+      reportError(error instanceof Error ? error.message : 'Microphone access failed.')
+      updateState('idle')
+    } finally {
+      operationPendingRef.current = false
     }
-  }, [onError])
+  }, [reportError, stop, updateState])
 
-  const toggle = useCallback(() => state === 'recording' ? void stop() : state === 'idle' ? void start() : undefined, [start, state, stop])
-  useEffect(() => () => { processorRef.current?.disconnect(); streamRef.current?.getTracks().forEach((track) => track.stop()); void contextRef.current?.close() }, [])
-  return { voiceState: state, toggleVoice: toggle, cancelVoice: cancel }
+  const toggle = useCallback(() => {
+    if (stateRef.current === 'recording') void stop()
+    else if (stateRef.current === 'idle') void start()
+  }, [start, stop])
+
+  useEffect(() => () => {
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    void recorder?.cancel()
+  }, [])
+
+  const previousContextRef = useRef(contextKey)
+  useEffect(() => {
+    if (previousContextRef.current === contextKey) return
+    previousContextRef.current = contextKey
+    if (stateRef.current !== 'idle' || operationPendingRef.current) void cancel()
+  }, [cancel, contextKey])
+
+  return {
+    voiceState: state,
+    voiceDurationMs: snapshot.durationMs,
+    voiceLevel: snapshot.level,
+    voiceBytes: snapshot.bytes,
+    voiceError,
+    startVoice: start,
+    stopVoice: stop,
+    toggleVoice: toggle,
+    cancelVoice: cancel,
+  }
 }
