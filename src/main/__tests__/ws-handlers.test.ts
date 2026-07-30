@@ -231,6 +231,18 @@ function sendCommand(command: string, data: Record<string, unknown> = {}) {
 }
 
 describe('ws handlers', () => {
+  it('returns a compatibility tombstone for retired Conversation Mode commands', () => {
+    const reply = sendCommand('conversation-mode:create', { projectId: 'project-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'conversation-mode:error',
+      data: {
+        code: 'feature-removed',
+        message: 'Talk to Project has been removed. Use the microphone in standard chat.',
+      },
+    })
+  })
+
   beforeEach(() => {
     state.replies.length = 0
     state.runs.length = 0

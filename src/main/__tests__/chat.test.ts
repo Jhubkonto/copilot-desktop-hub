@@ -4,7 +4,15 @@ import path from 'path'
 
 const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
-  const messages: Array<{ role: string; content: string; attachments: string | null; model: string | null; thinkingBlocks: string | null }> = []
+  const messages: Array<{
+    role: string
+    content: string
+    attachments: string | null
+    model: string | null
+    timestamp: number
+    thinkingBlocks: string | null
+    textSegments: string | null
+  }> = []
   const modelUpdates: Array<{ sql: string; model: unknown; conversationId: unknown }> = []
   const modeClears: string[] = []
   const events: string[] = []
@@ -47,7 +55,9 @@ vi.mock('../database', () => ({
             content: String(args[3]),
             attachments: typeof args[4] === 'string' ? args[4] : null,
             model,
+            timestamp: Number(args[5]),
             thinkingBlocks: typeof args[7] === 'string' ? args[7] : null,
+            textSegments: typeof args[8] === 'string' ? args[8] : null,
           })
           if (role === 'assistant') state.events.push('db:assistant-insert')
         }
@@ -79,8 +89,9 @@ vi.mock('../database', () => ({
             content: message.content,
             model: null,
             attachments: message.attachments,
-            timestamp: index + 1,
+            timestamp: message.timestamp,
             thinking_blocks: message.thinkingBlocks,
+            text_segments: message.textSegments,
           }))
         }
         return []
@@ -190,6 +201,7 @@ import { buildChatContext } from '../chat-context-builder'
 import { getActivitySnapshot } from '../activity-tracker'
 import { parseProjectConfig } from '../project-handlers'
 import { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
+import { getActiveChatTurnSnapshot, recordActiveChatTurnEvent } from '../active-chat-turns'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -527,6 +539,47 @@ describe('chat handlers', () => {
     expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
       { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true, firstSeenAt: expect.any(Number) },
     ])
+  })
+
+  it('persists segmented CLI text and tools with strict occurrence order even in one millisecond', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (
+        _win: unknown,
+        _req: unknown,
+        onChunk: (chunk: string, blockId?: string) => void,
+        onEvent: (event: { type: string; [key: string]: unknown }) => void,
+      ) => {
+        onChunk('Before', 'codex-text-msg-1')
+        onEvent({ type: 'text_end', blockId: 'codex-text-msg-1' })
+        onEvent({ type: 'tool_start', id: 'cmd-1', name: 'Run Command', input: { command: 'pwd' } })
+        onEvent({ type: 'tool_end', id: 'cmd-1', content: '/workspace', isError: false })
+        onChunk('After', 'codex-text-msg-2')
+        onEvent({ type: 'text_end', blockId: 'codex-text-msg-2' })
+        return 'Before\n\nAfter'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    try {
+      const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+      await handler({ sender: {} }, 'conv-cli-order', 'inspect')
+    } finally {
+      now.mockRestore()
+    }
+
+    const tool = state.messages.find((message) => message.role === 'tool-call')
+    const assistant = state.messages.find((message) => message.role === 'assistant')
+    const segments = JSON.parse(assistant?.textSegments ?? '[]') as Array<{ content: string; firstSeenAt: number }>
+
+    expect(segments.map((segment) => segment.content)).toEqual(['Before', 'After'])
+    expect(segments[0].firstSeenAt).toBeLessThan(tool?.timestamp ?? 0)
+    expect(tool?.timestamp).toBeLessThan(segments[1].firstSeenAt)
+    expect(segments[1].firstSeenAt).toBeLessThan(assistant?.timestamp ?? 0)
   })
 
   it('injects assigned MCP servers when falling back to Claude CLI for MCP agents', async () => {
@@ -983,10 +1036,18 @@ describe('chat handlers', () => {
 
   it('aborts the active provider stream', async () => {
     const handler = state.handlers.get('chat:stop-generation') as (...args: unknown[]) => Promise<boolean>
+    recordActiveChatTurnEvent({
+      type: 'turn_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-to-stop',
+      sequence: 1,
+      timestamp: Date.now(),
+    })
 
     await expect(handler({}, 'conv-1')).resolves.toBe(true)
     expect(state.abortActiveStream).toHaveBeenCalledWith('conv-1')
     expect(denyPendingApprovalsForConversation).toHaveBeenCalledWith('conv-1')
+    expect(getActiveChatTurnSnapshot('conv-1')).toBeNull()
   })
 
   it('closes out the background activity entry when an unexpected error occurs before any provider/CLI dispatch begins', async () => {

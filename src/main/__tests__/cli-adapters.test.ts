@@ -1,13 +1,17 @@
 import { EventEmitter } from 'events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockExecSync, mockSpawnSync, mockSpawn } = vi.hoisted(() => ({
+const { mockExec, mockExecFile, mockExecSync, mockSpawnSync, mockSpawn } = vi.hoisted(() => ({
+  mockExec: vi.fn(),
+  mockExecFile: vi.fn(),
   mockExecSync: vi.fn(),
   mockSpawnSync: vi.fn(),
   mockSpawn: vi.fn(),
 }))
 
 vi.mock('child_process', () => ({
+  exec: mockExec,
+  execFile: mockExecFile,
   execSync: mockExecSync,
   spawnSync: mockSpawnSync,
   spawn: mockSpawn,
@@ -999,16 +1003,21 @@ describe('CLI adapters', () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
 
-    const chunks: string[] = []
+    const chunks: Array<{ text: string; blockId?: string }> = []
+    const onEvent = vi.fn()
     const sendPromise = CodexAdapter.send({} as never, {
       messages: [{ role: 'user', content: 'create a file' }],
       cwd: 'C:\\workspace',
       model: 'default',
       conversationId: 'conv-1',
-    }, (chunk: string) => chunks.push(chunk))
+    }, (text: string, blockId?: string) => chunks.push({ text, blockId }), onEvent)
 
     proc.stdout.emit('data', Buffer.from([
       JSON.stringify({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: "I'll check whether the file exists." } }),
+      JSON.stringify({
+        type: 'item.started',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'Test-Path file' },
+      }),
       JSON.stringify({
         type: 'item.completed',
         item: { id: 'cmd-1', type: 'command_execution', command: 'Test-Path file', aggregated_output: 'False', status: 'completed' },
@@ -1022,8 +1031,16 @@ describe('CLI adapters', () => {
       "I'll check whether the file exists.\n\nThe file is missing, so I created it.",
     )
     expect(chunks).toEqual([
-      "I'll check whether the file exists.",
-      '\n\nThe file is missing, so I created it.',
+      { text: "I'll check whether the file exists.", blockId: 'codex-text-msg-1' },
+      { text: 'The file is missing, so I created it.', blockId: 'codex-text-msg-2' },
+    ])
+    expect(onEvent.mock.calls.map(([event]) => event).filter((event) =>
+      event.type === 'text_end' || event.type === 'tool_start' || event.type === 'tool_end'
+    )).toEqual([
+      { type: 'text_end', blockId: 'codex-text-msg-1' },
+      { type: 'tool_start', id: 'cmd-1', name: 'Run Command', input: { command: 'Test-Path file' } },
+      { type: 'tool_end', id: 'cmd-1', content: 'False', isError: false },
+      { type: 'text_end', blockId: 'codex-text-msg-2' },
     ])
   })
 

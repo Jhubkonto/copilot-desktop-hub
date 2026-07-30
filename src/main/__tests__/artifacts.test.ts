@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
 
-const { mockDb, ipcHandlers, mockIpcMain } = vi.hoisted(() => {
+const { mockDb, ipcHandlers, mockIpcMain, showOpenDialogMock } = vi.hoisted(() => {
   const ipcHandlers = new Map<string, (...args: unknown[]) => unknown>()
 
   // Simple default stmt: run returns changes:1, get/all return undefined/[]
@@ -26,12 +26,14 @@ const { mockDb, ipcHandlers, mockIpcMain } = vi.hoisted(() => {
       }),
       removeHandler: vi.fn(),
     },
+    showOpenDialogMock: vi.fn(),
   }
 })
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: () => '/tmp' },
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  dialog: { showOpenDialog: showOpenDialogMock },
   shell: { showItemInFolder: vi.fn() },
 }))
 
@@ -57,6 +59,7 @@ vi.mock('fs', () => ({
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  showOpenDialogMock.mockResolvedValue({ canceled: false, filePaths: ['/chosen'] })
   ipcHandlers.clear()
   // Reset prepare to default stmt
   mockDb.prepare.mockReset()
@@ -69,6 +72,51 @@ beforeEach(async () => {
   }))
   const { registerArtifactHandlers } = await import('../artifacts')
   registerArtifactHandlers()
+})
+
+describe('artifact:download', () => {
+  const invoke = (channel: string, ...args: unknown[]) => {
+    const handler = ipcHandlers.get(channel)
+    if (!handler) throw new Error(`No handler for ${channel}`)
+    return handler({} as Electron.IpcMainInvokeEvent, ...args)
+  }
+
+  it('asks for a directory and downloads into a named version folder', async () => {
+    mockDb.prepare.mockImplementationOnce(() => ({
+      run: vi.fn(() => ({ changes: 1 })),
+      get: vi.fn<() => undefined>(() => ({ artifact_id: 'art-1', version_number: 3 }) as never),
+      all: vi.fn(() => []),
+    })).mockImplementationOnce(() => ({
+      run: vi.fn(() => ({ changes: 1 })),
+      get: vi.fn<() => undefined>(() => ({ id: 'art-1', title: 'Project Notes' }) as never),
+      all: vi.fn(() => []),
+    }))
+
+    const result = await invoke('artifact:download', 'version-3', 'raw-files')
+
+    expect(showOpenDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      properties: ['openDirectory', 'createDirectory'],
+    }))
+    expect(result).toEqual({
+      canceled: false,
+      downloadPath: '/tmp/export/path',
+    })
+  })
+
+  it('does not export when directory selection is canceled', async () => {
+    showOpenDialogMock.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    mockDb.prepare.mockImplementationOnce(() => ({
+      run: vi.fn(() => ({ changes: 1 })),
+      get: vi.fn<() => undefined>(() => ({ artifact_id: 'art-1', version_number: 1 }) as never),
+      all: vi.fn(() => []),
+    })).mockImplementationOnce(() => ({
+      run: vi.fn(() => ({ changes: 1 })),
+      get: vi.fn<() => undefined>(() => ({ id: 'art-1', title: 'Artifact' }) as never),
+      all: vi.fn(() => []),
+    }))
+
+    await expect(invoke('artifact:download', 'version-1', 'markdown')).resolves.toEqual({ canceled: true })
+  })
 })
 
 // ── artifact:move-to-project ─────────────────────────────────────────────────
