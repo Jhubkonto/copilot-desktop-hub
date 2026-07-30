@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle, CheckCircle2, Circle, GitBranch, Plus, Search, X, Pin, Trash2 } from 'lucide-react'
+import { CheckCircle, CheckCircle2, Circle, GitBranch, Loader2, Plus, Search, X, Pin, Trash2 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
@@ -16,6 +16,7 @@ export function ProjectHistoryPane() {
   const deleteConversation = useAppStore((s) => s.deleteConversation)
   const newChat = useAppStore((s) => s.newChat)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
+  const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const completedConversationIds = useAppStore((s) => s.completedConversationIds)
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
   const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
@@ -38,6 +39,7 @@ export function ProjectHistoryPane() {
     const isActive = currentConversationId === conv.id
     const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
     const isUnread = unreadConversationIds.includes(conv.id)
+    const isGenerating = generatingConversationIds.includes(conv.id)
     const isCompleted = completedConversationIds.includes(conv.id)
     return (
       <div
@@ -51,7 +53,9 @@ export function ProjectHistoryPane() {
         {conv.kind === 'code-change' && (
           <span title="Code change"><GitBranch className="w-3 h-3 text-blue-500 shrink-0 mt-0.5" /></span>
         )}
-        {isCompleted ? (
+        {isGenerating ? (
+          <span title="Generating…"><Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0 mt-0.5" /></span>
+        ) : isCompleted ? (
           <span title="Complete"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" /></span>
         ) : isUnread ? (
           <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0 mt-1.5" />

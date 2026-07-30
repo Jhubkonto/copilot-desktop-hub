@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BookOpen, Download, Loader2, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react'
+import { BookOpen, Download, FolderDown, Loader2, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react'
 import type { ArtifactRow, ArtifactVersion, DebriefStory, DebriefStoryTone, StoryMood } from '@shared/types'
 import { sanitizeStorySvg } from '../../lib/story-svg'
 import { useAppStore } from '../../store/app-store'
@@ -71,6 +71,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
   const [section, setSection] = useState<DebriefSectionData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [exportMsg, setExportMsg] = useState('')
   const [regenerating, setRegenerating] = useState(false)
   const [view, setView] = useState<'structured' | 'story'>('structured')
@@ -201,6 +202,23 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
       setExportMsg(`Export failed: ${String(e)}`)
     } finally {
       setExporting(false)
+    }
+  }
+
+  const handleDownloadMd = async () => {
+    const exportVersionId = version?.id ?? artifact?.currentVersionId
+    if (!exportVersionId) return
+    setDownloading(true)
+    setExportMsg('')
+    try {
+      const result = await window.api.artifactDownload(exportVersionId, 'markdown')
+      if (!result.canceled && result.downloadPath) {
+        setExportMsg(`Downloaded to: ${result.downloadPath}`)
+      }
+    } catch (e) {
+      setExportMsg(`Download failed: ${String(e)}`)
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -370,15 +388,26 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
       )}
 
       <div className="flex items-center justify-between gap-2 pt-1">
-        <button
-          type="button"
-          onClick={handleExportMd}
-          disabled={exporting}
-          className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors shrink-0 whitespace-nowrap"
-        >
-          {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-          Export Markdown
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleExportMd}
+            disabled={exporting}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors whitespace-nowrap"
+          >
+            {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+            Export Markdown
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadMd}
+            disabled={downloading}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors whitespace-nowrap"
+          >
+            {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderDown className="w-3 h-3" />}
+            Download
+          </button>
+        </div>
         {exportMsg && <p className="text-[10px] text-gray-500 dark:text-gray-400 font-mono truncate min-w-0">{exportMsg}</p>}
       </div>
     </div>
