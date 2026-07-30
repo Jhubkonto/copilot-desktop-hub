@@ -1,36 +1,26 @@
-import { randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
-import { chmod, mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
+import { chmod, mkdir, readdir, rm, writeFile } from 'fs/promises'
 import { app } from 'electron'
 import extractZip from 'extract-zip'
 import path from 'path'
 import { promisify } from 'util'
 import { getDatabase } from './database'
+import { getLocalWhisperConfig, transcribeLocalWhisper } from './local-whisper'
 import { safeHandle } from './safe-handle'
+import {
+  generateAiSpokenOutput,
+  getAssistantMessageContext,
+  saveMessageSpokenOutput,
+} from './spoken-output'
+import type { SaveSpokenOutputInput } from '../shared/spoken-output'
 
 const execFileAsync = promisify(execFile)
-const MAX_AUDIO_BYTES = 50 * 1024 * 1024
 const WHISPER_VERSION = 'v1.9.1'
 const WINDOWS_BINARY_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-bin-x64.zip`
 const LINUX_X64_BINARY_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-bin-ubuntu-x64.tar.gz`
 const LINUX_ARM64_BINARY_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-bin-ubuntu-arm64.tar.gz`
 const BASE_EN_MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin'
-
-function setting(key: string): string {
-  const row = getDatabase().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
-  return row?.value?.trim() ?? ''
-}
-
-function config() {
-  const executablePath = setting('whisper_cpp_path') || process.env.NEXY_WHISPER_CPP_PATH || ''
-  const modelPath = setting('whisper_model_path') || process.env.NEXY_WHISPER_MODEL_PATH || ''
-  return {
-    executablePath,
-    modelPath,
-    ready: Boolean(executablePath && modelPath && existsSync(executablePath) && existsSync(modelPath)),
-  }
-}
 
 async function download(url: string, destination: string, expected: 'zip' | 'gzip' | 'model'): Promise<void> {
   const response = await fetch(url, {
@@ -64,7 +54,7 @@ async function findFile(directory: string, fileName: string): Promise<string | n
 }
 
 export function registerVoiceHandlers(): void {
-  safeHandle('voice:get-status', () => config())
+  safeHandle('voice:get-status', () => getLocalWhisperConfig())
 
   safeHandle('voice:install-local', async () => {
     const installDir = path.join(app.getPath('userData'), 'voice', `whisper.cpp-${WHISPER_VERSION}`)
@@ -115,31 +105,17 @@ export function registerVoiceHandlers(): void {
   })
 
   safeHandle('voice:transcribe', async (_event, audio: Uint8Array) => {
-    const current = config()
-    if (!current.ready) {
-      return { error: 'Install local Whisper in Settings → General, or configure valid executable and model paths.' }
-    }
-    if (!(audio instanceof Uint8Array) || audio.byteLength < 44 || audio.byteLength > MAX_AUDIO_BYTES) {
-      return { error: 'Invalid or oversized voice recording.' }
-    }
+    return transcribeLocalWhisper(audio)
+  })
 
-    const runDir = path.join(app.getPath('temp'), `nexy-whisper-${randomUUID()}`)
-    const inputPath = path.join(runDir, 'input.wav')
-    const outputPrefix = path.join(runDir, 'transcript')
-    await mkdir(runDir, { recursive: true })
-    try {
-      await writeFile(inputPath, audio)
-      await execFileAsync(current.executablePath, [
-        '-m', current.modelPath,
-        '-f', inputPath,
-        '-otxt',
-        '-of', outputPrefix,
-        '-np',
-      ], { timeout: 180_000, windowsHide: true, maxBuffer: 2 * 1024 * 1024 })
-      const text = (await readFile(`${outputPrefix}.txt`, 'utf8')).trim()
-      return text ? { text } : { error: 'Whisper did not detect any speech.' }
-    } finally {
-      await rm(runDir, { recursive: true, force: true }).catch(() => {})
-    }
+  safeHandle('voice:save-spoken-output', (_event, input: SaveSpokenOutputInput) => {
+    return saveMessageSpokenOutput(getDatabase(), input)
+  })
+
+  safeHandle('voice:generate-ai-recap', async (_event, messageId: string) => {
+    const db = getDatabase()
+    const context = getAssistantMessageContext(db, messageId)
+    if (!context) throw new Error('Assistant message not found')
+    return generateAiSpokenOutput(db, context, 'ai-recap')
   })
 }
