@@ -25,7 +25,7 @@ data class Conversation(
     val cli_mode_override: String? = null,
     val codex_execution_mode_override: String? = null,
     val rating: Int? = null,
-    val kind: String? = null, // 'chat' (default) or 'code-change' for wizard mode
+    val kind: String? = null, // 'chat', 'code-change', or 'project-conversation-mode'
 )
 
 data class ModelOption(
@@ -33,6 +33,7 @@ data class ModelOption(
     val label: String,
     val vendor: String? = null,
     val isCliSourced: Boolean = false,
+    val backend: String? = null,
 )
 
 data class ModelListSource(

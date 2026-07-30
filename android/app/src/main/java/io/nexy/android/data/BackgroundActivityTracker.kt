@@ -7,6 +7,15 @@ data class BackgroundActivity(
     val id: String,
     val label: String,
     val route: String,
+    val conversationId: String? = null,
+    val conversationTitle: String? = null,
+    val projectId: String? = null,
+    val projectName: String? = null,
+    val agentId: String? = null,
+    val agentName: String? = null,
+    val model: String? = null,
+    val detail: String? = null,
+    val startedAt: Long? = null,
 )
 
 // App-wide registry of long-running work (generator streams, etc.) so a persistent status

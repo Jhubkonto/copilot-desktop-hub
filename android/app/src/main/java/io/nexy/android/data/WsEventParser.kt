@@ -169,8 +169,63 @@ fun parseWsEvent(
                 }
                 val isPackaged = if (data?.has("isPackaged") == true) data.optBoolean("isPackaged") else null
                 desktopIsPackaged.value = isPackaged
-                WsEvent.Connected(version, macAddress, broadcastAddress, mDnsName, isPackaged)
+                val voice = data?.optJSONObject("voiceCapabilities")
+                val voiceCapabilities = io.nexy.android.data.model.VoiceCapabilitiesWire(
+                    protocolVersion = voice?.optInt("protocolVersion", 0) ?: 0,
+                    audioUpload = voice?.optBoolean("audioUpload", false) ?: false,
+                    localWhisperReady = voice?.optBoolean("localWhisperReady", false) ?: false,
+                    spokenOutputPersistence = voice?.optBoolean("spokenOutputPersistence", false) ?: false,
+                    maxAudioBytes = voice?.optLong("maxAudioBytes", 0) ?: 0,
+                    maxRecordingSeconds = voice?.optInt("maxRecordingSeconds", 0) ?: 0,
+                )
+                WsEvent.Connected(
+                    version,
+                    macAddress,
+                    broadcastAddress,
+                    mDnsName,
+                    isPackaged,
+                    voiceCapabilities,
+                )
             }
+
+            "voice:upload-started" -> WsEvent.VoiceUploadStarted(
+                sessionId = data?.optString("sessionId") ?: return,
+                chunkBytes = data.optInt("chunkBytes", 0),
+                maxBytes = data.optLong("maxBytes", 0),
+            )
+
+            "voice:upload-ack" -> WsEvent.VoiceUploadAck(
+                sessionId = data?.optString("sessionId") ?: return,
+                nextSequence = data.optInt("nextSequence", 0),
+                receivedBytes = data.optLong("receivedBytes", 0),
+            )
+
+            "voice:transcription" -> WsEvent.VoiceTranscription(
+                sessionId = data?.optString("sessionId") ?: return,
+                text = data.optString("text", ""),
+            )
+
+            "voice:upload-cancelled" -> WsEvent.VoiceUploadCancelled(
+                sessionId = data?.optString("sessionId") ?: return,
+            )
+
+            "voice:upload-error" -> WsEvent.VoiceUploadError(
+                sessionId = data?.nullableString("sessionId"),
+                code = data?.optString("code", "upload-failed") ?: "upload-failed",
+                message = data?.optString("message", "Voice upload failed.") ?: "Voice upload failed.",
+            )
+
+            "voice:ai-recap" -> WsEvent.VoiceAiRecap(
+                messageId = data?.optString("messageId") ?: return,
+                spokenText = data.optString("spokenText", ""),
+                model = data.nullableString("model"),
+                generationKind = data.optString("generationKind", "provider"),
+            )
+
+            "voice:ai-recap-error" -> WsEvent.VoiceAiRecapError(
+                messageId = data?.optString("messageId") ?: return,
+                message = data.optString("message", "AI recap failed."),
+            )
 
             "sync:welcome" -> WsEvent.SyncWelcome(
                 protocolVersion = data?.optInt("protocolVersion", 0) ?: 0,
@@ -324,6 +379,7 @@ fun parseWsEvent(
                         label = model.optString("label"),
                         vendor = model.nullableString("vendor"),
                         isCliSourced = model.optBoolean("isCliSourced", false),
+                        backend = model.nullableString("backend"),
                     )
                 }
                 models.value = list
@@ -2284,7 +2340,20 @@ fun parseWsEvent(
                         val conversationId = obj.nullableString("conversationId")
                         val projectId = obj.nullableString("projectId")
                         val route = routeForServerActivity(id, kind, conversationId, projectId) ?: return@mapNotNull null
-                        BackgroundActivity(id = id, label = label, route = route)
+                        BackgroundActivity(
+                            id = id,
+                            label = label,
+                            route = route,
+                            conversationId = conversationId,
+                            conversationTitle = obj.nullableString("conversationTitle"),
+                            projectId = projectId,
+                            projectName = obj.nullableString("projectName"),
+                            agentId = obj.nullableString("agentId"),
+                            agentName = obj.nullableString("agentName"),
+                            model = obj.nullableString("model"),
+                            detail = obj.nullableString("detail"),
+                            startedAt = obj.optLong("startedAt").takeIf { obj.has("startedAt") },
+                        )
                     }
                 } ?: emptyList()
                 BackgroundActivityTracker.applySnapshot(list)

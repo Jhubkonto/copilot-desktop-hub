@@ -297,6 +297,8 @@ object WsRepository : WsClient {
 
     private val _capabilities = MutableStateFlow(CapabilityState())
     val capabilities: StateFlow<CapabilityState> = _capabilities
+    private val _voiceCapabilities = MutableStateFlow(io.nexy.android.data.model.VoiceCapabilitiesWire())
+    val voiceCapabilities: StateFlow<io.nexy.android.data.model.VoiceCapabilitiesWire> = _voiceCapabilities
     private val _syncConflicts = MutableStateFlow<List<ConflictEntity>>(emptyList())
     val syncConflicts: StateFlow<List<ConflictEntity>> = _syncConflicts
     private val _syncOutbox = MutableStateFlow<List<OutboxEntity>>(emptyList())
@@ -696,6 +698,7 @@ object WsRepository : WsClient {
                     is WsEvent.Connected -> {
                         // Desktop came back online — clear the restart-expected flag
                         _intentionalRestartExpected.value = false
+                        _voiceCapabilities.value = event.voiceCapabilities
                         beginStandaloneSync()
                         getActivityFeed()
                     }

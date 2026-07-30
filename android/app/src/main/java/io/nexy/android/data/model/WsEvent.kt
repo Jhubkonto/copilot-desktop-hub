@@ -17,6 +17,15 @@ data class FsEntry(
     val isDirectory: Boolean,
 )
 
+data class VoiceCapabilitiesWire(
+    val protocolVersion: Int = 0,
+    val audioUpload: Boolean = false,
+    val localWhisperReady: Boolean = false,
+    val spokenOutputPersistence: Boolean = false,
+    val maxAudioBytes: Long = 0,
+    val maxRecordingSeconds: Int = 0,
+)
+
 sealed class WsEvent {
     data class Connected(
         val version: String,
@@ -25,7 +34,33 @@ sealed class WsEvent {
         val mDnsName: String? = null,
         /** Whether the desktop runs as the installed (packaged) app; null for older desktops. */
         val isPackaged: Boolean? = null,
+        /** Absent on older desktops; conservative defaults preserve compatibility. */
+        val voiceCapabilities: VoiceCapabilitiesWire = VoiceCapabilitiesWire(),
     ) : WsEvent()
+    data class VoiceUploadStarted(
+        val sessionId: String,
+        val chunkBytes: Int,
+        val maxBytes: Long,
+    ) : WsEvent()
+    data class VoiceUploadAck(
+        val sessionId: String,
+        val nextSequence: Int,
+        val receivedBytes: Long,
+    ) : WsEvent()
+    data class VoiceTranscription(val sessionId: String, val text: String) : WsEvent()
+    data class VoiceUploadCancelled(val sessionId: String) : WsEvent()
+    data class VoiceUploadError(
+        val sessionId: String?,
+        val code: String,
+        val message: String,
+    ) : WsEvent()
+    data class VoiceAiRecap(
+        val messageId: String,
+        val spokenText: String,
+        val model: String?,
+        val generationKind: String,
+    ) : WsEvent()
+    data class VoiceAiRecapError(val messageId: String, val message: String) : WsEvent()
     data class SyncWelcome(
         val protocolVersion: Int,
         val desktopDeviceId: String,
