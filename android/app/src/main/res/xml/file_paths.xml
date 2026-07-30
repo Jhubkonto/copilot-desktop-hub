@@ -6,4 +6,7 @@
     <cache-path
         name="artifact_export"
         path="artifact-export/" />
+    <cache-path
+        name="debrief_export"
+        path="debrief-export/" />
 </paths>
