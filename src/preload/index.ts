@@ -35,6 +35,7 @@ import type {
   SkillConfig,
   SkillGeneratorMessage,
   SkillGeneratorSpec,
+  SaveSpokenOutputInput,
   ScheduleGeneratorMessage,
   ScheduleGeneratorSpec,
   AutomatedWorkflowConfirmationMode,
@@ -86,6 +87,9 @@ const api = {
   getVoiceStatus: () => typedInvoke('voice:get-status'),
   installLocalVoice: () => typedInvoke('voice:install-local'),
   transcribeVoice: (audio: Uint8Array) => typedInvoke('voice:transcribe', audio),
+  saveSpokenOutput: (input: SaveSpokenOutputInput) =>
+    typedInvoke('voice:save-spoken-output', input),
+  generateAiRecap: (messageId: string) => typedInvoke('voice:generate-ai-recap', messageId),
   onDebugLog: (callback: (entry: { prefix: string; message: string; timestamp: number }) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -960,6 +964,8 @@ const api = {
     typedInvoke('artifact:promote-message', input),
   artifactExport: (versionId: string, format: string) =>
     typedInvoke('artifact:export', versionId, format),
+  artifactDownload: (versionId: string, format: string) =>
+    typedInvoke('artifact:download', versionId, format),
   artifactOpenFolder: (absolutePath: string) =>
     typedInvoke('artifact:open-folder', absolutePath),
   artifactGetFileContent: (versionId: string, relativePath: string) =>
