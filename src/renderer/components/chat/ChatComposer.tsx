@@ -1,5 +1,5 @@
-import { useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
-import { BookOpen, Camera, ClipboardPaste, Eye, Loader2, Mic, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
+import { useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
+import { BookOpen, Camera, ClipboardPaste, Eye, Loader2, Mic, Package, Paperclip, SendHorizontal, Square, UnfoldVertical, X } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
@@ -11,6 +11,7 @@ import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend,
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
+import { ResizableChatInput } from './ResizableChatInput'
 
 
 interface ChatComposerProps {
@@ -42,7 +43,6 @@ interface ChatComposerProps {
   selectedAtIndex: number
   atOptions: AtContextOption[]
   modelPickerRef: RefObject<HTMLButtonElement | null>
-  onResizePointerDown: (event: PointerEvent<HTMLDivElement>) => void
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
@@ -54,6 +54,8 @@ interface ChatComposerProps {
   voiceState: 'idle' | 'recording' | 'transcribing'
   onToggleVoice: () => void
   onCancelVoice: () => void
+  voiceDocked?: boolean
+  onFloatVoice?: () => void
   onToggleContextInspector: () => void
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
@@ -118,7 +120,6 @@ export function ChatComposer({
   selectedAtIndex,
   atOptions,
   modelPickerRef,
-  onResizePointerDown,
   onInputChange,
   onKeyDown,
   onPaste,
@@ -130,6 +131,8 @@ export function ChatComposer({
   voiceState,
   onToggleVoice,
   onCancelVoice,
+  voiceDocked = true,
+  onFloatVoice,
   onToggleContextInspector,
   onCloseContextInspector,
   onRemoveAttachment,
@@ -168,11 +171,6 @@ export function ChatComposer({
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-700/80 relative">
-      <div
-        className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-blue-400/50 active:bg-blue-500/60 transition-colors z-10"
-        onPointerDown={onResizePointerDown}
-        aria-label="Resize input panel"
-      />
       <div className="px-4 pb-4 pt-3">
         <div className="max-w-3xl mx-auto">
           <AttachmentBar
@@ -236,35 +234,30 @@ export function ChatComposer({
             onClose={onCloseAtMenu}
           />
 
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={onInputChange}
-              onKeyDown={onKeyDown}
-              onPaste={onPaste}
-              onDragOver={(event) => event.preventDefault()}
-              placeholder={
-                !authenticated
-                  ? 'Sign in to start chatting'
-                  : isOnline
-                    ? 'Type a message... (paste images with Ctrl+V)'
-                    : 'Offline — reconnect to send messages'
-              }
-              rows={1}
-              disabled={!isOnline || !authenticated || rateLimitRemainingSec > 0}
-              aria-label="Message input"
-              aria-expanded={showSlashMenu || showAtMenu || undefined}
-              aria-controls={showSlashMenu ? 'slash-command-menu' : showAtMenu ? 'at-context-menu' : undefined}
-              aria-activedescendant={
-                showSlashMenu ? `slash-opt-${selectedSlashIndex}` :
-                showAtMenu ? `at-opt-${selectedAtIndex}` :
-                undefined
-              }
-              className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
-            />
-            <div className="flex items-center justify-between px-2 pb-2">
-              <div className="flex items-center gap-0.5">
+          <ResizableChatInput
+            inputRef={inputRef}
+            value={input}
+            onChange={onInputChange}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            placeholder={
+              !authenticated
+                ? 'Sign in to start chatting'
+                : isOnline
+                  ? 'Type a message... (paste images with Ctrl+V)'
+                  : 'Offline — reconnect to send messages'
+            }
+            disabled={!isOnline || !authenticated || rateLimitRemainingSec > 0}
+            aria-label="Message input"
+            aria-expanded={showSlashMenu || showAtMenu || undefined}
+            aria-controls={showSlashMenu ? 'slash-command-menu' : showAtMenu ? 'at-context-menu' : undefined}
+            aria-activedescendant={
+              showSlashMenu ? `slash-opt-${selectedSlashIndex}` :
+              showAtMenu ? `at-opt-${selectedAtIndex}` :
+              undefined
+            }
+            leftActions={
+              <>
                 <button
                   type="button"
                   onClick={onAttachFiles}
@@ -337,8 +330,10 @@ export function ChatComposer({
                 >
                   <Eye className="w-4 h-4" />
                 </button>
-              </div>
-              <div className="flex items-center gap-1">
+              </>
+            }
+            rightActions={
+              <>
               {isEditingMessage && (
                 <button
                   type="button"
@@ -390,7 +385,7 @@ export function ChatComposer({
                   />
                 )}
               </div>
-                {voiceState === 'recording' && (
+                {voiceDocked && voiceState === 'recording' && (
                   <button
                     type="button"
                     onClick={onCancelVoice}
@@ -401,17 +396,33 @@ export function ChatComposer({
                     <X className="w-4 h-4" />
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={onToggleVoice}
-                  disabled={isGenerating || voiceState === 'transcribing'}
-                  className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${voiceState === 'recording' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                  title={voiceState === 'recording' ? 'Stop recording' : voiceState === 'transcribing' ? 'Transcribing locally…' : 'Voice input'}
-                  aria-label={voiceState === 'recording' ? 'Stop voice recording' : 'Start voice input'}
-                  aria-pressed={voiceState === 'recording'}
-                >
-                  {voiceState === 'transcribing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
-                </button>
+                {voiceDocked && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onToggleVoice}
+                      disabled={isGenerating || voiceState === 'transcribing'}
+                      className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${voiceState === 'recording' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                      title={voiceState === 'recording' ? 'Stop recording' : voiceState === 'transcribing' ? 'Transcribing locally…' : 'Voice input'}
+                      aria-label={voiceState === 'recording' ? 'Stop voice recording' : 'Start voice input'}
+                      aria-pressed={voiceState === 'recording'}
+                    >
+                      {voiceState === 'transcribing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                    </button>
+                    {onFloatVoice && voiceState === 'idle' && (
+                      <button
+                        type="button"
+                        onClick={onFloatVoice}
+                        disabled={isGenerating}
+                        className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                        title="Float microphone"
+                        aria-label="Float microphone"
+                      >
+                        <UnfoldVertical className="w-4 h-4" />
+                      </button>
+                    )}
+                  </>
+                )}
                 {isGenerating ? (
                   <button
                     type="button"
@@ -447,9 +458,9 @@ export function ChatComposer({
                     {isRunningCommand ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizontal className="w-4 h-4" />}
                   </button>
                 )}
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          />
         </div>
       </div>
     </div>

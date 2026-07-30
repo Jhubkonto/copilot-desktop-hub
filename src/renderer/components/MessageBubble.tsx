@@ -1,9 +1,13 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench, BookmarkPlus } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench, BookmarkPlus, AudioLines, Volume2, Sparkles, MoreHorizontal } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
 import { Button } from './ui/primitives'
+import { SpokenOutputControls } from './chat/SpokenOutputControls'
+import type { SpokenPlaybackState } from '../hooks/useSpokenOutput'
+import type { SpokenOutputSettings } from '../lib/spoken-output'
+import { DropdownPanel } from './DropdownPanel'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -115,6 +119,25 @@ interface MessageBubbleProps {
   onRetry?: () => void
   onSignIn?: () => void
   onPickModel?: () => void
+  spokenOutput?: {
+    supported: boolean
+    active: boolean
+    state: SpokenPlaybackState
+    kind: 'response' | 'quick-recap' | 'ai-recap'
+    model: string | null
+    aiRecapLoading: boolean
+    aiRecapError: string | null
+    voices: SpeechSynthesisVoice[]
+    settings: SpokenOutputSettings
+    onRead: () => void
+    onQuickRecap: () => void
+    onAiRecap: () => void
+    onPause: () => void
+    onResume: () => void
+    onStop: () => void
+    onReplay: () => void
+    onSettingsChange: (settings: SpokenOutputSettings) => void
+  }
 }
 
 export function MessageBubbleBase({
@@ -148,10 +171,12 @@ export function MessageBubbleBase({
   onRetry,
   onSignIn,
   onPickModel,
-  isHighlighted
+  isHighlighted,
+  spokenOutput,
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [assistantMenuOpen, setAssistantMenuOpen] = useState(false)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -177,6 +202,14 @@ export function MessageBubbleBase({
   const isAssistant = role === 'assistant'
   const isUser = role === 'user'
   const isSystem = role === 'system'
+  const hasAssistantOverflowActions = Boolean(
+    onSaveAsPrompt
+    || onSaveToWiki
+    || onSaveAsArtifact
+    || onCreateCodeChange
+    || (isLastAssistant && onRegenerate)
+    || (spokenOutput?.supported && spokenOutput.onAiRecap)
+  )
 
   return (
     <div
@@ -234,49 +267,115 @@ export function MessageBubbleBase({
                 }}
                 tone={copied ? 'success' : 'default'}
               />
-              {onSaveAsPrompt && (
-                <IconActionButton
-                  icon={BookmarkPlus}
-                  label="Save as prompt"
-                  title="Save response as prompt"
-                  onClick={() => onSaveAsPrompt(content)}
-                />
+              {spokenOutput?.supported && (
+                <>
+                  <IconActionButton
+                    icon={Volume2}
+                    label="Read response"
+                    title="Read a speech-safe version of this response"
+                    onClick={spokenOutput.onRead}
+                  />
+                  <IconActionButton
+                    icon={AudioLines}
+                    label="Quick Recap"
+                    title="Create and read a local quick recap"
+                    onClick={spokenOutput.onQuickRecap}
+                  />
+                </>
               )}
-              {onSaveToWiki && (
-                <IconActionButton
-                  icon={BookOpen}
-                  label={hasWikiEntry ? 'Saved to wiki' : 'Save to wiki'}
-                  title={hasWikiEntry ? 'Saved to wiki' : 'Save response to wiki'}
-                  onClick={() => onSaveToWiki(id, content)}
-                  tone={hasWikiEntry ? 'info' : 'default'}
-                />
-              )}
-              {onSaveAsArtifact && (
-                <IconActionButton
-                  icon={Package}
-                  label="Save as artifact"
-                  title="Save response as artifact"
-                  onClick={() => onSaveAsArtifact(id, content)}
-                />
-              )}
-              {onCreateCodeChange && (
-                <IconActionButton
-                  icon={Wrench}
-                  label="Create code change"
-                  title={canCreateCodeChange ? 'Create code change' : 'Switch to a project to create a code change'}
-                  onClick={() => onCreateCodeChange(id, content)}
-                  disabled={!canCreateCodeChange}
-                />
-              )}
-              {isLastAssistant && onRegenerate && (
-                <IconActionButton
-                  icon={RotateCcw}
-                  label="Regenerate"
-                  title="Regenerate response"
-                  onClick={() => onRegenerate()}
-                />
+              {hasAssistantOverflowActions && (
+                <DropdownPanel
+                  open={assistantMenuOpen}
+                  onClose={() => setAssistantMenuOpen(false)}
+                  align="left"
+                  width="w-52"
+                  trigger={
+                    <IconActionButton
+                      icon={MoreHorizontal}
+                      label="More message actions"
+                      title="More message actions"
+                      onClick={() => setAssistantMenuOpen((open) => !open)}
+                      menuOpen={assistantMenuOpen}
+                    />
+                  }
+                >
+                  <div className="p-1" role="menu" aria-label="Message actions">
+                    {onSaveAsPrompt && (
+                      <MessageMenuItem icon={BookmarkPlus} label="Save as prompt" onClick={() => {
+                        setAssistantMenuOpen(false)
+                        onSaveAsPrompt(content)
+                      }} />
+                    )}
+                    {isLastAssistant && onRegenerate && (
+                      <MessageMenuItem icon={RotateCcw} label="Regenerate" onClick={() => {
+                        setAssistantMenuOpen(false)
+                        onRegenerate()
+                      }} />
+                    )}
+                    {onSaveToWiki && (
+                      <MessageMenuItem
+                        icon={BookOpen}
+                        label={hasWikiEntry ? 'Saved to wiki' : 'Save to wiki'}
+                        onClick={() => {
+                          setAssistantMenuOpen(false)
+                          onSaveToWiki(id, content)
+                        }}
+                        tone={hasWikiEntry ? 'info' : 'default'}
+                      />
+                    )}
+                    {onSaveAsArtifact && (
+                      <MessageMenuItem icon={Package} label="Save as artifact" onClick={() => {
+                        setAssistantMenuOpen(false)
+                        onSaveAsArtifact(id, content)
+                      }} />
+                    )}
+                    {onCreateCodeChange && (
+                      <MessageMenuItem
+                        icon={Wrench}
+                        label="Create code change"
+                        title={canCreateCodeChange ? 'Create code change' : 'Switch to a project to create a code change'}
+                        onClick={() => {
+                          setAssistantMenuOpen(false)
+                          onCreateCodeChange(id, content)
+                        }}
+                        disabled={!canCreateCodeChange}
+                      />
+                    )}
+                    {spokenOutput?.supported && (
+                      <MessageMenuItem
+                        icon={spokenOutput.aiRecapLoading ? RefreshCw : Sparkles}
+                        label={spokenOutput.aiRecapLoading ? 'Creating AI Recap…' : 'AI Recap'}
+                        title="Create and persist a provider or CLI generated recap"
+                        onClick={() => {
+                          setAssistantMenuOpen(false)
+                          spokenOutput.onAiRecap()
+                        }}
+                        disabled={spokenOutput.aiRecapLoading}
+                      />
+                    )}
+                  </div>
+                </DropdownPanel>
               )}
             </div>
+          )}
+          {spokenOutput?.aiRecapError && (
+            <p className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">
+              {spokenOutput.aiRecapError}
+            </p>
+          )}
+          {spokenOutput?.active && (
+            <SpokenOutputControls
+              state={spokenOutput.state}
+              kind={spokenOutput.kind}
+              model={spokenOutput.model}
+              voices={spokenOutput.voices}
+              settings={spokenOutput.settings}
+              onSettingsChange={spokenOutput.onSettingsChange}
+              onPause={spokenOutput.onPause}
+              onResume={spokenOutput.onResume}
+              onStop={spokenOutput.onStop}
+              onReplay={spokenOutput.onReplay}
+            />
           )}
         </div>
       )}
@@ -472,6 +571,7 @@ function IconActionButton({
   disabled = false,
   title,
   tone = 'default',
+  menuOpen,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -479,6 +579,7 @@ function IconActionButton({
   disabled?: boolean
   title?: string
   tone?: 'default' | 'success' | 'info'
+  menuOpen?: boolean
 }) {
   const toneClass = tone === 'success'
     ? 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-800/60 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'
@@ -494,10 +595,46 @@ function IconActionButton({
       }}
       aria-disabled={disabled}
       aria-label={label}
+      aria-haspopup={menuOpen === undefined ? undefined : 'menu'}
+      aria-expanded={menuOpen}
       title={title ?? label}
       className={`inline-flex h-7 w-7 items-center justify-center rounded-full border shadow-sm backdrop-blur-sm transition-all duration-150 active:scale-95 ${toneClass} ${disabled ? 'cursor-not-allowed opacity-50 hover:shadow-sm active:scale-100' : 'hover:shadow-md'}`}
     >
       <Icon className="h-3.5 w-3.5" />
+    </button>
+  )
+}
+
+function MessageMenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  disabled = false,
+  title,
+  tone = 'default',
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  title?: string
+  tone?: 'default' | 'info'
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      title={title ?? label}
+      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        tone === 'info'
+          ? 'text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-900/30'
+          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span>{label}</span>
     </button>
   )
 }

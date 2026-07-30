@@ -14,6 +14,8 @@ import { getSupersededPendingArtifactMessageIds, parseArtifactReference } from '
 import type { ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
+import type { SpokenPlaybackState } from '../../hooks/useSpokenOutput'
+import type { SpokenOutputSettings } from '../../lib/spoken-output'
 
 interface ChatMessagesProps {
   messages: ChatMessage[]
@@ -47,6 +49,26 @@ interface ChatMessagesProps {
   onPickModel: () => void
   onUseImageAsContext?: (dataUrl: string) => void
   liveTurnState?: ChatTurnState
+  spokenOutput?: {
+    supported: boolean
+    activeMessageId: string | null
+    state: SpokenPlaybackState
+    kind: 'response' | 'quick-recap' | 'ai-recap'
+    model: string | null
+    aiRecapMessageId: string | null
+    aiRecapError: string | null
+    aiRecapErrorMessageId: string | null
+    voices: SpeechSynthesisVoice[]
+    settings: SpokenOutputSettings
+    onRead: (messageId: string, content: string) => void
+    onQuickRecap: (messageId: string, content: string) => void
+    onAiRecap: (messageId: string) => void
+    onPause: () => void
+    onResume: () => void
+    onStop: () => void
+    onReplay: () => void
+    onSettingsChange: (settings: SpokenOutputSettings) => void
+  }
 }
 
 interface RequestReference {
@@ -193,6 +215,7 @@ export function ChatMessagesBase({
   onPickModel,
   onUseImageAsContext,
   liveTurnState,
+  spokenOutput,
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const generationElapsedSec = useGenerationTimer(isGenerating, generationStartedAt)
@@ -656,6 +679,25 @@ export function ChatMessagesBase({
                     ? onPickModel
                     : undefined
                 }
+                spokenOutput={main.role === 'assistant' && spokenOutput ? {
+                  supported: spokenOutput.supported,
+                  active: spokenOutput.activeMessageId === main.id,
+                  state: spokenOutput.state,
+                  kind: spokenOutput.kind,
+                  model: spokenOutput.model,
+                  aiRecapLoading: spokenOutput.aiRecapMessageId === main.id,
+                  aiRecapError: spokenOutput.aiRecapErrorMessageId === main.id ? spokenOutput.aiRecapError : null,
+                  voices: spokenOutput.voices,
+                  settings: spokenOutput.settings,
+                  onRead: () => spokenOutput.onRead(main.id, main.content),
+                  onQuickRecap: () => spokenOutput.onQuickRecap(main.id, main.content),
+                  onAiRecap: () => spokenOutput.onAiRecap(main.id),
+                  onPause: spokenOutput.onPause,
+                  onResume: spokenOutput.onResume,
+                  onStop: spokenOutput.onStop,
+                  onReplay: spokenOutput.onReplay,
+                  onSettingsChange: spokenOutput.onSettingsChange,
+                } : undefined}
               />
             </div>
           )

@@ -40,6 +40,9 @@ const APPROVE_OPTIONS: { value: boolean | null; label: string }[] = [
   { value: false, label: 'Off' },
 ]
 
+const OPTION_GRID_CLASS = 'grid grid-cols-2 gap-1 px-1'
+const OPTION_BUTTON_CLASS = 'rounded px-1.5 py-1 text-[10px] font-medium border transition-colors'
+
 /** Backend-specific mode options — Claude Code permission modes vs Codex sandbox levels.
  *  Hermes has no mode flags, so it gets no section. */
 const CLI_MODE_OPTIONS: Partial<Record<CliBackend, { title: string; options: { value: CliModeOverride | null; label: string; hint?: string }[] }>> = {
@@ -111,13 +114,13 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
       <div className="p-2 space-y-3">
         <div>
           <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Thinking effort (this chat)</p>
-          <div className="grid grid-cols-2 gap-1 px-1">
+          <div className={OPTION_GRID_CLASS}>
             {THINKING_OPTIONS.map((opt) => (
               <button
                 key={String(opt.value)}
                 type="button"
                 onClick={() => onChange({ thinkingEffortOverride: opt.value })}
-                className={`rounded px-1.5 py-1 text-[10px] font-medium border transition-colors ${
+                className={`${OPTION_BUTTON_CLASS} ${
                   thinkingEffortOverride === opt.value
                     ? 'border-blue-500 bg-blue-500 text-white'
                     : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
@@ -131,13 +134,13 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
         {showByokPlanMode && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Agentic mode (this chat)</p>
-            <div className="grid grid-cols-3 gap-1 px-1">
+            <div className={OPTION_GRID_CLASS}>
               {APPROVE_OPTIONS.map((opt) => (
                 <button
                   key={String(opt.value)}
                   type="button"
                   onClick={() => onChange({ agenticModeOverride: opt.value })}
-                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                  className={`${OPTION_BUTTON_CLASS} ${
                     agenticModeOverride === opt.value
                       ? 'border-emerald-500 bg-emerald-500 text-white'
                       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
@@ -155,7 +158,7 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
         {activeCliBackend === 'codex-cli' && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Codex execution mode (this chat)</p>
-            <div className="grid grid-cols-2 gap-1 px-1">
+            <div className={OPTION_GRID_CLASS}>
               {([
                 { value: null, label: 'Default', hint: 'Normal execution' },
                 { value: 'plan' as const, label: 'Plan', hint: 'Analyze and propose a plan' },
@@ -165,7 +168,7 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
                   type="button"
                   onClick={() => onChange({ codexExecutionModeOverride: opt.value })}
                   title={opt.hint}
-                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                  className={`${OPTION_BUTTON_CLASS} ${
                     codexExecutionModeOverride === opt.value
                       ? 'border-indigo-500 bg-indigo-500 text-white'
                       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
@@ -181,7 +184,7 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
         {showByokPlanMode && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Execution mode (this chat)</p>
-            <div className="grid grid-cols-2 gap-1 px-1">
+            <div className={OPTION_GRID_CLASS}>
               {([
                 { value: null, label: 'Default', hint: 'Normal execution' },
                 { value: 'plan' as const, label: 'Plan', hint: 'Research read-only, then ask before implementation' },
@@ -191,7 +194,7 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
                   type="button"
                   onClick={() => onChange({ cliModeOverride: opt.value })}
                   title={opt.hint}
-                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                  className={`${OPTION_BUTTON_CLASS} ${
                     cliModeOverride === opt.value
                       ? 'border-indigo-500 bg-indigo-500 text-white'
                       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
@@ -211,13 +214,13 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">
               {activeCliBackend === 'codex-cli' ? 'Codex auto-approve (this chat)' : 'Auto-approve (this chat)'}
             </p>
-            <div className={`grid gap-1 px-1 ${activeCliBackend === 'codex-cli' ? 'grid-cols-2' : 'grid-cols-3'}`}>
+            <div className={OPTION_GRID_CLASS}>
               {APPROVE_OPTIONS.map((opt) => (
                 <button
                   key={String(opt.value)}
                   type="button"
                   onClick={() => onChange({ fullAutoApproveOverride: opt.value })}
-                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                  className={`${OPTION_BUTTON_CLASS} ${
                     fullAutoApproveOverride === opt.value
                       ? 'border-blue-500 bg-blue-500 text-white'
                       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
@@ -237,13 +240,13 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
         {showTerminalSandboxBypass && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">Terminal sandbox bypass (this chat)</p>
-            <div className="grid grid-cols-3 gap-1 px-1">
+            <div className={OPTION_GRID_CLASS}>
               {APPROVE_OPTIONS.map((opt) => (
                 <button
                   key={String(opt.value)}
                   type="button"
                   onClick={() => onChange({ terminalSandboxOverride: opt.value })}
-                  className={`rounded px-1.5 py-1 text-[10px] font-medium border transition-colors ${
+                  className={`${OPTION_BUTTON_CLASS} ${
                     terminalSandboxOverride === opt.value
                       ? 'border-amber-500 bg-amber-500 text-white'
                       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
@@ -259,14 +262,14 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
         {cliModeSection && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide px-1 pb-1">{cliModeSection.title}</p>
-            <div className="grid grid-cols-2 gap-1 px-1">
+            <div className={OPTION_GRID_CLASS}>
               {cliModeSection.options.map((opt) => (
                 <button
                   key={String(opt.value)}
                   type="button"
                   onClick={() => onChange({ cliModeOverride: opt.value })}
                   title={opt.hint}
-                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium border transition-colors ${
+                  className={`${OPTION_BUTTON_CLASS} ${
                     cliModeOverride === opt.value
                       ? 'border-purple-500 bg-purple-500 text-white'
                       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:text-gray-100'
