@@ -4,6 +4,15 @@ import { getModelLabel } from '../../../shared/models'
 import { Button, ToggleSwitch } from '../ui/primitives'
 import type { AvailableModelGroup } from '@shared/types'
 import { TabHeader } from './TabHeader'
+import {
+  formatPushToTalkShortcut,
+  readPushToTalkShortcut,
+  shortcutFromKeyboardEvent,
+  suggestedPushToTalkShortcut,
+  validatePushToTalkShortcut,
+  writePushToTalkShortcut,
+  type PushToTalkShortcut,
+} from '../../lib/push-to-talk-shortcut'
 
 interface Props {
   theme: string
@@ -61,6 +70,36 @@ export function GeneralTab({
 }: Props) {
   const [showManualVoiceSetup, setShowManualVoiceSetup] = useState(false)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
+  const [pushToTalkShortcut, setPushToTalkShortcut] = useState<PushToTalkShortcut | null>(
+    () => readPushToTalkShortcut(localStorage),
+  )
+  const [capturingShortcut, setCapturingShortcut] = useState(false)
+  const [shortcutError, setShortcutError] = useState<string | null>(null)
+
+  const savePushToTalkShortcut = (shortcut: PushToTalkShortcut | null) => {
+    writePushToTalkShortcut(localStorage, shortcut)
+    setPushToTalkShortcut(shortcut)
+    setShortcutError(null)
+    setCapturingShortcut(false)
+  }
+
+  const capturePushToTalkShortcut = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === 'Escape') {
+      setCapturingShortcut(false)
+      setShortcutError(null)
+      return
+    }
+    const shortcut = shortcutFromKeyboardEvent(event.nativeEvent)
+    if (!shortcut) return
+    const error = validatePushToTalkShortcut(shortcut)
+    if (error) {
+      setShortcutError(error)
+      return
+    }
+    savePushToTalkShortcut(shortcut)
+  }
   useEffect(() => { void window.api.getVersion().then(setDesktopVersion).catch(() => setDesktopVersion(null)) }, [])
   return (
     <>
@@ -186,6 +225,40 @@ export function GeneralTab({
             </Button>
           </div>
         )}
+        <div className="border-t border-gray-200 pt-3 dark:border-gray-700">
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Push-to-talk shortcut</p>
+          <p className="mb-2 text-xs text-gray-500">
+            Hold the shortcut while Nexy is focused. Release any key to stop and transcribe.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-push-to-talk-capture={capturingShortcut ? 'true' : undefined}
+              onClick={() => {
+                setCapturingShortcut(true)
+                setShortcutError(null)
+              }}
+              onKeyDown={capturingShortcut ? capturePushToTalkShortcut : undefined}
+              className={`min-w-36 rounded-lg border px-3 py-2 text-xs font-medium ${
+                capturingShortcut
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                  : 'border-gray-300 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200'
+              }`}
+              aria-label="Change push-to-talk shortcut"
+            >
+              {capturingShortcut ? 'Press shortcut…' : formatPushToTalkShortcut(pushToTalkShortcut)}
+            </button>
+            <Button variant="secondary" onClick={() => savePushToTalkShortcut(suggestedPushToTalkShortcut())} className="rounded-lg">
+              Use suggestion
+            </Button>
+            {pushToTalkShortcut && (
+              <Button variant="secondary" onClick={() => savePushToTalkShortcut(null)} className="rounded-lg">
+                Clear
+              </Button>
+            )}
+          </div>
+          {shortcutError && <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">{shortcutError}</p>}
+        </div>
       </div>
 
       <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
