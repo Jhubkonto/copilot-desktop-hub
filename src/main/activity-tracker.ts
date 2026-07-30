@@ -1,6 +1,7 @@
 import { BrowserWindow, Notification } from 'electron'
 import { safeHandle } from './safe-handle'
 import { broadcastToMobile } from './ws-server'
+import { getDatabase } from './database'
 import type { BackgroundActivity, BackgroundActivityKind } from '../shared/types'
 
 /**
@@ -11,6 +12,71 @@ import type { BackgroundActivity, BackgroundActivityKind } from '../shared/types
  * mutation pushes the full snapshot to all desktop windows and to connected mobile clients.
  */
 const activities = new Map<string, BackgroundActivity>()
+
+type ActivityConversationContextRow = {
+  conversation_title: string
+  project_id: string | null
+  project_name: string | null
+  agent_id: string | null
+  model: string | null
+  agent_config_json: string | null
+}
+
+function agentNameFromConfig(configJson: string | null): string | undefined {
+  if (!configJson) return undefined
+  try {
+    const config = JSON.parse(configJson) as { name?: unknown }
+    return typeof config.name === 'string' && config.name.trim() ? config.name.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Activity producers should only need stable ids. Resolve user-facing names here so every
+ * desktop window and connected Android client receives the same contextual snapshot.
+ */
+function withDisplayContext(activity: BackgroundActivity): BackgroundActivity {
+  try {
+    const db = getDatabase()
+    if (activity.conversationId) {
+      const row = db.prepare(`
+        SELECT
+          c.title AS conversation_title,
+          c.project_id,
+          p.name AS project_name,
+          c.agent_id,
+          c.model,
+          a.config_json AS agent_config_json
+        FROM conversations c
+        LEFT JOIN projects p ON p.id = c.project_id
+        LEFT JOIN agents a ON a.id = c.agent_id
+        WHERE c.id = ?
+      `).get(activity.conversationId) as ActivityConversationContextRow | undefined
+      if (row) {
+        return {
+          ...activity,
+          projectId: activity.projectId ?? row.project_id ?? undefined,
+          projectName: row.project_name ?? activity.projectName,
+          conversationTitle: row.conversation_title || activity.conversationTitle,
+          agentId: activity.agentId ?? row.agent_id ?? undefined,
+          agentName: agentNameFromConfig(row.agent_config_json) ?? activity.agentName,
+          model: activity.model ?? row.model ?? undefined,
+        }
+      }
+    }
+    if (activity.projectId && !activity.projectName) {
+      const row = db.prepare('SELECT name FROM projects WHERE id = ?').get(activity.projectId) as
+        | { name: string }
+        | undefined
+      if (row?.name) return { ...activity, projectName: row.name }
+    }
+  } catch {
+    // The registry is also used during startup and in isolated tests where the database may
+    // not be available yet. IDs and navigation remain useful until the next snapshot.
+  }
+  return activity
+}
 
 function broadcast(): void {
   const snapshot = getActivitySnapshot()
@@ -116,7 +182,7 @@ function notifyActivityFinished(activity: BackgroundActivity): void {
 }
 
 export function getActivitySnapshot(): BackgroundActivity[] {
-  return Array.from(activities.values())
+  return Array.from(activities.values(), withDisplayContext)
 }
 
 export function registerActivityHandlers(): void {
