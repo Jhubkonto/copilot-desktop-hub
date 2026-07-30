@@ -30,6 +30,10 @@ fun NotificationsScreen(
 ) {
     val notificationDiagnostics by vm.notificationDiagnostics.collectAsStateWithLifecycle()
     val readAloudEnabled by vm.readAloudEnabled.collectAsStateWithLifecycle()
+    val voiceDockEnabled by vm.voiceDockEnabled.collectAsStateWithLifecycle()
+    val spokenOutputEnabled by vm.spokenOutputEnabled.collectAsStateWithLifecycle()
+    val spokenOutputSettings by vm.spokenOutputSettings.collectAsStateWithLifecycle()
+    val spokenVoices by vm.spokenVoices.collectAsStateWithLifecycle()
     var refreshed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.refreshNotificationDiagnostics() }
@@ -68,6 +72,17 @@ fun NotificationsScreen(
             ReadAloudSection(
                 readAloudEnabled = readAloudEnabled,
                 onReadAloudEnabledChanged = { vm.setReadAloudEnabled(it) },
+            )
+            SpokenOutputSettingsSection(
+                enabled = spokenOutputEnabled,
+                settings = spokenOutputSettings,
+                voices = spokenVoices,
+                onEnabledChanged = vm::setSpokenOutputEnabled,
+                onSettingsChanged = vm::setSpokenOutputSettings,
+            )
+            VoiceDockSettingsSection(
+                enabled = voiceDockEnabled,
+                onEnabledChanged = vm::setVoiceDockEnabled,
             )
         }
     }

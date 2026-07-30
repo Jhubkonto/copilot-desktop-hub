@@ -2,6 +2,7 @@ package io.nexy.android.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +32,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +60,9 @@ import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.modelSourceTitle
 import io.nexy.android.ui.theme.ThemePreference
+import io.nexy.android.service.SpokenOutputSettings
+import io.nexy.android.service.SpokenVoiceOption
+import java.util.Locale
 
 @Composable
 fun SettingsSectionHeader(title: String) {
@@ -832,6 +839,145 @@ fun ReadAloudSection(
                 }
                 Switch(checked = readAloudEnabled, onCheckedChange = onReadAloudEnabledChanged)
             }
+        }
+    }
+
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+fun SpokenOutputSettingsSection(
+    enabled: Boolean,
+    settings: SpokenOutputSettings,
+    voices: List<SpokenVoiceOption>,
+    onEnabledChanged: (Boolean) -> Unit,
+    onSettingsChanged: (SpokenOutputSettings) -> Unit,
+) {
+    SettingsSectionHeader("Spoken output")
+    var voiceMenuExpanded by remember { mutableStateOf(false) }
+    val selectableVoices = if (settings.offlineOnly) voices.filter(SpokenVoiceOption::offline) else voices
+    val selectedVoice = voices.firstOrNull { it.id == settings.voiceId }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { onEnabledChanged(!enabled) },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Spoken responses", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    "Read speech-safe responses and local Quick Recaps using an installed Android voice.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onEnabledChanged)
+        }
+
+        if (enabled) {
+            Spacer(Modifier.size(12.dp))
+            Box {
+                OutlinedButton(onClick = { voiceMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        selectedVoice?.let { "${it.localeTag} · ${it.label}" } ?: "System default voice",
+                        maxLines = 1,
+                    )
+                }
+                DropdownMenu(expanded = voiceMenuExpanded, onDismissRequest = { voiceMenuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("System default voice") },
+                        onClick = {
+                            voiceMenuExpanded = false
+                            onSettingsChanged(settings.copy(voiceId = null))
+                        },
+                    )
+                    selectableVoices.forEach { voice ->
+                        DropdownMenuItem(
+                            text = { Text("${voice.localeTag} · ${voice.label}${if (voice.offline) " · offline" else ""}") },
+                            onClick = {
+                                voiceMenuExpanded = false
+                                onSettingsChanged(settings.copy(voiceId = voice.id))
+                            },
+                        )
+                    }
+                }
+            }
+            Text("Speed ${String.format(Locale.getDefault(), "%.1f", settings.rate)}×", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = settings.rate,
+                onValueChange = { onSettingsChanged(settings.copy(rate = it)) },
+                valueRange = 0.5f..2f,
+                steps = 5,
+            )
+            Text("Pitch ${String.format(Locale.getDefault(), "%.1f", settings.pitch)}×", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = settings.pitch,
+                onValueChange = { onSettingsChanged(settings.copy(pitch = it)) },
+                valueRange = 0.5f..2f,
+                steps = 5,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    onSettingsChanged(settings.copy(offlineOnly = !settings.offlineOnly, voiceId = null))
+                },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Offline voices only", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = settings.offlineOnly,
+                    onCheckedChange = { onSettingsChanged(settings.copy(offlineOnly = it, voiceId = null)) },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    onSettingsChanged(settings.copy(autoPlay = !settings.autoPlay))
+                },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Play new responses automatically", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = settings.autoPlay,
+                    onCheckedChange = { onSettingsChanged(settings.copy(autoPlay = it)) },
+                )
+            }
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+fun VoiceDockSettingsSection(
+    enabled: Boolean,
+    onEnabledChanged: (Boolean) -> Unit,
+) {
+    SettingsSectionHeader("Voice input")
+
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onEnabledChanged(!enabled) }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(
+                    "Voice Dock",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "Float a movable microphone in chat. Hold or tap to record until you stop, then edit the transcript before sending.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onEnabledChanged)
         }
     }
 
