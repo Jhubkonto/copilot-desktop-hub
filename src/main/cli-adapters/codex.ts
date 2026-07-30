@@ -7,22 +7,32 @@ import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, stripAnsi, createLineBuffer } from './utils'
 
-type TextResult = { text: string; isDelta: boolean }
+type TextResult = { text: string; isDelta: boolean; blockId?: string; done?: boolean }
 type ThinkingResult = { text: string; done?: boolean; isDelta: boolean }
 
 function extractText(line: string): TextResult | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>
+    const eventBlockId = (...values: unknown[]): string | undefined =>
+      values.find((value): value is string => typeof value === 'string' && value.length > 0)
 
     // Streaming text delta (Responses API style)
     if (obj.type === 'response.content_part.delta') {
       const delta = obj.delta as Record<string, unknown> | undefined
       if (delta?.type === 'text' && typeof delta.text === 'string') {
-        return { text: delta.text, isDelta: true }
+        return {
+          text: delta.text,
+          isDelta: true,
+          blockId: eventBlockId(obj.item_id, obj.itemId, delta.item_id, delta.itemId),
+        }
       }
     }
     if (obj.type === 'response.output_text.delta' && typeof obj.delta === 'string') {
-      return { text: obj.delta, isDelta: true }
+      return {
+        text: obj.delta,
+        isDelta: true,
+        blockId: eventBlockId(obj.item_id, obj.itemId),
+      }
     }
 
     // Complete assistant message (Responses API style)
@@ -33,7 +43,12 @@ function extractText(line: string): TextResult | null {
           .filter((b) => b.type === 'text' && b.text)
           .map((b) => b.text!)
           .join('')
-        if (text) return { text, isDelta: false }
+        if (text) return {
+          text,
+          isDelta: false,
+          blockId: eventBlockId(item.id, obj.item_id, obj.itemId),
+          done: true,
+        }
       }
     }
 
@@ -41,7 +56,11 @@ function extractText(line: string): TextResult | null {
     if (obj.type === 'agent_message_delta') {
       const delta = obj.delta as Record<string, unknown> | undefined
       if (typeof delta?.text === 'string' && delta.text) {
-        return { text: delta.text, isDelta: true }
+        return {
+          text: delta.text,
+          isDelta: true,
+          blockId: eventBlockId(obj.item_id, obj.itemId, delta.item_id, delta.itemId),
+        }
       }
     }
 
@@ -53,35 +72,59 @@ function extractText(line: string): TextResult | null {
           .filter((b) => b.type === 'text' && b.text)
           .map((b) => b.text!)
           .join('')
-        if (text) return { text, isDelta: false }
+        if (text) return {
+          text,
+          isDelta: false,
+          blockId: eventBlockId(msg.id, obj.item_id, obj.itemId),
+          done: true,
+        }
       }
-      if (typeof msg?.text === 'string' && msg.text) return { text: msg.text, isDelta: false }
+      if (typeof msg?.text === 'string' && msg.text) {
+        return {
+          text: msg.text,
+          isDelta: false,
+          blockId: eventBlockId(msg.id, obj.item_id, obj.itemId),
+          done: true,
+        }
+      }
     }
 
     // Codex exec JSONL: item.completed with an agent_message payload.
     if (obj.type === 'item.completed') {
       const item = obj.item as Record<string, unknown> | undefined
       if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
-        return { text: item.text, isDelta: false }
+        return {
+          text: item.text,
+          isDelta: false,
+          blockId: eventBlockId(item.id),
+          done: true,
+        }
       }
       if (item?.role === 'assistant' && Array.isArray(item.content)) {
         const text = (item.content as Array<{ type: string; text?: string }>)
           .filter((b) => b.type === 'text' && b.text)
           .map((b) => b.text!)
           .join('')
-        if (text) return { text, isDelta: false }
+        if (text) return {
+          text,
+          isDelta: false,
+          blockId: eventBlockId(item.id),
+          done: true,
+        }
       }
     }
 
     // Generic: any object with role=assistant
     if (obj.role === 'assistant') {
-      if (typeof obj.text === 'string' && obj.text) return { text: obj.text, isDelta: false }
+      if (typeof obj.text === 'string' && obj.text) {
+        return { text: obj.text, isDelta: false, blockId: eventBlockId(obj.id), done: true }
+      }
       if (Array.isArray(obj.content)) {
         const text = (obj.content as Array<{ type: string; text?: string }>)
           .filter((b) => b.type === 'text' && b.text)
           .map((b) => b.text!)
           .join('')
-        if (text) return { text, isDelta: false }
+        if (text) return { text, isDelta: false, blockId: eventBlockId(obj.id), done: true }
       }
     }
   } catch {
@@ -713,7 +756,7 @@ export const CodexAdapter: CliAgentAdapter = {
   send(
     _window: BrowserWindow,
     req: CliAdapterRequest,
-    onChunk: (chunk: string) => void,
+    onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: Parameters<CliAgentAdapter['send']>[3],
     signal?: AbortSignal
   ): Promise<string> {
@@ -821,7 +864,6 @@ export const CodexAdapter: CliAgentAdapter = {
       let rawStdout = ''
       let stderrText = ''
       let parsedAnyJson = false
-      let receivedDeltas = false
       let turnError: string | null = null
       const endedThinkingBlocks = new Set<string>()
       // The model can reason, call a tool, then reason again — 'codex-reasoning-summary'
@@ -843,6 +885,24 @@ export const CodexAdapter: CliAgentAdapter = {
       // interrupted the text since the last chunk and, if so, insert a paragraph break
       // before the next burst resumes.
       let needsParagraphBreak = false
+      let textSeq = 0
+      let openTextBlockId: string | null = null
+      const textBlocksWithDeltas = new Set<string>()
+      const normalizeTextBlockId = (id: string): string =>
+        id.startsWith('codex-text-') ? id : `codex-text-${id}`
+      const closeOpenTextBlock = () => {
+        if (!openTextBlockId) return
+        onEvent?.({ type: 'text_end', blockId: openTextBlockId })
+        openTextBlockId = null
+      }
+      const resolveTextBlockId = (eventBlockId?: string): string => {
+        const explicitId = eventBlockId ? normalizeTextBlockId(eventBlockId) : null
+        if (explicitId && openTextBlockId && explicitId !== openTextBlockId) closeOpenTextBlock()
+        if (!openTextBlockId) {
+          openTextBlockId = explicitId ?? `codex-text-${textSeq++}`
+        }
+        return openTextBlockId
+      }
       const nextReasoningBlockId = (): string => {
         if (!openReasoningBlockId) openReasoningBlockId = `codex-reasoning-summary-${reasoningSeq++}`
         return openReasoningBlockId
@@ -882,6 +942,10 @@ export const CodexAdapter: CliAgentAdapter = {
 
         const thinking = extractThinking(line)
         if (thinking) {
+          if (thinking.text) {
+            closeOpenTextBlock()
+            if (fullText) needsParagraphBreak = true
+          }
           if (thinking.isDelta) {
             receivedReasoningDeltas = true
             const blockId = nextReasoningBlockId()
@@ -910,6 +974,7 @@ export const CodexAdapter: CliAgentAdapter = {
 
         const toolEvent = extractToolEvent(line)
         if (toolEvent) {
+          closeOpenTextBlock()
           openReasoningBlockId = null
           if (fullText) needsParagraphBreak = true
           if (toolEvent.phase === 'start') {
@@ -939,18 +1004,25 @@ export const CodexAdapter: CliAgentAdapter = {
           parsedAnyJson = true
           turnError = null
           openReasoningBlockId = null
-          if (needsParagraphBreak && result.text) {
-            result.text = `\n\n${result.text}`
-            needsParagraphBreak = false
-          }
+          // Some delta formats omit the item id and only reveal it on the consolidated
+          // completion event. In that case the completion still belongs to the currently
+          // open block; re-keying it would replay the entire consolidated text.
+          const blockId = !result.isDelta && openTextBlockId
+            ? openTextBlockId
+            : resolveTextBlockId(result.blockId)
+          const separator = needsParagraphBreak && result.text && fullText ? '\n\n' : ''
+          if (separator) needsParagraphBreak = false
           if (result.isDelta) {
-            receivedDeltas = true
-            onChunk(result.text)
-            fullText += result.text
-          } else if (!receivedDeltas) {
-            onChunk(result.text)
-            fullText += result.text
+            textBlocksWithDeltas.add(blockId)
+            onChunk(result.text, blockId)
+            fullText += separator + result.text
+          } else if (!textBlocksWithDeltas.has(blockId)) {
+            // Keep paragraph spacing in the aggregate response only. A separately rendered
+            // segment should start with its first real character, not two synthetic newlines.
+            onChunk(result.text, blockId)
+            fullText += separator + result.text
           }
+          if (result.done) closeOpenTextBlock()
         }
       }
 
@@ -973,6 +1045,7 @@ export const CodexAdapter: CliAgentAdapter = {
           emitThinking(openReasoningBlockId, '', true)
           openReasoningBlockId = null
         }
+        closeOpenTextBlock()
 
         for (const id of openToolIds) {
           onEvent?.({ type: 'tool_end', id, content: '', isError: code !== 0 })
@@ -982,8 +1055,10 @@ export const CodexAdapter: CliAgentAdapter = {
         if (!parsedAnyJson && !turnError && rawStdout.trim()) {
           const cleaned = stripAnsi(rawStdout).trim()
           if (cleaned) {
-            onChunk(cleaned)
+            const blockId = resolveTextBlockId()
+            onChunk(cleaned, blockId)
             fullText = cleaned
+            closeOpenTextBlock()
           }
         }
 
