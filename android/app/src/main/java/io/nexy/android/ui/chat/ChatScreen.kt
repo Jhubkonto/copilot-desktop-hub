@@ -10,8 +10,6 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import android.speech.tts.TextToSpeech
-import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -88,6 +86,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -96,9 +95,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.EffectiveConnectionMode
+import io.nexy.android.data.PreferenceStore
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.repository.InternetState
 import io.nexy.android.data.model.PromptEntry
@@ -132,6 +135,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.withFrameNanos
+import io.nexy.android.ui.voice.PcmRecorderStopReason
+import io.nexy.android.ui.voice.PcmRecorderSnapshot
+import io.nexy.android.ui.voice.PcmRecorderState
+import io.nexy.android.ui.voice.VoiceDock
+import io.nexy.android.ui.voice.VoiceDockController
+import io.nexy.android.ui.voice.VoiceDockUiState
+import io.nexy.android.service.NexySpeechService
+import io.nexy.android.service.SpokenOutputKind
+import io.nexy.android.service.createQuickRecap
+import io.nexy.android.service.sanitizeForSpeech
+import io.nexy.android.service.SpokenPlaybackStatus
 
 /**
  * Snapshot key for the auto-follow re-pin effect. Value-equality across all fields is what makes
@@ -207,6 +221,7 @@ fun ChatScreen(
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodePanel: ((String) -> Unit)? = null,
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
+    initialMessageId: String? = null,
     onNewChat: ((String?, String?) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
         factory = remember(conversationId, agentId, projectId) {
@@ -240,6 +255,7 @@ fun ChatScreen(
     val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
+    val voiceCapabilities by WsRepository.voiceCapabilities.collectAsStateWithLifecycle()
     val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val conversation = conversations.find { it.id == conversationId }
@@ -334,10 +350,120 @@ fun ChatScreen(
     val inspectorSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val preferenceStore = remember(context) { PreferenceStore.getInstance(context) }
+    val voiceDockEnabled by preferenceStore.getVoiceDockV1().collectAsState(initial = true)
+    val spokenOutputEnabled by preferenceStore.getSpokenOutputV1().collectAsState(initial = false)
+    val spokenOutputSettings by preferenceStore.getSpokenOutputSettings().collectAsState(
+        initial = preferenceStore.currentSpokenOutputSettings(),
+    )
+    val spokenPlaybackState by NexySpeechService.state.collectAsStateWithLifecycle()
+    var aiRecapPendingMessageId by remember { mutableStateOf<String?>(null) }
+    var voiceDockFloating by remember {
+        mutableStateOf(voiceDockEnabled && preferenceStore.isVoiceDockFloating())
+    }
+    val transcriptHandler by rememberUpdatedState(newValue = { text: String ->
+        input = if (input.isBlank()) text else "${input.trimEnd()} $text"
+        vm.setDraft(input)
+    })
     val voiceInput = rememberOnDeviceVoiceInput(
-        onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text"; vm.setDraft(input) },
+        onText = { transcriptHandler(it) },
         onError = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
     )
+    val voiceDockController = remember(context, scope) {
+        VoiceDockController(
+            context = context,
+            wsClient = WsRepository,
+            scope = scope,
+            onTranscript = { transcriptHandler(it) },
+        )
+    }
+    val voiceDockState by voiceDockController.state.collectAsStateWithLifecycle()
+    val usePairedVoice = connectionState == ConnectionState.CONNECTED &&
+        voiceCapabilities.audioUpload &&
+        voiceCapabilities.localWhisperReady
+    val effectiveVoiceDockState = if (usePairedVoice) {
+        voiceDockState
+    } else {
+        VoiceDockUiState(
+            recorder = PcmRecorderSnapshot(
+                state = if (voiceInput.listening) PcmRecorderState.RECORDING else PcmRecorderState.IDLE,
+            ),
+        )
+    }
+    var startAfterPermission by remember { mutableStateOf(false) }
+    val voicePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted && startAfterPermission) {
+            NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
+            voiceDockController.start()
+        } else if (!granted) {
+            scope.launch { snackbarHostState.showSnackbar("Microphone permission is required for Voice Dock.") }
+        }
+        startAfterPermission = false
+    }
+    val startVoiceDockRecording: () -> Unit = {
+        when {
+            !usePairedVoice -> voiceInput.start()
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> {
+                NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
+                voiceDockController.start()
+            }
+            else -> {
+                startAfterPermission = true
+                voicePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+    val stopVoiceDockRecording: () -> Unit = {
+        if (usePairedVoice) voiceDockController.stop() else voiceInput.stop()
+    }
+    val cancelVoiceDockRecording: () -> Unit = {
+        if (usePairedVoice) voiceDockController.cancel() else voiceInput.cancel()
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(voiceDockController, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                voiceDockController.onAppBackgrounded()
+                voiceInput.cancel()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            voiceDockController.close()
+        }
+    }
+    LaunchedEffect(voiceDockEnabled) {
+        if (voiceDockEnabled && preferenceStore.isVoiceDockFloating()) {
+            voiceDockFloating = true
+        } else if (!voiceDockEnabled) {
+            voiceDockFloating = false
+            preferenceStore.setVoiceDockFloating(false)
+            voiceDockController.cancel(PcmRecorderStopReason.USER_CANCELLED)
+        }
+    }
+
+    var wasStreamingForAutoPlay by remember(conversationId) { mutableStateOf(false) }
+    LaunchedEffect(isStreaming, spokenOutputEnabled, spokenOutputSettings.autoPlay, messages) {
+        if (
+            wasStreamingForAutoPlay &&
+            !isStreaming &&
+            spokenOutputEnabled &&
+            spokenOutputSettings.autoPlay
+        ) {
+            messages.lastOrNull { !it.isUser && !it.isStreaming && it.text.isNotBlank() }?.let { message ->
+                NexySpeechService.play(
+                    context = context,
+                    text = message.text,
+                    messageId = message.id,
+                    conversationId = conversationId,
+                )
+            }
+        }
+        wasStreamingForAutoPlay = isStreaming
+    }
     val sendError by vm.sendError.collectAsStateWithLifecycle()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -729,6 +855,25 @@ fun ChatScreen(
                     if (branchPending) {
                         branchPending = false
                         onOpenFork?.invoke(event.conversationId)
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.VoiceAiRecap -> {
+                    if (aiRecapPendingMessageId == event.messageId) {
+                        aiRecapPendingMessageId = null
+                        NexySpeechService.play(
+                            context,
+                            event.spokenText,
+                            event.messageId,
+                            conversationId,
+                            SpokenOutputKind.AI_RECAP,
+                            event.model ?: event.generationKind,
+                        )
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.VoiceAiRecapError -> {
+                    if (aiRecapPendingMessageId == event.messageId) {
+                        aiRecapPendingMessageId = null
+                        snackbarHostState.showSnackbar(event.message)
                     }
                 }
                 is io.nexy.android.data.model.WsEvent.ToolApprovalRequest -> {
@@ -1152,19 +1297,6 @@ fun ChatScreen(
         )
     }
 
-    val tts = remember(context) {
-        var engine: TextToSpeech? = null
-        engine = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                engine?.language = Locale.getDefault()
-            }
-        }
-        engine
-    }
-    DisposableEffect(Unit) {
-        onDispose { tts.stop(); tts.shutdown() }
-    }
-
     val colorScheme = MaterialTheme.colorScheme
     val markwon = remember(context, colorScheme) {
         val prism4j = Prism4j(io.nexy.android.GrammarLocatorDef())
@@ -1347,8 +1479,24 @@ fun ChatScreen(
                     showPromptSheet = true
                 },
                 onShowInspector = { showInspectorSheet = true },
-                isListening = voiceInput.listening,
-                onVoiceInput = voiceInput.toggle,
+                isListening = if (usePairedVoice && voiceDockEnabled) voiceDockState.recording else voiceInput.listening,
+                onVoiceInput = {
+                    val listening = if (usePairedVoice && voiceDockEnabled) voiceDockState.recording else voiceInput.listening
+                    if (!listening) {
+                        NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
+                    }
+                    if (usePairedVoice && voiceDockEnabled) {
+                        if (voiceDockState.recording) stopVoiceDockRecording() else startVoiceDockRecording()
+                    } else {
+                        voiceInput.toggle()
+                    }
+                },
+                voiceDockAvailable = voiceDockEnabled,
+                voiceDockFloating = voiceDockFloating,
+                onFloatVoiceDock = {
+                    voiceDockFloating = true
+                    preferenceStore.setVoiceDockFloating(true)
+                },
                 customSlashCommands = customSlashCommands,
             )
         },
@@ -1368,6 +1516,38 @@ fun ChatScreen(
             val msgId = (completedRenderItems.getOrNull(itemIdx) as? ChatRenderItem.UserMessage)?.message?.id
             if (msgId != null) {
                 highlightedMessageId = msgId
+                kotlinx.coroutines.delay(1600)
+                highlightedMessageId = null
+            }
+        }
+
+        var sourceAnchorHandled by remember(conversationId, initialMessageId) {
+            mutableStateOf(false)
+        }
+        LaunchedEffect(initialMessageId, completedRenderItems) {
+            val target = initialMessageId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+            if (sourceAnchorHandled) return@LaunchedEffect
+            val index = completedRenderItems.indexOfFirst { item ->
+                when (item) {
+                    is ChatRenderItem.UserMessage -> item.message.id == target
+                    is ChatRenderItem.AssistantMessage -> item.message.id == target
+                    is ChatRenderItem.ToolCall -> item.message.id == target
+                    is ChatRenderItem.ThinkingBlockItem -> item.messageId == target
+                    is ChatRenderItem.TextSegmentItem -> item.messageId == target
+                    is ChatRenderItem.ArtifactCard -> item.messageId == target
+                    else -> false
+                }
+            }
+            if (index >= 0) {
+                sourceAnchorHandled = true
+                programmaticScrollInProgress = true
+                shouldAutoFollow = false
+                try {
+                    listState.scrollToItem(index + lazyHeaderOffset)
+                } finally {
+                    programmaticScrollInProgress = false
+                }
+                highlightedMessageId = target
                 kotlinx.coroutines.delay(1600)
                 highlightedMessageId = null
             }
@@ -1744,12 +1924,74 @@ fun ChatScreen(
                                                 context.startActivity(Intent.createChooser(intent, "Share message"))
                                             }
                                         } else null,
-                                        onReadAloud = if (msg.text.isNotBlank()) {
+                                        onReadAloud = if (spokenOutputEnabled && msg.text.isNotBlank()) {
                                             {
-                                                tts.stop()
-                                                tts.speak(msg.text, TextToSpeech.QUEUE_FLUSH, null, msg.id)
+                                                if (connectionState == ConnectionState.CONNECTED) {
+                                                    WsRepository.send(
+                                                        "voice:save-spoken-output",
+                                                        mapOf(
+                                                            "messageId" to msg.id,
+                                                            "spokenText" to sanitizeForSpeech(msg.text),
+                                                            "outputKind" to "response",
+                                                        ),
+                                                    )
+                                                }
+                                                NexySpeechService.play(context, msg.text, msg.id, conversationId)
                                             }
                                         } else null,
+                                        onQuickRecap = if (spokenOutputEnabled && msg.text.isNotBlank()) {
+                                            {
+                                                val quickRecap = createQuickRecap(msg.text)
+                                                if (connectionState == ConnectionState.CONNECTED) {
+                                                    WsRepository.send(
+                                                        "voice:save-spoken-output",
+                                                        mapOf(
+                                                            "messageId" to msg.id,
+                                                            "spokenText" to quickRecap,
+                                                            "outputKind" to "quick-recap",
+                                                        ),
+                                                    )
+                                                }
+                                                NexySpeechService.play(
+                                                    context,
+                                                    quickRecap,
+                                                    msg.id,
+                                                    conversationId,
+                                                    SpokenOutputKind.QUICK_RECAP,
+                                                )
+                                            }
+                                        } else null,
+                                        onAiRecap = if (
+                                            spokenOutputEnabled &&
+                                            msg.text.isNotBlank() &&
+                                            connectionState == ConnectionState.CONNECTED
+                                        ) {
+                                            {
+                                                if (aiRecapPendingMessageId == null) {
+                                                    aiRecapPendingMessageId = msg.id
+                                                    WsRepository.send(
+                                                        "voice:generate-ai-recap",
+                                                        mapOf("messageId" to msg.id),
+                                                    )
+                                                }
+                                            }
+                                        } else null,
+                                        aiRecapLoading = aiRecapPendingMessageId == msg.id,
+                                        spokenPlaybackState = spokenPlaybackState.takeIf {
+                                            it.messageId == msg.id && it.status != SpokenPlaybackStatus.IDLE
+                                        },
+                                        onPauseSpeech = {
+                                            NexySpeechService.command(context, NexySpeechService.ACTION_PAUSE)
+                                        },
+                                        onResumeSpeech = {
+                                            NexySpeechService.command(context, NexySpeechService.ACTION_RESUME)
+                                        },
+                                        onStopSpeech = {
+                                            NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
+                                        },
+                                        onReplaySpeech = {
+                                            NexySpeechService.command(context, NexySpeechService.ACTION_REPLAY)
+                                        },
                                     )
                                 }
                             }
@@ -1815,6 +2057,16 @@ fun ChatScreen(
                 ) {
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom", modifier = Modifier.size(20.dp))
                 }
+            }
+            if (voiceDockEnabled && voiceDockFloating) {
+                VoiceDock(
+                    state = effectiveVoiceDockState,
+                    preferences = preferenceStore,
+                    onStartRecording = startVoiceDockRecording,
+                    onStopRecording = stopVoiceDockRecording,
+                    onCancelRecording = cancelVoiceDockRecording,
+                    onDock = { voiceDockFloating = false },
+                )
             }
             } // Box
         }

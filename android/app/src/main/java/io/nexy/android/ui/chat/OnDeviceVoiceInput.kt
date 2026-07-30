@@ -28,9 +28,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.core.content.ContextCompat
+import io.nexy.android.ui.voice.usableVoiceTranscript
 import java.util.Locale
 
-data class OnDeviceVoiceInput(val listening: Boolean, val toggle: () -> Unit)
+data class OnDeviceVoiceInput(
+    val listening: Boolean,
+    val start: () -> Unit,
+    val stop: () -> Unit,
+    val cancel: () -> Unit,
+    val toggle: () -> Unit,
+)
 
 private fun requestOfflineSpeechModel(
     context: android.content.Context,
@@ -146,7 +153,11 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
                 listening = false
                 local.destroy()
                 if (recognizer === local) recognizer = null
-                results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let(currentText)
+                results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.let(::usableVoiceTranscript)
+                    ?.let(currentText)
             }
             override fun onPartialResults(partialResults: Bundle?) = Unit
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -157,16 +168,22 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) start() else currentError("Microphone permission is required for voice input.")
     }
-    val toggle = remember(listening) {{
-        if (listening) {
-            recognizer?.stopListening()
-            listening = false
-        } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+    val startVoice = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             start()
         } else {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
-    }}
+    }
+    val stopVoice = {
+        recognizer?.stopListening()
+        listening = false
+    }
+    val cancelVoice = {
+        recognizer?.cancel()
+        listening = false
+    }
+    val toggle = remember(listening) {{ if (listening) stopVoice() else startVoice() }}
     DisposableEffect(Unit) { onDispose { recognizer?.destroy() } }
-    return OnDeviceVoiceInput(listening, toggle)
+    return OnDeviceVoiceInput(listening, startVoice, stopVoice, cancelVoice, toggle)
 }

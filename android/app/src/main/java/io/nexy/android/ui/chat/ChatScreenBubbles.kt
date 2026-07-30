@@ -59,8 +59,13 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.animation.Crossfade
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,6 +75,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -127,6 +133,9 @@ import io.nexy.android.ui.theme.Purple700
 import io.nexy.android.ui.theme.Purple900
 import io.nexy.android.ui.theme.Purple950
 import io.nexy.android.ui.theme.Red500
+import io.nexy.android.service.SpokenPlaybackState
+import io.nexy.android.service.SpokenPlaybackStatus
+import io.nexy.android.service.SpokenOutputKind
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -782,6 +791,14 @@ fun MessageBubble(
     onSaveAsPrompt: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onReadAloud: (() -> Unit)? = null,
+    onQuickRecap: (() -> Unit)? = null,
+    onAiRecap: (() -> Unit)? = null,
+    aiRecapLoading: Boolean = false,
+    spokenPlaybackState: SpokenPlaybackState? = null,
+    onPauseSpeech: (() -> Unit)? = null,
+    onResumeSpeech: (() -> Unit)? = null,
+    onStopSpeech: (() -> Unit)? = null,
+    onReplaySpeech: (() -> Unit)? = null,
     onInvestigateWithAi: (() -> Unit)? = null,
     isHighlighted: Boolean = false,
 ) {
@@ -819,7 +836,13 @@ fun MessageBubble(
                     if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { menuExpanded = false; onAddToProject() })
                     if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
                     if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
-                    if (onReadAloud != null) DropdownMenuItem(text = { Text("Read aloud") }, onClick = { menuExpanded = false; onReadAloud() })
+                    if (onReadAloud != null) DropdownMenuItem(text = { Text("Read response") }, onClick = { menuExpanded = false; onReadAloud() })
+                    if (onQuickRecap != null) DropdownMenuItem(text = { Text("Quick Recap") }, onClick = { menuExpanded = false; onQuickRecap() })
+                    if (onAiRecap != null) DropdownMenuItem(
+                        text = { Text(if (aiRecapLoading) "Creating AI Recap…" else "AI Recap · uses provider/CLI") },
+                        onClick = { menuExpanded = false; onAiRecap() },
+                        enabled = !aiRecapLoading,
+                    )
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
                     if (onDeleteAfter != null) DropdownMenuItem(text = { Text("Delete from here") }, onClick = { menuExpanded = false; onDeleteAfter() })
                 }
@@ -962,7 +985,12 @@ fun MessageBubble(
                     }
                     if (onReadAloud != null) {
                         IconButton(onClick = onReadAloud, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = "Read aloud", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Default.RecordVoiceOver, contentDescription = "Read response", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (onQuickRecap != null) {
+                        IconButton(onClick = onQuickRecap, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Summarize, contentDescription = "Quick Recap", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Box {
@@ -977,8 +1005,55 @@ fun MessageBubble(
                             if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { overflowExpanded = false; onAddToProject() })
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
                             if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
+                            if (onAiRecap != null) DropdownMenuItem(
+                                text = { Text(if (aiRecapLoading) "Creating AI Recap…" else "AI Recap · uses provider/CLI") },
+                                onClick = { overflowExpanded = false; onAiRecap() },
+                                enabled = !aiRecapLoading,
+                            )
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
                         }
+                    }
+                }
+            }
+            if (spokenPlaybackState != null) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        when {
+                            spokenPlaybackState.status == SpokenPlaybackStatus.ERROR ->
+                                spokenPlaybackState.error ?: "Playback error"
+                            spokenPlaybackState.kind == SpokenOutputKind.QUICK_RECAP -> "Quick Recap"
+                            spokenPlaybackState.kind == SpokenOutputKind.AI_RECAP ->
+                                "AI Recap${spokenPlaybackState.model?.let { " · $it" }.orEmpty()}"
+                            else -> "Reading response"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (spokenPlaybackState.status == SpokenPlaybackStatus.ERROR) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    if (spokenPlaybackState.status == SpokenPlaybackStatus.PAUSED) {
+                        IconButton(onClick = { onResumeSpeech?.invoke() }, enabled = onResumeSpeech != null) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Resume spoken response")
+                        }
+                    } else if (
+                        spokenPlaybackState.status == SpokenPlaybackStatus.PLAYING ||
+                        spokenPlaybackState.status == SpokenPlaybackStatus.PREPARING
+                    ) {
+                        IconButton(onClick = { onPauseSpeech?.invoke() }, enabled = onPauseSpeech != null) {
+                            Icon(Icons.Default.Pause, contentDescription = "Pause spoken response")
+                        }
+                    }
+                    IconButton(onClick = { onStopSpeech?.invoke() }, enabled = onStopSpeech != null) {
+                        Icon(Icons.Default.Stop, contentDescription = "Stop spoken response")
+                    }
+                    IconButton(onClick = { onReplaySpeech?.invoke() }, enabled = onReplaySpeech != null) {
+                        Icon(Icons.Default.Replay, contentDescription = "Replay spoken response")
                     }
                 }
             }

@@ -971,14 +971,24 @@ class ChatViewModel(
                     event is WsEvent.QuizReady && awaitingQuizInsert -> {
                         awaitingQuizInsert = false
                         removePendingArtifactRefMessage("quiz")
-                        if (event.artifactId != null) {
+                        // The server pins its own durable pending message row to this
+                        // artifact/version and syncs it via conversation:messages before (or
+                        // around the same time as) this event — inserting unconditionally here
+                        // would add a second, purely local card on top of that synced one.
+                        // Only fall back to a local insert if that sync genuinely hasn't landed
+                        // yet (e.g. this event races ahead of it), so the user never ends up
+                        // with zero cards for a completed quiz either.
+                        val alreadySynced = event.artifactId != null && _messages.value.any {
+                            it.artifactRef?.artifactId == event.artifactId && it.artifactRef?.versionId == event.versionId
+                        }
+                        if (event.artifactId != null && !alreadySynced) {
                             insertArtifactRefMessage(
                                 artifactId = event.artifactId,
                                 versionId = event.versionId,
                                 kind = "quiz",
                                 sourceConversationId = conversationId,
                             )
-                        } else {
+                        } else if (event.artifactId == null) {
                             _slashCommandMessage.value = "Quiz generated."
                         }
                     }

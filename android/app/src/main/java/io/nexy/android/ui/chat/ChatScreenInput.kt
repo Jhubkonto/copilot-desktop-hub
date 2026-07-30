@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,6 +69,9 @@ fun ChatInputBar(
     onShowInspector: () -> Unit = {},
     isListening: Boolean = false,
     onVoiceInput: () -> Unit = {},
+    voiceDockAvailable: Boolean = false,
+    voiceDockFloating: Boolean = false,
+    onFloatVoiceDock: () -> Unit = {},
     placeholder: String = "Message…",
     onSetupManually: (() -> Unit)? = null,
     showAttachOptions: Boolean = true,
@@ -245,12 +249,23 @@ fun ChatInputBar(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onVoiceInput, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            Icons.Default.Mic,
-                            contentDescription = if (isListening) "Stop voice input" else "Start voice input",
-                            tint = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (!voiceDockFloating) {
+                        IconButton(onClick = onVoiceInput, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = if (isListening) "Stop voice input" else "Start voice input",
+                                tint = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (voiceDockAvailable && !voiceDockFloating) {
+                        IconButton(onClick = onFloatVoiceDock, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                Icons.Default.OpenWith,
+                                contentDescription = "Float microphone",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     Box(
                         modifier = Modifier
