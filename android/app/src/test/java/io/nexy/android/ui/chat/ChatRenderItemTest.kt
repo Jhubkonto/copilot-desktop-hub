@@ -95,11 +95,11 @@ class ChatRenderItemTest {
             )
         }
         apply("turn_started", 1)
-        apply("assistant_text_delta", 2, """"blockId":"before","chunk":"Let me check.""""")
+        apply("assistant_text_delta", 2, "\"blockId\":\"before\",\"chunk\":\"Let me check.\"")
         apply("text_segment_done", 3, """"blockId":"before"""")
         apply("tool_started", 4, """"id":"tool-1","name":"read_file"""")
         apply("tool_finished", 5, """"id":"tool-1","toolName":"read_file","result":"done","success":true""")
-        apply("assistant_text_delta", 6, """"blockId":"after","chunk":"Still working.""""")
+        apply("assistant_text_delta", 6, "\"blockId\":\"after\",\"chunk\":\"Still working.\"")
 
         // This is the state seen after opening an in-progress response from its notification:
         // the completed call is already persisted, but the active-turn snapshot replays it too.

@@ -28,6 +28,32 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ArtifactLifecycleParserTest {
     @Test
+    fun parsesModelBackendForCliConversationModeRouting() = runTest {
+        val event = parseEvent(
+            """
+            {
+              "event": "model:list",
+              "data": {
+                "models": [
+                  {
+                    "id": "claude-sonnet-4-6",
+                    "label": "Claude Sonnet 4.6",
+                    "vendor": "Claude CLI",
+                    "isCliSourced": true,
+                    "backend": "claude-cli"
+                  }
+                ],
+                "source": { "type": "provider", "label": "Claude CLI" }
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.ModelList
+
+        assertEquals("claude-cli", event.models.single().backend)
+        assertTrue(event.models.single().isCliSourced)
+    }
+
+    @Test
     fun parsesArtifactDetailWithStorageRootAndVersionFiles() = runTest {
         val event = parseEvent(
             """
