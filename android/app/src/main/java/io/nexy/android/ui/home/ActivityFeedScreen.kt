@@ -35,6 +35,9 @@ import androidx.compose.ui.unit.dp
 import io.nexy.android.data.BackgroundActivity
 import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.Agent
+import io.nexy.android.data.model.Conversation
+import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.NexyTopAppBar
 
 /** Full-screen activity feed — styled like the chat/project/agent history screens, per the
@@ -46,6 +49,9 @@ fun ActivityFeedScreen(
     onOpenActivity: (BackgroundActivity) -> Unit,
 ) {
     val activities by BackgroundActivityTracker.activities.collectAsStateWithLifecycle()
+    val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val agents by WsRepository.agents.collectAsStateWithLifecycle()
     var isRefreshing by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -91,6 +97,9 @@ fun ActivityFeedScreen(
                     items(activities, key = { it.id }) { activity ->
                         ActivityFeedRow(
                             activity = activity,
+                            conversations = conversations,
+                            projects = projects,
+                            agents = agents,
                             onClick = { onOpenActivity(activity) },
                             onDismiss = { WsRepository.dismissActivity(activity.id) },
                         )
@@ -103,7 +112,15 @@ fun ActivityFeedScreen(
 }
 
 @Composable
-private fun ActivityFeedRow(activity: BackgroundActivity, onClick: () -> Unit, onDismiss: () -> Unit) {
+private fun ActivityFeedRow(
+    activity: BackgroundActivity,
+    conversations: List<Conversation>,
+    projects: List<Project>,
+    agents: List<Agent>,
+    onClick: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = resolveActivityContext(activity, conversations, projects, agents)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -113,13 +130,29 @@ private fun ActivityFeedRow(activity: BackgroundActivity, onClick: () -> Unit, o
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-        Text(
-            activity.label,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                activity.label,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            ActivityContextLine("Chat", context.conversationTitle)
+            ActivityContextLine("Project", context.projectName)
+            ActivityContextLine("Agent", context.agentName)
+            if (context.agentName.isNullOrBlank()) ActivityContextLine("Model", context.model)
+            if (
+                activity.detail != null &&
+                activity.detail !in setOf(
+                    context.conversationTitle,
+                    context.projectName,
+                    context.agentName,
+                    context.model,
+                )
+            ) {
+                ActivityContextLine("Details", activity.detail)
+            }
+        }
         IconButton(onClick = onDismiss) {
             Icon(
                 Icons.Default.Close,
@@ -129,4 +162,44 @@ private fun ActivityFeedRow(activity: BackgroundActivity, onClick: () -> Unit, o
             )
         }
     }
+}
+
+internal data class ActivityDisplayContext(
+    val conversationTitle: String?,
+    val projectName: String?,
+    val agentName: String?,
+    val model: String?,
+)
+
+internal fun resolveActivityContext(
+    activity: BackgroundActivity,
+    conversations: List<Conversation>,
+    projects: List<Project>,
+    agents: List<Agent>,
+): ActivityDisplayContext {
+    val conversation = activity.conversationId?.let { id -> conversations.find { it.id == id } }
+    val projectId = activity.projectId ?: conversation?.project_id
+    val agentId = activity.agentId ?: conversation?.agent_id
+    return ActivityDisplayContext(
+        conversationTitle = activity.conversationTitle ?: conversation?.title,
+        projectName = activity.projectName
+            ?: conversation?.project_name
+            ?: projectId?.let { id -> projects.find { it.id == id }?.name },
+        agentName = activity.agentName
+            ?: conversation?.agent_name
+            ?: agentId?.let { id -> agents.find { it.id == id }?.name },
+        model = activity.model ?: conversation?.model,
+    )
+}
+
+@Composable
+private fun ActivityContextLine(label: String, value: String?) {
+    if (value.isNullOrBlank()) return
+    Text(
+        text = "$label: $value",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }

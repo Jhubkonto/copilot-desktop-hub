@@ -1,5 +1,12 @@
 package io.nexy.android.ui.debrief
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -32,8 +39,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
@@ -68,12 +78,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.FileProvider
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.ConversationDebrief
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -91,6 +105,20 @@ fun DebriefScreen(
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     var showModelSheet by remember { mutableStateOf(false) }
     var showStylePicker by remember { mutableStateOf(false) }
+    var pendingMarkdownDownload by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val context = LocalContext.current
+    val downloadDirectoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        val pending = pendingMarkdownDownload
+        if (treeUri != null && pending != null) {
+            val result = saveMarkdownToTree(context, treeUri, pending.first, pending.second)
+            Toast.makeText(
+                context,
+                if (result.isSuccess) "Debrief downloaded" else "Download failed: ${result.exceptionOrNull()?.message}",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        pendingMarkdownDownload = null
+    }
     val modelSheetState = rememberModalBottomSheetState()
 
     LaunchedEffect(conversationId) { vm.load(conversationId) }
@@ -143,7 +171,20 @@ fun DebriefScreen(
                     )
                     is DebriefUiState.Generating -> LoadingContent("Generating debrief…")
                     is DebriefUiState.Loaded -> when (view) {
-                        DebriefView.STRUCTURED -> LoadedContent(currentState.debrief.summary, currentState.debrief.commandsTools, currentState.debrief.reproductionGuide, currentState.debrief.mentalModel)
+                        DebriefView.STRUCTURED -> {
+                            val markdown = formatDebriefMarkdown(currentState.debrief)
+                            val fileName = debriefFileName(
+                                WsRepository.conversations.value.firstOrNull { it.id == conversationId }?.title,
+                            )
+                            LoadedContent(
+                                debrief = currentState.debrief,
+                                onExport = { shareDebriefMarkdown(context, fileName, markdown) },
+                                onDownload = {
+                                    pendingMarkdownDownload = fileName to markdown
+                                    downloadDirectoryPicker.launch(null)
+                                },
+                            )
+                        }
                         DebriefView.STORY -> StoryContent(
                             storyState = storyState,
                             showStylePicker = showStylePicker,
@@ -428,19 +469,109 @@ private fun StoryBeatView(caption: String, moodKey: String, svg: String) {
 }
 
 @Composable
-private fun LoadedContent(summary: String, commandsTools: List<String>, reproductionGuide: String, mentalModel: String) {
+private fun LoadedContent(
+    debrief: ConversationDebrief,
+    onExport: () -> Unit,
+    onDownload: () -> Unit,
+) {
     SelectionContainer {
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 DebriefOverviewCard(
-                    summary = summary,
-                    commandsTools = commandsTools,
-                    reproductionGuide = reproductionGuide,
-                    mentalModel = mentalModel,
+                    summary = debrief.summary,
+                    commandsTools = debrief.commandsTools,
+                    reproductionGuide = debrief.reproductionGuide,
+                    mentalModel = debrief.mentalModel,
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    NexySecondaryButton(
+                        text = "Export Markdown",
+                        onClick = onExport,
+                        modifier = Modifier.weight(1f),
+                        leadingIcon = Icons.Default.Share,
+                    )
+                    NexySecondaryButton(
+                        text = "Download",
+                        onClick = onDownload,
+                        modifier = Modifier.weight(1f),
+                        leadingIcon = Icons.Default.FileDownload,
+                    )
+                }
             }
             item { Spacer(modifier = Modifier.height(32.dp)) }
         }
+    }
+}
+
+private fun formatDebriefMarkdown(debrief: ConversationDebrief): String = buildString {
+    appendLine("# Debrief")
+    appendLine()
+    appendLine("## Summary")
+    appendLine()
+    appendLine(debrief.summary)
+    appendLine()
+    appendLine("## Commands & Tools")
+    appendLine()
+    if (debrief.commandsTools.isEmpty()) appendLine("- None recorded")
+    else debrief.commandsTools.forEach { appendLine("- $it") }
+    appendLine()
+    appendLine("## How to Reproduce")
+    appendLine()
+    appendLine(debrief.reproductionGuide)
+    appendLine()
+    appendLine("## Mental Model / Approach")
+    appendLine()
+    appendLine(debrief.mentalModel)
+}
+
+private fun debriefFileName(conversationTitle: String?): String {
+    val stem = conversationTitle.orEmpty()
+        .replace(Regex("""[<>:"/\\|?*\u0000-\u001f]"""), "-")
+        .trim()
+        .trimEnd('.')
+        .take(72)
+        .ifBlank { "debrief" }
+    return "$stem-debrief.md"
+}
+
+private fun shareDebriefMarkdown(context: Context, fileName: String, markdown: String) {
+    val cacheDir = File(context.cacheDir, "debrief-export").also { it.mkdirs() }
+    val file = File(cacheDir, fileName).apply { writeText(markdown) }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/markdown"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Export debrief"))
+}
+
+private fun saveMarkdownToTree(
+    context: Context,
+    treeUri: Uri,
+    fileName: String,
+    markdown: String,
+): Result<Unit> = runCatching {
+    val resolver = context.contentResolver
+    runCatching {
+        resolver.takePersistableUriPermission(
+            treeUri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+    }
+    val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+    val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+    val fileUri = requireNotNull(
+        DocumentsContract.createDocument(resolver, rootUri, "text/markdown", fileName),
+    ) { "Unable to create $fileName" }
+    resolver.openOutputStream(fileUri, "wt").use { output ->
+        requireNotNull(output) { "Unable to open $fileName" }
+        output.write(markdown.toByteArray())
     }
 }
 

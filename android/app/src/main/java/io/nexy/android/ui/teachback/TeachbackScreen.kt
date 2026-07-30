@@ -3,7 +3,6 @@ package io.nexy.android.ui.teachback
 import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,9 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,18 +40,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.TeachbackFeedback
 import io.nexy.android.ui.components.NexyTopAppBar
-import java.util.Locale
+import io.nexy.android.service.NexySpeechService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeachbackScreen(conversationId: String, artifactId: String?, onBack: () -> Unit, vm: TeachbackViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
-    DisposableEffect(context) {
-        val engine = TextToSpeech(context) { status -> if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
-        tts = engine
-        onDispose { engine.stop(); engine.shutdown() }
+    DisposableEffect(context, conversationId) {
+        onDispose { NexySpeechService.command(context, NexySpeechService.ACTION_STOP) }
     }
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -64,10 +57,19 @@ fun TeachbackScreen(conversationId: String, artifactId: String?, onBack: () -> U
         }
     }
     val record: () -> Unit = {
+        NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
         speechLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Explain the concept in your own words")
         })
+    }
+    val speakPrompt: (String) -> Unit = { prompt ->
+        NexySpeechService.play(
+            context = context,
+            text = prompt,
+            messageId = "teachback-prompt",
+            conversationId = conversationId,
+        )
     }
     LaunchedEffect(conversationId, artifactId) { vm.load(conversationId, artifactId) }
 
@@ -75,9 +77,9 @@ fun TeachbackScreen(conversationId: String, artifactId: String?, onBack: () -> U
         when (val current = state) {
             TeachbackUiState.Loading -> Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { CircularProgressIndicator(); Text("Preparing teach-back…", modifier = Modifier.padding(top = 12.dp)) }
             is TeachbackUiState.Error -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.Center) { Text(current.message, color = MaterialTheme.colorScheme.error); Button(onClick = { vm.load(conversationId, artifactId) }, modifier = Modifier.padding(top = 12.dp)) { Text("Try again") } }
-            is TeachbackUiState.Practice -> PracticeContent(current, padding, record, { tts?.speak(current.prompt, TextToSpeech.QUEUE_FLUSH, null, "teachback-prompt") }, vm::setTranscript, vm::grade)
-            is TeachbackUiState.Grading -> PracticeContent(TeachbackUiState.Practice(current.exercise, current.prompt, current.transcript, current.turnNumber), padding, {}, { tts?.speak(current.prompt, TextToSpeech.QUEUE_FLUSH, null, "teachback-prompt") }, {}, {}, grading = true)
-            is TeachbackUiState.Feedback -> FeedbackContent(current, padding, { tts?.speak(current.prompt, TextToSpeech.QUEUE_FLUSH, null, "teachback-prompt") }, vm::answerFollowUp, vm::tryAgain)
+            is TeachbackUiState.Practice -> PracticeContent(current, padding, record, { speakPrompt(current.prompt) }, vm::setTranscript, vm::grade)
+            is TeachbackUiState.Grading -> PracticeContent(TeachbackUiState.Practice(current.exercise, current.prompt, current.transcript, current.turnNumber), padding, {}, { speakPrompt(current.prompt) }, {}, {}, grading = true)
+            is TeachbackUiState.Feedback -> FeedbackContent(current, padding, { speakPrompt(current.prompt) }, vm::answerFollowUp, vm::tryAgain)
         }
     }
 }

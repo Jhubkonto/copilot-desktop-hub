@@ -3,7 +3,12 @@ package io.nexy.android.ui.artifacts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.util.Base64
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -28,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Difference
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -86,6 +92,8 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
+private enum class ArtifactExportAction { SHARE, DOWNLOAD }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtifactsScreen(
@@ -114,6 +122,22 @@ fun ArtifactsScreen(
     var sortOrder by remember { mutableStateOf(ArtifactSortOrder.TITLE_ASC) }
     var showSortSheet by remember { mutableStateOf(false) }
     var confirmDeleteArtifact by remember { mutableStateOf<ArtifactSummary?>(null) }
+    var exportAction by remember { mutableStateOf<ArtifactExportAction?>(null) }
+    var pendingDownloadFiles by remember { mutableStateOf<List<ArtifactExportFile>?>(null) }
+    var pendingDownloadFolder by remember { mutableStateOf("artifact") }
+    val downloadDirectoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        val files = pendingDownloadFiles
+        if (treeUri != null && files != null) {
+            val result = saveArtifactFilesToTree(context, treeUri, pendingDownloadFolder, files)
+            Toast.makeText(
+                context,
+                if (result.isSuccess) "Artifact downloaded" else "Download failed: ${result.exceptionOrNull()?.message}",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        pendingDownloadFiles = null
+        exportAction = null
+    }
     val statusOptions = remember(artifacts) { artifacts.map { it.status }.distinct().sorted() }
     val filteredArtifacts = remember(artifacts, searchQuery, statusFilter, sortOrder) {
         val query = searchQuery.trim()
@@ -157,7 +181,13 @@ fun ArtifactsScreen(
 
     LaunchedEffect(exportPack) {
         val pack = exportPack ?: return@LaunchedEffect
-        shareArtifactFiles(context, pack)
+        if (exportAction == ArtifactExportAction.DOWNLOAD) {
+            pendingDownloadFiles = pack
+            downloadDirectoryPicker.launch(null)
+        } else {
+            shareArtifactFiles(context, pack)
+            exportAction = null
+        }
         vm.clearExport()
     }
 
@@ -200,7 +230,20 @@ fun ArtifactsScreen(
             deletingVersionId = deletingVersionId,
             revisioning = revisioning,
             exportError = exportError,
-            onExport = { versionId -> vm.exportVersion(versionId) },
+            onExport = { versionId ->
+                exportAction = ArtifactExportAction.SHARE
+                vm.exportVersion(versionId)
+            },
+            onDownload = { versionId ->
+                val versionNumber = versions.firstOrNull { it.id == versionId }?.versionNumber
+                    ?: selected?.currentVersion?.versionNumber
+                pendingDownloadFolder = buildArtifactDownloadFolderName(
+                    selected?.title.orEmpty(),
+                    versionNumber,
+                )
+                exportAction = ArtifactExportAction.DOWNLOAD
+                vm.exportVersion(versionId)
+            },
             onDelete = { vm.deleteSelectedArtifact() },
             onDeleteVersion = { versionId -> vm.deleteVersion(versionId) },
             onGenerateRevision = { vm.generateNewVersion() },
@@ -440,6 +483,7 @@ private fun ArtifactDetailScreen(
     revisioning: Boolean,
     exportError: String?,
     onExport: (versionId: String) -> Unit,
+    onDownload: (versionId: String) -> Unit,
     onDelete: () -> Unit,
     onDeleteVersion: (versionId: String) -> Unit,
     onGenerateRevision: () -> Unit,
@@ -569,6 +613,7 @@ private fun ArtifactDetailScreen(
                     deleting = deleting,
                     revisioning = revisioning,
                     onExport = onExport,
+                    onDownload = onDownload,
                     onGenerateRevision = onGenerateRevision,
                     onDelete = { confirmDelete = true },
                 )
@@ -716,6 +761,7 @@ private fun ArtifactActionsCard(
     deleting: Boolean,
     revisioning: Boolean,
     onExport: (versionId: String) -> Unit,
+    onDownload: (versionId: String) -> Unit,
     onGenerateRevision: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -737,6 +783,13 @@ private fun ArtifactActionsCard(
                 enabled = !exporting && !deleting,
                 modifier = Modifier.fillMaxWidth(),
                 leadingIcon = Icons.Default.Share,
+            )
+            NexySecondaryButton(
+                text = if (exporting) "Preparing download..." else "Download",
+                onClick = { onDownload(currentVersionId) },
+                enabled = !exporting && !deleting,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = Icons.Default.FileDownload,
             )
         }
         NexyDangerButton(
@@ -860,4 +913,102 @@ private fun shareArtifactFiles(context: Context, files: List<ArtifactExportFile>
         }
     }
     context.startActivity(Intent.createChooser(intent, "Export artifact"))
+}
+
+private fun buildArtifactDownloadFolderName(title: String, versionNumber: Int?): String {
+    val safeTitle = title
+        .replace(Regex("""[<>:"/\\|?*\u0000-\u001f]"""), "-")
+        .trim()
+        .trimEnd('.')
+        .take(80)
+        .ifBlank { "artifact" }
+    return if (versionNumber != null) "$safeTitle-v$versionNumber" else safeTitle
+}
+
+private fun saveArtifactFilesToTree(
+    context: Context,
+    treeUri: Uri,
+    folderName: String,
+    files: List<ArtifactExportFile>,
+): Result<Unit> = runCatching {
+    val resolver = context.contentResolver
+    runCatching {
+        resolver.takePersistableUriPermission(
+            treeUri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+    }
+    val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+    val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+    val artifactDirectory = findOrCreateTreeChild(
+        context = context,
+        treeUri = treeUri,
+        parentUri = rootUri,
+        displayName = folderName,
+        mimeType = DocumentsContract.Document.MIME_TYPE_DIR,
+    )
+
+    files.forEach { file ->
+        val segments = file.relativePath
+            .replace('\\', '/')
+            .split('/')
+            .filter { it.isNotBlank() && it != "." && it != ".." }
+        require(segments.isNotEmpty()) { "Artifact contains an invalid file path" }
+        var parent = artifactDirectory
+        segments.dropLast(1).forEach { segment ->
+            parent = findOrCreateTreeChild(
+                context = context,
+                treeUri = treeUri,
+                parentUri = parent,
+                displayName = segment,
+                mimeType = DocumentsContract.Document.MIME_TYPE_DIR,
+            )
+        }
+        val destination = findOrCreateTreeChild(
+            context = context,
+            treeUri = treeUri,
+            parentUri = parent,
+            displayName = segments.last(),
+            mimeType = file.mediaType.ifBlank { "application/octet-stream" },
+        )
+        resolver.openOutputStream(destination, "wt").use { output ->
+            requireNotNull(output) { "Unable to open ${file.relativePath}" }
+            output.write(Base64.decode(file.contentBase64, Base64.DEFAULT))
+        }
+    }
+}
+
+private fun findOrCreateTreeChild(
+    context: Context,
+    treeUri: Uri,
+    parentUri: Uri,
+    displayName: String,
+    mimeType: String,
+): Uri {
+    val resolver = context.contentResolver
+    val parentId = DocumentsContract.getDocumentId(parentUri)
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+    resolver.query(
+        childrenUri,
+        arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        ),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        val typeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+        while (cursor.moveToNext()) {
+            if (cursor.getString(nameIndex) == displayName && cursor.getString(typeIndex) == mimeType) {
+                return DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(idIndex))
+            }
+        }
+    }
+    return requireNotNull(DocumentsContract.createDocument(resolver, parentUri, mimeType, displayName)) {
+        "Unable to create $displayName"
+    }
 }

@@ -74,6 +74,7 @@ import io.nexy.android.ui.components.NexyFormSheet
 fun WikiScreen(
     projectId: String,
     conversationId: String? = null,
+    initialEntryId: String? = null,
     onBack: () -> Unit,
     onNavigateToConversation: ((conversationId: String) -> Unit)? = null,
     vm: WikiViewModel = viewModel(),
@@ -89,6 +90,12 @@ fun WikiScreen(
     }
 
     LaunchedEffect(projectId) { vm.load(projectId) }
+    LaunchedEffect(initialEntryId, state.entries) {
+        val entryId = initialEntryId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (state.selectedEntry?.id != entryId) {
+            state.entries.firstOrNull { it.id == entryId }?.let(vm::selectEntry)
+        }
+    }
 
     if (state.showExtractionSheet) {
         WikiExtractionSheet(
