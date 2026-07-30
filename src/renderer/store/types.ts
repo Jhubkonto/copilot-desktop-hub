@@ -17,7 +17,7 @@ export interface Conversation {
   cli_mode_override?: string | null
   codex_execution_mode_override?: string | null
   rating?: number | null
-  kind?: 'chat' | 'code-change'
+  kind?: 'chat' | 'code-change' | 'project-conversation-mode'
 }
 
 export interface Project {
