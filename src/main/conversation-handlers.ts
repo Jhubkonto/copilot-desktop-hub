@@ -85,7 +85,8 @@ export function registerConversationHandlers(): void {
       .prepare(
         `SELECT c.*, cr.rating as rating FROM conversations c
          LEFT JOIN conversation_ratings cr ON cr.conversation_id = c.id
-         WHERE c.archived = 0 ORDER BY c.updated_at DESC`,
+         WHERE c.archived = 0 AND c.kind != 'project-conversation-mode'
+         ORDER BY c.updated_at DESC`,
       )
       .all();
   });
@@ -173,7 +174,9 @@ export function registerConversationHandlers(): void {
   safeHandle("conversation:search", (_event, query: string) => {
     if (!query.trim()) {
       return db
-        .prepare("SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC")
+        .prepare(
+          "SELECT * FROM conversations WHERE archived = 0 AND kind != 'project-conversation-mode' ORDER BY updated_at DESC",
+        )
         .all();
     }
     const searchTerm = `%${query}%`;
@@ -181,7 +184,8 @@ export function registerConversationHandlers(): void {
       .prepare(
         `SELECT DISTINCT c.* FROM conversations c
          LEFT JOIN messages m ON m.conversation_id = c.id
-         WHERE c.archived = 0 AND (c.title LIKE ? OR m.content LIKE ?)
+         WHERE c.archived = 0 AND c.kind != 'project-conversation-mode'
+           AND (c.title LIKE ? OR m.content LIKE ?)
          ORDER BY c.updated_at DESC`,
       )
       .all(searchTerm, searchTerm);

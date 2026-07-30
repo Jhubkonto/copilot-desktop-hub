@@ -1531,6 +1531,76 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 83,
     sql: `ALTER TABLE conversations ADD COLUMN agentic_mode_override INTEGER`,
   },
+  {
+    // Reusable spoken forms for normal assistant messages. Keeping this separate from
+    // message content lets deterministic and provider-generated recaps be replaced
+    // without editing chat history.
+    version: 84,
+    sql: `
+      CREATE TABLE IF NOT EXISTS message_spoken_outputs (
+        message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+        spoken_text TEXT NOT NULL,
+        output_kind TEXT NOT NULL,
+        generation_kind TEXT NOT NULL,
+        model TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    // Durable project-scoped Voice Conversation sessions. Source rows intentionally keep
+    // stable string handles instead of foreign keys to every possible source table so a
+    // deleted chat/wiki/artifact can still render as unavailable after restart.
+    version: 85,
+    sql: `
+      CREATE TABLE IF NOT EXISTS conversation_mode_sessions (
+        conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        scope_json TEXT NOT NULL,
+        response_style TEXT NOT NULL DEFAULT 'conversational',
+        auto_speak INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_conversation_mode_sessions_project
+        ON conversation_mode_sessions(project_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS conversation_mode_turns (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        user_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        assistant_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        spoken_answer TEXT,
+        evidence_state TEXT NOT NULL,
+        retrieval_stats_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_conversation_mode_turns_conversation
+        ON conversation_mode_turns(conversation_id, created_at, id);
+
+      CREATE TABLE IF NOT EXISTS conversation_mode_sources (
+        id TEXT PRIMARY KEY,
+        turn_id TEXT NOT NULL REFERENCES conversation_mode_turns(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_sub_id TEXT,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        excerpt TEXT,
+        location_json TEXT NOT NULL DEFAULT '{}',
+        rank INTEGER NOT NULL,
+        score REAL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_conversation_mode_sources_turn
+        ON conversation_mode_sources(turn_id, rank, id);
+    `,
+  },
 ];
 
 

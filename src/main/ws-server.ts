@@ -8,6 +8,7 @@ import selfsigned from 'selfsigned'
 import { app, powerSaveBlocker } from 'electron'
 import Bonjour from 'bonjour-service'
 import { getDatabase } from './database'
+import { getVoiceCapabilities } from './voice-rollout'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
 import { debugLog } from './debug-mode'
 import type { ConnectedAndroidDevice } from '../shared/types'
@@ -318,6 +319,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       ws.close(4001, 'Unauthorized')
       return
     }
+    const connectionId = randomBytes(16).toString('hex')
 
     connectedClients.add(ws)
     if (connectedClients.size === 1) acquireWakeLock()
@@ -326,7 +328,18 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     const localIp = getLocalIp()
     const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
     const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
-    ws.send(JSON.stringify({ event: 'connected', data: { version: app.getVersion(), feedUrl, macAddress, broadcastAddress, mDnsName: getMdnsName(), isPackaged: app.isPackaged } }))
+    ws.send(JSON.stringify({
+      event: 'connected',
+      data: {
+        version: app.getVersion(),
+        feedUrl,
+        macAddress,
+        broadcastAddress,
+        mDnsName: getMdnsName(),
+        isPackaged: app.isPackaged,
+        voiceCapabilities: getVoiceCapabilities(getDatabase()),
+      },
+    }))
 
     ws.on('message', (raw) => {
       try {
@@ -340,13 +353,14 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
           clientDeviceInfo.set(ws, { deviceId: msg.data.deviceId, deviceName, versionName, versionCode })
           onClientCountChange?.(connectedClients.size)
         }
-        commandHandler?.(msg.command, msg.data ?? {}, (event) => {
+        commandHandler?.(msg.command, { ...(msg.data ?? {}), __connectionId: connectionId }, (event) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
         })
       } catch { /* ignore malformed */ }
     })
 
     ws.on('close', (code, reason) => {
+      commandHandler?.('internal:client-disconnected', { __connectionId: connectionId }, () => {})
       connectedClients.delete(ws)
       clientDeviceInfo.delete(ws)
       if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
@@ -354,6 +368,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       debugLog('ws', `client disconnected: code=${code} reason=${reason.toString() || 'none'} remaining=${connectedClients.size}`)
     })
     ws.on('error', (err) => {
+      commandHandler?.('internal:client-disconnected', { __connectionId: connectionId }, () => {})
       connectedClients.delete(ws)
       clientDeviceInfo.delete(ws)
       if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }

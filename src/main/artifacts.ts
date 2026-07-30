@@ -11,7 +11,7 @@ import type {
   ArtifactPromotionResult,
 } from '../shared/types'
 import { exportArtifactVersion } from './artifact-export'
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, dialog } from 'electron'
 import { randomUUID } from 'crypto'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
@@ -779,6 +779,31 @@ export function registerArtifactHandlers(): void {
     const destDir = path.join(app.getPath('downloads'), 'nexy-artifacts', artifactId, `v${vRow.version_number}`)
     const exportPath = await exportArtifactVersion(versionId, format as ArtifactExportFormat, destDir)
     return { exportPath }
+  })
+
+  safeHandle('artifact:download', async (_event, versionId: string, format: string) => {
+    const db = getDatabase()
+    const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(versionId) as Record<string, unknown> | undefined
+    if (!vRow) throw new Error('Version not found')
+    const aRow = db.prepare('SELECT * FROM artifacts WHERE id = ?').get(String(vRow.artifact_id)) as Record<string, unknown> | undefined
+    if (!aRow) throw new Error('Artifact not found')
+
+    const selection = await dialog.showOpenDialog({
+      title: 'Choose where to download the artifact',
+      defaultPath: app.getPath('downloads'),
+      buttonLabel: 'Download here',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (selection.canceled || selection.filePaths.length === 0) return { canceled: true }
+
+    const safeTitle = String(aRow.title || 'artifact')
+      .replace(/[<>:"/\\|?*]/g, '-')
+      .replace(/\p{Cc}/gu, '-')
+      .replace(/[.\s]+$/g, '')
+      .slice(0, 80) || 'artifact'
+    const destDir = path.join(selection.filePaths[0], `${safeTitle}-v${vRow.version_number}`)
+    const downloadPath = await exportArtifactVersion(versionId, format as ArtifactExportFormat, destDir)
+    return { canceled: false, downloadPath }
   })
 
   safeHandle('artifact:open-folder', (_event, absolutePath: string) => {

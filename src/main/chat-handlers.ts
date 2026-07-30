@@ -102,6 +102,7 @@ function persistAssistantMessage(
   model: string | null,
   thinkingBlocks?: Map<string, ThinkingBlockEntry>,
   textSegments?: Map<string, ThinkingBlockEntry>,
+  timestamp: number = Date.now(),
 ): string {
   const msgId = randomUUID()
   const thinkingJson = thinkingBlocks && thinkingBlocks.size > 0
@@ -115,7 +116,7 @@ function persistAssistantMessage(
     : null
   db.prepare(
     'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks, text_segments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(msgId, conversationId, 'assistant', content, null, Date.now(), model, thinkingJson, textSegmentsJson)
+  ).run(msgId, conversationId, 'assistant', content, null, timestamp, model, thinkingJson, textSegmentsJson)
   return msgId
 }
 
@@ -988,6 +989,14 @@ export async function dispatchChatSend(
       type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
       const pendingTools = new Map<string, PendingTool>()
       const completedToolCalls: Array<PendingTool & { id: string; content: string; isError: boolean }> = []
+      // Date.now() alone is not an ordering key: several text/tool/thinking starts commonly
+      // arrive in the same millisecond. Allocate strictly increasing occurrence times for
+      // this turn so persisted history reconstructs the exact event order deterministically.
+      let lastOccurrenceAt = Date.now() - 1
+      const nextOccurrenceAt = (): number => {
+        lastOccurrenceAt = Math.max(Date.now(), lastOccurrenceAt + 1)
+        return lastOccurrenceAt
+      }
       const persistCompletedCliToolCalls = () => {
         for (const tc of completedToolCalls.splice(0)) {
           db.prepare(
@@ -1022,7 +1031,7 @@ export async function dispatchChatSend(
       const cliSendChunk = (chunk: string, blockId?: string) => {
         sendChunk(chunk, blockId)
         if (!blockId) return
-        const existing = cliTextBuffer.get(blockId) ?? { blockId, content: '', done: false, firstSeenAt: Date.now() }
+        const existing = cliTextBuffer.get(blockId) ?? { blockId, content: '', done: false, firstSeenAt: nextOccurrenceAt() }
         cliTextBuffer.set(blockId, { ...existing, content: existing.content + chunk })
       }
 
@@ -1222,7 +1231,7 @@ export async function dispatchChatSend(
             if (window.webContents.isDestroyed()) return
             if (event.type === 'tool_start') {
               debugLog('chat', `cli-tool-start: id=${event.id} name=${event.name}`)
-              pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
+              pendingTools.set(event.id, { name: event.name, input: event.input, startTime: nextOccurrenceAt() })
               if (isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli' | 'hermes-cli', event.name)) {
                 for (const absPath of extractCliEditedPaths(event.input as Record<string, unknown>, cliCwd)) {
                   if (!cliFileContentBeforeEdit.has(absPath)) {
@@ -1260,7 +1269,7 @@ export async function dispatchChatSend(
               recordServerUsage(db, newUserMsgId, event.inputTokens, event.outputTokens)
             } else if (event.type === 'thinking_chunk') {
               turnEmitter.thinkingDelta(event.blockId, event.chunk)
-              const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false, firstSeenAt: Date.now() }
+              const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false, firstSeenAt: nextOccurrenceAt() }
               cliThinkingBuffer.set(event.blockId, { ...existing, content: existing.content + event.chunk })
             } else if (event.type === 'thinking_end') {
               turnEmitter.thinkingEnd(event.blockId)
@@ -1314,6 +1323,7 @@ export async function dispatchChatSend(
           (cliModelForRequest || null) as string | null,
           cliThinkingBuffer,
           cliTextBuffer,
+          nextOccurrenceAt(),
         )
         if (finalizedPlan) {
           saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
@@ -1361,11 +1371,17 @@ export async function dispatchChatSend(
             turnEmitter.thinkingEnd(blockId)
           }
         }
+        for (const [blockId, block] of cliTextBuffer) {
+          if (!block.done) {
+            cliTextBuffer.set(blockId, { ...block, done: true })
+            turnEmitter.textSegmentDone(blockId)
+          }
+        }
         turnEmitter.streamError({ type: 'api', message, retryable: true })
         sendActivity({ state: 'error', label: message })
         turnEmitter.closeStream()
         const assistantMsgId = persistAssistantMessage(
-          db, conversationId, message, effectiveBackend, cliThinkingBuffer,
+          db, conversationId, message, effectiveBackend, cliThinkingBuffer, cliTextBuffer, nextOccurrenceAt(),
         )
         return { assistantMsgId }
       }
@@ -1652,6 +1668,7 @@ export function registerChatHandlers(): void {
   safeHandle('chat:stop-generation', async (_event, conversationId?: string) => {
     abortActiveStream(conversationId)
     if (conversationId) {
+      clearActiveChatTurn(conversationId)
       denyPendingApprovalsForConversation(conversationId)
     }
     return true

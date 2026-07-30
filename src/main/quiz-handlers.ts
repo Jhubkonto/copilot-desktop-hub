@@ -11,16 +11,18 @@ import {
 } from './providers'
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
-import { isMobileInForeground } from './ws-server'
+import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendQuizCompleteNotification } from './fcm-sender'
 import {
   createPendingArtifactForConversation,
   findArtifactForConversation,
+  insertPendingArtifactRefMessage,
   markArtifactGenerationFailed,
   readArtifactVersionFile,
   writeArtifactVersionForConversation,
 } from './artifacts'
 import { buildConversationTranscript, type DebriefSectionData } from './debrief-handlers'
+import { broadcastConversationMessages } from './chat-handlers'
 import { startActivity, endActivity } from './activity-tracker'
 
 const SOURCE_CHAR_LIMIT = 12_000
@@ -227,11 +229,19 @@ async function generateQuizForWsInner(conversationId: string, projectId: string 
     ],
   })
 
+  const result: QuizArtifactResult = { questions, artifactId, versionId, spec }
+  // The completed generation pins the existing pending `__artifact-ref` message row to this
+  // version (writeArtifactVersionForConversation), but never re-syncs that row's updated
+  // content to other devices on its own — without this, Android's synced pending card (or a
+  // second desktop window) never learns the quiz finished and shows a stale spinner, or the
+  // requesting screen having been closed meant nobody was left to notice completion at all.
+  broadcastConversationMessages(conversationId)
+  broadcastToMobile({ event: 'quiz:ready', data: { ...result, conversationId } })
   if (!isMobileInForeground()) {
     void sendQuizCompleteNotification(db, { conversationId, title: `Quiz: ${titleSuffix}` })
   }
 
-  return { questions, artifactId, versionId, spec }
+  return result
 }
 
 /** Reads the persisted QuizSpec for a stored quiz version, or {} if none/legacy. */
@@ -263,12 +273,22 @@ function formatQuizMarkdown(title: string, questions: QuizQuestion[]): string {
  * LLM generation in the background — mirrors startDebriefGeneration so /quiz gets the same
  * durable, non-blocking progress card. Accepts an optional QuizSpec (source/topic/difficulty/
  * count) that the generation reuses and persists for "Regenerate".
+ *
+ * `insertPendingMessage` is for trigger sources with no renderer of their own to attach a chat
+ * card afterward (Android's WS trigger) — it inserts the pending `__artifact-ref` message here
+ * instead, and broadcasts it so every connected device/window picks it up. Without this, a quiz
+ * triggered from Android and left generating after the chat screen was closed had nothing to pin
+ * its result onto: the completed quiz existed only as an orphan artifact, never as a chat card,
+ * and looked like the quiz had "disappeared". Desktop's IPC trigger leaves this false and keeps
+ * inserting its own card client-side, since that path also covers in-card "Regenerate" (reusing
+ * an existing artifact, which must NOT get a second card).
  */
-export function startQuizGeneration(conversationId: string, projectId: string | null, model?: string, spec: QuizSpec = {}, targetArtifactId?: string): { artifactId: string } {
+export function startQuizGeneration(conversationId: string, projectId: string | null, model?: string, spec: QuizSpec = {}, targetArtifactId?: string, insertPendingMessage = false): { artifactId: string } {
   const db = getDatabase()
   const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
   const titleSuffix = spec.topic ? `${conversationRow?.title ?? 'Conversation'} — ${spec.topic}` : (conversationRow?.title ?? 'Conversation')
   const title = `Quiz: ${titleSuffix}`
+  const isNewArtifact = !targetArtifactId && !findArtifactForConversation(conversationId, 'quiz')
   const artifactId = createPendingArtifactForConversation({
     conversationId,
     projectId,
@@ -277,6 +297,10 @@ export function startQuizGeneration(conversationId: string, projectId: string | 
     artifactId: targetArtifactId,
     reuseExisting: Boolean(targetArtifactId),
   })
+  if (insertPendingMessage && isNewArtifact) {
+    insertPendingArtifactRefMessage(conversationId, artifactId, 'quiz')
+    broadcastConversationMessages(conversationId)
+  }
   void generateQuizForWs(conversationId, projectId, model, spec, artifactId).catch((err) => {
     markArtifactGenerationFailed(artifactId, projectId, err instanceof Error ? err.message : String(err))
   })

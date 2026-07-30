@@ -2,6 +2,11 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
+import {
+  generateAiSpokenOutput,
+  getAssistantMessageContext,
+  saveMessageSpokenOutput,
+} from './spoken-output'
 import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
 import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
 import { debugLog } from './debug-mode'
@@ -107,7 +112,7 @@ import { CodexAdapter } from './cli-adapters/codex'
 import { HermesAdapter } from './cli-adapters/hermes'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { startDebriefGeneration, generateDebriefStoryForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
-import { generateQuizForWs, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
+import { startQuizGeneration, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
 import { generateTeachbackForWs, getTeachbackForWs, getTeachbackByArtifactIdForWs, gradeTeachbackForWs, listTeachbackAttempts } from './teachback-handlers'
 import type { QuizSpec, QuizSource, QuizDifficulty, DebriefStoryTone } from '../shared/types'
 import {
@@ -147,6 +152,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import { app } from 'electron'
 import { handleStandaloneSyncCommand } from './standalone-sync'
+import { VoiceUploadSessionManager } from './voice-upload-sessions'
 import {
   startWsServer,
   stopWsServer,
@@ -216,6 +222,7 @@ function mobilePromptVersion(version: PromptLibraryVersion): Record<string, unkn
 // Tracks conversationIds currently being dispatched from Android to prevent
 // duplicate streams when the Android client reconnects mid-send (race-connect).
 const activeAndroidDispatches = new Set<string>()
+const voiceUploadSessions = new VoiceUploadSessionManager()
 
 /**
  * Asks the focused renderer window for its live composer/draft state (system prompt,
@@ -249,7 +256,72 @@ function requestInspectorSnapshotFromRenderer(conversationId: string | null): Pr
 
 export function registerWsHandlers(): void {
   setWsCommandHandler(async (command, data, reply) => {
+    const connectionId = typeof data.__connectionId === 'string' ? data.__connectionId : ''
+    if (command === 'internal:client-disconnected') {
+      voiceUploadSessions.disconnect(connectionId)
+      return
+    }
+    if (command === 'voice:upload-start') {
+      reply(voiceUploadSessions.start(connectionId, reply))
+      return
+    }
+    if (command === 'voice:upload-chunk') {
+      reply(voiceUploadSessions.append(connectionId, data.sessionId, data.sequence, data.dataBase64))
+      return
+    }
+    if (command === 'voice:upload-finish') {
+      reply(await voiceUploadSessions.finish(connectionId, data.sessionId))
+      return
+    }
+    if (command === 'voice:upload-cancel') {
+      reply(voiceUploadSessions.cancel(connectionId, data.sessionId))
+      return
+    }
+    if (command === 'voice:generate-ai-recap') {
+      const messageId = typeof data.messageId === 'string' ? data.messageId : ''
+      try {
+        const db = getDatabase()
+        const context = getAssistantMessageContext(db, messageId)
+        if (!context) throw new Error('Assistant message not found')
+        const output = await generateAiSpokenOutput(db, context, 'ai-recap')
+        if (!output) throw new Error('No provider or Claude CLI is available for an AI recap.')
+        reply({ event: 'voice:ai-recap', data: output })
+      } catch (error) {
+        reply({
+          event: 'voice:ai-recap-error',
+          data: {
+            messageId,
+            message: error instanceof Error ? error.message : 'AI recap failed.',
+          },
+        })
+      }
+      return
+    }
+    if (command === 'voice:save-spoken-output') {
+      try {
+        saveMessageSpokenOutput(getDatabase(), {
+          messageId: typeof data.messageId === 'string' ? data.messageId : '',
+          spokenText: typeof data.spokenText === 'string' ? data.spokenText : '',
+          outputKind: data.outputKind === 'quick-recap' ? 'quick-recap' : 'response',
+          generationKind: 'deterministic',
+        })
+      } catch {
+        // Playback remains available if a stale/deleted message cannot be persisted.
+      }
+      return
+    }
     if (command === 'ping') return
+
+    if (command.startsWith('conversation-mode:')) {
+      reply({
+        event: 'conversation-mode:error',
+        data: {
+          code: 'feature-removed',
+          message: 'Talk to Project has been removed. Use the microphone in standard chat.',
+        },
+      })
+      return
+    }
 
     debugLog('ws', `command: ${command}`)
 
@@ -1137,7 +1209,13 @@ export function registerWsHandlers(): void {
           | undefined
         backend = row?.backend ?? undefined
       }
-      const byId = new Map<string, { id: string; label: string; vendor?: string; isCliSourced?: boolean }>()
+      const byId = new Map<string, {
+        id: string
+        label: string
+        vendor?: string
+        isCliSourced?: boolean
+        backend?: string
+      }>()
       byId.set('default', { id: 'default', label: 'Default model' })
 
       const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
@@ -1165,7 +1243,12 @@ export function registerWsHandlers(): void {
             : { type: 'none', label: 'No configured model backend' }
 
         const models = cliLabel
-          ? getCliModels(resolvedBackend).map((model) => ({ ...model, vendor: cliLabel, isCliSourced: true }))
+          ? getCliModels(resolvedBackend).map((model) => ({
+              ...model,
+              vendor: cliLabel,
+              isCliSourced: true,
+              backend: resolvedBackend,
+            }))
           : configuredProviders
               .flatMap((provider) => getProviderModelIds(provider).map((model) => ({
                 id: provider.name === 'azure' ? `azure:${model}` : model,
@@ -1183,17 +1266,32 @@ export function registerWsHandlers(): void {
       // No explicit backend — aggregate ALL available sources for the model picker
       if (ClaudeAdapter.isAvailable()) {
         for (const model of getCliModels('claude-cli')) {
-          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Claude CLI', isCliSourced: true })
+          if (!byId.has(model.id)) byId.set(model.id, {
+            ...model,
+            vendor: 'Claude CLI',
+            isCliSourced: true,
+            backend: 'claude-cli',
+          })
         }
       }
       if (CodexAdapter.isAvailable()) {
         for (const model of getCliModels('codex-cli')) {
-          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Codex CLI', isCliSourced: true })
+          if (!byId.has(model.id)) byId.set(model.id, {
+            ...model,
+            vendor: 'Codex CLI',
+            isCliSourced: true,
+            backend: 'codex-cli',
+          })
         }
       }
       if (HermesAdapter.isAvailable()) {
         for (const model of getCliModels('hermes-cli')) {
-          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Hermes Agent', isCliSourced: true })
+          if (!byId.has(model.id)) byId.set(model.id, {
+            ...model,
+            vendor: 'Hermes Agent',
+            isCliSourced: true,
+            backend: 'hermes-cli',
+          })
         }
       }
       for (const provider of configuredProviders) {
@@ -1364,7 +1462,7 @@ export function registerWsHandlers(): void {
           LEFT JOIN agents a ON c.agent_id = a.id
           LEFT JOIN projects p ON c.project_id = p.id
           LEFT JOIN conversation_ratings cr ON cr.conversation_id = c.id
-          WHERE c.archived = 0
+          WHERE c.archived = 0 AND c.kind != 'project-conversation-mode'
           ORDER BY c.pinned DESC, c.updated_at DESC
           LIMIT 50
         `).all()
@@ -3614,9 +3712,19 @@ export function registerWsHandlers(): void {
       const model = typeof data.model === 'string' ? data.model : undefined
       if (!conversationId) return
       const spec = parseQuizSpec(data.spec)
-      void generateQuizForWs(conversationId, projectId, model, spec)
-        .then((result) => reply({ event: 'quiz:ready', data: { ...result, conversationId } }))
-        .catch((err: unknown) => reply({ event: 'quiz:error', data: { message: String(err) } }))
+      // Routed through startQuizGeneration (not generateQuizForWs directly) so an
+      // Android-triggered quiz gets the same durable pending artifact + chat message row
+      // desktop's trigger creates — without it, generation had nothing to pin its result onto
+      // and the finished quiz showed up only as an orphan artifact, never as a chat card, if
+      // the requesting screen was gone by the time it finished.
+      // generateQuizForWs (called inside startQuizGeneration) already broadcasts 'quiz:ready' to
+      // all mobile clients (including this requester) — replying here too would deliver the
+      // event twice to the same device and produce a duplicate quiz card.
+      try {
+        startQuizGeneration(conversationId, projectId, model, spec, undefined, true)
+      } catch (err) {
+        reply({ event: 'quiz:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 
