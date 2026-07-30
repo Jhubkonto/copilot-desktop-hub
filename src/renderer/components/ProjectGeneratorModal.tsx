@@ -9,6 +9,7 @@ import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
 import { Button } from './ui/primitives'
+import { ResizableChatInput } from './chat/ResizableChatInput'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -232,6 +233,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
   const createProject = useAppStore((s) => s.createProject)
   const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
   const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
+  const loadAgents = useAppStore((s) => s.loadAgents)
   const loadProjectAgents = useAppStore((s) => s.loadProjectAgents)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
@@ -450,7 +452,10 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       }
 
       // Done — navigate to the new project
-      await loadProjectAgents(projectId)
+      await Promise.all([
+        loadAgents(),
+        loadProjectAgents(projectId),
+      ])
       selectProject(projectId)
       clearSession()
       onClose()
@@ -471,7 +476,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       }
       setCreationStep(-1)
     }
-  }, [createProject, updateProjectConfig, addAgentToProject, setProjectPrimaryAgent, loadProjectAgents, selectProject, onClose, addToast, openEditProject])
+  }, [createProject, updateProjectConfig, addAgentToProject, setProjectPrimaryAgent, loadAgents, loadProjectAgents, selectProject, onClose, addToast, openEditProject])
 
   return (
     <div
@@ -615,20 +620,17 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                         ))}
                       </div>
                     )}
-                    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
-                      <textarea
-                        ref={inputRef}
-                        value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        onPaste={(e) => void handlePaste(e)}
-                        placeholder={spec ? 'Refine or ask for changes…' : 'Describe your project… (paste images with Ctrl+V)'}
-                        rows={1}
-                        disabled={isStreaming}
-                        className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
-                      />
-                      <div className="flex items-center justify-between px-2 pb-2">
-                        <div className="flex items-center gap-0.5">
+                    <ResizableChatInput
+                      inputRef={inputRef}
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onPaste={(e) => void handlePaste(e)}
+                      placeholder={spec ? 'Refine or ask for changes…' : 'Describe your project… (paste images with Ctrl+V)'}
+                      disabled={isStreaming}
+                      aria-label="Project description"
+                      leftActions={
+                        <>
                           <button
                             type="button"
                             onClick={() => void handlePasteClipboard()}
@@ -649,8 +651,10 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                           >
                             <BookOpen className="w-4 h-4" />
                           </button>
-                        </div>
-                        <div className="flex items-center gap-1">
+                        </>
+                      }
+                      rightActions={
+                        <>
                           <ModelPicker
                             value={genModel ?? 'default'}
                             availableGroups={availableGroups}
@@ -681,9 +685,9 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                           >
                             <Send className="w-4 h-4" />
                           </button>
-                        </div>
-                      </div>
-                    </div>
+                        </>
+                      }
+                    />
                     {missedSpec && (
                       <p className="text-[10px] text-amber-500 mt-1.5 text-center">No spec was generated — try asking me to set up the project.</p>
                     )}

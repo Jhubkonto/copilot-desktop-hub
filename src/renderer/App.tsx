@@ -45,7 +45,6 @@ const ScheduleGeneratorModal = lazy(() =>
 const ArtifactPanel = lazy(() =>
   import('./components/ArtifactPanel').then((m) => ({ default: m.ArtifactPanel }))
 )
-
 export default function App() {
   const theme = useAppStore((s) => s.theme)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)

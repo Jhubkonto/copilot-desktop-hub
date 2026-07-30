@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Download, Trash2, Package, History, Info, FolderOpen, Settings, GitCompare } from 'lucide-react'
+import { X, Download, FolderDown, Trash2, Package, History, Info, FolderOpen, Settings, GitCompare } from 'lucide-react'
 import type { ArtifactRow, ArtifactVersion } from '../../shared/types'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
@@ -24,12 +24,14 @@ function ArtifactStatusBadge({ status }: { status: string }) {
 // Details Tab
 // ---------------------------------------------------------------------------
 
-function DetailsTab({ artifact, projects, exporting, onRevise, onExportCurrent }: {
+function DetailsTab({ artifact, projects, exporting, downloading, onRevise, onExportCurrent, onDownloadCurrent }: {
   artifact: ArtifactRow
   projects: { id: string; name: string }[]
   exporting: boolean
+  downloading: boolean
   onRevise: () => void
   onExportCurrent: () => void
+  onDownloadCurrent: () => void
 }) {
   const project = artifact.projectId ? projects.find((p) => p.id === artifact.projectId) : null
   const addToast = useAppStore((s) => s.addToast)
@@ -90,7 +92,7 @@ function DetailsTab({ artifact, projects, exporting, onRevise, onExportCurrent }
         </div>
       )}
 
-      <div className="flex items-center gap-2 pt-2">
+      <div className="flex items-center gap-2 pt-2 flex-wrap">
         <Button variant="primary" onClick={onRevise}>
           Generate new version
         </Button>
@@ -98,6 +100,12 @@ function DetailsTab({ artifact, projects, exporting, onRevise, onExportCurrent }
           <Button variant="secondary" onClick={onExportCurrent} disabled={exporting}>
             <Download className="w-3.5 h-3.5" />
             {exporting ? 'Exporting…' : 'Export current version'}
+          </Button>
+        )}
+        {artifact.currentVersionId && (
+          <Button variant="secondary" onClick={onDownloadCurrent} disabled={downloading}>
+            <FolderDown className="w-3.5 h-3.5" />
+            {downloading ? 'Downloading…' : 'Download'}
           </Button>
         )}
       </div>
@@ -374,6 +382,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
   const [showReviseGenerator, setShowReviseGenerator] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [exportingCurrent, setExportingCurrent] = useState(false)
+  const [downloadingCurrent, setDownloadingCurrent] = useState(false)
 
   const getMaxSize = useCallback(() => Math.min(PANEL_MAX, Math.floor(window.innerWidth * 0.45)), [])
 
@@ -409,6 +418,21 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
       addToast('Export failed', 'error')
     } finally {
       setExportingCurrent(false)
+    }
+  }
+
+  const handleDownloadCurrent = async () => {
+    if (!artifact?.currentVersionId) return
+    setDownloadingCurrent(true)
+    try {
+      const result = await window.api.artifactDownload(artifact.currentVersionId, 'raw-files')
+      if (!result.canceled && result.downloadPath) {
+        addToast(`Downloaded to: ${result.downloadPath}`, 'success')
+      }
+    } catch {
+      addToast('Download failed', 'error')
+    } finally {
+      setDownloadingCurrent(false)
     }
   }
 
@@ -495,8 +519,10 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
                 artifact={artifact}
                 projects={projects}
                 exporting={exportingCurrent}
+                downloading={downloadingCurrent}
                 onRevise={() => setShowReviseGenerator(true)}
                 onExportCurrent={() => void handleExportCurrent()}
+                onDownloadCurrent={() => void handleDownloadCurrent()}
               />
             )}
             {tab === 'history' && (

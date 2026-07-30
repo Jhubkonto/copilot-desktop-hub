@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Star, Upload, Users, X, Zap } from 'lucide-react'
 import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type CliBackend, type CliModeOverride, type CodexExecutionModeOverride, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
@@ -12,12 +12,16 @@ import { useFileInput } from '../hooks/useFileInput'
 import { useSlashMenu } from '../hooks/useSlashMenu'
 import { useRateLimitTimer } from '../hooks/useRateLimitTimer'
 import { useVoiceInput } from '../hooks/useVoiceInput'
+import { usePushToTalkShortcut } from '../hooks/usePushToTalkShortcut'
+import { useSpokenOutput } from '../hooks/useSpokenOutput'
+import { appendTranscriptToDraft } from '../lib/composer-draft'
 import { useAppStore } from '../store/app-store'
 import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from '../lib/context-token-estimate'
 import type { ContextInspectorSnapshot, ProjectConfig } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
 import { ModelPicker } from './chat/ModelPicker'
+import { VoiceDock } from './chat/VoiceDock'
 import { DropdownPanel } from './DropdownPanel'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
@@ -143,7 +147,6 @@ export function ChatWindow() {
   const [projectWorkflowMode, setProjectWorkflowMode] = useState<ProjectConfig['workflowMode'] | null>(null)
   const [activeWorkflowRun, setActiveWorkflowRun] = useState<AutomatedWorkflowRunDetail | null>(null)
   const [dismissedWorkflowStepId, setDismissedWorkflowStepId] = useState<string | null>(null)
-  const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
   const [promptInstructionRef, setPromptInstructionRef] = useState<ContextRef | null>(null)
   const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
@@ -178,13 +181,41 @@ export function ChatWindow() {
   const conversationRatings = useAppStore((state) => state.conversationRatings)
   const submitConversationRatingFn = useAppStore((state) => state.submitConversationRating)
   const handleVoiceText = useCallback((text: string) => {
-    setInput((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)
+    setInput((current) => appendTranscriptToDraft(current, text))
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [])
   const handleVoiceError = useCallback((message: string) => addToast(message, 'error'), [addToast])
-  const { voiceState, toggleVoice, cancelVoice } = useVoiceInput(handleVoiceText, handleVoiceError)
+  const {
+    voiceState,
+    voiceDurationMs,
+    voiceLevel,
+    voiceError,
+    startVoice,
+    stopVoice,
+    toggleVoice,
+    cancelVoice,
+  } = useVoiceInput(
+    handleVoiceText,
+    handleVoiceError,
+    conversationId ?? `new:${activeProjectId ?? 'standalone'}`,
+  )
+  const spokenOutput = useSpokenOutput()
+  const speechWasGeneratingRef = useRef(false)
+
+  useEffect(() => {
+    if (voiceState === 'recording') spokenOutput.stop()
+  }, [voiceState, spokenOutput.stop])
+
+  const [voiceDockEnabled, setVoiceDockEnabled] = useState(
+    () => localStorage.getItem('nexy.voiceDock.enabled') === 'true',
+  )
+  const setVoiceDock = useCallback((enabled: boolean) => {
+    setVoiceDockEnabled(enabled)
+    localStorage.setItem('nexy.voiceDock.enabled', String(enabled))
+  }, [])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const pendingSourceMessageIdRef = useRef<string | null>(null)
   const prevGeneratingRef = useRef(false)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -194,7 +225,17 @@ export function ChatWindow() {
     window.addEventListener('nexy:focus-chat-composer', focusComposer)
     return () => window.removeEventListener('nexy:focus-chat-composer', focusComposer)
   }, [])
-  const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
+
+  useEffect(() => {
+    const navigateToMessage = (event: Event) => {
+      const detail = (event as CustomEvent<{ conversationId: string; messageId?: string }>).detail
+      if (!detail?.messageId) return
+      pendingSourceMessageIdRef.current = detail.messageId
+    }
+    window.addEventListener('nexy:navigate-chat-message', navigateToMessage)
+    return () => window.removeEventListener('nexy:navigate-chat-message', navigateToMessage)
+  }, [])
+
   const inputHistoryRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1)
   const historyDraftRef = useRef('')
@@ -369,6 +410,20 @@ export function ChatWindow() {
     isConversationGenerating: conversationId ? generatingConversationIds.includes(conversationId) : false,
     conversationGenerationStartedAt: conversationId ? (generatingStartTimes[conversationId] ?? null) : null,
   })
+  usePushToTalkShortcut({
+    enabled: !chat.isGenerating,
+    state: voiceState,
+    start: startVoice,
+    stop: stopVoice,
+    cancel: cancelVoice,
+  })
+  useEffect(() => {
+    const justFinished = speechWasGeneratingRef.current && !chat.isGenerating
+    speechWasGeneratingRef.current = chat.isGenerating
+    if (!justFinished || !spokenOutput.settings.autoPlay) return
+    const latestAssistant = [...chat.messages].reverse().find((message) => message.role === 'assistant' && !message.isError)
+    if (latestAssistant) spokenOutput.speakResponse(latestAssistant.id, latestAssistant.content)
+  }, [chat.isGenerating, chat.messages, spokenOutput.settings.autoPlay, spokenOutput.speakResponse])
   const fileInput = useFileInput(conversationId)
   const slashMenu = useSlashMenu()
   const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId, projectRootDir })
@@ -438,6 +493,7 @@ export function ChatWindow() {
     setGenerationStartedAt: chat.setGenerationStartedAt,
     setStreamingContent: chat.setStreamingContent,
     resetQueue: chat.resetQueue,
+    clearStoppedGeneration: chat.clearStoppedGeneration,
     setLoadingFailed: chat.setLoadingFailed,
     setLiveTeamActivity: chat.setLiveTeamActivity,
     addToast,
@@ -456,14 +512,6 @@ export function ChatWindow() {
     },
     onEditStateConsumed: chat.clearEditState,
   })
-
-  useLayoutEffect(() => {
-    const element = inputRef.current
-    if (!element) return
-    element.style.height = 'auto'
-    const floor = inputPanelHeight ?? 0
-    element.style.height = `${Math.min(Math.max(floor, element.scrollHeight), 400)}px`
-  }, [input, inputPanelHeight])
 
   const handleOpenArtifactPromotion = useCallback((messageId: string, content: string) => {
     setArtifactPromotion({
@@ -800,6 +848,20 @@ export function ChatWindow() {
     },
   })
 
+  useEffect(() => {
+    const targetId = pendingSourceMessageIdRef.current
+    if (!targetId || chat.messages.every((message) => message.id !== targetId)) return
+    pendingSourceMessageIdRef.current = null
+    requestAnimationFrame(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'))
+        .find((element) => element.dataset.messageId === targetId)
+      if (!target) return
+      suppressAutoFollow()
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      target.focus({ preventScroll: true })
+    })
+  }, [chat.messages, suppressAutoFollow])
+
   // Suppresses the generation auto-follow effects for a short window so a manual
   // "scroll to request" jump isn't immediately dragged back to the bottom.
   const handleNavigateToRequest = useCallback(() => {
@@ -1132,32 +1194,6 @@ export function ChatWindow() {
     addToast('Prompt attached as temporary instructions', 'success')
   }, [addToast])
 
-  const handleInputResizePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    inputPanelResizeRef.current = {
-      startY: event.clientY,
-      startHeight: inputRef.current?.offsetHeight ?? 40,
-    }
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-
-    const onMove = (moveEvent: globalThis.PointerEvent) => {
-      if (!inputPanelResizeRef.current) return
-      const { startY, startHeight } = inputPanelResizeRef.current
-      setInputPanelHeight(Math.max(40, Math.min(400, startHeight + (startY - moveEvent.clientY))))
-    }
-    const onUp = () => {
-      inputPanelResizeRef.current = null
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }, [])
-
   const workflowModeInfo = projectWorkflowMode === 'orchestrated'
     ? { label: 'Orchestrated', Icon: Users, title: 'This project delegates tasks across the team automatically.' }
     : projectWorkflowMode === 'automated-delegation'
@@ -1284,7 +1320,6 @@ export function ChatWindow() {
       selectedAtIndex={atMenu.selectedAtIndex}
       atOptions={actions.visibleAtOptions}
       modelPickerRef={modelPickerRef}
-      onResizePointerDown={handleInputResizePointerDown}
       onInputChange={(event) => actions.handleInputChange(event.target.value)}
       onKeyDown={handleKeyDown}
       onPaste={fileInput.handlePaste}
@@ -1299,6 +1334,8 @@ export function ChatWindow() {
       voiceState={voiceState}
       onToggleVoice={toggleVoice}
       onCancelVoice={cancelVoice}
+      voiceDocked={!voiceDockEnabled}
+      onFloatVoice={() => setVoiceDock(true)}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}
@@ -1374,6 +1411,19 @@ export function ChatWindow() {
       lockModelToAgentBackend={lockModelToAgentBackend}
     />
   )
+  const voiceDock = voiceDockEnabled ? (
+    <VoiceDock
+      state={voiceState}
+      durationMs={voiceDurationMs}
+      level={voiceLevel}
+      error={voiceError}
+      disabled={chat.isGenerating}
+      onStart={startVoice}
+      onStop={stopVoice}
+      onCancel={cancelVoice}
+      onDock={() => setVoiceDock(false)}
+    />
+  ) : null
 
   const promptLibraryModal = showPromptLibrary ? (
     <PromptLibraryModal
@@ -1462,7 +1512,7 @@ export function ChatWindow() {
   if (!conversationId && chat.messages.length === 0) {
     return (
       <div
-        className={`flex-1 flex flex-col min-h-0 ${fileInput.isDragging ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/5' : ''}`}
+        className={`relative flex-1 flex flex-col min-h-0 ${fileInput.isDragging ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/5' : ''}`}
         onDragEnter={fileInput.handleDragEnter}
         onDragOver={fileInput.handleDragOver}
         onDragLeave={fileInput.handleDragLeave}
@@ -1471,6 +1521,7 @@ export function ChatWindow() {
         {contextBar}
         {autoApproveBanner}
         {workflowStepBanner}
+        {voiceDock}
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <h2 className="text-2xl font-medium text-gray-700 dark:text-gray-200 mb-2">
@@ -1521,7 +1572,7 @@ export function ChatWindow() {
 
   return (
     <div
-      className={`flex-1 flex flex-col min-h-0 ${fileInput.isDragging ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/5' : ''}`}
+      className={`relative flex-1 flex flex-col min-h-0 ${fileInput.isDragging ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/5' : ''}`}
       onDragEnter={fileInput.handleDragEnter}
       onDragOver={fileInput.handleDragOver}
       onDragLeave={fileInput.handleDragLeave}
@@ -1532,6 +1583,7 @@ export function ChatWindow() {
       {contextBar}
       {autoApproveBanner}
       {workflowStepBanner}
+      {voiceDock}
 
       <div className="relative flex flex-col flex-1 min-h-0">
         {conversationId && !chat.isGenerating && (completedConversationIds.includes(conversationId) || conversationRatings[conversationId] != null) && (
@@ -1551,7 +1603,7 @@ export function ChatWindow() {
           </div>
         )}
         {(conversationId || chat.messages.length > 0) && !chat.isGenerating && (
-          <div className="absolute right-4 top-4 z-10">
+          <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
             <DropdownPanel
               open={showActionsMenu}
               onClose={() => {
@@ -1831,6 +1883,26 @@ export function ChatWindow() {
             ])
           }}
           liveTurnState={chat.liveTurnState}
+          spokenOutput={{
+            supported: spokenOutput.supported,
+            activeMessageId: spokenOutput.active?.messageId ?? null,
+            state: spokenOutput.state,
+            kind: spokenOutput.active?.kind ?? 'response',
+            model: spokenOutput.active?.model ?? null,
+            aiRecapMessageId: spokenOutput.aiRecapMessageId,
+            aiRecapError: spokenOutput.aiRecapError,
+            aiRecapErrorMessageId: spokenOutput.aiRecapErrorMessageId,
+            voices: spokenOutput.voices,
+            settings: spokenOutput.settings,
+            onRead: spokenOutput.speakResponse,
+            onQuickRecap: spokenOutput.speakQuickRecap,
+            onAiRecap: spokenOutput.speakAiRecap,
+            onPause: spokenOutput.pause,
+            onResume: spokenOutput.resume,
+            onStop: spokenOutput.stop,
+            onReplay: spokenOutput.replay,
+            onSettingsChange: spokenOutput.setSettings,
+          }}
         />
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
