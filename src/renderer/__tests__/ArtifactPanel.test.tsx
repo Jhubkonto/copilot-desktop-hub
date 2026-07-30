@@ -100,6 +100,13 @@ describe('ArtifactPanel', () => {
     expect(screen.getByRole('button', { name: /export current version/i })).toBeInTheDocument()
   })
 
+  it('downloads the current version to a user-selected directory', async () => {
+    render(<ArtifactPanel artifactId="art-1" />)
+    await waitFor(() => screen.getByText('Test Artifact'))
+    await userEvent.click(screen.getByRole('button', { name: /^download$/i }))
+    expect(mockApi.artifactDownload).toHaveBeenCalledWith('v1', 'raw-files')
+  })
+
   it('shows artifact description in Details tab', async () => {
     render(<ArtifactPanel artifactId="art-1" />)
     await waitFor(() => {

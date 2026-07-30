@@ -41,4 +41,33 @@ describe('ChatModePicker', () => {
 
     expect(screen.queryByText('Agentic mode (this chat)')).toBeNull()
   })
+
+  it('uses the same two-column grid and button height for every Claude CLI section', () => {
+    render(
+      <ChatModePicker
+        open
+        onOpenChange={() => {}}
+        thinkingEffortOverride={null}
+        fullAutoApproveOverride={null}
+        agenticModeOverride={null}
+        terminalSandboxOverride={null}
+        activeCliBackend="claude-cli"
+        onChange={() => {}}
+      />,
+    )
+
+    for (const heading of [
+      'Thinking effort (this chat)',
+      'Terminal sandbox bypass (this chat)',
+      'Claude Code mode (this chat)',
+    ]) {
+      const section = screen.getByText(heading).parentElement
+      const grid = section?.querySelector('div')
+      expect(grid?.className).toContain('grid-cols-2')
+      grid?.querySelectorAll('button').forEach((button) => {
+        expect(button.className).toContain('py-1')
+        expect(button.className).not.toContain('py-1.5')
+      })
+    }
+  })
 })

@@ -16,6 +16,10 @@ const baseProps = {
   onCopy: vi.fn()
 }
 
+function openAssistantActions() {
+  fireEvent.click(screen.getByRole('button', { name: 'More message actions' }))
+}
+
 describe('MessageBubble', () => {
   it('renders user message content as plain text', () => {
     render(<MessageBubble {...baseProps} />)
@@ -96,9 +100,11 @@ describe('MessageBubble', () => {
 
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
-    fireEvent.click(screen.getByRole('button', { name: 'Save to wiki' }))
+    openAssistantActions()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save to wiki' }))
 
     expect(onSaveToWiki).toHaveBeenCalledWith('msg-1', 'Hello there')
+    expect(screen.queryByRole('menu', { name: 'Message actions' })).not.toBeInTheDocument()
   })
 
   it('offers save as prompt for a user message and strips injected context', () => {
@@ -122,10 +128,10 @@ describe('MessageBubble', () => {
     const onSaveAsPrompt = vi.fn()
     render(<MessageBubble {...baseProps} role="assistant" onSaveAsPrompt={onSaveAsPrompt} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save as prompt' }))
+    openAssistantActions()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save as prompt' }))
 
     expect(onSaveAsPrompt).toHaveBeenCalledWith('Hello there')
-    expect(screen.getByRole('button', { name: 'Save as prompt' })).toHaveAttribute('title', 'Save response as prompt')
   })
 
   it('shows saved state for assistant messages linked to wiki entries', () => {
@@ -140,11 +146,12 @@ describe('MessageBubble', () => {
 
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
+    openAssistantActions()
 
-    expect(screen.getByRole('button', { name: 'Saved to wiki' })).toHaveClass('text-blue-600')
+    expect(screen.getByRole('menuitem', { name: 'Saved to wiki' })).toHaveClass('text-blue-600')
   })
 
-  it('shows assistant icon actions with hover titles and a unique artifact icon', () => {
+  it('keeps frequent assistant actions visible and moves secondary actions into overflow', () => {
     render(
       <MessageBubble
         {...baseProps}
@@ -156,11 +163,16 @@ describe('MessageBubble', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Copy' })).toHaveAttribute('title', 'Copy response')
-    expect(screen.getByRole('button', { name: 'Save to wiki' })).toHaveAttribute('title', 'Save response to wiki')
-    expect(screen.getByRole('button', { name: 'Save as artifact' })).toHaveAttribute('title', 'Save response as artifact')
-    expect(screen.getByRole('button', { name: 'Create code change' })).toHaveAttribute('title', 'Create code change')
-    expect(screen.getByRole('button', { name: 'Save to wiki' }).querySelector('svg')).toHaveClass('lucide-book-open')
-    expect(screen.getByRole('button', { name: 'Save as artifact' }).querySelector('svg')).toHaveClass('lucide-package')
+    expect(screen.queryByRole('menuitem', { name: 'Save to wiki' })).not.toBeInTheDocument()
+
+    openAssistantActions()
+
+    expect(screen.getByRole('menu', { name: 'Message actions' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Save to wiki' })).toHaveAttribute('title', 'Save to wiki')
+    expect(screen.getByRole('menuitem', { name: 'Save as artifact' })).toHaveAttribute('title', 'Save as artifact')
+    expect(screen.getByRole('menuitem', { name: 'Create code change' })).toHaveAttribute('title', 'Create code change')
+    expect(screen.getByRole('menuitem', { name: 'Save to wiki' }).querySelector('svg')).toHaveClass('lucide-book-open')
+    expect(screen.getByRole('menuitem', { name: 'Save as artifact' }).querySelector('svg')).toHaveClass('lucide-package')
   })
 
   it('shows regenerate action for last assistant message', () => {
@@ -176,8 +188,45 @@ describe('MessageBubble', () => {
 
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
+    openAssistantActions()
 
-    expect(screen.getByRole('button', { name: 'Regenerate' })).toHaveAttribute('title', 'Regenerate response')
+    expect(screen.getByRole('menuitem', { name: 'Regenerate' })).toHaveAttribute('title', 'Regenerate')
+  })
+
+  it('offers speech-safe response and Quick Recap actions', () => {
+    const onRead = vi.fn()
+    const onQuickRecap = vi.fn()
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        spokenOutput={{
+          supported: true,
+          active: false,
+          state: 'idle',
+        kind: 'response',
+        model: null,
+        aiRecapLoading: false,
+        aiRecapError: null,
+          voices: [],
+          settings: { voiceUri: null, rate: 1, pitch: 1, offlineOnly: true, autoPlay: false },
+          onRead,
+        onQuickRecap,
+        onAiRecap: vi.fn(),
+          onPause: vi.fn(),
+          onResume: vi.fn(),
+          onStop: vi.fn(),
+          onReplay: vi.fn(),
+          onSettingsChange: vi.fn(),
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read response' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Quick Recap' }))
+
+    expect(onRead).toHaveBeenCalledOnce()
+    expect(onQuickRecap).toHaveBeenCalledOnce()
   })
 
 

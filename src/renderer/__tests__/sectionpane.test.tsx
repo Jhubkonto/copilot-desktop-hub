@@ -705,4 +705,16 @@ describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
     render(<SectionPane section="projects" />);
     expect(screen.getByRole("heading", { name: /no project/i })).toBeInTheDocument();
   });
+
+  it("q2-6: ProjectHistoryPane shows a spinner for a generating conversation", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+      generatingConversationIds: ["pc1"],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+    expect(screen.getByTitle("Generating…")).toBeInTheDocument();
+  });
 });

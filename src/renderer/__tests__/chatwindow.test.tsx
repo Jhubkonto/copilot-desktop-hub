@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ChatWindow } from "../../renderer/components/ChatWindow";
 import { setupMockApi, type MockApi } from "../../test/mocks/api";
 import { createMockAppStore, setupStoreMock } from "../../test/mocks/store";
-import type { ChatTurnEvent } from "../../shared/chat-turn-types";
+import type { ActiveChatTurnSnapshot, ChatTurnEvent } from "../../shared/chat-turn-types";
 
 const { useAppStore } = vi.hoisted(() => ({
   useAppStore: vi.fn(),
@@ -233,6 +233,63 @@ describe("ChatWindow — Streaming", () => {
 
     await user.click(stopBtn);
     expect(mockApi.stopGeneration).toHaveBeenCalledWith('conv-1');
+  });
+
+  it("keeps Send available after stop and a model change when a stale active-turn snapshot arrives", async () => {
+    const user = userEvent.setup();
+    let resolveActiveTurn!: (snapshot: ActiveChatTurnSnapshot | null) => void;
+    mockApi.getActiveChatTurn.mockReturnValue(new Promise((resolve) => {
+      resolveActiveTurn = resolve;
+    }));
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [{
+        id: "conv-1",
+        title: "Chat",
+        project_id: null,
+        agent_id: null,
+        model: null,
+        pinned: false,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      availableModelGroups: [{
+        sourceKey: "openai",
+        sourceLabel: "OpenAI",
+        sourceType: "provider",
+        models: [{ id: "gpt-5-mini", label: "GPT-5 mini" }],
+      }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "First request");
+    await user.click(screen.getByRole("button", { name: /^send message$/i }));
+    await user.click(screen.getByRole("button", { name: /stop generating/i }));
+
+    await user.click(screen.getByRole("button", { name: /conversation model/i }));
+    await user.click(await screen.findByText("GPT-5 mini"));
+    expect(mockApi.setConversationModel).toHaveBeenCalledWith("conv-1", "gpt-5-mini");
+
+    await act(async () => {
+      resolveActiveTurn({
+        conversationId: "conv-1",
+        turnId: "stale-turn",
+        latestSequence: 1,
+        assistantText: "",
+        status: "active",
+        toolCalls: [],
+        activity: null,
+        events: [],
+      });
+      await Promise.resolve();
+    });
+
+    await user.type(textarea, "Follow-up with the new model");
+    expect(screen.getByRole("button", { name: /^send message$/i })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /stop generating/i })).not.toBeInTheDocument();
   });
 });
 
