@@ -284,7 +284,7 @@ fun NavGraph(
         }
 
         composable(
-            route = "chat/{conversationId}?agentId={agentId}&projectId={projectId}",
+            route = "chat/{conversationId}?agentId={agentId}&projectId={projectId}&messageId={messageId}",
             arguments = listOf(
                 navArgument("conversationId") { type = NavType.StringType },
                 navArgument("agentId") {
@@ -295,6 +295,10 @@ fun NavGraph(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument("messageId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
             enterTransition = { androidx.compose.animation.EnterTransition.None },
             exitTransition = { androidx.compose.animation.ExitTransition.None },
@@ -302,6 +306,7 @@ fun NavGraph(
             val conversationId = backStack.arguments?.getString("conversationId") ?: ""
             val agentId = backStack.arguments?.getString("agentId")?.takeIf { it.isNotBlank() }
             val projectId = backStack.arguments?.getString("projectId")?.takeIf { it.isNotBlank() }
+            val messageId = backStack.arguments?.getString("messageId")?.takeIf { it.isNotBlank() }
             ChatScreen(
                 conversationId = conversationId,
                 agentId = agentId,
@@ -324,6 +329,7 @@ fun NavGraph(
                 onOpenRemoteEditWithPrefill = { _, _ -> },
                 onOpenCodePanel = { pid -> navController.navigate("code-panel/${Uri.encode(pid)}") },
                 onOpenAutomatedWorkflow = { workflowProjectId -> navController.navigate("automated-workflow/${Uri.encode(workflowProjectId)}") },
+                initialMessageId = messageId,
                 onNewChat = { newAgentId, newProjectId ->
                     val newConversationId = java.util.UUID.randomUUID().toString()
                     val agentParam = Uri.encode(newAgentId.orEmpty())
@@ -641,11 +647,22 @@ fun NavGraph(
         }
 
         composable(
-            route = "wiki/{projectId}",
-            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+            route = "wiki/{projectId}?entryId={entryId}",
+            arguments = listOf(
+                navArgument("projectId") { type = NavType.StringType },
+                navArgument("entryId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
-            WikiScreen(projectId = projectId, onBack = { navController.popBackStack() })
+            val entryId = backStackEntry.arguments?.getString("entryId")?.takeIf { it.isNotBlank() }
+            WikiScreen(
+                projectId = projectId,
+                initialEntryId = entryId,
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(
