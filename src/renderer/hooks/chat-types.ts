@@ -19,7 +19,7 @@ export interface Attachment {
   name: string
   path?: string
   size: number
-  type?: 'file' | 'image'
+  type?: 'file' | 'image' | 'folder'
   source?: 'desktop' | 'mobile' | 'pasted'
   thumbnailDataUrl?: string
 }

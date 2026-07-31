@@ -45,6 +45,22 @@ export function useFileInput(conversationId: string | null = null) {
     }
   }, [])
 
+  const handleFolderPick = useCallback(async () => {
+    const paths = await window.api.openDirectoryDialog()
+    if (paths && paths.length > 0) {
+      setPendingAttachments((prev) => [
+        ...prev,
+        ...paths.map((path) => ({
+          id: crypto.randomUUID(),
+          name: path.split(/[\\/]/).filter(Boolean).pop() ?? path,
+          path,
+          size: 0,
+          type: 'folder' as const,
+        })),
+      ])
+    }
+  }, [])
+
   const removeAttachment = useCallback((id: string) => {
     setPendingAttachments((prev) => prev.filter((attachment) => attachment.id !== id))
   }, [])
@@ -113,7 +129,7 @@ export function useFileInput(conversationId: string | null = null) {
         continue
       }
 
-      const path = (file as File & { path?: string }).path || ''
+      const path = window.api.getPathForFile(file)
       if (!path) continue
 
       setPendingAttachments((prev) => [
@@ -129,6 +145,7 @@ export function useFileInput(conversationId: string | null = null) {
     isDragging,
     dragDepthRef,
     handleFilePick,
+    handleFolderPick,
     removeAttachment,
     removeImage,
     handlePaste,
