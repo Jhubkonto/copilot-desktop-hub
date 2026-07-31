@@ -3,7 +3,8 @@ import type Database from 'better-sqlite3'
 import { getDatabase } from './database'
 import type { WsReply } from './ws-server'
 
-export const STANDALONE_SYNC_PROTOCOL_VERSION = 1
+export const STANDALONE_SYNC_PROTOCOL_VERSION = 2
+const SUPPORTED_SYNC_PROTOCOL_VERSIONS = [1, STANDALONE_SYNC_PROTOCOL_VERSION] as const
 export const STANDALONE_SYNC_SCHEMA_VERSION = 2
 const SUPPORTED_SYNC_SCHEMA_VERSIONS = [1, STANDALONE_SYNC_SCHEMA_VERSION] as const
 const SUPPORTED_ENTITY_TYPES = ['project', 'agent', 'conversation', 'message', 'wiki', 'prompt', 'skill'] as const
@@ -37,6 +38,16 @@ export function handleStandaloneSyncCommand(
   reply: WsReply,
 ): boolean {
   if (!command.startsWith('sync:')) return false
+  if (command === 'sync:probe') {
+    reply({
+      event: 'sync:probe-ack',
+      data: {
+        probeId: requiredString(data.probeId, 'probeId'),
+        serverReceivedAt: Date.now(),
+      },
+    })
+    return true
+  }
   if (command === 'sync:hello') {
     handleHello(data, reply)
     return true
@@ -76,12 +87,12 @@ function handleHello(data: Record<string, unknown>, reply: WsReply): void {
   const deviceId = requiredString(data.deviceId, 'deviceId')
   const datasetId = requiredString(data.datasetId, 'datasetId')
   const requestedVersion = numberValue(data.protocolVersion, 0)
-  if (requestedVersion !== STANDALONE_SYNC_PROTOCOL_VERSION) {
+  if (!SUPPORTED_SYNC_PROTOCOL_VERSIONS.includes(requestedVersion as 1 | 2)) {
     reply({
       event: 'sync:error',
       data: {
         code: 'unsupported-protocol',
-        message: `Desktop supports sync protocol ${STANDALONE_SYNC_PROTOCOL_VERSION}; Android requested ${requestedVersion}.`,
+        message: `Desktop supports sync protocols ${SUPPORTED_SYNC_PROTOCOL_VERSIONS.join(', ')}; Android requested ${requestedVersion}.`,
         supportedProtocolVersion: STANDALONE_SYNC_PROTOCOL_VERSION,
       },
     })
@@ -122,17 +133,24 @@ function handleHello(data: Record<string, unknown>, reply: WsReply): void {
       last_seen_at = excluded.last_seen_at
   `).run(deviceId, datasetId, stringValue(data.deviceName) ?? 'Nexy Android', requestedVersion, now)
 
+  const syncPayload = buildSyncSnapshot(
+    db,
+    datasetId,
+    requestedVersion >= 2 ? numberValue(data.lastDesktopSequence, 0) : 0,
+  )
   reply({
     event: 'sync:welcome',
     data: {
-      protocolVersion: STANDALONE_SYNC_PROTOCOL_VERSION,
+      protocolVersion: requestedVersion,
       schemaVersion: requestedSchema,
       supportedEntityTypes: negotiatedEntities,
       attachmentSupport,
       maxBatchSize,
       desktopDeviceId: desktopDeviceId(db),
       datasetId,
-      snapshot: buildSnapshot(db, datasetId),
+      desktopSequence: syncPayload.desktopSequence,
+      isDelta: syncPayload.isDelta,
+      snapshot: syncPayload.snapshot,
     },
   })
 }
@@ -191,15 +209,75 @@ function handlePush(data: Record<string, unknown>, reply: WsReply): void {
   })
   applyBatch()
 
+  const requestedVersion = numberValue(data.protocolVersion, 1)
+  const syncPayload = buildSyncSnapshot(
+    db,
+    datasetId,
+    requestedVersion >= 2 ? numberValue(data.lastDesktopSequence, 0) : 0,
+  )
   reply({
     event: 'sync:ack',
     data: {
       operationIds: acknowledged,
       lastReceivedSequence: lastSequence,
       conflicts,
-      snapshot: buildSnapshot(db, datasetId),
+      desktopSequence: syncPayload.desktopSequence,
+      isDelta: syncPayload.isDelta,
+      snapshot: syncPayload.snapshot,
     },
   })
+}
+
+function buildSyncSnapshot(
+  db: Database.Database,
+  datasetId: string,
+  lastDesktopSequence: number,
+): { snapshot: Record<string, unknown>; desktopSequence: number; isDelta: boolean } {
+  // Scanning also advances entity versions for desktop-side writes that did not originate in
+  // standalone sync. The returned delta then avoids transferring and re-applying unchanged rows.
+  const full = buildSnapshot(db, datasetId)
+  const sequenceRow = db.prepare(
+    'SELECT MIN(sequence) AS minSequence, MAX(sequence) AS maxSequence FROM sync_desktop_changes WHERE dataset_id = ?',
+  ).get(datasetId) as { minSequence: number | null; maxSequence: number | null }
+  const desktopSequence = sequenceRow.maxSequence ?? 0
+  if (
+    lastDesktopSequence <= 0 ||
+    lastDesktopSequence > desktopSequence ||
+    (sequenceRow.minSequence != null && lastDesktopSequence < sequenceRow.minSequence - 1)
+  ) {
+    return { snapshot: full, desktopSequence, isDelta: false }
+  }
+
+  const changes = db.prepare(`
+    SELECT entity_type AS entityType, entity_id AS entityId
+    FROM sync_desktop_changes
+    WHERE dataset_id = ? AND sequence > ?
+    ORDER BY sequence
+  `).all(datasetId, lastDesktopSequence) as Array<{ entityType: string; entityId: string }>
+  const changed = new Set(changes.map(change => `${change.entityType}:${change.entityId}`))
+  const versions = full.versions as Record<string, number>
+  const filteredVersions = Object.fromEntries(
+    Object.entries(versions).filter(([key]) => changed.has(key)),
+  )
+  const filterRows = (key: string, type: string): unknown[] =>
+    ((full[key] as Array<Record<string, unknown>>) ?? []).filter(row => changed.has(`${type}:${String(row.id)}`))
+  return {
+    desktopSequence,
+    isDelta: true,
+    snapshot: {
+      projects: filterRows('projects', 'project'),
+      agents: filterRows('agents', 'agent'),
+      conversations: filterRows('conversations', 'conversation'),
+      messages: filterRows('messages', 'message'),
+      wiki: filterRows('wiki', 'wiki'),
+      prompts: filterRows('prompts', 'prompt'),
+      skills: filterRows('skills', 'skill'),
+      attachments: full.attachments,
+      versions: filteredVersions,
+      tombstones: full.tombstones,
+      conflicts: full.conflicts,
+    },
+  }
 }
 
 function handleResolveConflict(data: Record<string, unknown>, reply: WsReply): void {
@@ -508,6 +586,7 @@ function applyOperation(
     `).run(datasetId, operation.entityType, operation.entityId, nextVersion, Date.now())
     upsertEntityVersion(db, datasetId, operation.entityType, operation.entityId, nextVersion, Date.now())
     storeEntityHistory(db, datasetId, operation.entityType, operation.entityId, nextVersion, { deleted: true })
+    appendDesktopChange(db, datasetId, operation.entityType, operation.entityId, 'delete', {}, nextVersion)
     return
   }
 
@@ -669,6 +748,41 @@ function applyOperation(
     operation.entityId,
     nextVersion,
     readEntityPayload(db, operation.entityType, operation.entityId),
+  )
+  appendDesktopChange(
+    db,
+    datasetId,
+    operation.entityType,
+    operation.entityId,
+    'upsert',
+    readEntityPayload(db, operation.entityType, operation.entityId),
+    nextVersion,
+  )
+}
+
+function appendDesktopChange(
+  db: Database.Database,
+  datasetId: string,
+  entityType: string,
+  entityId: string,
+  operation: 'upsert' | 'delete',
+  payload: Record<string, unknown>,
+  entityVersion: number,
+): void {
+  db.prepare(`
+    INSERT INTO sync_desktop_changes (
+      device_id, dataset_id, entity_type, entity_id, operation,
+      payload_json, entity_version, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    desktopDeviceId(db),
+    datasetId,
+    entityType,
+    entityId,
+    operation,
+    JSON.stringify(payload),
+    entityVersion,
+    Date.now(),
   )
 }
 
@@ -835,12 +949,7 @@ function ensureEntityVersion(
   if (current == null || version !== current.version) {
     upsertEntityVersion(db, datasetId, type, id, version, sourceUpdatedAt)
     const payload = readEntityPayload(db, type, id)
-    db.prepare(`
-      INSERT INTO sync_desktop_changes (
-        device_id, dataset_id, entity_type, entity_id, operation,
-        payload_json, entity_version, created_at
-      ) VALUES (?, ?, ?, ?, 'upsert', ?, ?, ?)
-    `).run(desktopDeviceId(db), datasetId, type, id, JSON.stringify(payload), version, Date.now())
+    appendDesktopChange(db, datasetId, type, id, 'upsert', payload, version)
   }
   storeEntityHistory(db, datasetId, type, id, version, readEntityPayload(db, type, id))
   return version

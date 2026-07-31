@@ -79,6 +79,55 @@ describe('standalone peer synchronization', () => {
     expect(result.data.snapshot.versions['project:project-1']).toBe(1)
   })
 
+  it('returns only desktop changes after a protocol-v2 cursor', () => {
+    const initial = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+      lastDesktopSequence: 0,
+    })
+    expect(initial.data.isDelta).toBe(false)
+    expect(initial.data.desktopSequence).toBeGreaterThan(0)
+
+    state.db!.prepare(
+      "UPDATE projects SET name = 'Changed once', updated_at = 20 WHERE id = 'project-1'",
+    ).run()
+    const delta = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+      lastDesktopSequence: initial.data.desktopSequence,
+    })
+    expect(delta.data.isDelta).toBe(true)
+    expect(delta.data.snapshot.projects).toEqual([
+      expect.objectContaining({ id: 'project-1', name: 'Changed once' }),
+    ])
+    expect(delta.data.snapshot.agents).toEqual([])
+    expect(delta.data.desktopSequence).toBeGreaterThan(initial.data.desktopSequence)
+
+    const settled = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+      lastDesktopSequence: delta.data.desktopSequence,
+    })
+    expect(settled.data.isDelta).toBe(true)
+    expect(settled.data.snapshot.projects).toEqual([])
+    expect(settled.data.snapshot.messages).toEqual([])
+  })
+
+  it('acknowledges a transport probe without building a snapshot', () => {
+    const result = command('sync:probe', {
+      probeId: 'probe-1',
+      clientSentAt: 123,
+    })
+
+    expect(result.event).toBe('sync:probe-ack')
+    expect(result.data.probeId).toBe('probe-1')
+    expect(result.data.serverReceivedAt).toEqual(expect.any(Number))
+    expect(result.data.snapshot).toBeUndefined()
+  })
+
   it('includes completed_at in the conversations snapshot so Android can preserve mark-complete state on reconnect', () => {
     state.db!.prepare(
       "INSERT INTO conversations (id, title, completed_at, created_at, updated_at) VALUES ('conv-1', 'Done chat', 5000, 1, 10)",
