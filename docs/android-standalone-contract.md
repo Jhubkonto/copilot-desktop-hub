@@ -1,7 +1,7 @@
 # Android standalone data and capability contract
 
-Contract version: 1. Reviewed against the Android screens, `WsRepository`, `WsEvent`, desktop
-WebSocket handlers, and database migrations on 2026-07-05.
+Contract version: 2. Reviewed against the Android screens, `WsRepository`, `WsEvent`, desktop
+WebSocket handlers, and database migrations on 2026-07-31.
 
 ## Identifier policy
 
@@ -66,8 +66,16 @@ turns separate. Disconnecting does not clear Room-backed lists or reinterpret ca
 
 ## Protocol envelope
 
-Protocol 1 negotiates Room sync schema, entity types, attachment support, and a maximum batch size.
+Protocol 2 negotiates Room sync schema, entity types, attachment support, a maximum batch size,
+and a durable desktop change cursor. A valid cursor receives only changed entities; protocol 1
+remains supported as a full-snapshot compatibility fallback.
 Mutations carry operation ID, device ID/sequence, entity ID/type, base version, operation, canonical
-payload, and display timestamp. Snapshots and mutation batches are applied transactionally.
+payload, and display timestamp. Metadata is applied before message bodies; messages are prioritized
+for the visible conversation and committed in bounded transactions so global hydration yields to
+interactive chat work.
 Attachment manifests use SHA-256 and transfer at most 64 KB per chunk, resuming from the receiver's
 reported offset.
+
+Chat history uses a separate request-correlated flow. The latest 20 messages are validated by a
+content hash and can return `not-modified`; changed pages stream newest-first in batches of at most
+10 messages or 128 KB. Older pages remain 60 messages and load only on upward pagination.

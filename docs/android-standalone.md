@@ -25,8 +25,9 @@ outbox records, and backups.
 
 Room is the Android source of truth. Local changes are committed before network work begins and
 enter a durable outbox with an idempotency key, device sequence, entity version, and retry state.
-The desktop and Android negotiate synchronization protocol version 1 and exchange a snapshot on
-bootstrap followed by bounded incremental batches.
+The desktop and Android prefer synchronization protocol version 2. Initial pairing uses a bounded
+snapshot; subsequent reconnects send a durable desktop cursor and receive only changed entities.
+Protocol version 1 remains available as a full-snapshot fallback for older desktop builds.
 
 Independent field changes merge automatically. Concurrent changes to the same field and
 delete-versus-edit changes create a conflict containing both recoverable values. Open
