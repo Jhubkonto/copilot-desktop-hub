@@ -181,6 +181,7 @@ object WsRepository : WsClient {
     // consumed by the project config screen that launched it (no savedStateHandle result-passing
     // convention exists in this codebase — this mirrors the pendingHighlight* pattern above).
     val pendingSelectedDirectory = MutableStateFlow<String?>(null)
+    val pendingSelectedAttachmentPath = MutableStateFlow<String?>(null)
 
     // Emits requestIds resolved via notification (approve or reject) so HomeViewModel
     // can clear the in-app approval dialog immediately, before the tool finishes.
@@ -2509,9 +2510,10 @@ object WsRepository : WsClient {
     fun exportConversationPack(conversationId: String, format: String = "json") {
         send("conversation:export-pack", mapOf("conversationId" to conversationId, "format" to format))
     }
-    fun forkConversation(conversationId: String, cutoffTimestamp: Long? = null) {
+    fun forkConversation(conversationId: String, cutoffTimestamp: Long? = null, projectId: String? = null, includeProject: Boolean = false) {
         val data = mutableMapOf<String, Any>("conversationId" to conversationId)
         if (cutoffTimestamp != null) data["cutoffTimestamp"] = cutoffTimestamp
+        if (includeProject) data["projectId"] = projectId.orEmpty()
         send("conversation:fork", data)
     }
     fun importConversationJson(json: String) { send("conversation:import-json", mapOf("json" to json)) }
