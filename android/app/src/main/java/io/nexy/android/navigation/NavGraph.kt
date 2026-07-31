@@ -612,6 +612,12 @@ fun NavGraph(
             arguments = listOf(navArgument("taskId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val taskId = backStackEntry.arguments?.getString("taskId") ?: return@composable
+            LaunchedEffect(taskId) {
+                io.nexy.android.notification.ActivityBadgeManager.markSeen(
+                    context,
+                    io.nexy.android.notification.ActivityBadgeManager.scheduledDestination(taskId),
+                )
+            }
             SchedulerTaskDetailScreen(
                 taskId = taskId,
                 onBack = { navController.popBackStack() },
