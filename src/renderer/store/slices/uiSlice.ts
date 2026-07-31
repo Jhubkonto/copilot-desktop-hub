@@ -33,6 +33,7 @@ export interface UiSlice {
   pendingConversationIds: string[]
   catalogModels: CatalogModel[]
   availableModelGroups: AvailableModelGroup[]
+  availableModelsLoaded: boolean
   globalDefaultModel: string
   debugLogging: boolean
   androidDebugLog: boolean
@@ -107,6 +108,7 @@ export const createUiSlice: StateCreator<
   pendingConversationIds: [],
   catalogModels: [],
   availableModelGroups: [],
+  availableModelsLoaded: false,
   globalDefaultModel: 'default',
   debugLogging: false,
   androidDebugLog: false,
@@ -271,7 +273,10 @@ export const createUiSlice: StateCreator<
   refreshAvailableModels: async () => {
     try {
       const groups = await window.api.listAvailableModels()
-      set((s) => { s.availableModelGroups = groups })
+      set((s) => {
+        s.availableModelGroups = groups
+        s.availableModelsLoaded = true
+      })
     } catch { /* leave existing value */ }
   },
 
