@@ -109,6 +109,7 @@ import androidx.compose.foundation.BorderStroke
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyInfoIcon
 import io.nexy.android.ui.theme.Blue100
 import io.nexy.android.ui.theme.Blue400
 import io.nexy.android.ui.theme.Blue500
@@ -959,11 +960,21 @@ fun MessageBubble(
                                     )
                                 }
                                 if (msg.inputTokens > 0 || msg.outputTokens > 0) {
-                                    Text(
-                                        "${msg.inputTokens}↑ ${msg.outputTokens}↓",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Text(
+                                            "${msg.inputTokens}↑ ${msg.outputTokens}↓",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                        )
+                                        NexyInfoIcon(
+                                            "Usage for the most recently completed assistant turn, reported by the provider or CLI. " +
+                                                "Input counts all context processed across the turn's model and tool calls, so it can exceed one context window. " +
+                                                "Output counts generated model tokens. Counts marked ~ elsewhere are local estimates of about 1 token per 4 characters.",
+                                        )
+                                    }
                                 }
                             }
                         }

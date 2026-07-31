@@ -77,6 +77,7 @@ import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -127,6 +128,7 @@ import io.nexy.android.ui.model.agentBackendLockDetail
 import io.nexy.android.ui.model.agentBackendLockLabel
 import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
+import io.nexy.android.ui.model.resolveAvailableProjectDefault
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.cliBackendForModel
@@ -235,6 +237,14 @@ fun ChatScreen(
     ),
 ) {
     val messages by vm.messages.collectAsStateWithLifecycle()
+    LaunchedEffect(messages.isNotEmpty()) {
+        if (messages.isNotEmpty()) {
+            withFrameNanos { }
+            vm.reportFirstMessageFrameRendered(messages.size)
+            withFrameNanos { }
+            vm.reportVisibleRichContentSettled(messages.size)
+        }
+    }
     val isStreaming by vm.isStreaming.collectAsStateWithLifecycle()
     val isAwaitingResponse by vm.isAwaitingResponse.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
@@ -276,6 +286,11 @@ fun ChatScreen(
         ?: cliBackendForModel(models.find { it.id == selectedModel })
     val chatBackend = chatAgent?.backend
     val statusProjectId = conversation?.project_id ?: projectId
+    val chatProject = statusProjectId?.let { id -> projects.find { it.id == id } }
+    val availableProjectDefault = resolveAvailableProjectDefault(chatProject?.defaultModel, models)
+    val projectDefaultApplied = conversation?.model.isNullOrBlank() &&
+        availableProjectDefault != null &&
+        selectedModel == availableProjectDefault
     var chatAgentFullAutoApprove by remember { mutableStateOf(false) }
     var chatProjectWorkflowMode by remember { mutableStateOf<String?>(null) }
 
@@ -828,8 +843,11 @@ fun ChatScreen(
             }
     }
 
-    LaunchedEffect(conversation?.model) {
-        vm.loadModel(conversation?.model)
+    LaunchedEffect(conversation?.model, availableProjectDefault) {
+        val storedModel = conversation?.model?.takeIf { modelId ->
+            modelId.isNotBlank() && modelId != "default" && models.any { it.id == modelId }
+        }
+        vm.loadModel(storedModel ?: availableProjectDefault)
     }
 
     val requestModelList = {
@@ -1002,6 +1020,10 @@ fun ChatScreen(
     DisposableEffect(conversationId) {
         WsRepository.activelyViewedConversationId.value = conversationId
         WsRepository.clearCompletedAway(conversationId)
+        io.nexy.android.notification.ActivityBadgeManager.markSeen(
+            context,
+            io.nexy.android.notification.ActivityBadgeManager.chatDestination(conversationId),
+        )
         onDispose { WsRepository.activelyViewedConversationId.value = null }
     }
 
@@ -1020,7 +1042,11 @@ fun ChatScreen(
     val projectLabel = conversation?.project_name ?: draftProject?.name
     val activeModelId = selectedModel ?: "default"
     val activeModelLabel = activeModelLabel(selectedModel, models)
-    val activeModelDetail = activeModelDetail(selectedModel, chatAgent, modelSource)
+    val activeModelDetail = if (projectDefaultApplied) {
+        "Project default"
+    } else {
+        activeModelDetail(selectedModel, chatAgent, modelSource)
+    }
     val backendLockLabel = agentBackendLockLabel(chatAgent)
     val backendLockDetail = agentBackendLockDetail(chatAgent)
     val connectionBanner = connectionState != ConnectionState.CONNECTED
@@ -1425,12 +1451,21 @@ fun ChatScreen(
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary,
                         )
-                        Text(
-                            activeModelLabel,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 118.dp),
-                        )
+                        Column(modifier = Modifier.widthIn(max = 118.dp)) {
+                            Text(
+                                activeModelLabel,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (projectDefaultApplied) {
+                                Text(
+                                    "Project default",
+                                    maxLines = 1,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                     IconButton(onClick = { showModeSheet = true }) {
                         Icon(

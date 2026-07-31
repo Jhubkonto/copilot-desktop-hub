@@ -30,7 +30,8 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private const val ACTIVE_HISTORY_POLL_MS = 2_500L
-private const val HISTORY_PAGE_SIZE = 60
+private const val INITIAL_HISTORY_PAGE_SIZE = 20
+private const val OLDER_HISTORY_PAGE_SIZE = 60
 
 data class PendingAttachment(
     val id: String,
@@ -198,9 +199,9 @@ class ChatViewModel(
     // Local, optimistic mirror of the conversation's mode overrides. Needed because a
     // brand-new/unsent chat only has a client-generated draft id (see NavGraph.kt) — there's no
     // server-side conversation row yet, so `conversation:set-mode` would target an id the desktop
-    // has never heard of and silently no-op. Reading straight from WsRepository.conversations (as
-    // ChatScreen used to) meant taps on the mode sheet before the first message never appeared to
-    // do anything. Keyed by wire field name so setModeOverride/the flush collector can share one map.
+    // has never heard of and silently no-op. Existing-chat changes also stay here until the desktop
+    // echoes them. Outgoing turns carry these unconfirmed values, making an immediate Send atomic
+    // with the mode selection from the turn's point of view.
     private val pendingModeOverrides = mutableMapOf<String, Any?>()
     private val _thinkingEffortOverride = MutableStateFlow<String?>(null)
     val thinkingEffortOverride: StateFlow<String?> = _thinkingEffortOverride
@@ -261,6 +262,14 @@ class ChatViewModel(
     val isReconcilingHistory: StateFlow<Boolean> = _isReconcilingHistory
 
     private var historyLoaded = false
+    private var latestHistoryVersion: String? = localData?.historyVersion(conversationId)
+    private var pendingLatestHistoryRequestId: String? = null
+    private var pendingOlderHistoryRequestId: String? = null
+    private var chunkedHistoryMessages: List<HistoryMessage> = emptyList()
+    private var chunkedHistoryIsOlder = false
+    private val chatOpenStartedAtMs = android.os.SystemClock.elapsedRealtime()
+    private var firstFrameReported = false
+    private var richContentSettledReported = false
     private var oldestLoadedTimestamp: Long? = null
     private var oldestLoadedId: String? = null
     private var hasOlderMessages = false
@@ -471,7 +480,6 @@ class ChatViewModel(
                     val flushedKeys = pendingModeOverrides.keys.toSet()
                     if (flushedKeys.isNotEmpty()) {
                         val toSend = pendingModeOverrides.toMap()
-                        pendingModeOverrides.clear()
                         wsClient.send(
                             "conversation:set-mode",
                             buildMap {
@@ -510,22 +518,82 @@ class ChatViewModel(
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when {
+                    event is WsEvent.ConversationHistoryStart && event.conversationId == conversationId -> {
+                        if (event.requestId.isNotBlank() && event.requestId != pendingLatestHistoryRequestId &&
+                            event.requestId != pendingOlderHistoryRequestId
+                        ) return@collect
+                        chunkedHistoryMessages = emptyList()
+                        chunkedHistoryIsOlder =
+                            event.requestId.isNotBlank() && event.requestId == pendingOlderHistoryRequestId
+                        WsRepository.appendDebugLog(
+                            "chat-open-timing",
+                            "history-start conversationId=$conversationId total=${event.totalItems} " +
+                                "chunks=${event.chunkCount} elapsedMs=${chatOpenElapsedMs()}",
+                        )
+                    }
+                    event is WsEvent.ConversationHistoryNotModified && event.conversationId == conversationId -> {
+                        if (event.requestId.isNotBlank() && event.requestId != pendingLatestHistoryRequestId) return@collect
+                        latestHistoryVersion = event.historyVersion ?: latestHistoryVersion
+                        latestHistoryVersion?.let { localData?.saveHistoryVersion(conversationId, it) }
+                        historyLoaded = true
+                        pendingLatestHistoryRequestId = null
+                        _isInitialHistoryLoading.value = false
+                        _isRefreshing.value = false
+                        _isReconcilingHistory.value = false
+                        WsRepository.appendDebugLog(
+                            "chat-open-timing",
+                            "not-modified conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
+                        )
+                    }
+                    event is WsEvent.ConversationHistoryComplete && event.conversationId == conversationId -> {
+                        if (event.requestId.isNotBlank() && event.requestId != pendingLatestHistoryRequestId &&
+                            event.requestId != pendingOlderHistoryRequestId
+                        ) return@collect
+                        latestHistoryVersion = event.historyVersion ?: latestHistoryVersion
+                        latestHistoryVersion?.let { localData?.saveHistoryVersion(conversationId, it) }
+                        oldestLoadedTimestamp = event.nextBeforeTimestamp ?: oldestLoadedTimestamp
+                        oldestLoadedId = event.nextBeforeId ?: oldestLoadedId
+                        hasOlderMessages = event.hasMore
+                        _isLoadingOlder.value = false
+                        _isRefreshing.value = false
+                        _isReconcilingHistory.value = false
+                        pendingLatestHistoryRequestId = null
+                        pendingOlderHistoryRequestId = null
+                        chunkedHistoryMessages = emptyList()
+                        chunkedHistoryIsOlder = false
+                        WsRepository.appendDebugLog(
+                            "chat-open-timing",
+                            "history-complete conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
+                        )
+                    }
                     event is WsEvent.ConversationMessages && event.conversationId == conversationId -> {
+                        if (event.requestId.isNotBlank() && event.requestId != pendingLatestHistoryRequestId &&
+                            event.requestId != pendingOlderHistoryRequestId
+                        ) return@collect
                         _isInitialHistoryLoading.value = false
                         val messagesBeforeSync = _messages.value
                         // History payloads can contain hundreds of messages. Converting them
                         // also parses attachment and rich-message metadata, so keep that CPU
                         // work off Compose's main thread and only publish the finished list.
+                        val wireMessages = if (event.chunkIndex != null) {
+                            chunkedHistoryMessages =
+                                if (event.chunkIndex == 0) event.messages else event.messages + chunkedHistoryMessages
+                            chunkedHistoryMessages
+                        } else {
+                            event.messages
+                        }
                         var mapped = if (wsClient === WsRepository) {
-                            withContext(Dispatchers.Default) { event.messages.map { msg -> msg.toChatMessage() } }
+                            withContext(Dispatchers.Default) { wireMessages.map { msg -> msg.toChatMessage() } }
                         } else {
                             // Deterministic for lightweight test/offline WsClient implementations;
                             // production mapping remains off Compose's main thread above.
-                            event.messages.map { msg -> msg.toChatMessage() }
+                            wireMessages.map { msg -> msg.toChatMessage() }
                         }
                         val isOlderHistoryPage =
-                            event.paged && _isLoadingOlder.value && oldestLoadedTimestamp != null
-                        if (!isOlderHistoryPage) {
+                            event.paged &&
+                                (chunkedHistoryIsOlder || _isLoadingOlder.value) &&
+                                oldestLoadedTimestamp != null
+                        if (!isOlderHistoryPage && event.chunkIndex == null) {
                             _isReconcilingHistory.value = false
                         }
                         if (isOlderHistoryPage) {
@@ -534,10 +602,12 @@ class ChatViewModel(
                             val existingIds = messagesBeforeSync.asSequence().map { it.id }.toHashSet()
                             val older = mapped.filter { it.id !in existingIds }
                             if (older.isNotEmpty()) _messages.value = older + messagesBeforeSync
-                            oldestLoadedTimestamp = event.nextBeforeTimestamp
-                            oldestLoadedId = event.nextBeforeId
-                            hasOlderMessages = event.hasMore
-                            _isLoadingOlder.value = false
+                            if (event.chunkIndex == null) {
+                                oldestLoadedTimestamp = event.nextBeforeTimestamp
+                                oldestLoadedId = event.nextBeforeId
+                                hasOlderMessages = event.hasMore
+                                _isLoadingOlder.value = false
+                            }
                             return@collect
                         }
                         if (event.paged && messagesBeforeSync.isNotEmpty()) {
@@ -557,6 +627,7 @@ class ChatViewModel(
                         val turnTerminal = isTurnTerminal
                         val shouldApplyHistory =
                             !historyLoaded ||
+                            event.chunkIndex != null ||
                             _isRefreshing.value ||
                             isAwaitingResponse.value ||
                             _drainActive.value ||
@@ -650,6 +721,11 @@ class ChatViewModel(
                                 hasOlderMessages = event.hasMore
                                 _isLoadingOlder.value = false
                             }
+                            WsRepository.appendDebugLog(
+                                "chat-open-timing",
+                                "ui-state-published conversationId=$conversationId count=${mapped.size} " +
+                                    "chunk=${event.chunkIndex ?: -1} elapsedMs=${chatOpenElapsedMs()}",
+                            )
                         }
                     }
                     event is WsEvent.ChatTurnEvent && event.conversationId == conversationId -> {
@@ -1105,6 +1181,26 @@ class ChatViewModel(
                             _slashCommandMessage.value = "Code change error: ${event.error}"
                         }
                     }
+                    event is WsEvent.ConversationModeUpdated && event.conversationId == conversationId -> {
+                        if (confirmModeOverride("thinkingEffortOverride", event.thinkingEffortOverride)) {
+                            _thinkingEffortOverride.value = event.thinkingEffortOverride
+                        }
+                        if (confirmModeOverride("fullAutoApproveOverride", event.fullAutoApproveOverride)) {
+                            _fullAutoApproveOverride.value = event.fullAutoApproveOverride
+                        }
+                        if (confirmModeOverride("agenticModeOverride", event.agenticModeOverride)) {
+                            _agenticModeOverride.value = event.agenticModeOverride
+                        }
+                        if (confirmModeOverride("terminalSandboxOverride", event.terminalSandboxOverride)) {
+                            _terminalSandboxOverride.value = event.terminalSandboxOverride
+                        }
+                        if (confirmModeOverride("cliModeOverride", event.cliModeOverride)) {
+                            _cliModeOverride.value = event.cliModeOverride
+                        }
+                        if (confirmModeOverride("codexExecutionModeOverride", event.codexExecutionModeOverride)) {
+                            _codexExecutionModeOverride.value = event.codexExecutionModeOverride
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -1160,9 +1256,11 @@ class ChatViewModel(
             "conversation:get-messages",
             mapOf(
                 "conversationId" to conversationId,
-                "limit" to HISTORY_PAGE_SIZE,
+                "limit" to OLDER_HISTORY_PAGE_SIZE,
                 "beforeTimestamp" to beforeTimestamp,
                 "beforeId" to beforeId,
+                "requestId" to UUID.randomUUID().toString().also { pendingOlderHistoryRequestId = it },
+                "responseMode" to "chunked-v2",
             ),
         )
     }
@@ -1472,11 +1570,11 @@ class ChatViewModel(
         sendModeOverride("codexExecutionModeOverride", value)
     }
 
-    // A draft conversation (unsent first message) only exists as a client-side UUID — sending
-    // conversation:set-mode for it now would target an id the desktop has never heard of and
-    // silently no-op. Queue it instead; the WsRepository.conversations collector in init{} flushes
-    // it the moment the conversation actually shows up server-side.
+    // A draft conversation only exists as a client-side UUID, so its write waits for the server
+    // row. Existing-conversation writes are retained too, until their echo arrives, allowing the
+    // next chat command to carry the same values if the user sends immediately.
     private fun sendModeOverride(key: String, value: Any?) {
+        pendingModeOverrides[key] = value
         val conversationExists = wsClient !== WsRepository || WsRepository.conversations.value.any { it.id == conversationId }
         if (conversationExists) {
             wsClient.send(
@@ -1486,9 +1584,16 @@ class ChatViewModel(
                     key to (value ?: JSONObject.NULL),
                 ),
             )
-        } else {
-            pendingModeOverrides[key] = value
         }
+    }
+
+    private fun confirmModeOverride(key: String, confirmedValue: Any?): Boolean {
+        if (!pendingModeOverrides.containsKey(key)) return true
+        if (pendingModeOverrides[key] == confirmedValue) {
+            pendingModeOverrides.remove(key)
+            return true
+        }
+        return false
     }
 
     fun sendMessage(text: String) {
@@ -1554,7 +1659,6 @@ class ChatViewModel(
             // the row, so the very first CLI turn honors it rather than silently using defaults.
             if (pendingModeOverrides.isNotEmpty()) {
                 pendingModeOverrides.forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
-                pendingModeOverrides.clear()
             }
         }
         if (wsClient === WsRepository) WsRepository.markConversationPending(conversationId)
@@ -1620,8 +1724,20 @@ class ChatViewModel(
     }
 
     private fun requestLatestHistory() {
+        val requestId = UUID.randomUUID().toString()
+        pendingLatestHistoryRequestId = requestId
+        WsRepository.appendDebugLog(
+            "chat-open-timing",
+            "history-requested conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
+        )
         val payload = if (wsClient === WsRepository) {
-            mapOf("conversationId" to conversationId, "limit" to HISTORY_PAGE_SIZE)
+            buildMap<String, Any> {
+                put("conversationId", conversationId)
+                put("limit", INITIAL_HISTORY_PAGE_SIZE)
+                put("requestId", requestId)
+                put("responseMode", "chunked-v2")
+                latestHistoryVersion?.let { put("historyVersion", it) }
+            }
         } else {
             // Non-production WsClient implementations retain the original protocol shape.
             mapOf("conversationId" to conversationId)
@@ -1638,13 +1754,18 @@ class ChatViewModel(
         val repository = localData ?: return
         viewModelScope.launch {
             val cachedPage = withContext(Dispatchers.IO) {
-                runCatching { repository.listPage(conversationId, HISTORY_PAGE_SIZE) }.getOrNull()
+                runCatching { repository.listPage(conversationId, INITIAL_HISTORY_PAGE_SIZE) }.getOrNull()
             }
             if (cachedPage != null && cachedPage.messages.isNotEmpty()) {
                 val cachedMessages = withContext(Dispatchers.Default) {
                     cachedPage.messages.map { it.toChatMessage() }
                 }
                 _messages.value = cachedMessages
+                WsRepository.appendDebugLog(
+                    "chat-open-timing",
+                    "cache-published conversationId=$conversationId count=${cachedMessages.size} " +
+                        "elapsedMs=${chatOpenElapsedMs()}",
+                )
                 oldestLoadedTimestamp = cachedMessages.firstOrNull()?.timestamp
                 oldestLoadedId = cachedMessages.firstOrNull()?.id
                 hasOlderMessages = cachedPage.hasMore
@@ -1666,5 +1787,27 @@ class ChatViewModel(
         oldestLoadedId = cachedMessages.firstOrNull()?.id
         _isInitialHistoryLoading.value = false
     }
+
+    fun reportFirstMessageFrameRendered(messageCount: Int) {
+        if (firstFrameReported || messageCount <= 0) return
+        firstFrameReported = true
+        WsRepository.appendDebugLog(
+            "chat-open-timing",
+            "first-message-frame conversationId=$conversationId count=$messageCount elapsedMs=${chatOpenElapsedMs()}",
+        )
+    }
+
+    fun reportVisibleRichContentSettled(messageCount: Int) {
+        if (richContentSettledReported || messageCount <= 0) return
+        richContentSettledReported = true
+        WsRepository.appendDebugLog(
+            "chat-open-timing",
+            "visible-rich-content-settled conversationId=$conversationId count=$messageCount " +
+                "elapsedMs=${chatOpenElapsedMs()}",
+        )
+    }
+
+    private fun chatOpenElapsedMs(): Long =
+        (android.os.SystemClock.elapsedRealtime() - chatOpenStartedAtMs).coerceAtLeast(0L)
 
 }
