@@ -13,7 +13,7 @@ import type {
 import { exportArtifactVersion } from './artifact-export'
 import { app, shell, BrowserWindow, dialog } from 'electron'
 import { randomUUID } from 'crypto'
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
 import { broadcastToMobile } from './ws-server'
 
@@ -231,6 +231,113 @@ function guessMediaType(kind: ArtifactPromotionRequest['kind'], filePath: string
   }
   if (ext === '.txt') return 'text/plain'
   return kind === 'code' ? 'text/plain' : 'text/plain'
+}
+
+function guessImportedMediaType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase()
+  const known: Record<string, string> = {
+    '.md': 'text/markdown', '.txt': 'text/plain', '.json': 'application/json',
+    '.html': 'text/html', '.css': 'text/css', '.csv': 'text/csv',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf',
+    '.zip': 'application/zip',
+  }
+  return known[ext] ?? 'application/octet-stream'
+}
+
+export interface CreateArtifactFromPathInput {
+  sourcePath: string
+  title?: string
+  kind?: ArtifactKind
+  projectId: string | null
+  conversationId: string
+}
+
+/**
+ * Copies a file or folder already accessible to the desktop agent into Nexy's managed,
+ * versioned artifact storage. Copying is binary-safe and bounded to avoid accidentally
+ * importing dependency/build trees of unbounded size.
+ */
+export function createArtifactFromPath(input: CreateArtifactFromPathInput): ArtifactPromotionResult {
+  const sourceStat = statSync(input.sourcePath)
+  const sourceName = path.basename(input.sourcePath)
+  const title = input.title?.trim() || sourceName
+  const kind = input.kind ?? (sourceStat.isDirectory() ? 'bundle' : 'other')
+  const files: Array<{ source: string; relativePath: string; size: number; mediaType: string }> = []
+  const ignored = new Set(['.git', 'node_modules', 'dist', 'build', '.gradle', '.next'])
+  const collect = (current: string, relativeBase: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (ignored.has(entry.name)) continue
+      const source = path.join(current, entry.name)
+      const relativePath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name
+      if (entry.isDirectory()) collect(source, relativePath)
+      else if (entry.isFile()) {
+        const size = statSync(source).size
+        files.push({ source, relativePath, size, mediaType: guessImportedMediaType(source) })
+      }
+    }
+  }
+  if (sourceStat.isDirectory()) collect(input.sourcePath, '')
+  else files.push({ source: input.sourcePath, relativePath: sourceName, size: sourceStat.size, mediaType: guessImportedMediaType(input.sourcePath) })
+  if (files.length === 0) throw new Error('The selected path contains no importable files')
+  if (files.length > 2_000) throw new Error('Artifact import is limited to 2,000 files')
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+  if (totalBytes > 100 * 1024 * 1024) throw new Error('Artifact import is limited to 100 MB')
+
+  const db = getDatabase()
+  const artifactId = randomUUID()
+  const versionId = randomUUID()
+  const now = Date.now()
+  const storageRoot = getStorageRoot()
+  const versionDir = input.projectId
+    ? path.join(storageRoot, 'projects', input.projectId, `${slugify(title)}-${artifactId.slice(0, 8)}`, 'v1')
+    : path.join(storageRoot, 'global', `${slugify(title)}-${artifactId.slice(0, 8)}`, 'v1')
+  const copied = files.map((file) => {
+    const relativePath = sanitizeRelativeArtifactPath(file.relativePath)
+    const absolutePath = path.join(versionDir, ...relativePath.split('/'))
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    copyFileSync(file.source, absolutePath)
+    return { ...file, relativePath, absolutePath }
+  })
+  const manifestJson = JSON.stringify({
+    artifactId, versionId, version: 1, title, kind, createdAt: now,
+    source: { conversationId: input.conversationId, importedPath: input.sourcePath },
+    files: copied.map((file, index) => ({
+      path: file.relativePath,
+      mediaType: file.mediaType,
+      role: index === 0 ? 'primary' : 'supporting',
+    })),
+  })
+  const referenceMessageId = randomUUID()
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO artifacts (id, project_id, conversation_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
+    ).run(artifactId, input.projectId, input.conversationId, title, kind, `Copied from ${input.sourcePath}`, storageRoot, versionId, now, now)
+    db.prepare(
+      `INSERT INTO artifact_versions (id, artifact_id, version_number, title, notes, spec_json, manifest_json, source_conversation_id, source_message_id, created_at)
+       VALUES (?, ?, 1, ?, ?, NULL, ?, ?, NULL, ?)`,
+    ).run(versionId, artifactId, title, 'Copied from an accessible desktop path', manifestJson, input.conversationId, now)
+    const insertFile = db.prepare(
+      `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    copied.forEach((file, index) => insertFile.run(
+      randomUUID(), versionId, file.relativePath, file.absolutePath, file.mediaType,
+      index === 0 ? 'primary' : 'supporting', file.size,
+    ))
+    db.prepare(
+      `INSERT INTO artifact_chat_refs (id, artifact_id, version_id, project_id, conversation_id, message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(randomUUID(), artifactId, versionId, input.projectId, input.conversationId, referenceMessageId, now)
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model)
+       VALUES (?, ?, 'system', ?, NULL, ?, NULL)`,
+    ).run(referenceMessageId, input.conversationId, artifactRefContent({ artifactId, versionId, kind }), now)
+  })()
+  broadcastArtifactUpdated(artifactId, input.projectId)
+  broadcastToMobile({ event: 'artifact:updated', data: { artifactId, projectId: input.projectId } })
+  return { artifactId, versionId, title }
 }
 
 function deriveArtifactTitle(inputTitle: string, messageContent: string, conversationTitle: string | null): string {

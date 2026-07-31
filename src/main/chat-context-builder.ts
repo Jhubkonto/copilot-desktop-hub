@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync, statSync } from 'fs'
 import { basename, relative, resolve, isAbsolute } from 'path'
 import { spawn } from 'child_process'
 import { nativeImage } from 'electron'
@@ -15,7 +15,7 @@ import { inferProjectAuditTarget, recordProjectAuditChange } from './project-aud
 import { computeLineDiff } from './remote-edit/fix-agent'
 import { getSkillConfigsForAgent, upsertSkillConfigByName } from './skills'
 import { parseSkillMarkdown } from './skill-markdown'
-import type { SkillConfig } from '../shared/types'
+import type { ArtifactKind, SkillConfig } from '../shared/types'
 import { extractKeywords } from './rating-handlers'
 import { findSimilarRatedStrategies } from './rating-retrieval'
 import type { ToolDefinition } from './provider-types'
@@ -23,6 +23,7 @@ import { debugLog } from './debug-mode'
 import { NEXY_HELP_CONTENT } from './nexy-help'
 import { broadcastToMobile } from './ws-server'
 import { estimateTextTokens } from '../shared/token-estimate'
+import { createArtifactFromPath } from './artifacts'
 
 export type InlineHandler = (
   args: Record<string, unknown>
@@ -98,6 +99,59 @@ const IMAGE_MIME: Record<string, string> = {
   gif: 'image/gif',
   webp: 'image/webp',
   bmp: 'image/bmp',
+}
+
+const ATTACHED_FOLDER_IGNORES = new Set([
+  '.git', 'node_modules', 'dist', 'build', 'out', '.gradle', '.idea', '.next', 'coverage',
+])
+const ATTACHED_FOLDER_FILE_LIMIT = 100
+const ATTACHED_FOLDER_CHAR_LIMIT = 200_000
+
+function readAttachedFolder(folderPath: string, label: string): string {
+  const blocks: string[] = []
+  let fileCount = 0
+  let charCount = 0
+  let truncated = false
+
+  const walk = (directory: string): void => {
+    if (truncated) return
+    let entries: import('fs').Dirent[]
+    try {
+      entries = readdirSync(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (truncated || ATTACHED_FOLDER_IGNORES.has(entry.name)) continue
+      const fullPath = resolve(directory, entry.name)
+      if (entry.isDirectory()) {
+        walk(fullPath)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (fileCount >= ATTACHED_FOLDER_FILE_LIMIT || charCount >= ATTACHED_FOLDER_CHAR_LIMIT) {
+        truncated = true
+        break
+      }
+      try {
+        const content = readFileSync(fullPath, 'utf8')
+        const rel = relative(folderPath, fullPath).replace(/\\/g, '/')
+        const remaining = ATTACHED_FOLDER_CHAR_LIMIT - charCount
+        const included = content.slice(0, remaining)
+        blocks.push(`File: ${label}/${rel}\n\`\`\`\n${included}\n\`\`\``)
+        fileCount += 1
+        charCount += included.length
+        if (included.length < content.length) truncated = true
+      } catch {
+        // Binary and unreadable files stay represented by the folder name/tree omission.
+      }
+    }
+  }
+  walk(folderPath)
+  const note = truncated
+    ? `\nFolder attachment truncated after ${fileCount} readable files / ${charCount} characters.`
+    : ''
+  return `Folder: ${label}\n${blocks.join('\n\n')}${note}\n\n`
 }
 
 function generateThumbnail(dataUrl: string): string | undefined {
@@ -213,6 +267,15 @@ export async function buildChatContext(
     for (const att of attachments) {
       if (!att.path) {
         fileContext += `File: ${att.name} (stored attachment metadata only)\n\n`
+        continue
+      }
+      try {
+        if (statSync(att.path).isDirectory()) {
+          fileContext += readAttachedFolder(att.path, att.name)
+          continue
+        }
+      } catch {
+        fileContext += `File: ${att.name} (path is unavailable)\n\n`
         continue
       }
       const ext = att.name.split('.').pop()?.toLowerCase() ?? ''
@@ -770,6 +833,27 @@ export async function buildChatContext(
           },
         },
       })
+      fileToolDefs.push({
+        type: 'function' as const,
+        function: {
+          name: 'copy_path_to_artifact',
+          description:
+            'Copy a file or folder you can access inside the current project into Nexy as a durable, versioned artifact. Use this when the user asks to keep, return, or save an existing file as an artifact. Requires user approval.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File or folder path, relative to the project root' },
+              title: { type: 'string', description: 'Optional artifact title' },
+              kind: {
+                type: 'string',
+                enum: ['document', 'code', 'ui', 'data', 'prompt', 'agent-config', 'plan', 'bundle', 'other'],
+                description: 'Artifact kind; defaults to bundle for folders and other for files',
+              },
+            },
+            required: ['path'],
+          },
+        },
+      })
     }
 
     fileInlineHandlers.set('read_project_file', async (args) => {
@@ -823,6 +907,43 @@ export async function buildChatContext(
         return { success: true, result: `Successfully wrote ${fileContent.length} characters to ${requestedPath}` }
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'Failed to write file' }
+      }
+    })
+
+    if (!planMode) fileInlineHandlers.set('copy_path_to_artifact', async (args) => {
+      const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
+      const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
+      if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
+      if (!existsSync(resolvedPath)) return { success: false, error: `Path not found: ${requestedPath}` }
+      if (capturedWebContentsForFiles.isDestroyed()) return { success: false, error: 'Window closed — cannot request approval' }
+      sendActivity({ state: 'approval', label: 'Waiting for artifact copy approval', toolName: 'copy_path_to_artifact' })
+      const approved = await requestApproval(
+        capturedWebContentsForFiles,
+        'copy_path_to_artifact',
+        { path: requestedPath, title: args.title, kind: args.kind },
+        `Copy to Nexy artifact: ${requestedPath}`,
+        { noRemember: true, conversationId, autoApprove: capturedFullAutoApprove || capturedAgenticMode },
+      )
+      if (!approved) return { success: false, error: 'User declined artifact copy' }
+      try {
+        const validKinds = new Set(['document', 'code', 'ui', 'data', 'prompt', 'agent-config', 'plan', 'bundle', 'other'])
+        const kind = typeof args.kind === 'string' && validKinds.has(args.kind)
+          ? args.kind as ArtifactKind
+          : undefined
+        const artifact = createArtifactFromPath({
+          sourcePath: resolvedPath,
+          title: typeof args.title === 'string' ? args.title : undefined,
+          kind,
+          projectId: wikiProjectId,
+          conversationId,
+        })
+        sendActivity({ state: 'tool', label: `Created artifact: ${artifact.title}`, toolName: 'copy_path_to_artifact' })
+        return {
+          success: true,
+          result: `Created Nexy artifact "${artifact.title}" (artifactId: ${artifact.artifactId}, versionId: ${artifact.versionId}).`,
+        }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Failed to create artifact' }
       }
     })
 

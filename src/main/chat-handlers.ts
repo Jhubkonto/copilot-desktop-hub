@@ -399,6 +399,35 @@ async function requestClaudeCliToolPermission(
   )
 }
 
+const CODEX_APPROVAL_LABELS: Record<string, string> = {
+  commandExecution: 'Run Command',
+  fileChange: 'Edit File',
+}
+
+// Mirrors requestClaudeCliToolPermission's role for the Codex app-server Plan mode path:
+// item/commandExecution/requestApproval and item/fileChange/requestApproval (codex.ts) block
+// the turn until this resolves, so the user gets a live prompt instead of Codex silently
+// auto-accepting/declining based on skipPermissions.
+async function requestCodexToolPermission(
+  window: BrowserWindow,
+  sendActivity: (activity: MobileChatActivity) => void,
+  autoApprove: boolean,
+  toolName: string,
+  input: Record<string, unknown>,
+  conversationId: string,
+): Promise<boolean> {
+  if (autoApprove) return true
+  const label = CODEX_APPROVAL_LABELS[toolName] ?? toolName
+  sendActivity({ state: 'approval', label: `Waiting for ${label} approval`, toolName: label })
+  return requestApproval(
+    window.webContents,
+    `codex-cli:${toolName}`,
+    input,
+    label === 'Run Command' ? 'Allow Codex to run this command?' : `Allow Codex to ${label.toLowerCase()}?`,
+    { conversationId },
+  )
+}
+
 function clearPersistedPlanMode(conversationId: string, backend: 'claude' | 'codex'): void {
   const db = getDatabase()
   const column = backend === 'codex' ? 'codex_execution_mode_override' : 'cli_mode_override'
@@ -1224,6 +1253,15 @@ export async function dispatchChatSend(
                   conversationId,
                   (plan) => { finalizedPlan = plan },
                 )
+              : effectiveBackend === 'codex-cli' && effectiveCodexExecutionMode === 'plan'
+              ? (toolName, input) => requestCodexToolPermission(
+                  window,
+                  sendActivity,
+                  effectiveFullAutoApprove,
+                  toolName,
+                  input,
+                  conversationId,
+                )
               : undefined,
           },
           cliSendChunk,
@@ -1511,8 +1549,9 @@ export async function dispatchChatSend(
       'Wiki writes always require explicit user approval, even when auto-approve is enabled; do not ask separately before calling the proposal tool.'
     : ''
   const fileDirective = hasFileWriteTool
-    ? 'You have access to read_project_file and write_project_file tools, scoped to the project root directory. ' +
-      'When the user asks you to create, edit, or inspect a file in the project, immediately call the tool in the same turn — never respond with text asking permission first, and never claim you lack file access or that a prior write happened without approval. ' +
+    ? 'You have access to read_project_file, write_project_file, and copy_path_to_artifact tools, scoped to the project root directory. ' +
+      'When the user asks you to create, edit, inspect, or preserve a file in the project, immediately call the appropriate tool in the same turn — never respond with text asking permission first, and never claim you lack file access or that a prior write happened without approval. ' +
+      'When the user asks to return, keep, or save an existing file/folder as a Nexy artifact, call copy_path_to_artifact. ' +
       'There is no separate approval step for you to perform: calling write_project_file IS the entire action. Do not describe, narrate, or ask about it beforehand.'
     : hasFileTools
       ? 'You have read-only access to project files through read_project_file. Use it to inspect the files needed for the plan, but do not claim that you can edit them while Plan mode is active.'
