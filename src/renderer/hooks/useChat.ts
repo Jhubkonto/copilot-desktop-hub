@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
 import { isApiError, type CatalogModel } from '../../shared/types'
+import { isLegacyPortableOperationalSummary } from '../../shared/conversation-portability'
 import type {
   ChatMessage,
   TeamActivityStep,
@@ -208,7 +209,7 @@ export function useChat({
               prev.filter((message) => message.images).map((message) => [message.id, message.images!]),
             )
 
-            return dbMessages.map((message) => {
+            return dbMessages.filter((message) => !isLegacyPortableOperationalSummary(message.role, message.content)).map((message) => {
               const base: ChatMessage = {
                 id: message.id,
                 role: message.role as ChatMessage['role'],
@@ -315,7 +316,7 @@ export function useChat({
         const imageMap = new Map(
           prev.filter((m) => m.images).map((m) => [m.id, m.images!]),
         )
-        return dbMessages.map((message) => {
+        return dbMessages.filter((message) => !isLegacyPortableOperationalSummary(message.role, message.content)).map((message) => {
           const base: ChatMessage = {
             id: message.id,
             role: message.role as ChatMessage['role'],

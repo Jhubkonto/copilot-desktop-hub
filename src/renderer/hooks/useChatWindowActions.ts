@@ -178,6 +178,9 @@ export function useChatWindowActions({
   const pendingTerminalSandboxRef = useRef<boolean | null>(null)
   const pendingCliModeOverrideRef = useRef<CliModeOverride | null>(null)
   const pendingCodexExecutionModeOverrideRef = useRef<CodexExecutionModeOverride | null>(null)
+  // Mode controls update optimistically while persistence crosses IPC. Send and Retry await this
+  // chain so a turn cannot launch with the preceding sandbox/approval values.
+  const pendingModeWriteRef = useRef<Promise<void>>(Promise.resolve())
   // Slash commands (e.g. /debrief, /quiz) run an async IPC round-trip before clearing the
   // composer, so isGenerating alone doesn't block a second Enter press mid-flight. The ref is
   // the synchronous re-entrancy guard (state updates aren't visible synchronously); the state
@@ -562,9 +565,13 @@ export function useChatWindowActions({
           pendingCliModeOverrideRef.current = mode
           return
         }
-        const result = await window.api.setConversationMode(conversationId, { cliModeOverride: mode })
-        if (isApiError(result)) throw new Error(result.error)
-        await loadConversations()
+        const write = pendingModeWriteRef.current.then(async () => {
+          const result = await window.api.setConversationMode(conversationId, { cliModeOverride: mode })
+          if (isApiError(result)) throw new Error(result.error)
+          await loadConversations()
+        })
+        pendingModeWriteRef.current = write.catch(() => undefined)
+        await write
       },
       effectiveModelLabel,
       conversationModel,
@@ -887,6 +894,7 @@ export function useChatWindowActions({
     markConversationGenerating(conversation)
 
     try {
+      await pendingModeWriteRef.current
       if (editCutoffTimestamp != null) {
         await window.api.deleteMessagesAfter(conversation, editCutoffTimestamp).catch(() => {
           addToast('Failed to delete messages from edited point', 'error')
@@ -1021,6 +1029,7 @@ export function useChatWindowActions({
     streamingContentRef.current = ''
 
     try {
+      await pendingModeWriteRef.current
       await window.api.sendMessage(conversation, lastUser.content, {
         regenerate: true,
         model: effectiveModel === 'default' ? undefined : effectiveModel,
@@ -1136,13 +1145,15 @@ export function useChatWindowActions({
         if (mode.codexExecutionModeOverride !== undefined) pendingCodexExecutionModeOverrideRef.current = mode.codexExecutionModeOverride
         return
       }
-      try {
+      const write = pendingModeWriteRef.current.then(async () => {
         const result = await window.api.setConversationMode(conversationId, mode)
         if (isApiError(result)) throw new Error(result.error)
         await loadConversations()
-      } catch {
+      }).catch(() => {
         addToast('Failed to set chat mode', 'error')
-      }
+      })
+      pendingModeWriteRef.current = write
+      await write
     },
     [conversationId, loadConversations, addToast],
   )
