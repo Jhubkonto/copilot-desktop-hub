@@ -72,6 +72,8 @@ import io.nexy.android.ui.debrief.DebriefScreen
 import io.nexy.android.ui.quiz.QuizScreen
 import io.nexy.android.ui.teachback.TeachbackScreen
 
+internal const val CHAT_ROUTE = "chat/{conversationId}?agentId={agentId}&projectId={projectId}&messageId={messageId}"
+
 @Composable
 fun NavGraph(
     providedNavController: NavHostController? = null,
@@ -284,7 +286,7 @@ fun NavGraph(
         }
 
         composable(
-            route = "chat/{conversationId}?agentId={agentId}&projectId={projectId}&messageId={messageId}",
+            route = CHAT_ROUTE,
             arguments = listOf(
                 navArgument("conversationId") { type = NavType.StringType },
                 navArgument("agentId") {
@@ -329,14 +331,25 @@ fun NavGraph(
                 onOpenRemoteEditWithPrefill = { _, _ -> },
                 onOpenCodePanel = { pid -> navController.navigate("code-panel/${Uri.encode(pid)}") },
                 onOpenAutomatedWorkflow = { workflowProjectId -> navController.navigate("automated-workflow/${Uri.encode(workflowProjectId)}") },
+                onOpenDesktopPathPicker = {
+                    navController.navigate("file-explorer?projectId=&startPath=&selectionMode=attachment")
+                },
                 initialMessageId = messageId,
                 onNewChat = { newAgentId, newProjectId ->
                     val newConversationId = java.util.UUID.randomUUID().toString()
                     val agentParam = Uri.encode(newAgentId.orEmpty())
                     val projectParam = Uri.encode(newProjectId.orEmpty())
+                    // /new starts an unrelated conversation, not a branch of this one — replace
+                    // this chat entry instead of stacking on top of it, so Back from the new chat
+                    // lands wherever the user was before *this* chat (home/history), never back
+                    // into an unrelated conversation.
                     navController.navigate(
                         "chat/$newConversationId?agentId=$agentParam&projectId=$projectParam",
-                    )
+                    ) {
+                        popUpTo(CHAT_ROUTE) {
+                            inclusive = true
+                        }
+                    }
                 },
             )
         }
@@ -460,26 +473,33 @@ fun NavGraph(
                 onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
                 onOpenAutomatedWorkflow = { navController.navigate("automated-workflow/${Uri.encode(projectId)}") },
                 onOpenFileExplorer = { startPath ->
-                    navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=${Uri.encode(startPath)}")
+                    navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=${Uri.encode(startPath)}&selectionMode=folder")
                 },
             )
         }
 
         composable(
-            route = "file-explorer?projectId={projectId}&startPath={startPath}",
+            route = "file-explorer?projectId={projectId}&startPath={startPath}&selectionMode={selectionMode}",
             arguments = listOf(
                 navArgument("projectId") { type = NavType.StringType; defaultValue = "" },
                 navArgument("startPath") { type = NavType.StringType; defaultValue = "" },
+                navArgument("selectionMode") { type = NavType.StringType; defaultValue = "folder" },
             ),
         ) { backStackEntry ->
             val startPath = backStackEntry.arguments?.getString("startPath").orEmpty()
+            val selectionMode = backStackEntry.arguments?.getString("selectionMode").orEmpty()
             FileExplorerScreen(
                 onBack = { navController.popBackStack() },
                 onFolderSelected = { path ->
-                    WsRepository.pendingSelectedDirectory.value = path
+                    if (selectionMode == "attachment") {
+                        WsRepository.pendingSelectedAttachmentPath.value = path
+                    } else {
+                        WsRepository.pendingSelectedDirectory.value = path
+                    }
                     navController.popBackStack()
                 },
                 initialPath = startPath,
+                allowFileSelection = selectionMode == "attachment",
             )
         }
 
