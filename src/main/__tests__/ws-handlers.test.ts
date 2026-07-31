@@ -310,6 +310,41 @@ describe('ws handlers', () => {
     })
   })
 
+  it('streams bounded history with correlation and supports not-modified refreshes', () => {
+    const firstReply = sendCommand('conversation:get-messages', {
+      conversationId: 'conv-1',
+      limit: 20,
+      requestId: 'history-1',
+      responseMode: 'chunked-v2',
+    })
+
+    expect(firstReply.mock.calls.map(call => (call[0] as { event: string }).event)).toEqual([
+      'conversation:history-start',
+      'conversation:history-chunk',
+      'conversation:history-complete',
+    ])
+    const complete = firstReply.mock.calls[2][0] as {
+      data: { historyVersion: string }
+    }
+
+    const unchangedReply = sendCommand('conversation:get-messages', {
+      conversationId: 'conv-1',
+      limit: 20,
+      requestId: 'history-2',
+      responseMode: 'chunked-v2',
+      historyVersion: complete.data.historyVersion,
+    })
+    expect(unchangedReply).toHaveBeenCalledOnce()
+    expect(unchangedReply).toHaveBeenCalledWith({
+      event: 'conversation:history-not-modified',
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        requestId: 'history-2',
+        historyVersion: complete.data.historyVersion,
+      }),
+    })
+  })
+
   it('replies to the requesting client when creating a conversation', () => {
     const reply = sendCommand('conversation:create', { agentId: 'agent-1', projectId: 'proj-1' })
 

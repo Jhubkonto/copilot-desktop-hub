@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import {
@@ -1349,24 +1349,31 @@ export function registerWsHandlers(): void {
           typeof (img as Record<string, unknown>).dataUrl === 'string'
       )
       if (!conversationId || (!content && images.length === 0 && attachments.length === 0)) return
-      // A brand-new conversation (client-generated draft id) has no server-side row yet, so
-      // a mode override the user sets before the first message can't reach the server via the
-      // normal conversation:set-mode message (there's nothing to update). Android instead threads
-      // its current override state straight through this first send; dispatchChatSend applies it
-      // while creating the row (see chat-handlers.ts's `!convo` branch) so the very first CLI turn
-      // honors it instead of silently falling back to defaults for one turn.
+      // Android carries any not-yet-confirmed mode values on the turn itself. This covers both a
+      // draft row that does not exist yet and an existing chat whose separate set-mode command is
+      // still in flight; dispatchChatSend applies them before resolving the CLI configuration.
       const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
-      const thinkingEffortOverride = typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride)
-        ? (data.thinkingEffortOverride as 'low' | 'medium' | 'high' | 'max' | 'disabled')
+      const thinkingEffortOverride = 'thinkingEffortOverride' in data
+        ? (typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride)
+            ? data.thinkingEffortOverride as 'low' | 'medium' | 'high' | 'max' | 'disabled'
+            : null)
         : undefined
-      const fullAutoApproveOverride = data.fullAutoApproveOverride === true ? true : data.fullAutoApproveOverride === false ? false : undefined
-      const agenticModeOverride = data.agenticModeOverride === true ? true : data.agenticModeOverride === false ? false : undefined
-      const terminalSandboxOverride = data.terminalSandboxOverride === true ? true : data.terminalSandboxOverride === false ? false : undefined
+      const fullAutoApproveOverride = 'fullAutoApproveOverride' in data
+        ? (data.fullAutoApproveOverride === true ? true : data.fullAutoApproveOverride === false ? false : null)
+        : undefined
+      const agenticModeOverride = 'agenticModeOverride' in data
+        ? (data.agenticModeOverride === true ? true : data.agenticModeOverride === false ? false : null)
+        : undefined
+      const terminalSandboxOverride = 'terminalSandboxOverride' in data
+        ? (data.terminalSandboxOverride === true ? true : data.terminalSandboxOverride === false ? false : null)
+        : undefined
       const validCliModes: string[] = [...CLAUDE_CLI_MODES, ...CODEX_CLI_MODES]
-      const cliModeOverride = typeof data.cliModeOverride === 'string' && validCliModes.includes(data.cliModeOverride)
-        ? data.cliModeOverride
+      const cliModeOverride = 'cliModeOverride' in data
+        ? (typeof data.cliModeOverride === 'string' && validCliModes.includes(data.cliModeOverride) ? data.cliModeOverride : null)
         : undefined
-      const codexExecutionModeOverride = data.codexExecutionModeOverride === 'plan' ? 'plan' as const : undefined
+      const codexExecutionModeOverride = 'codexExecutionModeOverride' in data
+        ? (data.codexExecutionModeOverride === 'plan' ? 'plan' as const : null)
+        : undefined
       // Deduplicate: Android race-connect can open multiple sockets simultaneously,
       // causing the same chat:send-message to arrive multiple times. Skip if we're
       // already dispatching this conversation.
@@ -1529,7 +1536,7 @@ export function registerWsHandlers(): void {
 
     if (command === 'project:list') {
       const rows = db.prepare(`
-          SELECT p.id, p.name, p.color,
+          SELECT p.id, p.name, p.color, p.default_model,
             (SELECT COUNT(*) FROM conversations WHERE project_id = p.id) AS chat_count,
             (SELECT GROUP_CONCAT(NULLIF(json_extract(a.config_json, '$.icon'), ''), ',')
              FROM project_agents pa JOIN agents a ON pa.agent_id = a.id
@@ -1553,19 +1560,87 @@ export function registerWsHandlers(): void {
         const beforeId = typeof data.beforeId === 'string' ? data.beforeId : null
         const descendingRows = beforeTimestamp != null && beforeId != null
           ? db.prepare(
-            `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
+            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
                WHERE conversation_id = ? AND (timestamp < ? OR (timestamp = ? AND id < ?))
                ORDER BY timestamp DESC, id DESC LIMIT ?`
           ).all(conversationId, beforeTimestamp, beforeTimestamp, beforeId, limit + 1)
           : db.prepare(
-            `SELECT id, role, content, model, attachments, timestamp, thinking_blocks, text_segments FROM messages
+            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
                WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`
           ).all(conversationId, limit + 1)
         const hasMore = descendingRows.length > limit
         const page = (hasMore ? descendingRows.slice(0, limit) : descendingRows).reverse()
         const oldest = page[0] as { id: string; timestamp: number } | undefined
+        const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+        const historyVersion = createHash('sha256').update(JSON.stringify(page)).digest('hex')
+        const responseMode = data.responseMode === 'chunked-v2' ? 'chunked-v2' : 'single'
+        if (
+          beforeTimestamp == null &&
+          typeof data.historyVersion === 'string' &&
+          data.historyVersion === historyVersion
+        ) {
+          reply({
+            event: 'conversation:history-not-modified',
+            data: { conversationId, requestId, historyVersion, hasMore },
+          })
+          return
+        }
+        if (responseMode === 'chunked-v2') {
+          const chunks: unknown[][] = []
+          let pending: unknown[] = []
+          let pendingBytes = 0
+          // Stream the newest content first. Older chunks are prepended by Android while
+          // preserving the user's scroll position.
+          for (let index = page.length - 1; index >= 0; index -= 1) {
+            const row = page[index]
+            const rowBytes = Buffer.byteLength(JSON.stringify(row), 'utf8')
+            if (pending.length > 0 && (pending.length >= 10 || pendingBytes + rowBytes > 128 * 1024)) {
+              chunks.push(pending.reverse())
+              pending = []
+              pendingBytes = 0
+            }
+            pending.push(row)
+            pendingBytes += rowBytes
+          }
+          if (pending.length > 0) chunks.push(pending.reverse())
+          reply({
+            event: 'conversation:history-start',
+            data: {
+              conversationId,
+              requestId,
+              totalItems: page.length,
+              chunkCount: chunks.length,
+              historyVersion,
+            },
+          })
+          chunks.forEach((messages, chunkIndex) => {
+            reply({
+              event: 'conversation:history-chunk',
+              data: {
+                conversationId,
+                requestId,
+                messages,
+                chunkIndex,
+                chunkCount: chunks.length,
+                paged: true,
+              },
+            })
+          })
+          reply({
+            event: 'conversation:history-complete',
+            data: {
+              conversationId,
+              requestId,
+              historyVersion,
+              hasMore,
+              nextBeforeTimestamp: oldest?.timestamp ?? null,
+              nextBeforeId: oldest?.id ?? null,
+            },
+          })
+          return
+        }
         reply({ event: 'conversation:messages', data: {
-          conversationId, messages: page, paged: true, hasMore,
+          conversationId, requestId, messages: page, paged: true, hasMore, historyVersion,
           nextBeforeTimestamp: oldest?.timestamp ?? null, nextBeforeId: oldest?.id ?? null,
         } })
         return
@@ -1711,7 +1786,12 @@ export function registerWsHandlers(): void {
       }
       if (typeof data.maxDelegationDepth === 'number') patch.maxDelegationDepth = Math.max(1, Math.min(10, data.maxDelegationDepth))
       if (typeof data.showTeamActivity === 'boolean') patch.showTeamActivity = data.showTeamActivity
-      if (typeof data.defaultModel === 'string') patch.defaultModel = data.defaultModel
+      if (typeof data.defaultModel === 'string') {
+        const defaultModel = data.defaultModel.trim() || null
+        patch.defaultModel = defaultModel
+        db.prepare('UPDATE projects SET default_model = ?, updated_at = ? WHERE id = ?')
+          .run(defaultModel, Date.now(), id)
+      }
       if (typeof data.instructionMode === 'string') patch.instructionMode = data.instructionMode
       if (typeof data.instructionsEnabled === 'boolean') patch.instructionsEnabled = data.instructionsEnabled
       if (Array.isArray(data.inScope)) patch.inScope = data.inScope
@@ -1755,8 +1835,11 @@ export function registerWsHandlers(): void {
     if (command === 'project:get-config') {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
-      const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
-      const config = parseProjectConfig(row?.config_json ?? null)
+      const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as
+        { config_json: string | null } | undefined
+      const defaultModelRow = db.prepare('SELECT default_model FROM projects WHERE id = ?').get(id) as
+        { default_model: string | null } | undefined
+      const config = { ...parseProjectConfig(row?.config_json ?? null), defaultModel: defaultModelRow?.default_model ?? null }
       reply({ event: 'project:config', data: { id, config } })
       return
     }
