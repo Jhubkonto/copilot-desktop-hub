@@ -58,6 +58,7 @@ class NexyApp : Application() {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "Prompts to approve or reject tool calls from the desktop app"
+            setShowBadge(true)
         }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)

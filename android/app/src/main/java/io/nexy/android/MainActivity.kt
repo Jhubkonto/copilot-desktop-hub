@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        io.nexy.android.notification.ActivityBadgeManager.markIntentSeen(this, intent)
         pendingDeeplink.value = intent?.getStringExtra("deeplink")
         enableEdgeToEdge()
         setContent {
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        io.nexy.android.notification.ActivityBadgeManager.markIntentSeen(this, intent)
         val deeplink = intent.getStringExtra("deeplink")
         if (deeplink != null) {
             pendingDeeplink.value = deeplink
