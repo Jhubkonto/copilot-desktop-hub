@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.yield
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -76,6 +77,29 @@ class LocalDataRepository private constructor(
     private val attachmentDirectory = File(context.filesDir, "standalone-attachments").apply { mkdirs() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val deviceId: String = identityStore.deviceId()
+
+    fun historyVersion(conversationId: String): String? =
+        identityStore.historyVersion(conversationId)
+
+    fun saveHistoryVersion(conversationId: String, version: String) =
+        identityStore.saveHistoryVersion(conversationId, version)
+
+    suspend fun desktopSyncSequence(datasetId: String): Long =
+        database.sync().cursor(datasetId)?.lastReceivedSequence ?: 0L
+
+    suspend fun saveDesktopSyncSequence(datasetId: String, sequence: Long, protocolVersion: Int = 2) {
+        if (sequence <= 0) return
+        val current = database.sync().cursor(datasetId)
+        database.sync().upsertCursor(
+            SyncCursorEntity(
+                peerDeviceId = datasetId,
+                lastSentSequence = current?.lastSentSequence ?: 0,
+                lastReceivedSequence = maxOf(current?.lastReceivedSequence ?: 0, sequence),
+                lastSuccessfulSyncAt = System.currentTimeMillis(),
+                protocolVersion = protocolVersion,
+            ),
+        )
+    }
     private val desktopConnected = MutableStateFlow(false)
     private val internetState = MutableStateFlow(InternetState.UNKNOWN)
     private val lastSuccessfulSyncAt = MutableStateFlow<Long?>(null)
@@ -312,10 +336,22 @@ class LocalDataRepository private constructor(
         val source = database.conversations().get(conversationId) ?: return null
         val sourceMessages = database.messages().getForConversation(conversationId)
             .filter { cutoffTimestamp == null || it.timestamp <= cutoffTimestamp }
+            .filterNot { message ->
+                message.role == "tool-call" ||
+                    message.role == "team-activity" ||
+                    (
+                        message.role == "system" &&
+                            (
+                                message.content.trimStart().startsWith("[Portable tool-call summary]") ||
+                                    message.content.trimStart().startsWith("[Portable team-activity summary]")
+                            )
+                    )
+            }
         val now = System.currentTimeMillis()
+        val forkTitle = "${source.title.removeSuffix(" (branch)")} (branch)"
         val fork = source.copy(
             id = UUID.randomUUID().toString(),
-            title = "${source.title} (branch)",
+            title = forkTitle,
             createdAt = now,
             updatedAt = now,
             lastMessage = sourceMessages.lastOrNull()?.content,
@@ -761,10 +797,21 @@ class LocalDataRepository private constructor(
         database.messages().recoverInterruptedTurns()
     }
 
-    suspend fun applySyncSnapshot(snapshot: JSONObject) {
+    suspend fun applySyncSnapshot(
+        snapshot: JSONObject,
+        priorityConversationId: String? = null,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ) {
         val versions = snapshot.optJSONObject("versions") ?: JSONObject()
+        val synchronizedArrays = listOf("projects", "agents", "conversations", "messages", "wiki", "prompts", "skills")
+        val total = synchronizedArrays.sumOf { snapshot.optJSONArray(it)?.length() ?: 0 }
+        var completed = 0
+        fun reportItemApplied() {
+            completed += 1
+            onProgress(completed, total)
+        }
+        onProgress(0, total)
 
-        database.withTransaction {
         snapshot.optJSONArray("projects")?.forEachObject { row ->
             val id = row.optString("id")
             if (id.isBlank()) return@forEachObject
@@ -791,6 +838,7 @@ class LocalDataRepository private constructor(
             } else {
                 database.projects().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
             }
+            reportItemApplied()
         }
 
         snapshot.optJSONArray("agents")?.forEachObject { row ->
@@ -820,6 +868,7 @@ class LocalDataRepository private constructor(
             } else {
                 database.agents().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
             }
+            reportItemApplied()
         }
 
         snapshot.optJSONArray("conversations")?.forEachObject { row ->
@@ -855,40 +904,23 @@ class LocalDataRepository private constructor(
             } else {
                 database.conversations().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
             }
+            reportItemApplied()
         }
 
-        snapshot.optJSONArray("messages")?.forEachObject { row ->
-            val id = row.optString("id")
-            if (id.isBlank()) return@forEachObject
-            val current = database.messages().get(id)
-            val remoteVersion = versions.optLong("message:$id", 1L)
-            val remote = MessageEntity(
-                id = id,
-                conversationId = row.optString("conversation_id"),
-                role = row.optString("role"),
-                content = row.optString("content"),
-                model = row.nullableString("model"),
-                provider = row.nullableString("provider"),
-                finishReason = row.nullableString("finish_reason") ?: row.nullableString("finishReason"),
-                timestamp = row.optLong("timestamp", System.currentTimeMillis()),
-                timelineOrder = row.takeUnless { it.isNull("timeline_order") }?.optLong("timeline_order"),
-                attachmentsJson = row.jsonArrayOrString("attachments")?.toString() ?: "[]",
-                thinkingBlocksJson = row.jsonArrayOrString("thinking_blocks")?.toString() ?: "[]",
-                textSegmentsJson = row.jsonArrayOrString("text_segments")?.toString() ?: "[]",
-                inputTokens = row.optInt("input_tokens", 0),
-                outputTokens = row.optInt("output_tokens", 0),
-                remoteVersion = remoteVersion,
-            )
-            if (current?.syncStatus == SyncStatus.PENDING) {
-                if (current.content != remote.content) {
-                    recordConflict("message", id, "content", current.content, remote.content, current.localVersion, remoteVersion)
-                    database.messages().upsert(current.copy(syncStatus = SyncStatus.CONFLICT, remoteVersion = remoteVersion))
-                } else {
-                    database.messages().upsert(current.copy(remoteVersion = remoteVersion))
+        yield()
+        val messageRows = snapshot.optJSONArray("messages")?.let { array ->
+            (0 until array.length()).mapNotNull(array::optJSONObject)
+        }.orEmpty().sortedBy { row ->
+            if (priorityConversationId != null && row.optString("conversation_id") == priorityConversationId) 0 else 1
+        }
+        messageRows.chunked(50).forEach { chunk ->
+            database.withTransaction {
+                chunk.forEach { row ->
+                    mergeSnapshotMessage(row, versions)
+                    reportItemApplied()
                 }
-            } else {
-                database.messages().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
             }
+            yield()
         }
 
         snapshot.optJSONArray("wiki")?.forEachObject { row ->
@@ -904,6 +936,7 @@ class LocalDataRepository private constructor(
                 updatedAt = entry.updatedAt,
                 remoteVersion = versions.optLong("wiki:${entry.id}", 1L),
             )
+            reportItemApplied()
         }
         snapshot.optJSONArray("prompts")?.forEachObject { row ->
             val entry = parsePromptEntry(row)
@@ -918,6 +951,7 @@ class LocalDataRepository private constructor(
                 updatedAt = entry.updatedAt,
                 remoteVersion = versions.optLong("prompt:${entry.id}", 1L),
             )
+            reportItemApplied()
         }
         snapshot.optJSONArray("skills")?.forEachObject { row ->
             val skill = parseSkillConfig(row)
@@ -932,12 +966,50 @@ class LocalDataRepository private constructor(
                 updatedAt = skill.updatedAt ?: 0,
                 remoteVersion = versions.optLong("skill:${skill.id}", 1L),
             )
+            reportItemApplied()
         }
 
         applyTombstones(snapshot.optJSONArray("tombstones"))
         applySyncConflicts(snapshot.optJSONArray("conflicts")?.toString() ?: "[]")
-        }
         lastSuccessfulSyncAt.value = System.currentTimeMillis()
+    }
+
+    suspend fun applySyncSnapshot(snapshotJson: String, priorityConversationId: String? = null) {
+        applySyncSnapshot(JSONObject(snapshotJson), priorityConversationId)
+    }
+
+    private suspend fun mergeSnapshotMessage(row: JSONObject, versions: JSONObject) {
+        val id = row.optString("id")
+        if (id.isBlank()) return
+        val current = database.messages().get(id)
+        val remoteVersion = versions.optLong("message:$id", 1L)
+        val remote = MessageEntity(
+            id = id,
+            conversationId = row.optString("conversation_id"),
+            role = row.optString("role"),
+            content = row.optString("content"),
+            model = row.nullableString("model"),
+            provider = row.nullableString("provider"),
+            finishReason = row.nullableString("finish_reason") ?: row.nullableString("finishReason"),
+            timestamp = row.optLong("timestamp", System.currentTimeMillis()),
+            timelineOrder = row.takeUnless { it.isNull("timeline_order") }?.optLong("timeline_order"),
+            attachmentsJson = row.jsonArrayOrString("attachments")?.toString() ?: "[]",
+            thinkingBlocksJson = row.jsonArrayOrString("thinking_blocks")?.toString() ?: "[]",
+            textSegmentsJson = row.jsonArrayOrString("text_segments")?.toString() ?: "[]",
+            inputTokens = row.optInt("input_tokens", 0),
+            outputTokens = row.optInt("output_tokens", 0),
+            remoteVersion = remoteVersion,
+        )
+        if (current?.syncStatus == SyncStatus.PENDING) {
+            if (current.content != remote.content) {
+                recordConflict("message", id, "content", current.content, remote.content, current.localVersion, remoteVersion)
+                database.messages().upsert(current.copy(syncStatus = SyncStatus.CONFLICT, remoteVersion = remoteVersion))
+            } else {
+                database.messages().upsert(current.copy(remoteVersion = remoteVersion))
+            }
+        } else {
+            database.messages().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
+        }
     }
 
     suspend fun applySyncConflicts(conflictsJson: String) {
@@ -1471,6 +1543,13 @@ private class DeviceIdentityStore(context: Context) {
         return UUID.randomUUID().toString().also { preferences.edit().putString("device_id", it).apply() }
     }
 
+    fun historyVersion(conversationId: String): String? =
+        preferences.getString("history_version_$conversationId", null)
+
+    fun saveHistoryVersion(conversationId: String, version: String) {
+        preferences.edit().putString("history_version_$conversationId", version).apply()
+    }
+
     fun bindDataset(datasetId: String): Boolean {
         val current = preferences.getString("dataset_id", null)
         if (current == null) {
@@ -1551,6 +1630,9 @@ private fun ProjectEntity.toModel() = Project(
     chatCount = chatCount,
     agentIcons = agentIconsJson.toStringList(),
     rootDirectory = rootDirectory,
+    defaultModel = runCatching {
+        JSONObject(configJson).optString("defaultModel").takeIf { it.isNotBlank() && it != "null" }
+    }.getOrNull(),
 )
 
 private fun ConversationEntity.toSyncJson(): String = JSONObject()
