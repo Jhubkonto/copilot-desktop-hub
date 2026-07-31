@@ -1,6 +1,8 @@
 import { FolderOpen, Plus, X, ChevronDown } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
 import type { ProjectConfig } from '../../store/types'
+import type { AvailableModelGroup, CatalogModel } from '../../../shared/types'
+import { ModelPicker } from '../chat/ModelPicker'
 
 const INSTRUCTION_MODES: { value: ProjectConfig['instructionMode']; label: string }[] = [
   { value: 'prepend',    label: 'Prepend to agent prompt' },
@@ -51,6 +53,10 @@ interface Props {
   varErrors: Record<number, string>
   showModeDropdown: boolean
   hasVarErrors: boolean
+  defaultModel: string | null
+  availableModelGroups: AvailableModelGroup[]
+  catalogModels: CatalogModel[]
+  globalDefaultModel: string | null
   onSetName: (v: string) => void
   onSetColor: (v: string) => void
   onNameBlur: () => void
@@ -67,15 +73,18 @@ interface Props {
   onAddVariable: () => void
   onRemoveVariable: (idx: number) => void
   onVarChange: (idx: number, field: 'key' | 'value', val: string) => void
+  onDefaultModelChange: (model: string | null) => void
 }
 
 export function GeneralTab({
   isDraft, name, color, rootDirectory, codingWorkspace, strategyRetrievalEnabled, terminalSandboxBypass, workspaceInfo,
   instructions, instructionMode, instructionsEnabled,
   variables, varErrors, showModeDropdown, hasVarErrors,
+  defaultModel, availableModelGroups, catalogModels, globalDefaultModel,
   onSetName, onSetColor, onNameBlur, onConfirm,
   onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onCodingWorkspaceToggle,
   onStrategyRetrievalToggle, onTerminalSandboxBypassToggle, onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
+  onDefaultModelChange,
 }: Props) {
   const selectedModeLabel = INSTRUCTION_MODES.find((m) => m.value === instructionMode)?.label ?? instructionMode
   const highlightParts = resolveVarHighlights(instructions, variables)
@@ -112,6 +121,29 @@ export function GeneralTab({
                 title={c.value}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {!isDraft && (
+        <div>
+          <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+            Default model
+          </label>
+          <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+            Pre-selected for new chats in this project. Falls back to the Nexy default if it becomes unavailable.
+          </p>
+          <div className="mt-1">
+            <ModelPicker
+              value={defaultModel ?? 'default'}
+              availableGroups={availableModelGroups}
+              catalogModels={catalogModels}
+              globalDefaultModel={globalDefaultModel ?? undefined}
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
+              menuClassName="left-0"
+              onSelectDefault={() => onDefaultModelChange(null)}
+              onSelectAvailableModel={(_group, model) => onDefaultModelChange(model.id)}
+            />
           </div>
         </div>
       )}

@@ -64,6 +64,10 @@ interface ModalShellProps {
   maxWidth?: string
   height?: string
   bodyClassName?: string
+  panelClassName?: string
+  footerClassName?: string
+  /** Uses an unobtrusive floating close button instead of the standard title bar. */
+  compactHeader?: boolean
   headerActions?: ReactNode
   children: ReactNode
   footer?: ReactNode
@@ -78,6 +82,9 @@ export function ModalShell({
   maxWidth = 'max-w-5xl',
   height = 'h-[84vh]',
   bodyClassName = 'flex-1 min-h-0 overflow-y-auto p-5',
+  panelClassName,
+  footerClassName,
+  compactHeader = false,
   headerActions,
   children,
   footer,
@@ -102,35 +109,50 @@ export function ModalShell({
         aria-modal="true"
         aria-label={ariaLabel ?? title}
         className={cx(
-          'w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 flex flex-col',
+          'relative w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 flex flex-col',
           maxWidth,
           height,
+          panelClassName,
         )}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-          <div className="min-w-0">
-            <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              {icon}
-              {title}
-            </h2>
-            {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+        {compactHeader ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-3 top-3 z-10 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:hover:bg-gray-700 dark:hover:text-gray-100 dark:focus-visible:ring-offset-gray-800"
+            aria-label={`Close ${ariaLabel ?? title}`}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : (
+          <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                {icon}
+                {title}
+              </h2>
+              {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+            </div>
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                aria-label={`Close ${ariaLabel ?? title}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {headerActions}
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              aria-label={`Close ${ariaLabel ?? title}`}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        )}
         <div className={bodyClassName}>{children}</div>
         {footer && (
-          <div className="flex flex-wrap justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0">
+          <div className={cx(
+            'flex flex-wrap justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0',
+            footerClassName,
+          )}>
             {footer}
           </div>
         )}
@@ -162,7 +184,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       type="button"
       className={cx(
-        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+        'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800 disabled:opacity-60 disabled:cursor-not-allowed',
         variantClass,
         className,
       )}
