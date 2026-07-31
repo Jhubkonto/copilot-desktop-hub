@@ -1429,6 +1429,7 @@ export interface ConversationImportResult {
 export interface ConversationForkOptions {
   model?: string | null
   agentId?: string | null
+  projectId?: string | null
   cutoffTimestamp?: number | null
 }
 

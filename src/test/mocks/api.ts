@@ -266,6 +266,7 @@ export function createMockApi() {
 
     // Files
     openFileDialog: vi.fn().mockResolvedValue([]),
+    getPathForFile: vi.fn().mockReturnValue(''),
     getWorkingDirectory: vi.fn().mockResolvedValue('C:\\'),
     setWorkingDirectory: vi.fn().mockResolvedValue(true),
     readContextFile: vi.fn().mockResolvedValue({ path: 'README.md', content: 'context', truncated: false }),
