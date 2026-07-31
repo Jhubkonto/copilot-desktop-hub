@@ -17,7 +17,6 @@ import io.nexy.android.NexyApp
 
 object ApprovalNotificationManager {
 
-    const val NOTIFICATION_ID = 1001
     const val ACTION_APPROVE = "io.nexy.android.ACTION_APPROVE"
     const val ACTION_REJECT = "io.nexy.android.ACTION_REJECT"
     const val EXTRA_REQUEST_ID = "requestId"
@@ -28,12 +27,15 @@ object ApprovalNotificationManager {
             PackageManager.PERMISSION_GRANTED
         ) return
 
+        val destination = ActivityBadgeManager.approvalDestination(requestId)
+        ActivityBadgeManager.record(context, destination)
         val nm = context.getSystemService(NotificationManager::class.java)
 
         val openIntent = PendingIntent.getActivity(
             context, 0,
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(ActivityBadgeManager.EXTRA_DESTINATION, destination)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -63,15 +65,17 @@ object ApprovalNotificationManager {
             .setContentIntent(openIntent)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_STATUS)
+            .setNumber(1)
+            .setBadgeIconType(Notification.BADGE_ICON_SMALL)
             .addAction(Notification.Action.Builder(null, "Approve", approveIntent).build())
             .addAction(Notification.Action.Builder(null, "Reject", rejectIntent).build())
             .build()
 
-        nm.notify(NOTIFICATION_ID, notification)
+        nm.notify(ActivityBadgeManager.notificationId(destination), notification)
     }
 
     fun cancel(context: android.content.Context) {
-        context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        ActivityBadgeManager.markSeenWithPrefix(context, "approval:")
     }
 
     fun vibrateDecision(context: Context, approved: Boolean) {

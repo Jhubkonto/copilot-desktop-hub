@@ -15,14 +15,14 @@ import io.nexy.android.data.PreferenceStore
 object ChatCompleteNotificationManager {
 
     private const val CHANNEL_ID = "chat_complete"
-    private var nextId = 3000
-
     fun show(context: Context, conversationId: String, title: String, summary: String? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
 
+        val destination = ActivityBadgeManager.chatDestination(conversationId)
+        ActivityBadgeManager.record(context, destination)
         val nm = context.getSystemService(NotificationManager::class.java)
 
         ensureChannel(context)
@@ -33,6 +33,7 @@ object ChatCompleteNotificationManager {
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("deeplink", "chat/$conversationId")
+                putExtra(ActivityBadgeManager.EXTRA_DESTINATION, destination)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -43,6 +44,8 @@ object ChatCompleteNotificationManager {
             .setContentText(title)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
+            .setNumber(1)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
 
         val preferenceStore = PreferenceStore.getInstance(context)
         val readAloudEnabled = preferenceStore.let { prefs ->
@@ -70,7 +73,7 @@ object ChatCompleteNotificationManager {
         }
 
         val notification = builder.build()
-        nm.notify(nextId++, notification)
+        nm.notify(ActivityBadgeManager.notificationId(destination), notification)
     }
 
     private fun ensureChannel(context: Context) {
@@ -81,6 +84,7 @@ object ChatCompleteNotificationManager {
             "Chat notifications",
             NotificationManager.IMPORTANCE_DEFAULT,
         )
+        channel.setShowBadge(true)
         nm.createNotificationChannel(channel)
     }
 }

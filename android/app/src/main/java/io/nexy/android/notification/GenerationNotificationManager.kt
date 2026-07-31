@@ -16,14 +16,14 @@ import io.nexy.android.MainActivity
 object GenerationNotificationManager {
 
     private const val CHANNEL_ID = "generation_complete"
-    private var nextId = 4000
-
     fun show(context: Context, conversationId: String, kind: String, title: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
 
+        val destination = ActivityBadgeManager.chatDestination(conversationId)
+        ActivityBadgeManager.record(context, destination)
         val nm = context.getSystemService(NotificationManager::class.java)
 
         ensureChannel(context)
@@ -34,6 +34,7 @@ object GenerationNotificationManager {
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("deeplink", "chat/$conversationId")
+                putExtra(ActivityBadgeManager.EXTRA_DESTINATION, destination)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -46,9 +47,11 @@ object GenerationNotificationManager {
             .setContentText(title)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
+            .setNumber(1)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .build()
 
-        nm.notify(nextId++, notification)
+        nm.notify(ActivityBadgeManager.notificationId(destination), notification)
     }
 
     private fun ensureChannel(context: Context) {
@@ -59,6 +62,7 @@ object GenerationNotificationManager {
             "Generation notifications",
             NotificationManager.IMPORTANCE_DEFAULT,
         )
+        channel.setShowBadge(true)
         nm.createNotificationChannel(channel)
     }
 }

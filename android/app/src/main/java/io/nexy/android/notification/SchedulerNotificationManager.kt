@@ -14,14 +14,14 @@ import io.nexy.android.MainActivity
 object SchedulerNotificationManager {
 
     private const val CHANNEL_ID = "scheduler_runs"
-    private var nextId = 2000
-
     fun show(context: Context, taskId: String, taskName: String, success: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
 
+        val destination = ActivityBadgeManager.scheduledDestination(taskId)
+        ActivityBadgeManager.record(context, destination)
         val nm = context.getSystemService(NotificationManager::class.java)
 
         ensureChannel(context)
@@ -32,6 +32,7 @@ object SchedulerNotificationManager {
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("deeplink", "scheduled/$taskId")
+                putExtra(ActivityBadgeManager.EXTRA_DESTINATION, destination)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -42,9 +43,11 @@ object SchedulerNotificationManager {
             .setContentTitle(title)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
+            .setNumber(1)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .build()
 
-        nm.notify(nextId++, notification)
+        nm.notify(ActivityBadgeManager.notificationId(destination), notification)
     }
 
     private fun ensureChannel(context: Context) {
@@ -55,6 +58,7 @@ object SchedulerNotificationManager {
             "Scheduled task runs",
             NotificationManager.IMPORTANCE_DEFAULT,
         )
+        channel.setShowBadge(true)
         nm.createNotificationChannel(channel)
     }
 }
