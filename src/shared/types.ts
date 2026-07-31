@@ -1438,6 +1438,7 @@ export interface ConversationForkResult {
   message_count: number
   rewritten_message_count: number
   compressed_message_count: number
+  omitted_message_count: number
 }
 
 export interface StructuredConversationSummary {
@@ -2106,6 +2107,8 @@ export type IpcReturnMap = {
   'activity:list': BackgroundActivity[]
   'activity:changed': void
   'activity:dismiss': boolean
+  'activity-badge:set-viewed-conversation': number
+  'activity-badge:get-count': number
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -2598,6 +2601,8 @@ export type IpcChannels =
   | 'activity:list'
   | 'activity:changed'
   | 'activity:dismiss'
+  | 'activity-badge:set-viewed-conversation'
+  | 'activity-badge:get-count'
   | 'artifact:updated'
   | 'debug:set-enabled'
   | 'debug:log'
