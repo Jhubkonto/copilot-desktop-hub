@@ -98,7 +98,7 @@ export class ChatTurnEmitter {
   }
 
   closeStream(): void {
-    endActivity(this.activityId)
+    endActivity(this.activityId, { completed: false })
     this.sinks.sendDesktop?.('chat:stream-response', null)
     this.sinks.broadcastMobile?.({
       event: 'chat:stream-end',
@@ -111,7 +111,7 @@ export class ChatTurnEmitter {
   }
 
   streamError(error: StreamErrorPayload): ChatTurnEvent {
-    endActivity(this.activityId)
+    endActivity(this.activityId, { completed: false })
     const event = this.emit({
       type: 'turn_failed',
       errorType: error.type,

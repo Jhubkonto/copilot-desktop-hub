@@ -45,6 +45,7 @@ import { clearActiveChatTurn } from './active-chat-turns'
 import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 import { estimateInputTokens, formatEstimatedTokens } from '../shared/token-estimate'
 import { saveFinalizedPlanArtifact } from './artifacts'
+import { isLegacyPortableOperationalSummary } from '../shared/conversation-portability'
 
 export { clearDirListingCache } from './chat-context-builder'
 
@@ -129,11 +130,14 @@ function persistAssistantMessage(
  *  messages directly into the DB and need the same live-refresh. */
 export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
-  const rows = db.prepare(
+  const rows = (db.prepare(
     `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
-       WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
-  ).all(conversationId)
-  broadcastToMobile({ event: 'conversation:messages', data: { conversationId, messages: rows } })
+       WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT 20`,
+  ).all(conversationId) as unknown[]).reverse()
+  broadcastToMobile({
+    event: 'conversation:messages',
+    data: { conversationId, messages: rows, paged: true, hasMore: rows.length === 20 },
+  })
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('chat:messages-updated', { conversationId })
   }
@@ -563,42 +567,33 @@ export async function dispatchChatSend(
         'INSERT INTO conversations (id, agent_id, project_id, title, cli_backend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ).run(conversationId, agentId ?? null, validProjectId, title, cliBackend ?? null, now, now)
 
-      if (options?.thinkingEffortOverride !== undefined && options.thinkingEffortOverride !== null) {
-        db.prepare('UPDATE conversations SET thinking_effort_override = ? WHERE id = ?').run(
-          options.thinkingEffortOverride,
-          conversationId,
-        )
-      }
-      if (options?.fullAutoApproveOverride !== undefined && options.fullAutoApproveOverride !== null) {
-        db.prepare('UPDATE conversations SET full_auto_approve_override = ? WHERE id = ?').run(
-          options.fullAutoApproveOverride ? 1 : 0,
-          conversationId,
-        )
-      }
-      if (options?.agenticModeOverride !== undefined && options.agenticModeOverride !== null) {
-        db.prepare('UPDATE conversations SET agentic_mode_override = ? WHERE id = ?').run(
-          options.agenticModeOverride ? 1 : 0,
-          conversationId,
-        )
-      }
-      if (options?.terminalSandboxOverride !== undefined && options.terminalSandboxOverride !== null) {
-        db.prepare('UPDATE conversations SET terminal_sandbox_override = ? WHERE id = ?').run(
-          options.terminalSandboxOverride ? 1 : 0,
-          conversationId,
-        )
-      }
-      if (options?.cliModeOverride !== undefined && options.cliModeOverride !== null) {
-        db.prepare('UPDATE conversations SET cli_mode_override = ? WHERE id = ?').run(
-          options.cliModeOverride,
-          conversationId,
-        )
-      }
-      if (options?.codexExecutionModeOverride === 'plan') {
-        db.prepare('UPDATE conversations SET codex_execution_mode_override = ? WHERE id = ?').run(
-          options.codexExecutionModeOverride,
-          conversationId,
-        )
-      }
+    }
+
+    // A client may change a mode and immediately send. Turn-carried overrides are applied before
+    // provider resolution, so the turn and persistence form one atomic operation.
+    if (options?.thinkingEffortOverride !== undefined) {
+      db.prepare('UPDATE conversations SET thinking_effort_override = ? WHERE id = ?')
+        .run(options.thinkingEffortOverride, conversationId)
+    }
+    if (options?.fullAutoApproveOverride !== undefined) {
+      db.prepare('UPDATE conversations SET full_auto_approve_override = ? WHERE id = ?')
+        .run(options.fullAutoApproveOverride === null ? null : options.fullAutoApproveOverride ? 1 : 0, conversationId)
+    }
+    if (options?.agenticModeOverride !== undefined) {
+      db.prepare('UPDATE conversations SET agentic_mode_override = ? WHERE id = ?')
+        .run(options.agenticModeOverride === null ? null : options.agenticModeOverride ? 1 : 0, conversationId)
+    }
+    if (options?.terminalSandboxOverride !== undefined) {
+      db.prepare('UPDATE conversations SET terminal_sandbox_override = ? WHERE id = ?')
+        .run(options.terminalSandboxOverride === null ? null : options.terminalSandboxOverride ? 1 : 0, conversationId)
+    }
+    if (options?.cliModeOverride !== undefined) {
+      db.prepare('UPDATE conversations SET cli_mode_override = ? WHERE id = ?')
+        .run(options.cliModeOverride, conversationId)
+    }
+    if (options?.codexExecutionModeOverride !== undefined) {
+      db.prepare('UPDATE conversations SET codex_execution_mode_override = ? WHERE id = ?')
+        .run(options.codexExecutionModeOverride, conversationId)
     }
 
     const userMsgId = options?.messageId ?? randomUUID()
@@ -722,11 +717,30 @@ export async function dispatchChatSend(
     : convRow?.agentic_mode_override === 0 ? false
     : agentCfg2?.agenticMode === true
   const conversationModel = typeof convRow?.model === 'string' ? convRow.model : undefined
+  const isModelAvailable = (model: string): boolean => {
+    if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((entry) => entry.id === model)) return true
+    if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((entry) => entry.id === model)) return true
+    if (HermesAdapter.isAvailable() && getCliModels('hermes-cli').some((entry) => entry.id === model)) return true
+    const { provider } = getProviderForAgent(model)
+    return !!getApiKey(provider)
+  }
+  const conversationModelIsAvailable = !!conversationModel &&
+    conversationModel !== 'default' &&
+    isModelAvailable(conversationModel)
+  const effectiveProjectId = terminalSandboxProjectId
+  const projectDefaultModel = effectiveProjectId
+    ? (db.prepare('SELECT default_model FROM projects WHERE id = ?').get(effectiveProjectId) as { default_model: string | null } | undefined)?.default_model
+    : null
+  const projectModelIsAvailable = !!projectDefaultModel &&
+    projectDefaultModel !== 'default' &&
+    isModelAvailable(projectDefaultModel)
   const selectedModel =
     modelOverride && modelOverride !== 'default'
       ? modelOverride
-      : conversationModel && conversationModel !== 'default'
+      : conversationModelIsAvailable
         ? conversationModel
+        : projectModelIsAvailable
+          ? projectDefaultModel!
         : defaultModel !== 'default'
           ? defaultModel
           : DEFAULT_PROVIDER_MODEL
@@ -952,7 +966,9 @@ export async function dispatchChatSend(
         .all(conversationId) as { role: string; content: string }[]
       const historyMessages = historyRows.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
       const providerHistoryMessages = historyMessages.filter(
-        (m) => m.role !== 'team-activity' && m.role !== 'tool-call',
+        (m) => m.role !== 'team-activity'
+          && m.role !== 'tool-call'
+          && !isLegacyPortableOperationalSummary(m.role, m.content),
       ) as ProviderMessage[]
       const contextMessages: ProviderMessage[] =
         regenerate && providerHistoryMessages.length > 0
@@ -1434,7 +1450,9 @@ export async function dispatchChatSend(
     .all(conversationId) as { role: string; content: string }[]
   const historyMessages = historyRows.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
   const providerHistoryMessages = historyMessages.filter(
-    (m) => m.role !== 'team-activity' && m.role !== 'tool-call',
+    (m) => m.role !== 'team-activity'
+      && m.role !== 'tool-call'
+      && !isLegacyPortableOperationalSummary(m.role, m.content),
   ) as ProviderMessage[]
   const contextMessages: ProviderMessage[] =
     regenerate && providerHistoryMessages.length > 0
