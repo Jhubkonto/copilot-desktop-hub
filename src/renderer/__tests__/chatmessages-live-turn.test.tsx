@@ -97,6 +97,13 @@ describe('ChatMessages normalized live turn fallback', () => {
     expect(screen.getByText('$0.0123')).toBeInTheDocument()
     expect(screen.getByText(/1[,.]200 in/)).toBeInTheDocument()
     expect(screen.getByText('300 out')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'How token usage is calculated' })).toHaveAttribute(
+      'aria-describedby',
+      'token-usage-explanation',
+    )
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Usage for the most recently completed assistant turn',
+    )
   })
 
   it('renders normalized live tool calls until the matching legacy tool message exists', () => {

@@ -115,6 +115,55 @@ describe("ChatWindow — Empty State", () => {
 });
 
 describe("ChatWindow — Sending Messages", () => {
+  it("waits for an in-flight mode update before launching the turn", async () => {
+    const user = userEvent.setup();
+    let resolveModeWrite!: (value: true) => void;
+    mockApi.setConversationMode.mockReturnValue(new Promise((resolve) => {
+      resolveModeWrite = resolve;
+    }));
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: true,
+        mode: "none",
+        user: null,
+        cliInstalled: true,
+        clis: { claude: false, codex: true },
+      },
+      currentConversationId: "conv-1",
+      conversations: [{
+        id: "conv-1",
+        title: "Codex chat",
+        project_id: null,
+        model: "gpt-5.5",
+        cli_backend: "codex-cli",
+        pinned: false,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      availableModelGroups: [{
+        sourceKey: "codex-cli",
+        sourceLabel: "Codex CLI",
+        sourceType: "cli",
+        models: [{ id: "gpt-5.5", label: "GPT-5.5" }],
+      }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await user.click(screen.getByRole("button", { name: /chat mode settings/i }));
+    const sandboxSection = screen.getByText("Codex sandbox (this chat)").parentElement!;
+    await user.click(within(sandboxSection).getByRole("button", { name: "Workspace" }));
+
+    await user.type(screen.getByRole("textbox", { name: /message input/i }), "Apply the fix");
+    await user.click(screen.getByRole("button", { name: /^send message$/i }));
+
+    expect(mockApi.setConversationMode).toHaveBeenCalledWith("conv-1", { cliModeOverride: "workspace-write" });
+    expect(mockApi.sendMessage).not.toHaveBeenCalled();
+
+    await act(async () => resolveModeWrite(true));
+    await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledTimes(1));
+  });
+
   it("chat-r-3: user message appears immediately after send (optimistic)", async () => {
     const user = userEvent.setup();
     render(<ChatWindow />);
@@ -1124,6 +1173,47 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     await waitFor(() => {
       const btn = screen.getByRole("button", { name: /conversation model/i });
       expect(btn).toHaveTextContent("GPT-4.1");
+      expect(btn).toHaveTextContent("Project default");
+    });
+  });
+
+  it("falls back to the global default when the project model is no longer available", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      globalDefaultModel: "gpt-5-mini",
+      availableModelsLoaded: true,
+      availableModelGroups: [{
+        sourceKey: "openai",
+        sourceLabel: "OpenAI",
+        sourceType: "provider",
+        models: [{ id: "gpt-5-mini", label: "GPT-5 mini" }],
+      }],
+      currentConversationId: "conv-1",
+      conversations: [{
+        id: "conv-1",
+        title: "T",
+        project_id: "proj-1",
+        model: null,
+        pinned: false,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      projects: [{
+        id: "proj-1",
+        name: "P",
+        color: "blue",
+        default_model: "removed-cli-model",
+        created_at: 0,
+        updated_at: 0,
+      }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /conversation model/i });
+      expect(btn).toHaveTextContent("GPT-5 mini");
+      expect(btn).not.toHaveTextContent("Project default");
     });
   });
 

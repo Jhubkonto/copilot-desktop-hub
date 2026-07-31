@@ -114,6 +114,26 @@ describe('ProjectSettingsPanel — tabs', () => {
       expect.objectContaining({ strategyRetrievalEnabled: true }),
     )
   })
+
+  it('lets a project choose its default from currently available models', async () => {
+    mockStore = createMockAppStore({
+      projects: [PROJECT],
+      projectConfigs: { 'proj-1': BASE_CONFIG },
+      availableModelGroups: [{
+        sourceKey: 'openai',
+        sourceLabel: 'OpenAI',
+        sourceType: 'provider',
+        models: [{ id: 'gpt-5-mini', label: 'GPT-5 mini' }],
+      }],
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /conversation model/i }))
+    await user.click(await screen.findByRole('button', { name: /gpt-5 mini/i }))
+
+    expect(mockStore.setProjectDefaultModel).toHaveBeenCalledWith('proj-1', 'gpt-5-mini')
+  })
 })
 
 describe('ProjectSettingsPanel — changes audit', () => {

@@ -26,6 +26,25 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Hello there')).toBeInTheDocument()
   })
 
+  it('renders historical context snapshots with missing array fields safely', () => {
+    render(
+      <MessageBubble
+        {...baseProps}
+        contextSnapshot={JSON.stringify({
+          historyLength: 3,
+          estimatedTokens: 600,
+          model: 'legacy-model',
+          timestamp: Date.now(),
+        })}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Toggle context snapshot' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle context snapshot' }))
+    expect(screen.getByText('3 messages')).toBeInTheDocument()
+    expect(screen.getByText('legacy-model')).toBeInTheDocument()
+  })
+
   it('strips injected context from user-facing content', () => {
     expect(stripInjectedBlocks('[Project Context]\nsecret\n[/Project Context]\nHello')).toBe('Hello')
     expect(stripInjectedBlocks('{"projectId":"p1","sourceContext":{"useProjectWiki":true}}\nHello')).toBe('Hello')
