@@ -81,6 +81,8 @@ import io.nexy.android.ui.components.NexyExpandableSection
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.settings.SettingsNavRow
+import io.nexy.android.ui.chat.ModelPickerSheet
+import io.nexy.android.ui.model.activeModelLabel
 import kotlinx.coroutines.launch
 
 private val instructionModeOptions = listOf(
@@ -120,6 +122,9 @@ fun ProjectConfigScreen(
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
     val allAgents by WsRepository.agents.collectAsStateWithLifecycle()
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val models by WsRepository.models.collectAsStateWithLifecycle()
+    val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val project = projects.find { it.id == projectId }
 
     var instructions by remember { mutableStateOf("") }
@@ -130,6 +135,9 @@ fun ProjectConfigScreen(
     var maxDelegationDepth by remember { mutableStateOf("5") }
     var showTeamActivity by remember { mutableStateOf(true) }
     var instructionModeExpanded by remember { mutableStateOf(false) }
+    var defaultModel by remember { mutableStateOf<String?>(null) }
+    var showModelSheet by remember { mutableStateOf(false) }
+    val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Snapshot variables for dirty-check
     var loadedInstructions by remember { mutableStateOf("") }
@@ -139,6 +147,7 @@ fun ProjectConfigScreen(
     var loadedWorkflowMode by remember { mutableStateOf("single-agent") }
     var loadedMaxDelegationDepth by remember { mutableStateOf("5") }
     var loadedShowTeamActivity by remember { mutableStateOf(true) }
+    var loadedDefaultModel by remember { mutableStateOf<String?>(null) }
     val variables = remember { mutableStateListOf<Map<String, String>>() }
     val inScope = remember { mutableStateListOf<Map<String, String>>() }
     val outOfScope = remember { mutableStateListOf<Map<String, String>>() }
@@ -170,7 +179,8 @@ fun ProjectConfigScreen(
         instructionsEnabled != loadedInstructionsEnabled ||
         workflowMode != loadedWorkflowMode ||
         maxDelegationDepth != loadedMaxDelegationDepth ||
-        showTeamActivity != loadedShowTeamActivity
+        showTeamActivity != loadedShowTeamActivity ||
+        defaultModel != loadedDefaultModel
     )
 
     LaunchedEffect(projectId) {
@@ -190,6 +200,7 @@ fun ProjectConfigScreen(
                     workflowMode = event.config.workflowMode
                     maxDelegationDepth = event.config.maxDelegationDepth.toString()
                     showTeamActivity = event.config.showTeamActivity
+                    defaultModel = event.config.defaultModel
                     variables.replaceWith(event.config.variables)
                     inScope.replaceWith(event.config.inScope)
                     outOfScope.replaceWith(event.config.outOfScope)
@@ -202,6 +213,7 @@ fun ProjectConfigScreen(
                     loadedWorkflowMode = event.config.workflowMode
                     loadedMaxDelegationDepth = event.config.maxDelegationDepth.toString()
                     loadedShowTeamActivity = event.config.showTeamActivity
+                    loadedDefaultModel = event.config.defaultModel
                     loaded = true
                 }
                 is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) {
@@ -213,6 +225,7 @@ fun ProjectConfigScreen(
                     loadedWorkflowMode = workflowMode
                     loadedMaxDelegationDepth = maxDelegationDepth
                     loadedShowTeamActivity = showTeamActivity
+                    loadedDefaultModel = defaultModel
                     if (isNew) {
                         WsRepository.pendingHighlightProjectId.value = projectId
                         onBack()
@@ -251,6 +264,27 @@ fun ProjectConfigScreen(
 
     BackHandler(enabled = hasUnsavedChanges && !showDiscardDialog) {
         showDiscardDialog = true
+    }
+
+    if (showModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showModelSheet = false },
+            sheetState = modelSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            ModelPickerSheet(
+                title = "Project default model",
+                models = models,
+                cliStatus = cliStatus,
+                selectedModelId = defaultModel,
+                subtitle = "Pre-selected for new chats in this project",
+                showDefaultModel = true,
+                effectiveMode = effectiveMode,
+            ) { modelId ->
+                defaultModel = modelId
+                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+            }
+        }
     }
 
     if (showDiscardDialog) {
@@ -340,7 +374,7 @@ fun ProjectConfigScreen(
                                     inScope = inScope.toList(),
                                     outOfScope = outOfScope.toList(),
                                     milestones = milestones.toList(),
-                                    defaultModel = null,
+                                    defaultModel = defaultModel,
                                 ),
                             )
                         },
@@ -446,6 +480,24 @@ fun ProjectConfigScreen(
                     }
                     Text(
                         instructionModeDescriptions[instructionMode].orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SettingsNavRow(
+                        title = "Default model",
+                        detail = if (defaultModel == null) {
+                            "Nexy default"
+                        } else {
+                            "${activeModelLabel(defaultModel, models)} · New project chats"
+                        },
+                        onClick = {
+                            WsRepository.send("model:list", emptyMap())
+                            WsRepository.getCliStatus()
+                            showModelSheet = true
+                        },
+                    )
+                    Text(
+                        "If this model becomes unavailable, new chats fall back to the Nexy default.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

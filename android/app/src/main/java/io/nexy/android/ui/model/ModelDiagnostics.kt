@@ -25,6 +25,12 @@ fun activeModelLabel(selectedModel: String?, models: List<ModelOption>): String 
     return models.find { it.id == id }?.label ?: if (id == "default") "Default model" else id
 }
 
+fun resolveAvailableProjectDefault(
+    projectDefaultModel: String?,
+    models: List<ModelOption>,
+): String? = projectDefaultModel
+    ?.takeIf { id -> id.isNotBlank() && id != "default" && models.any { it.id == id } }
+
 fun activeModelDetail(
     selectedModel: String?,
     agent: Agent?,
