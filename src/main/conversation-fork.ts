@@ -5,7 +5,6 @@ import type {
   ConversationForkResult,
 } from "../shared/types";
 import {
-  arrayFromJson,
   CompressionPlan,
   ForkMessageInput,
   getConversationRow,
@@ -16,6 +15,7 @@ import {
 import { roleLabel } from "./conversation-formatters";
 import { getCliModels } from "./cli-detection";
 import { estimateMessageTokens, resolveContextWindow } from "./context-compression";
+import { isLegacyPortableOperationalSummary } from "../shared/conversation-portability";
 
 type AgentBackend = "claude-cli" | "codex-cli" | "hermes-cli";
 
@@ -48,47 +48,14 @@ function validateForkTarget(db: Database.Database, agentId: string | null, model
   return model;
 }
 
-function summarizeAttachments(attachmentsJson: string | null): string[] {
-  const attachments = arrayFromJson<Record<string, unknown>>(attachmentsJson);
-  return attachments.map((attachment) => {
-    const name = typeof attachment.name === "string" ? attachment.name : "attachment";
-    const size = typeof attachment.size === "number" ? `, ${attachment.size} bytes` : "";
-    const type = typeof attachment.type === "string" ? `, ${attachment.type}` : "";
-    return `- ${name}${size}${type}`;
-  });
+function shouldOmitFromFork(row: MessageExportRow): boolean {
+  return row.role === "tool-call"
+    || row.role === "team-activity"
+    || isLegacyPortableOperationalSummary(row.role, row.content);
 }
 
-function summarizeToolCallMessage(content: string): string {
-  const parsed = parseJson<Record<string, unknown> | null>(content, null);
-  if (!parsed) return content;
-  const toolName = typeof parsed.toolName === "string" ? parsed.toolName : typeof parsed.name === "string" ? parsed.name : "tool";
-  const serverName = typeof parsed.serverName === "string" ? parsed.serverName : typeof parsed.server === "string" ? parsed.server : "unknown server";
-  const args = parsed.toolArgs ?? parsed.args ?? parsed.input;
-  const result = parsed.toolResult ?? parsed.result ?? parsed.content ?? parsed.error;
-  const success = typeof parsed.toolSuccess === "boolean" ? parsed.toolSuccess : typeof parsed.success === "boolean" ? parsed.success : undefined;
-  const lines = [
-    `[Portable tool-call summary]`,
-    `Tool: ${toolName}`,
-    `Server/backend: ${serverName}`,
-  ];
-  if (success !== undefined) lines.push(`Status: ${success ? "success" : "failed"}`);
-  if (args !== undefined) lines.push(`Arguments: ${typeof args === "string" ? args : JSON.stringify(args)}`);
-  if (result !== undefined) lines.push(`Result: ${typeof result === "string" ? result : JSON.stringify(result)}`);
-  return lines.join("\n");
-}
-
-function summarizeTeamActivity(content: string): string {
-  const parsed = parseJson<{ steps?: Array<Record<string, unknown>> } | null>(content, null);
-  if (!parsed?.steps?.length) return `[Portable team-activity summary]\n${content}`;
-  const lines = ["[Portable team-activity summary]"];
-  for (const step of parsed.steps) {
-    const name = typeof step.agentName === "string" ? step.agentName : typeof step.agentId === "string" ? step.agentId : "agent";
-    const task = typeof step.task === "string" ? step.task : "task";
-    const status = typeof step.status === "string" ? step.status : "unknown";
-    const result = typeof step.result === "string" && step.result.trim() ? ` — ${step.result.trim()}` : "";
-    lines.push(`- ${name}: ${task} (${status})${result}`);
-  }
-  return lines.join("\n");
+function continuedTitle(title: string): string {
+  return `Continued: ${title.replace(/^(?:Continued:\s*)+/i, "").trim()}`;
 }
 
 function buildForkContextSnapshot(row: MessageExportRow, now: number, sourceConversationId: string, rewrites: string[]): string {
@@ -210,27 +177,12 @@ function rewriteMessageForTarget(row: MessageExportRow, now: number, sourceConve
   const rewrites: string[] = [];
   let role = row.role;
   let content = row.content;
-  let attachmentsJson = row.attachments;
+  const attachmentsJson = row.attachments;
 
-  if (row.role === "tool-call") {
-    role = "system";
-    content = summarizeToolCallMessage(row.content);
-    rewrites.push("tool-call-to-system-summary");
-  } else if (row.role === "team-activity") {
-    role = "system";
-    content = summarizeTeamActivity(row.content);
-    rewrites.push("team-activity-to-system-summary");
-  } else if (!["user", "assistant", "system"].includes(row.role)) {
+  if (!["user", "assistant", "system"].includes(row.role)) {
     role = "system";
     content = `[Portable unsupported-role summary]\nOriginal role: ${row.role}\n\n${row.content}`;
     rewrites.push("unsupported-role-to-system-summary");
-  }
-
-  const attachmentSummaries = summarizeAttachments(row.attachments);
-  if (attachmentSummaries.length > 0) {
-    content = `${content}\n\n[Portable attachment metadata]\n${attachmentSummaries.join("\n")}`;
-    attachmentsJson = null;
-    rewrites.push("attachments-to-text-metadata");
   }
 
   return {
@@ -281,14 +233,16 @@ export function forkConversation(
        ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
     )
     .all(...(cutoff !== null ? [conversationId, cutoff] : [conversationId])) as MessageExportRow[];
-  const rewrittenForkMessages = rows.map((row) => rewriteMessageForTarget(row, now, conversationId));
+  const retainedRows = rows.filter((row) => !shouldOmitFromFork(row));
+  const omittedMessageCount = rows.length - retainedRows.length;
+  const rewrittenForkMessages = retainedRows.map((row) => rewriteMessageForTarget(row, now, conversationId));
   const compressionPlan = maybeCompressForkMessages(db, rewrittenForkMessages, conversationId, targetModel, now);
   const forkMessages = compressionPlan.messages;
 
   const transaction = db.transaction(() => {
     db.prepare(
       "INSERT INTO conversations (id, agent_id, project_id, title, model, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(forkId, targetAgentId, targetProjectId, `Continued: ${source.title}`, targetModel, 0, now, now);
+    ).run(forkId, targetAgentId, targetProjectId, continuedTitle(source.title), targetModel, 0, now, now);
 
     const insertMessage = db.prepare(
       `INSERT INTO messages
@@ -313,5 +267,6 @@ export function forkConversation(
     message_count: forkMessages.length,
     rewritten_message_count: rewrittenForkMessages.filter((message) => message.rewritten).length,
     compressed_message_count: compressionPlan.compressedCount,
+    omitted_message_count: omittedMessageCount,
   };
 }

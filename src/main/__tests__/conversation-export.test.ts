@@ -386,8 +386,9 @@ describe('conversation export', () => {
       .all(result.conversation.id) as MessageRow[]
 
     expect(result).toEqual(expect.objectContaining({
-      message_count: 2,
-      rewritten_message_count: 2,
+      message_count: 1,
+      rewritten_message_count: 0,
+      omitted_message_count: 1,
       conversation: expect.objectContaining({
         title: 'Continued: Portable Chat',
         model: 'claude-sonnet-4-6',
@@ -397,22 +398,20 @@ describe('conversation export', () => {
     }))
     expect(result.conversation.id).not.toBe('conv-1')
     expect(messages[0].content).toContain('Review this file')
-    expect(messages[0].content).toContain('[Portable attachment metadata]')
-    expect(messages[1].content).toContain('read_file')
     expect(messages[0].id).not.toBe('msg-1')
-    expect(messages[1].role).toBe('system')
-    expect(messages[1].content).toContain('[Portable tool-call summary]')
+    expect(messages[0].attachments).toContain('notes.txt')
     expect(JSON.parse(messages[0].context_snapshot ?? '{}')).toEqual(expect.objectContaining({
       nexyFork: expect.objectContaining({
         sourceConversationId: 'conv-1',
         sourceMessageId: 'msg-1',
-        compatibilityRewrites: ['attachments-to-text-metadata'],
+        compatibilityRewrites: [],
       }),
     }))
 
     const directResult = forkConversation(state.db, 'conv-1', { model: 'default', agentId: null })
     expect(directResult).toEqual(expect.objectContaining({
-      rewritten_message_count: 2,
+      rewritten_message_count: 0,
+      omitted_message_count: 1,
       conversation: expect.objectContaining({ model: null, agent_id: null }),
     }))
   })
@@ -465,7 +464,7 @@ describe('conversation export', () => {
     }))
   })
 
-  it('rewrites team activity and attachment metadata for portable forks', () => {
+  it('omits execution traces and preserves attachments when forking', () => {
     if (!state.db) throw new Error('Database not initialized')
     const db = state.db
     seedConversation(db)
@@ -499,15 +498,62 @@ describe('conversation export', () => {
       .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC')
       .all(result.conversation.id) as MessageRow[]
 
-    expect(result.rewritten_message_count).toBe(4)
-    const teamMessage = messages.find((message) => message.content.includes('[Portable team-activity summary]'))
-    expect(teamMessage).toEqual(expect.objectContaining({ role: 'system' }))
-    const attachmentMessage = messages.find((message) => message.content.includes('[Portable attachment metadata]'))
+    expect(result.rewritten_message_count).toBe(0)
+    expect(result.omitted_message_count).toBe(2)
+    expect(messages).toHaveLength(2)
+    expect(messages.some((message) => message.role === 'tool-call' || message.role === 'team-activity')).toBe(false)
+    const attachmentMessage = messages.find((message) => message.content === 'See attached file')
     expect(attachmentMessage).toEqual(expect.objectContaining({
       role: 'user',
-      attachments: null,
+      attachments: expect.stringContaining('diagram.png'),
     }))
-    expect(JSON.parse(attachmentMessage?.context_snapshot ?? '{}').nexyFork.compatibilityRewrites).toContain('attachments-to-text-metadata')
+    expect(JSON.parse(attachmentMessage?.context_snapshot ?? '{}').nexyFork.compatibilityRewrites).toEqual([])
+  })
+
+  it('repairs repeated forks by pruning legacy portable execution summaries', () => {
+    if (!state.db) throw new Error('Database not initialized')
+    const db = state.db
+    seedConversation(db)
+    db.prepare(
+      `INSERT INTO messages
+        (id, conversation_id, role, content, timestamp)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      'legacy-portable-tool',
+      'conv-1',
+      'system',
+      '[Portable tool-call summary]\nTool: shell\nResult: an entire file dump',
+      1700000000004,
+    )
+    db.prepare(
+      `INSERT INTO messages
+        (id, conversation_id, role, content, timestamp)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      'assistant-after-tool',
+      'conv-1',
+      'assistant',
+      'The requested change is complete.',
+      1700000000005,
+    )
+
+    const first = forkConversation(db, 'conv-1', { model: 'gpt-5.5', agentId: null })
+    const second = forkConversation(db, first.conversation.id, { model: 'gpt-5.5', agentId: null })
+    const messages = db
+      .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC')
+      .all(second.conversation.id) as MessageRow[]
+
+    expect(first.omitted_message_count).toBe(2)
+    expect(second.omitted_message_count).toBe(0)
+    expect(second.conversation.title).toBe('Continued: Portable Chat')
+    expect(messages.map((message) => message.content)).toEqual([
+      'Review this file',
+      'The requested change is complete.',
+    ])
+    expect(messages.some((message) => message.content.includes('[Portable tool-call summary]'))).toBe(false)
+
+    const exported = buildConversationExport(db, 'conv-1')
+    expect(exported.messages.some((message) => message.content.includes('[Portable tool-call summary]'))).toBe(false)
   })
 
   it('compresses fork context when the target model context window is smaller than the conversation', () => {

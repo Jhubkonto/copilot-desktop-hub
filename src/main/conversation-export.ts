@@ -13,6 +13,7 @@ import type {
 } from "../shared/types";
 import { arrayFromJson, MessageExportRow, parseJson } from "./conversation-types";
 import { buildContextBundle, buildMarkdownTranscript, slugFileName } from "./conversation-formatters";
+import { isLegacyPortableOperationalSummary } from "../shared/conversation-portability";
 
 function extractContextRefs(snapshot: unknown): ConversationExportContextRef[] {
   if (!snapshot || typeof snapshot !== "object") return [];
@@ -122,7 +123,9 @@ export function buildConversationExport(db: Database.Database, conversationId: s
     conversation,
     project: getProjectExport(db, conversation.project_id),
     agent: getAgentExport(db, conversation.agent_id),
-    messages: messages.map(mapExportMessage),
+    messages: messages
+      .filter((message) => !isLegacyPortableOperationalSummary(message.role, message.content))
+      .map(mapExportMessage),
   };
 }
 
