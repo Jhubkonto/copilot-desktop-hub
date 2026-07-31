@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2, Wrench } from 'lucide-react'
+import { AlertCircle, Info, Loader2, Wrench } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useGenerationTimer } from '../../hooks/useGenerationTimer'
 import { getModelLabel } from '../../../shared/models'
@@ -16,6 +16,8 @@ import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
 import type { SpokenPlaybackState } from '../../hooks/useSpokenOutput'
 import type { SpokenOutputSettings } from '../../lib/spoken-output'
+
+const TOKEN_USAGE_EXPLANATION = 'Usage for the most recently completed assistant turn, reported by the provider or CLI. Input counts all context processed across the turn’s model and tool calls, so it can exceed one context window. Output counts generated model tokens. Counts marked ~ elsewhere are local estimates of about 1 token per 4 characters.'
 
 interface ChatMessagesProps {
   messages: ChatMessage[]
@@ -849,6 +851,23 @@ export function ChatMessagesBase({
             <span>{effectiveCliCost.inputTokens.toLocaleString()} in</span>
             <span>/</span>
             <span>{effectiveCliCost.outputTokens.toLocaleString()} out</span>
+            <span className="group relative inline-flex">
+              <button
+                type="button"
+                aria-label="How token usage is calculated"
+                aria-describedby="token-usage-explanation"
+                className="rounded-full text-gray-400 outline-none transition-colors hover:text-gray-600 focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-500 dark:hover:text-gray-300"
+              >
+                <Info className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+              <span
+                id="token-usage-explanation"
+                role="tooltip"
+                className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 w-72 rounded-lg bg-gray-900 px-3 py-2 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-gray-100 dark:text-gray-900"
+              >
+                {TOKEN_USAGE_EXPLANATION}
+              </span>
+            </span>
           </div>
         )}
         {loadingFailed && !isGenerating && !streamingContent && (

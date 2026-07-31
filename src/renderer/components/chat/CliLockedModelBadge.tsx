@@ -58,10 +58,11 @@ export function CliLockedModelBadge({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors max-w-[220px]"
-        title={`Agent settings lock this chat to ${backendLabel}. Click to change model within ${backendLabel}.`}
+        className="flex max-w-[220px] items-center gap-1 rounded-md px-1.5 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+        aria-label={`Conversation model: ${modelLabel} · ${backendLabel}`}
+        title={`${modelLabel} · ${backendLabel}. Agent settings lock this chat to this backend.`}
       >
-        <span className="truncate">{modelLabel}</span>
+        <span className="min-w-0 max-w-[140px] truncate">{modelLabel}</span>
         <span className="shrink-0 text-gray-400 dark:text-gray-500 opacity-80">· {backendLabel}</span>
         <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
       </button>

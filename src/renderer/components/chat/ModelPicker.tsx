@@ -38,6 +38,8 @@ export function ModelPicker({
   onSelectDefault,
   onSelectAvailableModel,
 }: ModelPickerProps) {
+  const modelLabel = getModelLabel(value, catalogModels, globalDefaultModel)
+  const fullButtonLabel = sourceLabel ? `${modelLabel} · via ${sourceLabel}` : modelLabel
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const internalButtonRef = useRef<HTMLButtonElement | null>(null)
   const resolvedButtonRef = buttonRef ?? internalButtonRef
@@ -79,12 +81,12 @@ export function ModelPicker({
       <button
         ref={resolvedButtonRef}
         type="button"
-        aria-label="Conversation model"
-        title={sourceLabel ? `${getModelLabel(value, catalogModels, globalDefaultModel)} · via ${sourceLabel}` : undefined}
+        aria-label={`Conversation model: ${fullButtonLabel}`}
+        title={fullButtonLabel}
         className={buttonClassName}
         onClick={() => setShowModelMenu((prev) => !prev)}
       >
-        <span className="truncate">{getModelLabel(value, catalogModels, globalDefaultModel)}</span>
+        <span className="min-w-0 max-w-[140px] truncate">{modelLabel}</span>
         {sourceLabel && (
           <span className="shrink-0 text-gray-400 dark:text-gray-500 opacity-80">· {sourceLabel}</span>
         )}

@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
-import { BookOpen, Camera, ClipboardPaste, Eye, File, FolderOpen, Loader2, Mic, Package, Paperclip, SendHorizontal, Square, UnfoldVertical, X } from 'lucide-react'
+import { Loader2, Mic, SendHorizontal, Square, UnfoldVertical, X } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
@@ -12,6 +12,7 @@ import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedI
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
 import { ResizableChatInput } from './ResizableChatInput'
+import { ComposerActionsMenu } from './ComposerActionsMenu'
 
 
 interface ChatComposerProps {
@@ -166,7 +167,6 @@ export function ChatComposer({
   onSetConversationMode,
 }: ChatComposerProps) {
   const [showModePicker, setShowModePicker] = useState(false)
-  const [showAttachPicker, setShowAttachPicker] = useState(false)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
   const agentBackend = activeAgent?.backend
@@ -260,101 +260,17 @@ export function ChatComposer({
               undefined
             }
             leftActions={
-              <>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowAttachPicker((open) => !open)}
-                    disabled={isGenerating}
-                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Attach file or folder"
-                    aria-label="Attach file or folder"
-                    aria-expanded={showAttachPicker}
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
-                  {showAttachPicker && (
-                    <div className="absolute bottom-full left-0 z-30 mb-1 min-w-36 rounded-lg border border-gray-200 bg-white p-1 text-gray-700 shadow-lg dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-800"
-                        onClick={() => { setShowAttachPicker(false); void onAttachFiles() }}
-                      >
-                        <File className="h-3.5 w-3.5" /> Files
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-800"
-                        onClick={() => { setShowAttachPicker(false); void onAttachFolder() }}
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" /> Folder
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {onCaptureScreen && (
-                  <button
-                    type="button"
-                    onClick={onCaptureScreen}
-                    disabled={isGenerating}
-                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Capture screen"
-                    aria-label="Capture screen"
-                  >
-                    <Camera className="w-4 h-4" />
-                  </button>
-                )}
-                {onPasteClipboardImage && (
-                  <button
-                    type="button"
-                    onClick={onPasteClipboardImage}
-                    disabled={isGenerating}
-                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Paste image from clipboard"
-                    aria-label="Paste image from clipboard"
-                  >
-                    <ClipboardPaste className="w-4 h-4" />
-                  </button>
-                )}
-                {onOpenPromptLibrary && (
-                  <button
-                    type="button"
-                    onClick={onOpenPromptLibrary}
-                    disabled={isGenerating}
-                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Insert prompt"
-                    aria-label="Insert prompt"
-                  >
-                    <BookOpen className="w-4 h-4" />
-                  </button>
-                )}
-                {onAttachArtifact && (
-                  <button
-                    type="button"
-                    onClick={onAttachArtifact}
-                    disabled={isGenerating}
-                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Attach artifact"
-                    aria-label="Attach artifact"
-                  >
-                    <Package className="w-4 h-4" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={onToggleContextInspector}
-                  className={`p-1.5 rounded-md transition-colors ${
-                    showContextInspector
-                      ? 'text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700'
-                      : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                  title="Open context inspector"
-                  aria-label="Open context inspector"
-                  aria-pressed={showContextInspector}
-                >
-                  <Eye className="w-4 h-4" />
-                </button>
-              </>
+              <ComposerActionsMenu
+                disabled={isGenerating}
+                showContextInspector={showContextInspector}
+                onAttachFiles={onAttachFiles}
+                onAttachFolder={onAttachFolder}
+                onCaptureScreen={onCaptureScreen}
+                onPasteClipboardImage={onPasteClipboardImage}
+                onOpenPromptLibrary={onOpenPromptLibrary}
+                onAttachArtifact={onAttachArtifact}
+                onToggleContextInspector={onToggleContextInspector}
+              />
             }
             rightActions={
               <>
