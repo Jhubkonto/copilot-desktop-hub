@@ -770,6 +770,11 @@ export function ChatMessagesBase({
                 )
               }
               if (item.type === 'live-text-segment') {
+                // Completed live-turn state remains populated until the next turn or
+                // conversation reset. Once generation settles, the persisted assistant
+                // message is authoritative; rendering this closed segment as well would
+                // duplicate CLI responses until the user leaves and re-enters the chat.
+                if (!isGenerating) return null
                 return (
                   <div className="message-enter text-sm text-gray-900 dark:text-gray-100" key={item.id}>
                     <MarkdownRenderer content={item.text} />

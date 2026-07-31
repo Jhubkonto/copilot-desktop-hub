@@ -160,6 +160,7 @@ export function ChatWindow() {
   const [menuContinueOpen, setMenuContinueOpen] = useState(false)
   const [continueModel, setContinueModel] = useState<string>('default')
   const [continueAgentId, setContinueAgentId] = useState<string | null>(null)
+  const [continueProjectId, setContinueProjectId] = useState<string | null>(null)
   const [continueCliModels, setContinueCliModels] = useState<{ id: string; label: string }[]>([])
   const [isForking, setIsForking] = useState(false)
   const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
@@ -945,9 +946,10 @@ export function ChatWindow() {
   const handleOpenContinueWith = useCallback(() => {
     setContinueModel(effectiveModel === 'default' ? 'default' : effectiveModel)
     setContinueAgentId(chatAgentId)
+    setContinueProjectId(chatProjectId)
     setMenuExportOpen(false)
     setMenuContinueOpen(true)
-  }, [chatAgentId, effectiveModel])
+  }, [chatAgentId, chatProjectId, effectiveModel])
 
   const handleContinueWith = useCallback(async () => {
     if (!conversationId) return
@@ -956,6 +958,7 @@ export function ChatWindow() {
       const result = await window.api.forkConversation(conversationId, {
         model: continueModel,
         agentId: continueAgentId,
+        projectId: continueProjectId,
       })
       await loadConversations()
       selectConversation(result.conversation.id)
@@ -975,7 +978,7 @@ export function ChatWindow() {
     } finally {
       setIsForking(false)
     }
-  }, [addToast, continueAgentId, continueBackend, continueModel, conversationId, loadConversations, selectConversation])
+  }, [addToast, continueAgentId, continueModel, continueProjectId, conversationId, loadConversations, selectConversation])
 
   useEffect(() => {
     if (!menuContinueOpen) return
@@ -1324,6 +1327,7 @@ export function ChatWindow() {
       onKeyDown={handleKeyDown}
       onPaste={fileInput.handlePaste}
       onAttachFiles={fileInput.handleFilePick}
+      onAttachFolder={fileInput.handleFolderPick}
       onCaptureScreen={handleCaptureScreen}
       onPasteClipboardImage={handlePasteClipboard}
       onOpenPromptLibrary={() => {
@@ -1781,6 +1785,19 @@ export function ChatWindow() {
                               <option key={agent.id} value={agent.id}>
                                 {agent.icon} {agent.name}
                               </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block mb-2">
+                          <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Project</span>
+                          <select
+                            value={continueProjectId ?? '__none__'}
+                            onChange={(event) => setContinueProjectId(event.target.value === '__none__' ? null : event.target.value)}
+                            className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-600"
+                          >
+                            <option value="__none__">No project</option>
+                            {projects.map((project) => (
+                              <option key={project.id} value={project.id}>{project.name}</option>
                             ))}
                           </select>
                         </label>

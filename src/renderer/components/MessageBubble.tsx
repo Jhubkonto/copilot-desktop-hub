@@ -70,7 +70,7 @@ interface Attachment {
   id: string
   name: string
   size: number
-  type?: 'file' | 'image'
+  type?: 'file' | 'image' | 'folder'
   thumbnailDataUrl?: string
 }
 
