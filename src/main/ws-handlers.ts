@@ -1332,6 +1332,15 @@ export function registerWsHandlers(): void {
       const agentId = typeof data.agentId === 'string' ? data.agentId : undefined
       const projectId = typeof data.projectId === 'string' ? data.projectId : undefined
       const rawImages = Array.isArray(data.images) ? data.images : []
+      const rawAttachments = Array.isArray(data.attachments) ? data.attachments : []
+      const attachments = rawAttachments.filter(
+        (attachment): attachment is { id: string; name: string; path: string; size: number } =>
+          typeof attachment === 'object' && attachment !== null &&
+          typeof (attachment as Record<string, unknown>).id === 'string' &&
+          typeof (attachment as Record<string, unknown>).name === 'string' &&
+          typeof (attachment as Record<string, unknown>).path === 'string' &&
+          typeof (attachment as Record<string, unknown>).size === 'number'
+      )
       const images = rawImages.filter(
         (img): img is { id: string; name: string; dataUrl: string } =>
           typeof img === 'object' && img !== null &&
@@ -1339,7 +1348,7 @@ export function registerWsHandlers(): void {
           typeof (img as Record<string, unknown>).name === 'string' &&
           typeof (img as Record<string, unknown>).dataUrl === 'string'
       )
-      if (!conversationId || (!content && images.length === 0)) return
+      if (!conversationId || (!content && images.length === 0 && attachments.length === 0)) return
       // A brand-new conversation (client-generated draft id) has no server-side row yet, so
       // a mode override the user sets before the first message can't reach the server via the
       // normal conversation:set-mode message (there's nothing to update). Android instead threads
@@ -1371,6 +1380,7 @@ export function registerWsHandlers(): void {
         conversationId,
         content,
         images: images.length > 0 ? images : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
       // If the requested model belongs to a CLI backend, tell the dispatcher so it
       // routes through that CLI instead of falling through to a BYOK provider.
@@ -1410,6 +1420,7 @@ export function registerWsHandlers(): void {
         agentId,
         projectId,
         images: images.length > 0 ? images : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
         cliBackend: inferredCliBackend,
         thinkingEffortOverride,
         fullAutoApproveOverride,
@@ -2668,8 +2679,11 @@ export function registerWsHandlers(): void {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
       const cutoffTimestamp = typeof data.cutoffTimestamp === 'number' ? data.cutoffTimestamp : null
+      const projectId = typeof data.projectId === 'string'
+        ? (data.projectId || null)
+        : undefined
       try {
-        const result = forkConversation(db, conversationId, { cutoffTimestamp })
+        const result = forkConversation(db, conversationId, { cutoffTimestamp, ...(projectId !== undefined ? { projectId } : {}) })
         broadcastToMobile({ event: 'conversation:forked', data: { conversationId: result.conversation.id, title: result.conversation.title, messageCount: result.message_count } })
       } catch (err) {
         reply({ event: 'conversation:fork-error', data: { message: String(err) } })

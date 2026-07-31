@@ -34,6 +34,11 @@ let currentToken: string | null = null
 let currentCertFingerprint: string | null = null
 const connectedClients = new Set<WebSocket>()
 const clientDeviceInfo = new Map<WebSocket, ConnectedAndroidDevice>()
+// Tracks whether each client answered the previous heartbeat ping. A dropped Wi-Fi/mobile
+// connection often never sends a TCP FIN, so without this the socket looks "connected"
+// forever even though nothing sent to it will ever arrive — the desktop would keep it in
+// connectedClients, hold the wake lock, and never let the phone's own reconnect logic kick in.
+const clientAlive = new Map<WebSocket, boolean>()
 let commandHandler: CommandHandler | null = null
 let mobileInForeground = false
 const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
@@ -322,6 +327,8 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     const connectionId = randomBytes(16).toString('hex')
 
     connectedClients.add(ws)
+    clientAlive.set(ws, true)
+    ws.on('pong', () => clientAlive.set(ws, true))
     if (connectedClients.size === 1) acquireWakeLock()
     onClientCountChange?.(connectedClients.size)
     debugLog('ws', `client connected: ${req.socket.remoteAddress} total=${connectedClients.size}`)
@@ -363,6 +370,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       commandHandler?.('internal:client-disconnected', { __connectionId: connectionId }, () => {})
       connectedClients.delete(ws)
       clientDeviceInfo.delete(ws)
+      clientAlive.delete(ws)
       if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
       onClientCountChange?.(connectedClients.size)
       debugLog('ws', `client disconnected: code=${code} reason=${reason.toString() || 'none'} remaining=${connectedClients.size}`)
@@ -371,6 +379,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       commandHandler?.('internal:client-disconnected', { __connectionId: connectionId }, () => {})
       connectedClients.delete(ws)
       clientDeviceInfo.delete(ws)
+      clientAlive.delete(ws)
       if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
       onClientCountChange?.(connectedClients.size)
       debugLog('ws', `client error: ${err.message} remaining=${connectedClients.size}`)
@@ -388,7 +397,14 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'true')").run()
       pingInterval = setInterval(() => {
         for (const client of connectedClients) {
-          if (client.readyState === WebSocket.OPEN) client.ping()
+          if (client.readyState !== WebSocket.OPEN) continue
+          if (clientAlive.get(client) === false) {
+            debugLog('ws', 'client missed heartbeat pong — terminating stale connection')
+            client.terminate()
+            continue
+          }
+          clientAlive.set(client, false)
+          client.ping()
         }
       }, 30_000)
 
@@ -443,6 +459,7 @@ export function stopWsServer(): void {
   for (const client of connectedClients) client.close(1001, 'Server stopping')
   connectedClients.clear()
   clientDeviceInfo.clear()
+  clientAlive.clear()
   mobileInForeground = false
   releaseWakeLock()
   wss?.close()
@@ -493,5 +510,6 @@ export function regenerateToken(): string {
   currentToken = token
   for (const client of connectedClients) client.close(4002, 'Token regenerated — re-pair required')
   connectedClients.clear()
+  clientAlive.clear()
   return token
 }

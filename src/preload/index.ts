@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ChatTurnEvent } from '../shared/chat-turn-types'
 import type {
   AndroidBuildCommandName,
@@ -363,7 +363,7 @@ const api = {
   exportConversationJson: (id: string) => typedInvoke('conversation:export-json', id),
   exportConversationPack: (id: string, options: { format: 'json' | 'markdown' | 'context-bundle' }) =>
     typedInvoke('conversation:export-pack', id, options),
-  forkConversation: (id: string, options?: { model?: string | null; agentId?: string | null }) =>
+  forkConversation: (id: string, options?: { model?: string | null; agentId?: string | null; projectId?: string | null; cutoffTimestamp?: number | null }) =>
     typedInvoke('conversation:fork', id, options ?? {}),
   importConversationJson: (targetConversationId?: string | null) =>
     typedInvoke('conversation:import-json', { targetConversationId: targetConversationId ?? null }),
@@ -395,6 +395,7 @@ const api = {
 
   // Files
   openFileDialog: () => typedInvoke('file:open-dialog'),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getWorkingDirectory: () => typedInvoke('file:get-cwd'),
   setWorkingDirectory: (cwd: string) => typedInvoke('file:set-cwd', cwd),
   readContextFile: (filePath: string) => typedInvoke('context:read-file', filePath),
