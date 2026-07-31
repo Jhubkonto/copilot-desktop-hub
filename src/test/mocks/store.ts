@@ -29,6 +29,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     showSidebar: true,
     catalogModels: [],
     availableModelGroups: [],
+    availableModelsLoaded: false,
     globalDefaultModel: 'default',
     showTerminal: false,
     showMcpPanel: false,

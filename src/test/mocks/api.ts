@@ -243,6 +243,7 @@ export function createMockApi() {
       message_count: 0,
       rewritten_message_count: 0,
       compressed_message_count: 0,
+      omitted_message_count: 0,
     }),
     importConversationJson: vi.fn().mockResolvedValue({
       conversation: { id: 'conv-imported', agent_id: null, project_id: null, title: 'Imported: Conversation', model: null, pinned: 0, created_at: 1000, updated_at: 1000 },
@@ -257,6 +258,7 @@ export function createMockApi() {
     searchConversations: vi.fn().mockResolvedValue([]),
     renameConversation: vi.fn().mockResolvedValue(undefined),
     setConversationModel: vi.fn().mockResolvedValue(true),
+    setConversationMode: vi.fn().mockResolvedValue(true),
     setConversationPinned: vi.fn().mockResolvedValue(true),
     updateConversationContext: vi.fn().mockResolvedValue(true),
 
@@ -648,6 +650,8 @@ export function createMockApi() {
     getActivityList: vi.fn().mockResolvedValue([]),
     onActivityChanged: vi.fn().mockReturnValue(() => {}),
     dismissActivity: vi.fn().mockResolvedValue(true),
+    setViewedActivityConversation: vi.fn().mockResolvedValue(0),
+    getUnseenActivityCount: vi.fn().mockResolvedValue(0),
 
     // Artifacts
     onArtifactUpdated: vi.fn().mockReturnValue(() => {}),
