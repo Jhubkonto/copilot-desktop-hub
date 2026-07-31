@@ -19,7 +19,7 @@ fun resolveConnectionIndicatorState(
     pendingChanges: Int,
     failedChanges: Int,
     conflicts: Int,
-    contentSyncInProgress: Boolean = false,
+    contentSyncInProgress: Boolean? = null,
 ): ConnectionIndicatorState = when {
     mode == EffectiveConnectionMode.STANDALONE_BY_CHOICE ->
         ConnectionIndicatorState.STANDALONE
@@ -29,9 +29,9 @@ fun resolveConnectionIndicatorState(
         mode == EffectiveConnectionMode.DISCONNECTED ->
         ConnectionIndicatorState.ERROR
 
-    syncInProgress ||
+    (syncInProgress && contentSyncInProgress == null) ||
         pendingChanges > 0 ||
-        contentSyncInProgress ||
+        contentSyncInProgress == true ||
         mode == EffectiveConnectionMode.CONNECTING ||
         mode == EffectiveConnectionMode.SEARCHING ->
         ConnectionIndicatorState.SYNCING

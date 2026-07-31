@@ -271,7 +271,7 @@ fun NexyTopAppBar(
     actions: @Composable RowScope.() -> Unit = {},
     subtitle: String? = null,
     showConnectionStatus: Boolean = true,
-    contentSyncInProgress: Boolean = false,
+    contentSyncInProgress: Boolean? = null,
 ) {
     TopAppBar(
         title = {

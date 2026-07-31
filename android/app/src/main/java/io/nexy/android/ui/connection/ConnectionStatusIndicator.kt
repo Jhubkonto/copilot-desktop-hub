@@ -20,6 +20,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +31,8 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,11 +56,12 @@ private val ErrorRed = Color(0xFFEF4444)
 
 @Composable
 fun ConnectionStatusIndicator(
-    contentSyncInProgress: Boolean = false,
+    contentSyncInProgress: Boolean? = null,
     modifier: Modifier = Modifier,
 ) {
     val mode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
+    val syncProgress by WsRepository.syncProgress.collectAsStateWithLifecycle()
     val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
     val state = resolveConnectionIndicatorState(
         mode = mode,
@@ -68,25 +73,42 @@ fun ConnectionStatusIndicator(
     )
     val motionEnabled = !LocalInspectionMode.current && ValueAnimator.areAnimatorsEnabled()
 
-    Box(
+    val progressLabel =
+        if (contentSyncInProgress == null && state == ConnectionIndicatorState.SYNCING && syncProgress.total > 0) {
+            "${syncProgress.completed} of ${syncProgress.total}"
+        } else {
+            null
+        }
+    Row(
         modifier = modifier
-            .size(48.dp)
-            .semantics { contentDescription = state.accessibilityDescription },
-        contentAlignment = Alignment.Center,
-    ) {
-        AnimatedContent(
-            targetState = state,
-            transitionSpec = {
-                if (motionEnabled) {
-                    (fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.86f))
-                        .togetherWith(fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.92f))
-                } else {
-                    EnterTransition.None togetherWith ExitTransition.None
-                }
+            .semantics {
+                contentDescription = listOfNotNull(state.accessibilityDescription, progressLabel).joinToString(", ")
             },
-            label = "connection-status",
-        ) { target ->
-            ConnectionStatusGlyph(target, motionEnabled)
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                targetState = state,
+                transitionSpec = {
+                    if (motionEnabled) {
+                        (fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.86f))
+                            .togetherWith(fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.92f))
+                    } else {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    }
+                },
+                label = "connection-status",
+            ) { target ->
+                ConnectionStatusGlyph(target, motionEnabled)
+            }
+        }
+        if (progressLabel != null) {
+            Text(
+                text = progressLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = SyncingAmber,
+            )
         }
     }
 }
