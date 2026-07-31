@@ -61,6 +61,7 @@ fun FileExplorerScreen(
     onBack: () -> Unit,
     onFolderSelected: (String) -> Unit,
     initialPath: String = "",
+    allowFileSelection: Boolean = false,
     vm: FileExplorerViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -81,7 +82,10 @@ fun FileExplorerScreen(
     Scaffold(
         topBar = {
             Column {
-                NexyTopAppBar(titleContent = { Text("Browse desktop files") }, onBack = onBack)
+                NexyTopAppBar(
+                    titleContent = { Text(if (allowFileSelection) "Attach from desktop" else "Browse desktop files") },
+                    onBack = onBack,
+                )
                 NexyConnectionBanner(connectionState, lastError)
             }
         },
@@ -106,7 +110,7 @@ fun FileExplorerScreen(
                             modifier = Modifier.weight(1f),
                         )
                         Button(onClick = { onFolderSelected(currentPath) }) {
-                            Text("Select this folder")
+                            Text(if (allowFileSelection) "Attach folder" else "Select this folder")
                         }
                     }
                 }
@@ -189,7 +193,14 @@ fun FileExplorerScreen(
                             }
                         } else {
                             items(filtered) { entry ->
-                                EntryRow(entry = entry, onOpen = { vm.open(entry.fullPath) })
+                                EntryRow(
+                                    entry = entry,
+                                    allowFileSelection = allowFileSelection,
+                                    onOpen = {
+                                        if (entry.isDirectory) vm.open(entry.fullPath)
+                                        else onFolderSelected(entry.fullPath)
+                                    },
+                                )
                             }
                         }
                     }
@@ -254,16 +265,16 @@ private fun LocationRow(label: String, path: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EntryRow(entry: FsEntry, onOpen: () -> Unit) {
+private fun EntryRow(entry: FsEntry, allowFileSelection: Boolean, onOpen: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .let { if (entry.isDirectory) it.clickable(onClick = onOpen) else it }
+            .let { if (entry.isDirectory || allowFileSelection) it.clickable(onClick = onOpen) else it }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val contentColor = if (entry.isDirectory) {
+        val contentColor = if (entry.isDirectory || allowFileSelection) {
             MaterialTheme.colorScheme.onSurface
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
