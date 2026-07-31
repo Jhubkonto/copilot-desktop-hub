@@ -248,6 +248,39 @@ describe('ChatMessages normalized live turn fallback', () => {
     expect(screen.getAllByText('I want to flag something before running this search.')).toHaveLength(1)
   })
 
+  it('does not render a completed CLI text segment beside its persisted assistant message', () => {
+    const response = 'That traceback is a plain YAML syntax error.'
+    const completedState = {
+      ...createEmptyChatTurnState('conv-1'),
+      turnId: 'turn-1',
+      status: 'completed' as const,
+      text: response,
+      textBlocks: new Map([
+        ['text-0', {
+          blockId: 'text-0',
+          content: response,
+          done: true,
+          firstSeenSequence: 1,
+        }],
+      ]),
+    }
+
+    renderChatMessages({
+      messages: [{
+        id: 'persisted-assistant',
+        role: 'assistant',
+        content: response,
+        timestamp: 2,
+        model: 'claude-cli',
+      }],
+      isGenerating: false,
+      streamingContent: '',
+      liveTurnState: completedState,
+    })
+
+    expect(screen.getAllByText(response)).toHaveLength(1)
+  })
+
   it('keeps an earlier live thought above an eagerly stored command until the turn settles', () => {
     const state = {
       ...createEmptyChatTurnState('conv-1'),

@@ -92,4 +92,37 @@ describe('useFileInput', () => {
     expect(result.current.dragDepthRef.current).toBe(0)
     expect(result.current.isDragging).toBe(false)
   })
+
+  it('uses Electron webUtils paths for dropped files', async () => {
+    const api = setupMockApi()
+    api.getPathForFile.mockReturnValue('C:\\drop\\notes.txt')
+    const { result } = renderHook(() => useFileInput())
+    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
+
+    await act(async () => {
+      await result.current.handleDrop({
+        preventDefault: vi.fn(),
+        dataTransfer: { files: [file] },
+      } as unknown as DragEvent)
+    })
+
+    expect(api.getPathForFile).toHaveBeenCalledWith(file)
+    expect(result.current.pendingAttachments).toEqual([
+      expect.objectContaining({ name: 'notes.txt', path: 'C:\\drop\\notes.txt', size: 5 }),
+    ])
+  })
+
+  it('adds selected desktop folders as attachments', async () => {
+    const api = setupMockApi()
+    api.openDirectoryDialog.mockResolvedValue(['C:\\work\\docs'])
+    const { result } = renderHook(() => useFileInput())
+
+    await act(async () => {
+      await result.current.handleFolderPick()
+    })
+
+    expect(result.current.pendingAttachments).toEqual([
+      expect.objectContaining({ name: 'docs', path: 'C:\\work\\docs', type: 'folder' }),
+    ])
+  })
 })
