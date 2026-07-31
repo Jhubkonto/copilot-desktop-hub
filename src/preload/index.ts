@@ -1099,6 +1099,9 @@ const api = {
     return () => typedOff('activity:changed', handler)
   },
   dismissActivity: (id: string) => typedInvoke('activity:dismiss', id),
+  setViewedActivityConversation: (conversationId: string | null) =>
+    typedInvoke('activity-badge:set-viewed-conversation', conversationId),
+  getUnseenActivityCount: () => typedInvoke('activity-badge:get-count'),
 
   // Artifacts (live updates)
   onArtifactUpdated: (callback: (data: { artifactId: string; projectId: string | null }) => void) => {
