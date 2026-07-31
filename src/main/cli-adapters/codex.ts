@@ -411,6 +411,12 @@ function codexSandboxMode(permissionMode?: string): 'read-only' | 'workspace-wri
     : undefined
 }
 
+// The app-server JSONL protocol has no built-in liveness signal: if Codex never emits
+// another message (stuck on an approval round-trip, a stalled model call, etc.) the
+// promise below would otherwise never settle and the chat UI spins forever. Kill the
+// process and reject once this much time passes with no stdout activity at all.
+const PLAN_INACTIVITY_TIMEOUT_MS = 4 * 60 * 1000
+
 /**
  * `codex exec` does not expose collaboration modes. Explicit Plan turns therefore use the
  * app-server JSONL protocol while ordinary turns stay on the stable exec path below.
@@ -480,9 +486,19 @@ function sendCodexPlanViaAppServer(
     const writeMessage = (message: Record<string, unknown>) => {
       proc.stdin?.write(`${JSON.stringify(message)}\n`, 'utf8')
     }
+    let lastActivityAt = Date.now()
+    const touchActivity = () => { lastActivityAt = Date.now() }
+    const watchdog = setInterval(() => {
+      if (settled) return
+      if (Date.now() - lastActivityAt < PLAN_INACTIVITY_TIMEOUT_MS) return
+      onEvent?.({ type: 'activity', label: 'Codex Plan turn timed out (no response).' })
+      killProcess(proc)
+      finish(new Error('Codex Plan turn timed out: no response from Codex for 4 minutes'))
+    }, 10_000)
     const finish = (error?: Error) => {
       if (settled) return
       settled = true
+      clearInterval(watchdog)
       cleanup()
       if (error) reject(error)
       else resolve(fullText)
@@ -664,12 +680,22 @@ function sendCodexPlanViaAppServer(
         return
       }
 
-      // App-server approval requests must always receive a response. Plan mode should not request
-      // mutations, but declining is the safe fallback unless this chat explicitly auto-approves.
-      if (message.id !== undefined && method === 'item/commandExecution/requestApproval') {
-        writeMessage({ id: message.id, result: { decision: req.skipPermissions ? 'accept' : 'decline' } })
-      } else if (message.id !== undefined && method === 'item/fileChange/requestApproval') {
-        writeMessage({ id: message.id, result: { decision: req.skipPermissions ? 'accept' : 'decline' } })
+      // App-server approval requests must always receive a response. When Nexy has a live
+      // permission bridge wired up (see requestPermission on CliAdapterRequest), route the
+      // request through it and let the user answer in real time instead of silently
+      // auto-accepting/declining based on the coarse skipPermissions flag.
+      if (message.id !== undefined && (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval')) {
+        const requestId = message.id
+        const toolName = method === 'item/commandExecution/requestApproval' ? 'commandExecution' : 'fileChange'
+        const respond = (decision: 'accept' | 'decline') => writeMessage({ id: requestId, result: { decision } })
+        if (req.requestPermission) {
+          touchActivity()
+          req.requestPermission(toolName, params)
+            .then((approved) => { touchActivity(); respond(approved ? 'accept' : 'decline') })
+            .catch(() => { touchActivity(); respond('decline') })
+        } else {
+          respond(req.skipPermissions ? 'accept' : 'decline')
+        }
       }
     }
 
@@ -683,7 +709,7 @@ function sendCodexPlanViaAppServer(
       }
     })
 
-    proc.stdout?.on('data', (chunk: Buffer) => lineBuffer.push(chunk))
+    proc.stdout?.on('data', (chunk: Buffer) => { touchActivity(); lineBuffer.push(chunk) })
     proc.stderr?.on('data', (chunk: Buffer) => { stderrText += chunk.toString('utf8') })
     proc.on('error', (error) => finish(error))
     proc.on('close', (code) => {
