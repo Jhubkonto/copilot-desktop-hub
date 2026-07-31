@@ -62,7 +62,12 @@ fun ConversationActionsSheet(
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
     var showRatingPicker by remember { mutableStateOf(false) }
+    var showForkProjectPicker by remember { mutableStateOf(false) }
+    var forkProjectId by remember(conversationId, conversations) {
+        mutableStateOf(conversations.firstOrNull { it.id == conversationId }?.project_id)
+    }
     val currentRating = conversations.firstOrNull { it.id == conversationId }?.rating
 
     LaunchedEffect(conversationId, conversations) {
@@ -147,6 +152,42 @@ fun ConversationActionsSheet(
             title = "Error",
             message = error,
             onDismiss = { vm.dismissError() },
+        )
+    }
+
+    if (showForkProjectPicker) {
+        AlertDialog(
+            onDismissRequest = { showForkProjectPicker = false },
+            title = { Text("Fork into project") },
+            text = {
+                Column {
+                    Text(
+                        "Choose where the new conversation should live.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    Text(
+                        if (forkProjectId == null) "✓ No project" else "No project",
+                        modifier = Modifier.fillMaxWidth().clickable { forkProjectId = null }.padding(vertical = 10.dp),
+                    )
+                    projects.forEach { project ->
+                        Text(
+                            if (forkProjectId == project.id) "✓ ${project.name}" else project.name,
+                            modifier = Modifier.fillMaxWidth().clickable { forkProjectId = project.id }.padding(vertical = 10.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showForkProjectPicker = false
+                    vm.fork(conversationId, forkProjectId)
+                }) { Text("Create fork") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForkProjectPicker = false }) { Text("Cancel") }
+            },
         )
     }
 
@@ -237,9 +278,9 @@ fun ConversationActionsSheet(
             ActionRow(
                 icon = Icons.AutoMirrored.Filled.CallSplit,
                 label = "Fork conversation",
-                sublabel = "Continue in a new branch",
+                sublabel = "Continue in a new branch or project",
                 loading = state.isForkInProgress,
-                onClick = { vm.fork(conversationId) },
+                onClick = { showForkProjectPicker = true },
             )
 
             ActionRow(

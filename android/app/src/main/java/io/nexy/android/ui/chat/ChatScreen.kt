@@ -221,6 +221,7 @@ fun ChatScreen(
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodePanel: ((String) -> Unit)? = null,
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
+    onOpenDesktopPathPicker: (() -> Unit)? = null,
     initialMessageId: String? = null,
     onNewChat: ((String?, String?) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
@@ -535,6 +536,15 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        WsRepository.pendingSelectedAttachmentPath.collect { path ->
+            if (!path.isNullOrBlank()) {
+                vm.addDesktopPathAttachment(path)
+                WsRepository.pendingSelectedAttachmentPath.value = null
+            }
+        }
+    }
+
     LaunchedEffect(relaunchFilePicker) {
         if (relaunchFilePicker) {
             relaunchFilePicker = false
@@ -748,12 +758,13 @@ fun ChatScreen(
     val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
     val thinkingBlocksSize = liveThinkingBlocks.size
     val thinkingTotalChars = liveThinkingBlocks.sumOf { it.content.length }
-    // Track team activity content changes (in-place updates don't change messages.size)
-    val teamActivityResultLength = remember(messages) { messages.filter { it.serverName == "Team activity" }.sumOf { (it.toolResult?.length ?: 0) + (it.toolArgs?.length ?: 0) } }
+    // Track tool-call content changes (e.g. Team activity, Codex CLI) — these mutate an existing
+    // placeholder message in place on completion, so messages.size alone won't catch the update.
+    val toolActivityResultLength = remember(messages) { messages.filter { it.serverName != null }.sumOf { (it.toolResult?.length ?: 0) + (it.toolArgs?.length ?: 0) } }
 
     // Content signal: new messages, streaming chunks, thinking bubbles, or busy state changes should
     // stay pinned only while auto-follow is enabled.
-    LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars, teamActivityResultLength) {
+    LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars, toolActivityResultLength) {
         if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
         scrollToBottom()
     }
@@ -1470,6 +1481,7 @@ fun ChatScreen(
                     }
                 },
                 onAttachFile = { filePicker.launch("*/*") },
+                onAttachDesktopPath = onOpenDesktopPathPicker,
                 onCaptureScreen = onCaptureScreen,
                 onInsertPrompt = {
                     // Project prompts must be requested with the active project. Calling the

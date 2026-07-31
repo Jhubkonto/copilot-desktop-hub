@@ -64,6 +64,7 @@ fun ChatInputBar(
     canSend: Boolean,
     onSend: () -> Unit,
     onAttachFile: () -> Unit,
+    onAttachDesktopPath: (() -> Unit)? = null,
     onCaptureScreen: () -> Unit = {},
     onInsertPrompt: () -> Unit = {},
     onShowInspector: () -> Unit = {},
@@ -140,6 +141,14 @@ fun ChatInputBar(
                     leadingContent = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                     modifier = Modifier.clickable { showAttachSheet = false; onAttachFile() },
                 )
+                onAttachDesktopPath?.let { attachDesktopPath ->
+                    ListItem(
+                        headlineContent = { Text("Attach from connected desktop") },
+                        supportingContent = { Text("Choose a desktop file or folder") },
+                        leadingContent = { Icon(Icons.Default.OpenWith, contentDescription = null) },
+                        modifier = Modifier.clickable { showAttachSheet = false; attachDesktopPath() },
+                    )
+                }
                 ListItem(
                     headlineContent = { Text("Latest Screenshot") },
                     leadingContent = { Icon(Icons.Default.Screenshot, contentDescription = null) },

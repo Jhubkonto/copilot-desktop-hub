@@ -120,9 +120,9 @@ class ConversationActionsViewModel(app: Application) : AndroidViewModel(app) {
         WsRepository.exportConversationPack(conversationId, "markdown")
     }
 
-    fun fork(conversationId: String) {
+    fun fork(conversationId: String, projectId: String?) {
         _state.value = _state.value.copy(isForkInProgress = true)
-        WsRepository.forkConversation(conversationId)
+        WsRepository.forkConversation(conversationId, projectId = projectId, includeProject = true)
     }
 
     fun importJson(json: String) {

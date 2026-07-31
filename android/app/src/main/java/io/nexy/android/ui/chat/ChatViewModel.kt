@@ -39,6 +39,7 @@ data class PendingAttachment(
     val dataUrl: String?,
     val textContent: String?,
     val isImage: Boolean,
+    val desktopPath: String? = null,
 )
 
 data class ChatMessage(
@@ -405,11 +406,23 @@ class ChatViewModel(
                 // the one that actually gets chronological ordering right. Re-request the
                 // snapshot on every reconnect so that path — not the poll — is what resyncs a
                 // still-open chat after a drop.
+                //
+                // The isTurnTerminal guard only covers the mid-turn case above. A reconnect can
+                // just as easily follow a turn that finished entirely while this client was
+                // disconnected (e.g. tapping a "response ready" push notification for a chat
+                // screen that was still alive in the background) — there is no active turn to
+                // snapshot, so without also re-requesting history here, the newly persisted
+                // message is never fetched until the user manually refreshes or the screen is
+                // recreated (hydrateCachedHistoryThenRefresh on a fresh ViewModel).
                 var wasConnected = WsRepository.connectionState.value == io.nexy.android.data.ConnectionState.CONNECTED
                 WsRepository.connectionState.collect { state ->
                     val isConnected = state == io.nexy.android.data.ConnectionState.CONNECTED
-                    if (isConnected && !wasConnected && !isTurnTerminal) {
-                        wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
+                    if (isConnected && !wasConnected) {
+                        if (!isTurnTerminal) {
+                            wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
+                        }
+                        historyLoaded = false
+                        requestLatestHistory()
                     }
                     wasConnected = isConnected
                 }
@@ -1109,6 +1122,19 @@ class ChatViewModel(
         )
     }
 
+    fun addDesktopPathAttachment(path: String) {
+        val name = path.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\').ifBlank { path }
+        _attachments.value = _attachments.value + PendingAttachment(
+            id = UUID.randomUUID().toString(),
+            name = name,
+            mimeType = "application/x-nexy-desktop-path",
+            dataUrl = null,
+            textContent = null,
+            isImage = false,
+            desktopPath = path,
+        )
+    }
+
     fun removeAttachment(id: String) {
         _attachments.value = _attachments.value.filter { it.id != id }
     }
@@ -1478,8 +1504,9 @@ class ChatViewModel(
         if (text.isBlank() && atts.isEmpty()) return
         _attachments.value = emptyList()
 
-        val textAtts = atts.filter { !it.isImage }
+        val textAtts = atts.filter { !it.isImage && it.desktopPath == null }
         val imageAtts = atts.filter { it.isImage }
+        val desktopPathAtts = atts.filter { it.desktopPath != null }
 
         var augmented = text
         if (textAtts.isNotEmpty()) {
@@ -1515,6 +1542,11 @@ class ChatViewModel(
             _selectedModel.value?.let { put("model", it) }
             if (imageAtts.isNotEmpty()) {
                 put("images", imageAtts.map { mapOf("id" to it.id, "name" to it.name, "dataUrl" to it.dataUrl.orEmpty()) })
+            }
+            if (desktopPathAtts.isNotEmpty()) {
+                put("attachments", desktopPathAtts.map {
+                    mapOf("id" to it.id, "name" to it.name, "path" to it.desktopPath.orEmpty(), "size" to 0)
+                })
             }
             // Any mode override set while this was still a draft conversation (no server row yet,
             // so conversation:set-mode had nothing to update — see pendingModeOverrides above)
