@@ -417,6 +417,23 @@ describe('conversation export', () => {
     }))
   })
 
+  it('forks a conversation into a different project or no project', () => {
+    if (!state.db) throw new Error('Database not initialized')
+    seedConversation(state.db)
+    state.db.prepare(
+      'INSERT INTO projects (id, name, color, default_model, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('project-2', 'Project Two', 'green', null, '{}', 1700000000300, 1700000000300)
+
+    const moved = forkConversation(state.db, 'conv-1', { projectId: 'project-2' })
+    expect(moved.conversation.project_id).toBe('project-2')
+
+    const standalone = forkConversation(state.db, 'conv-1', { projectId: null })
+    expect(standalone.conversation.project_id).toBeNull()
+
+    expect(() => forkConversation(state.db!, 'conv-1', { projectId: 'missing-project' }))
+      .toThrow(/Target project not found/)
+  })
+
   it('rejects fork model choices that do not match the selected backend', () => {
     if (!state.db) throw new Error('Database not initialized')
     const db = state.db

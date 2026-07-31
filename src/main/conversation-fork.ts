@@ -263,6 +263,13 @@ export function forkConversation(
     ? (options.model === "default" ? null : options.model ?? null)
     : source.model;
   const targetModel = validateForkTarget(db, targetAgentId, requestedModel);
+  const targetProjectId = Object.prototype.hasOwnProperty.call(options, "projectId")
+    ? (options.projectId ?? null)
+    : source.project_id;
+  if (targetProjectId) {
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(targetProjectId);
+    if (!project) throw new Error("Target project not found");
+  }
 
   const cutoff = typeof options.cutoffTimestamp === "number" ? options.cutoffTimestamp : null;
   const rows = db
@@ -281,7 +288,7 @@ export function forkConversation(
   const transaction = db.transaction(() => {
     db.prepare(
       "INSERT INTO conversations (id, agent_id, project_id, title, model, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(forkId, targetAgentId, source.project_id, `Continued: ${source.title}`, targetModel, 0, now, now);
+    ).run(forkId, targetAgentId, targetProjectId, `Continued: ${source.title}`, targetModel, 0, now, now);
 
     const insertMessage = db.prepare(
       `INSERT INTO messages
