@@ -212,7 +212,7 @@ export function Sidebar() {
         />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+      <div className="flex-1 min-h-0 overflow-y-auto mr-1.5 px-3 pb-2">
         {(recentConvs.length > 0 || pendingNew.length > 0) && (
           <div className="mt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-1">

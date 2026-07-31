@@ -57,12 +57,16 @@ export function ProjectSettingsPanel(props: Props) {
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const removeAgentFromProject = useAppStore((s) => s.removeAgentFromProject)
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
+  const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
   const reorderProjectAgents = useAppStore((s) => s.reorderProjectAgents)
   const updateProjectOrchestration = useAppStore((s) => s.updateProjectOrchestration)
   const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const addToast = useAppStore((s) => s.addToast)
   const selectProject = useAppStore((s) => s.selectProject)
   const selectConversation = useAppStore((s) => s.selectConversation)
+  const availableModelGroups = useAppStore((s) => s.availableModelGroups)
+  const catalogModels = useAppStore((s) => s.catalogModels)
+  const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
 
   const projectId = isDraft ? null : (props as EditProps).projectId
   const project = projectId ? projects.find((p) => p.id === projectId) : null
@@ -476,6 +480,10 @@ export function ProjectSettingsPanel(props: Props) {
             varErrors={varErrors}
             showModeDropdown={showModeDropdown}
             hasVarErrors={hasVarErrors}
+            defaultModel={project?.default_model ?? null}
+            availableModelGroups={availableModelGroups}
+            catalogModels={catalogModels}
+            globalDefaultModel={globalDefaultModel ?? null}
             onSetName={setName}
             onSetColor={setColor}
             onNameBlur={handleNameBlur}
@@ -492,6 +500,9 @@ export function ProjectSettingsPanel(props: Props) {
             onAddVariable={handleAddVariable}
             onRemoveVariable={handleRemoveVariable}
             onVarChange={handleVarChange}
+            onDefaultModelChange={(model) => {
+              if (projectId) void setProjectDefaultModel(projectId, model)
+            }}
           />
         )}
 

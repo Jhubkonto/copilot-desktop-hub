@@ -1,24 +1,29 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react'
 
 interface ErrorBoundaryProps {
   children: ReactNode
+  /** Clear a caught error when the surrounding view changes (for example, chat navigation). */
+  resetKey?: string | null
 }
 
 interface ErrorBoundaryState {
   error: Error | null
   stack: string
+  retryKey: number
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = {
     error: null,
     stack: '',
+    retryKey: 0,
   }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return {
       error,
       stack: '',
+      retryKey: 0,
     }
   }
 
@@ -26,8 +31,20 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ error, stack: info.componentStack ?? '' })
   }
 
+  componentDidUpdate(previousProps: ErrorBoundaryProps): void {
+    if (this.state.error && previousProps.resetKey !== this.props.resetKey) {
+      this.setState((state) => ({
+        error: null,
+        stack: '',
+        retryKey: state.retryKey + 1,
+      }))
+    }
+  }
+
   render() {
-    if (!this.state.error) return this.props.children
+    if (!this.state.error) {
+      return <Fragment key={this.state.retryKey}>{this.props.children}</Fragment>
+    }
 
     const title = this.state.error.message || 'Renderer error'
     const description = [this.state.error.stack, this.state.stack].filter(Boolean).join('\n\n')
@@ -46,7 +63,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <button
               type="button"
               className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
-              onClick={() => this.setState({ error: null, stack: '' })}
+              onClick={() => this.setState((state) => ({
+                error: null,
+                stack: '',
+                retryKey: state.retryKey + 1,
+              }))}
             >
               Try again
             </button>

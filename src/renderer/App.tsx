@@ -81,6 +81,7 @@ export default function App() {
   const refreshAvailableModels = useAppStore((s) => s.refreshAvailableModels)
   const androidDebugLog = useAppStore((s) => s.androidDebugLog)
   const viewingArtifactId = useAppStore((s) => s.viewingArtifactId)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
 
   const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
   const markConversationDoneGenerating = useAppStore((s) => s.markConversationDoneGenerating)
@@ -104,6 +105,10 @@ export default function App() {
   useEffect(() => {
     hydrate().catch(() => {})
   }, [hydrate])
+
+  useEffect(() => {
+    void window.api.setViewedActivityConversation(currentConversationId)
+  }, [currentConversationId])
 
   // Listen for tool approval requests
   useEffect(() => {
@@ -277,7 +282,7 @@ export default function App() {
           )}
 
           {/* Localized boundary: a chat render error must not blank the whole window */}
-          <ErrorBoundary>
+          <ErrorBoundary resetKey={currentConversationId}>
             <ChatWindow />
           </ErrorBoundary>
         </main>

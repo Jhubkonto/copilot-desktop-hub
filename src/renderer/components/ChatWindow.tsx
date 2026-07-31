@@ -111,6 +111,7 @@ export function ChatWindow() {
   const [isPinning, setIsPinning] = useState(false)
 
   const availableGroups = useAppStore((state) => state.availableModelGroups)
+  const availableModelsLoaded = useAppStore((state) => state.availableModelsLoaded)
   const pendingComposerPrefill = useAppStore((state) => state.pendingComposerPrefill)
   const setPendingComposerPrefill = useAppStore((state) => state.setPendingComposerPrefill)
   const [pendingModel, setPendingModel] = useState<string | null>(null)
@@ -261,6 +262,11 @@ export function ChatWindow() {
 
   const nonDefault = (v: string | null | undefined): string | null =>
     v && v !== 'default' ? v : null
+  const isAvailableModel = (model: string | null | undefined): model is string =>
+    !!nonDefault(model) && (
+      !availableModelsLoaded ||
+      availableGroups.some((group) => group.models.some((entry) => entry.id === model))
+    )
 
   const chatAgentBackend = chatAgent?.backend
   const chatAgentCliModel = nonDefault(chatAgent?.cliModel ?? null)
@@ -281,17 +287,17 @@ export function ChatWindow() {
     effectiveModel = conversationCliModelForAgentBackend ?? chatAgentCliModel ?? 'default'
   } else if (nonDefault(pendingModel)) {
     effectiveModel = pendingModel!
-  } else if (nonDefault(conversationModel)) {
+  } else if (isAvailableModel(conversationModel)) {
     effectiveModel = conversationModel!
     // Recover provenance: check which source originally provided this model
-    if (nonDefault(projectDefaultModel) && projectDefaultModel === conversationModel) {
-      modelSourceLabel = chatProject?.name ?? 'project'
+    if (isAvailableModel(projectDefaultModel) && projectDefaultModel === conversationModel) {
+      modelSourceLabel = 'Project default'
     } else if (nonDefault(defaultModelSetting) && defaultModelSetting === conversationModel) {
       modelSourceLabel = 'global'
     }
-  } else if (nonDefault(projectDefaultModel)) {
+  } else if (isAvailableModel(projectDefaultModel)) {
     effectiveModel = projectDefaultModel!
-    modelSourceLabel = chatProject?.name ?? 'project'
+    modelSourceLabel = 'Project default'
   } else if (nonDefault(defaultModelSetting)) {
     effectiveModel = defaultModelSetting!
     modelSourceLabel = 'global'
@@ -966,6 +972,7 @@ export function ChatWindow() {
       const details = [
         result.rewritten_message_count > 0 ? `${result.rewritten_message_count} converted for compatibility` : null,
         result.compressed_message_count > 0 ? `${result.compressed_message_count} compressed for context` : null,
+        result.omitted_message_count > 0 ? `${result.omitted_message_count} execution trace${result.omitted_message_count === 1 ? '' : 's'} omitted` : null,
       ].filter(Boolean)
       addToast(
         details.length > 0

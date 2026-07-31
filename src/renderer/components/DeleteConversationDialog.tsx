@@ -9,12 +9,14 @@ interface DeleteConversationDialogProps {
 export function DeleteConversationDialog({ conversationTitle, onConfirm, onCancel }: DeleteConversationDialogProps) {
   return (
     <ConfirmDialog
-      title={`Delete "${conversationTitle}"?`}
+      title="Delete chat"
+      ariaLabel={`Delete ${conversationTitle}`}
+      heading={<>Delete &ldquo;{conversationTitle}&rdquo;?</>}
       confirmLabel="Delete Chat"
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
-      <p className="text-sm text-gray-600 dark:text-gray-300">
+      <p>
         This conversation and all its messages will be permanently removed.
       </p>
     </ConfirmDialog>

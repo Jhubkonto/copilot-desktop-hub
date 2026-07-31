@@ -411,16 +411,38 @@ export function ContextInspector({
 }
 
 /** Read-only panel shown inside a MessageBubble when a context snapshot is present. */
-export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot }) {
+export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot | null | undefined }) {
   const [expanded, setExpanded] = useState(false)
 
-  const modelChanged = Boolean(snapshot.serverModel && snapshot.serverModel !== snapshot.model)
+  // Snapshots are persisted JSON and older app versions did not always write every
+  // field. Treat the parsed value as untrusted at this boundary so one historical
+  // message cannot take down the entire chat pane.
+  if (!snapshot || typeof snapshot !== 'object') return null
+
+  const contextRefs = Array.isArray(snapshot.contextRefs)
+    ? snapshot.contextRefs.filter((ref) => ref && typeof ref.token === 'string')
+    : []
+  const attachments = Array.isArray(snapshot.attachments)
+    ? snapshot.attachments.filter((attachment) => attachment && typeof attachment.name === 'string')
+    : []
+  const historyLength = typeof snapshot.historyLength === 'number' ? snapshot.historyLength : 0
+  const estimatedTokens = typeof snapshot.estimatedTokens === 'number' ? snapshot.estimatedTokens : 0
+  const model = typeof snapshot.model === 'string' ? snapshot.model : 'Unknown'
+  const systemPrompt = typeof snapshot.systemPrompt === 'string' ? snapshot.systemPrompt : ''
+  const serverModel = typeof snapshot.serverModel === 'string' ? snapshot.serverModel : null
+  const serverCompression =
+    snapshot.serverCompression &&
+    typeof snapshot.serverCompression.compressedMessageCount === 'number' &&
+    typeof snapshot.serverCompression.retainedMessageCount === 'number'
+      ? snapshot.serverCompression
+      : null
+  const modelChanged = Boolean(serverModel && serverModel !== model)
   const hasRealUsage = typeof snapshot.serverInputTokens === 'number'
   const isInteresting =
-    snapshot.historyLength > 0 ||
-    snapshot.contextRefs.length > 0 ||
-    snapshot.attachments.length > 0 ||
-    Boolean(snapshot.serverCompression) ||
+    historyLength > 0 ||
+    contextRefs.length > 0 ||
+    attachments.length > 0 ||
+    Boolean(serverCompression) ||
     modelChanged ||
     hasRealUsage
   if (!isInteresting) return null
@@ -439,44 +461,44 @@ export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot }
 
       {expanded && (
         <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400 space-y-1">
-          {snapshot.systemPrompt && (
+          {systemPrompt && (
             <div>
               <span className="font-medium">System Prompt:</span>{' '}
-              <span className="italic">{snapshot.systemPrompt.slice(0, 120)}{snapshot.systemPrompt.length > 120 ? '…' : ''}</span>
+              <span className="italic">{systemPrompt.slice(0, 120)}{systemPrompt.length > 120 ? '…' : ''}</span>
             </div>
           )}
-          {snapshot.contextRefs.length > 0 && (
+          {contextRefs.length > 0 && (
             <div>
               <span className="font-medium">@refs:</span>{' '}
-              {snapshot.contextRefs.map((r) => r.token).join(', ')}
+              {contextRefs.map((r) => r.token).join(', ')}
             </div>
           )}
-          {snapshot.attachments.length > 0 && (
+          {attachments.length > 0 && (
             <div>
-              <span className="font-medium">Files:</span> {snapshot.attachments.map((a) => a.name).join(', ')}
+              <span className="font-medium">Files:</span> {attachments.map((a) => a.name).join(', ')}
             </div>
           )}
           <div className="flex gap-3">
-            <span><span className="font-medium">History:</span> {snapshot.historyLength} messages</span>
-            <span><span className="font-medium">Model:</span> {snapshot.model}</span>
-            {!hasRealUsage && <span><span className="font-medium">~{snapshot.estimatedTokens}</span> tok total (estimate)</span>}
+            <span><span className="font-medium">History:</span> {historyLength} messages</span>
+            <span><span className="font-medium">Model:</span> {model}</span>
+            {!hasRealUsage && <span><span className="font-medium">~{estimatedTokens}</span> tok total (estimate)</span>}
           </div>
           {hasRealUsage && (
             <div>
               <span className="font-medium">Actual usage:</span>{' '}
               {snapshot.serverInputTokens} input{typeof snapshot.serverOutputTokens === 'number' ? ` / ${snapshot.serverOutputTokens} output` : ''} tok
-              <span className="text-gray-400 dark:text-gray-500"> (estimate was ~{snapshot.estimatedTokens})</span>
+              <span className="text-gray-400 dark:text-gray-500"> (estimate was ~{estimatedTokens})</span>
             </div>
           )}
           {modelChanged && (
             <div className="text-amber-600 dark:text-amber-400">
-              Actually sent to <span className="font-medium">{snapshot.serverModel}</span> (routing overrode the requested model)
+              Actually sent to <span className="font-medium">{serverModel}</span> (routing overrode the requested model)
             </div>
           )}
-          {snapshot.serverCompression && (
+          {serverCompression && (
             <div>
               <span className="font-medium">Rolling compression:</span>{' '}
-              {snapshot.serverCompression.compressedMessageCount} messages summarized, {snapshot.serverCompression.retainedMessageCount} kept verbatim
+              {serverCompression.compressedMessageCount} messages summarized, {serverCompression.retainedMessageCount} kept verbatim
             </div>
           )}
         </div>
