@@ -7,4 +7,5 @@ data class Project(
     val chatCount: Int = 0,
     val agentIcons: List<String> = emptyList(),
     val rootDirectory: String? = null,
+    val defaultModel: String? = null,
 )

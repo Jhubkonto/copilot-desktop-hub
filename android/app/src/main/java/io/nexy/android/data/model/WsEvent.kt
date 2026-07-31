@@ -65,11 +65,16 @@ sealed class WsEvent {
         val protocolVersion: Int,
         val desktopDeviceId: String,
         val datasetId: String,
+        val desktopSequence: Long = 0,
+        val isDelta: Boolean = false,
         val snapshot: JSONObject,
     ) : WsEvent()
+    data class SyncProbeAck(val probeId: String, val serverReceivedAt: Long) : WsEvent()
     data class SyncAck(
         val operationIds: List<String>,
         val lastReceivedSequence: Long,
+        val desktopSequence: Long = 0,
+        val isDelta: Boolean = false,
         val conflictsJson: String,
         val snapshot: JSONObject?,
     ) : WsEvent()
@@ -173,10 +178,35 @@ sealed class WsEvent {
     data class ConversationMessages(
         val conversationId: String,
         val messages: List<HistoryMessage>,
+        val requestId: String = "",
         val paged: Boolean = false,
         val hasMore: Boolean = false,
         val nextBeforeTimestamp: Long? = null,
         val nextBeforeId: String? = null,
+        val historyVersion: String? = null,
+        val chunkIndex: Int? = null,
+        val chunkCount: Int? = null,
+    ) : WsEvent()
+    data class ConversationHistoryStart(
+        val conversationId: String,
+        val requestId: String,
+        val totalItems: Int,
+        val chunkCount: Int,
+        val historyVersion: String?,
+    ) : WsEvent()
+    data class ConversationHistoryComplete(
+        val conversationId: String,
+        val requestId: String,
+        val historyVersion: String?,
+        val hasMore: Boolean,
+        val nextBeforeTimestamp: Long?,
+        val nextBeforeId: String?,
+    ) : WsEvent()
+    data class ConversationHistoryNotModified(
+        val conversationId: String,
+        val requestId: String,
+        val historyVersion: String?,
+        val hasMore: Boolean,
     ) : WsEvent()
     data class AgentList(val agents: List<Agent>) : WsEvent()
     data class ProjectList(val projects: List<Project>) : WsEvent()

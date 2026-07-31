@@ -231,7 +231,14 @@ fun parseWsEvent(
                 protocolVersion = data?.optInt("protocolVersion", 0) ?: 0,
                 desktopDeviceId = data?.optString("desktopDeviceId") ?: "",
                 datasetId = data?.optString("datasetId") ?: "",
+                desktopSequence = data?.optLong("desktopSequence", 0L) ?: 0L,
+                isDelta = data?.optBoolean("isDelta", false) == true,
                 snapshot = data?.optJSONObject("snapshot") ?: JSONObject(),
+            )
+
+            "sync:probe-ack" -> WsEvent.SyncProbeAck(
+                probeId = data?.optString("probeId") ?: "",
+                serverReceivedAt = data?.optLong("serverReceivedAt", 0L) ?: 0L,
             )
 
             "sync:ack" -> {
@@ -239,6 +246,8 @@ fun parseWsEvent(
                 WsEvent.SyncAck(
                     operationIds = if (ids == null) emptyList() else (0 until ids.length()).map(ids::optString),
                     lastReceivedSequence = data?.optLong("lastReceivedSequence", 0L) ?: 0L,
+                    desktopSequence = data?.optLong("desktopSequence", 0L) ?: 0L,
+                    isDelta = data?.optBoolean("isDelta", false) == true,
                     conflictsJson = data?.optJSONArray("conflicts")?.toString() ?: "[]",
                     snapshot = data?.optJSONObject("snapshot"),
                 )
@@ -363,6 +372,7 @@ fun parseWsEvent(
                         chatCount = p.optInt("chat_count", 0),
                         agentIcons = agentIcons,
                         rootDirectory = p.nullableString("root_directory"),
+                        defaultModel = p.nullableString("default_model"),
                     )
                 }
                 projects.value = list
@@ -906,12 +916,65 @@ fun parseWsEvent(
                 WsEvent.ConversationMessages(
                     conversationId = conversationId,
                     messages = messages,
+                    requestId = data?.optString("requestId") ?: "",
                     paged = data?.optBoolean("paged", false) == true,
                     hasMore = data?.optBoolean("hasMore", false) == true,
                     nextBeforeTimestamp = data?.takeUnless { it.isNull("nextBeforeTimestamp") }?.optLong("nextBeforeTimestamp"),
                     nextBeforeId = data?.nullableString("nextBeforeId"),
+                    historyVersion = data?.nullableString("historyVersion"),
                 )
             }
+
+            "conversation:history-start" -> WsEvent.ConversationHistoryStart(
+                conversationId = data?.optString("conversationId") ?: "",
+                requestId = data?.optString("requestId") ?: "",
+                totalItems = data?.optInt("totalItems", 0) ?: 0,
+                chunkCount = data?.optInt("chunkCount", 0) ?: 0,
+                historyVersion = data?.nullableString("historyVersion"),
+            )
+
+            "conversation:history-chunk" -> {
+                val conversationId = data?.optString("conversationId") ?: ""
+                val messagesArray = data?.optJSONArray("messages") ?: JSONArray()
+                val messages = (0 until messagesArray.length()).map { i ->
+                    val m = messagesArray.getJSONObject(i)
+                    HistoryMessage(
+                        id = m.optString("id"),
+                        role = m.optString("role"),
+                        content = m.optString("content"),
+                        timestamp = m.optLong("timestamp"),
+                        timelineOrder = m.takeUnless { it.isNull("timeline_order") }?.optLong("timeline_order"),
+                        attachments = attachmentsFromJson(m.nullableString("attachments")),
+                        thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
+                        textSegments = parseThinkingBlocks(m.nullableString("text_segments")),
+                        model = m.nullableString("model"),
+                    )
+                }
+                WsEvent.ConversationMessages(
+                    conversationId = conversationId,
+                    messages = messages,
+                    requestId = data?.optString("requestId") ?: "",
+                    paged = true,
+                    chunkIndex = data?.optInt("chunkIndex", 0),
+                    chunkCount = data?.optInt("chunkCount", 0),
+                )
+            }
+
+            "conversation:history-complete" -> WsEvent.ConversationHistoryComplete(
+                conversationId = data?.optString("conversationId") ?: "",
+                requestId = data?.optString("requestId") ?: "",
+                historyVersion = data?.nullableString("historyVersion"),
+                hasMore = data?.optBoolean("hasMore", false) == true,
+                nextBeforeTimestamp = data?.takeUnless { it.isNull("nextBeforeTimestamp") }?.optLong("nextBeforeTimestamp"),
+                nextBeforeId = data?.nullableString("nextBeforeId"),
+            )
+
+            "conversation:history-not-modified" -> WsEvent.ConversationHistoryNotModified(
+                conversationId = data?.optString("conversationId") ?: "",
+                requestId = data?.optString("requestId") ?: "",
+                historyVersion = data?.nullableString("historyVersion"),
+                hasMore = data?.optBoolean("hasMore", false) == true,
+            )
 
             "chat:cost" -> WsEvent.ChatCost(
                 conversationId = data?.optString("conversationId") ?: "",
@@ -1130,6 +1193,7 @@ fun parseWsEvent(
                     color = p.optString("color", "blue"),
                     chatCount = 0,
                     agentIcons = emptyList(),
+                    defaultModel = p.nullableString("default_model"),
                 )
                 projects.value = projects.value + project
                 WsEvent.ProjectCreated(project)
@@ -1701,9 +1765,27 @@ fun parseWsEvent(
 
             "project-generator:cancelled" -> WsEvent.ProjectGeneratorCancelled(data?.nullableString("sessionId"))
 
-            "project:config-updated" -> WsEvent.ProjectConfigUpdated(id = data?.optString("id") ?: "")
+            "project:config-updated" -> {
+                val id = data?.optString("id") ?: ""
+                data?.optJSONObject("config")?.let { config ->
+                    val defaultModel = config.nullableString("defaultModel")
+                    projects.value = projects.value.map { project ->
+                        if (project.id == id) project.copy(defaultModel = defaultModel) else project
+                    }
+                }
+                WsEvent.ProjectConfigUpdated(id = id)
+            }
 
-            "project:config-changed" -> WsEvent.ProjectConfigChanged(id = data?.optString("id") ?: "")
+            "project:config-changed" -> {
+                val id = data?.optString("id") ?: ""
+                data?.optJSONObject("config")?.let { config ->
+                    val defaultModel = config.nullableString("defaultModel")
+                    projects.value = projects.value.map { project ->
+                        if (project.id == id) project.copy(defaultModel = defaultModel) else project
+                    }
+                }
+                WsEvent.ProjectConfigChanged(id = id)
+            }
 
             "project:config" -> {
                 val c = data?.optJSONObject("config") ?: JSONObject()

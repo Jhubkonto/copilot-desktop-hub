@@ -1,7 +1,6 @@
 package io.nexy.android.data
 
 import android.app.Application
-import android.app.NotificationManager
 import io.nexy.android.BuildConfig
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AgentFullConfig
@@ -63,9 +62,16 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, POLLING }
+enum class SyncProgressPhase { CONNECTING, RECEIVING, APPLYING, UPLOADING, COMPLETE }
+data class SyncProgress(
+    val phase: SyncProgressPhase = SyncProgressPhase.COMPLETE,
+    val completed: Int = 0,
+    val total: Int = 0,
+)
 
 enum class StandaloneModeTransition { NONE, ENTERED_STANDALONE, EXITED_STANDALONE }
 
@@ -280,8 +286,14 @@ object WsRepository : WsClient {
     private var currentCertFingerprint: String? = null
     private var reconnectJob: Job? = null
     private var handshakeTimeoutJob: Job? = null
+    private var foregroundProbeJob: Job? = null
     private var reconnectAttempts = 0
     private var activeMdnsDiscovery: MdnsDiscovery? = null
+    @Volatile private var pendingForegroundProbeId: String? = null
+    @Volatile private var foregroundProbeStartedAtMs: Long = 0L
+    @Volatile private var connectionStartedAtMs: Long = 0L
+    @Volatile private var syncStartedAtMs: Long = 0L
+    @Volatile private var negotiatedSyncProtocolVersion: Int = 2
 
     // Set to true when the desktop sends update:restarting so that a 4001/4002
     // close code from the relaunch does not suppress auto-reconnect.
@@ -306,6 +318,8 @@ object WsRepository : WsClient {
     val syncOutbox: StateFlow<List<OutboxEntity>> = _syncOutbox
     private val _syncInProgress = MutableStateFlow(false)
     val syncInProgress: StateFlow<Boolean> = _syncInProgress
+    private val _syncProgress = MutableStateFlow(SyncProgress())
+    val syncProgress: StateFlow<SyncProgress> = _syncProgress
 
     // Provider key handoff consent tracking (pending requests and confirmed handoffs)
     private val _pendingKeyHandoffRequests = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -530,19 +544,43 @@ object WsRepository : WsClient {
     init {
         scope.launch {
             _remoteEvents.collect { event ->
-                try {
-                    localData?.applyRemoteEvent(event)
-                } catch (error: Exception) {
-                    // A malformed or temporarily unwritable cache row must not bring down the
-                    // process (or cancel the repository's event collectors). The remote event is
-                    // still delivered so connected-mode UI can continue working.
-                    appendDebugLog(
-                        "sync-cache-error",
-                        "${event.javaClass.simpleName}: ${error.javaClass.simpleName}: ${error.message.orEmpty()}",
-                    )
-                    android.util.Log.e(WS_LOG_TAG, "Unable to cache remote event", error)
-                }
-                _events.emit(event)
+                val receivedAtMs = android.os.SystemClock.elapsedRealtime()
+                dispatchRemoteEvent(
+                    event = event,
+                    persist = {
+                        val cache = localData
+                        if (cache != null) {
+                            cache.applyRemoteEvent(it)
+                        }
+                        if (cache != null && it is WsEvent.ConversationMessages) {
+                            appendDebugLog(
+                                "chat-history-timing",
+                                "cache-committed conversationId=${it.conversationId} " +
+                                    "count=${it.messages.size} elapsedMs=${elapsedSince(receivedAtMs)}",
+                            )
+                        }
+                    },
+                    publish = {
+                        _events.emit(it)
+                        if (it is WsEvent.ConversationMessages) {
+                            appendDebugLog(
+                                "chat-history-timing",
+                                "ui-published conversationId=${it.conversationId} " +
+                                    "count=${it.messages.size} elapsedMs=${elapsedSince(receivedAtMs)}",
+                            )
+                        }
+                    },
+                    onPersistError = { failedEvent, error ->
+                        // A malformed or temporarily unwritable cache row must not bring down the
+                        // process (or cancel the repository's event collectors). Chat history has
+                        // already reached the UI; all other events are published immediately below.
+                        appendDebugLog(
+                            "sync-cache-error",
+                            "${failedEvent.javaClass.simpleName}: ${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                        )
+                        android.util.Log.e(WS_LOG_TAG, "Unable to cache remote event", error)
+                    },
+                )
             }
         }
         scope.launch {
@@ -700,12 +738,30 @@ object WsRepository : WsClient {
                         // Desktop came back online — clear the restart-expected flag
                         _intentionalRestartExpected.value = false
                         _voiceCapabilities.value = event.voiceCapabilities
+                        val connectedElapsed = elapsedSince(connectionStartedAtMs)
+                        appendDebugLog("sync-timing", "connected-event elapsedMs=$connectedElapsed")
                         beginStandaloneSync()
                         getActivityFeed()
                     }
+                    is WsEvent.SyncProbeAck -> {
+                        if (event.probeId == pendingForegroundProbeId) {
+                            val elapsed = elapsedSince(foregroundProbeStartedAtMs)
+                            pendingForegroundProbeId = null
+                            foregroundProbeJob?.cancel()
+                            foregroundProbeJob = null
+                            appendDebugLog("sync-timing", "foreground-probe-ack elapsedMs=$elapsed")
+                            flushPendingCommands()
+                        }
+                    }
                     is WsEvent.SyncWelcome -> {
+                        negotiatedSyncProtocolVersion = event.protocolVersion.coerceAtLeast(1)
                         scope.launch {
-                            applyStandaloneSnapshot(event.snapshot, acknowledgeTombstones = true)
+                            applyStandaloneSnapshot(
+                                event.snapshot,
+                                acknowledgeTombstones = true,
+                                desktopSequence = event.desktopSequence,
+                                datasetId = event.datasetId,
+                            )
                         }
                     }
                     is WsEvent.SyncAck -> {
@@ -714,7 +770,12 @@ object WsRepository : WsClient {
                                 localData?.acknowledge(event.operationIds)
                                 localData?.applySyncConflicts(event.conflictsJson)
                                 event.snapshot?.let {
-                                    applyStandaloneSnapshot(it, acknowledgeTombstones = false)
+                                    applyStandaloneSnapshot(
+                                        it,
+                                        acknowledgeTombstones = false,
+                                        desktopSequence = event.desktopSequence,
+                                        datasetId = currentToken?.let(::syncDatasetId),
+                                    )
                                 } ?: flushStandaloneOutbox()
                             } catch (error: Exception) {
                                 reportSyncFailure("ack", error)
@@ -736,18 +797,33 @@ object WsRepository : WsClient {
                         }
                     }
                     is WsEvent.SyncError -> {
-                        _syncInProgress.value = false
-                        _lastError.value = event.message
-                        scope.launch {
-                            localData?.pendingBatch(100)?.forEach { operation ->
-                                localData?.markFailed(operation.operationId, event.message)
+                        // Desktop builds from before the foreground probe was introduced answer
+                        // with unknown-command. Reconnect through the legacy path without
+                        // misclassifying queued user edits as failed synchronization operations.
+                        if (event.code == "unknown-command" && pendingForegroundProbeId != null) {
+                            pendingForegroundProbeId = null
+                            foregroundProbeJob?.cancel()
+                            foregroundProbeJob = null
+                            appendDebugLog("sync-timing", "foreground-probe-unsupported")
+                            reconnectAfterForegroundProbeFailure()
+                        } else if (event.code == "unsupported-protocol" && event.supportedProtocolVersion == 1) {
+                            appendDebugLog("sync-timing", "protocol-v2-unsupported fallback=v1")
+                            beginStandaloneSync(protocolVersion = 1)
+                        } else {
+                            _syncInProgress.value = false
+                            _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
+                            _lastError.value = event.message
+                            scope.launch {
+                                localData?.pendingBatch(100)?.forEach { operation ->
+                                    localData?.markFailed(operation.operationId, event.message)
+                                }
+                                // A batch-wide failure marks everything pending as failed even though
+                                // only one operation may actually be broken (e.g. it references a
+                                // conversation the user already deleted locally). Tell them apart:
+                                // discard the truly orphaned ones, retry the rest automatically.
+                                localData?.discardOrphanedOperations()
+                                if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
                             }
-                            // A batch-wide failure marks everything pending as failed even though
-                            // only one operation may actually be broken (e.g. it references a
-                            // conversation the user already deleted locally). Tell them apart:
-                            // discard the truly orphaned ones, retry the rest automatically.
-                            localData?.discardOrphanedOperations()
-                            if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
                         }
                     }
                     is WsEvent.RemoteEditActiveCodeChangesChanged -> {
@@ -1005,6 +1081,9 @@ object WsRepository : WsClient {
             return
         }
         _connectionState.value = ConnectionState.CONNECTING
+        _syncProgress.value = SyncProgress(SyncProgressPhase.CONNECTING)
+        connectionStartedAtMs = android.os.SystemClock.elapsedRealtime()
+        appendDebugLog("sync-timing", "connection-start candidates=${urls.size}")
         val raceScope = CoroutineScope(Dispatchers.IO)
         val winner = java.util.concurrent.atomic.AtomicBoolean(false)
         // Track losing WebSockets so we ignore their subsequent callbacks.
@@ -1064,6 +1143,9 @@ object WsRepository : WsClient {
 
     private fun doConnect(wsUrl: String): Boolean {
         _connectionState.value = ConnectionState.CONNECTING
+        _syncProgress.value = SyncProgress(SyncProgressPhase.CONNECTING)
+        connectionStartedAtMs = android.os.SystemClock.elapsedRealtime()
+        appendDebugLog("sync-timing", "connection-start candidates=1")
         val request = runCatching { Request.Builder().url(wsUrl).build() }
             .getOrElse {
                 _lastError.value = it.message ?: "Invalid WebSocket URL"
@@ -1102,6 +1184,7 @@ object WsRepository : WsClient {
         reconnectAttempts = 0
         _reconnectExhausted.value = false
         _connectionState.value = ConnectionState.CONNECTED
+        appendDebugLog("sync-timing", "socket-open elapsedMs=${elapsedSince(connectionStartedAtMs)}")
         _lastError.value = null
         _serverVersion.value = null
         _desktopIsPackaged.value = null
@@ -1111,10 +1194,7 @@ object WsRepository : WsClient {
             pairedServerStore?.save(PairedServerConfig(endpoint, token, currentCertFingerprint))
             refreshProfiles()
         }
-        synchronized(pendingCommands) {
-            pendingCommands.forEach { (cmd, data) -> send(cmd, data) }
-            pendingCommands.clear()
-        }
+        flushPendingCommands()
         // If the desktop doesn't send the "connected" event within 15s, treat it as a failure.
         handshakeTimeoutJob?.cancel()
         handshakeTimeoutJob = scope.launch {
@@ -1133,6 +1213,14 @@ object WsRepository : WsClient {
     }
 
     private fun onWsMessage(text: String) {
+        val isSyncWelcome = text.take(160).contains("\"sync:welcome\"")
+        val parseStartedAt = if (isSyncWelcome) android.os.SystemClock.elapsedRealtime() else 0L
+        if (isSyncWelcome) {
+            appendDebugLog(
+                "sync-timing",
+                "snapshot-received elapsedMs=${elapsedSince(syncStartedAtMs)} payloadChars=${text.length}",
+            )
+        }
         parseWsEvent(
             text = text,
             scope = scope,
@@ -1164,6 +1252,12 @@ object WsRepository : WsClient {
             ratingStats = _ratingStats,
             pairedServerStore = pairedServerStore,
         )
+        if (isSyncWelcome) {
+            appendDebugLog(
+                "sync-timing",
+                "snapshot-json-parsed elapsedMs=${elapsedSince(parseStartedAt)} payloadChars=${text.length}",
+            )
+        }
     }
 
     private fun scheduleReconnect() {
@@ -1227,17 +1321,44 @@ object WsRepository : WsClient {
         localData?.setInternetState(InternetState.UNAVAILABLE)
     }
 
-    // Called when the app transitions from background to foreground (e.g. the user
-    // taps a "chat ready" notification while the app was backgrounded). Unlike
-    // onNetworkAvailable(), this does NOT bail out when connectionState reads CONNECTED:
-    // after the OS freezes/Dozes the process, the socket can die silently while the
-    // flag still says CONNECTED, since only the 30s OkHttp ping would eventually notice.
-    // Forcing a fresh reconnect here ensures the chat screen's subsequent
-    // requestLatestHistory() rides a live socket instead of silently sending into a dead one.
+    // Validate a socket that survived backgrounding before replacing it. A healthy connection
+    // has already received desktop push events, so keeping it avoids a TLS/WebSocket handshake
+    // and the full reconnect snapshot. A silent half-open socket falls back to the existing
+    // reconnect path after a short application-level round trip timeout.
     fun onAppForegrounded() {
         if (_preferStandaloneMode.value) return
         if (currentUrl == null || currentToken == null) return
         if (_connectionState.value == ConnectionState.CONNECTING) return
+        if (_connectionState.value == ConnectionState.CONNECTED && ws != null) {
+            val probeId = UUID.randomUUID().toString()
+            pendingForegroundProbeId = probeId
+            foregroundProbeStartedAtMs = android.os.SystemClock.elapsedRealtime()
+            foregroundProbeJob?.cancel()
+            appendDebugLog("sync-timing", "foreground-probe-start")
+            send(
+                "sync:probe",
+                mapOf(
+                    "probeId" to probeId,
+                    "clientSentAt" to System.currentTimeMillis(),
+                ),
+            )
+            foregroundProbeJob = scope.launch {
+                delay(FOREGROUND_PROBE_TIMEOUT_MS)
+                if (pendingForegroundProbeId == probeId) {
+                    pendingForegroundProbeId = null
+                    appendDebugLog(
+                        "sync-timing",
+                        "foreground-probe-timeout elapsedMs=${elapsedSince(foregroundProbeStartedAtMs)}",
+                    )
+                    reconnectAfterForegroundProbeFailure()
+                }
+            }
+            return
+        }
+        reconnectAfterForegroundProbeFailure()
+    }
+
+    private fun reconnectAfterForegroundProbeFailure() {
         reconnectAttempts = 0
         _reconnectExhausted.value = false
         reconnectJob?.cancel()
@@ -1246,31 +1367,41 @@ object WsRepository : WsClient {
         scheduleReconnect()
     }
 
-    private fun beginStandaloneSync() {
+    private fun beginStandaloneSync(protocolVersion: Int = 2) {
         val local = localData ?: return
         val token = currentToken ?: return
         val datasetId = syncDatasetId(token)
         if (!local.bindDataset(datasetId)) {
             _syncInProgress.value = false
+            _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
             _lastError.value = "This Android dataset belongs to a different paired desktop. Restore or clear local data before switching datasets."
             return
         }
         _syncInProgress.value = true
-        send(
-            "sync:hello",
-            mapOf(
-                "deviceId" to local.deviceId,
-                "deviceName" to android.os.Build.MODEL,
-                "appVersion" to BuildConfig.VERSION_NAME,
-                "appVersionCode" to BuildConfig.VERSION_CODE,
-                "datasetId" to datasetId,
-                "protocolVersion" to 1,
-                "schemaVersion" to 2,
-                "supportedEntityTypes" to listOf("project", "agent", "conversation", "message", "wiki", "prompt", "skill"),
-                "attachmentSupport" to "metadata",
-                "maxBatchSize" to 100,
-            ),
-        )
+        negotiatedSyncProtocolVersion = protocolVersion
+        _syncProgress.value = SyncProgress(SyncProgressPhase.RECEIVING)
+        syncStartedAtMs = android.os.SystemClock.elapsedRealtime()
+        appendDebugLog("sync-timing", "sync-hello-send")
+        scope.launch {
+            val lastDesktopSequence =
+                if (protocolVersion >= 2) local.desktopSyncSequence(datasetId) else 0L
+            send(
+                "sync:hello",
+                mapOf(
+                    "deviceId" to local.deviceId,
+                    "deviceName" to android.os.Build.MODEL,
+                    "appVersion" to BuildConfig.VERSION_NAME,
+                    "appVersionCode" to BuildConfig.VERSION_CODE,
+                    "datasetId" to datasetId,
+                    "protocolVersion" to protocolVersion,
+                    "schemaVersion" to 2,
+                    "supportedEntityTypes" to listOf("project", "agent", "conversation", "message", "wiki", "prompt", "skill"),
+                    "attachmentSupport" to "metadata",
+                    "maxBatchSize" to 100,
+                    "lastDesktopSequence" to lastDesktopSequence,
+                ),
+            )
+        }
     }
 
     private suspend fun flushStandaloneOutbox() {
@@ -1280,15 +1411,30 @@ object WsRepository : WsClient {
         val operations = local.pendingBatch(100)
         if (operations.isEmpty()) {
             _syncInProgress.value = false
+            _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
+            if (syncStartedAtMs > 0L) {
+                appendDebugLog("sync-timing", "sync-settled elapsedMs=${elapsedSince(syncStartedAtMs)}")
+                syncStartedAtMs = 0L
+            }
             return
         }
         _syncInProgress.value = true
+        _syncProgress.value = SyncProgress(
+            phase = SyncProgressPhase.UPLOADING,
+            completed = 0,
+            total = operations.size,
+        )
+        val datasetId = syncDatasetId(token)
+        val protocolVersion = negotiatedSyncProtocolVersion
+        val lastDesktopSequence =
+            if (protocolVersion >= 2) local.desktopSyncSequence(datasetId) else 0L
         send(
             "sync:push",
             mapOf(
                 "deviceId" to local.deviceId,
-                "datasetId" to syncDatasetId(token),
-                "protocolVersion" to 1,
+                "datasetId" to datasetId,
+                "protocolVersion" to protocolVersion,
+                "lastDesktopSequence" to lastDesktopSequence,
                 "operations" to operations.map { operation ->
                     mapOf(
                         "operationId" to operation.operationId,
@@ -1308,9 +1454,20 @@ object WsRepository : WsClient {
     private suspend fun applyStandaloneSnapshot(
         snapshot: JSONObject,
         acknowledgeTombstones: Boolean,
+        desktopSequence: Long = 0,
+        datasetId: String? = null,
     ) {
+        val applyStartedAt = android.os.SystemClock.elapsedRealtime()
         try {
-            localData?.applySyncSnapshot(snapshot)
+            _syncProgress.value = SyncProgress(SyncProgressPhase.APPLYING)
+            localData?.applySyncSnapshot(snapshot, activelyViewedConversationId.value) { completed, total ->
+                _syncProgress.value = SyncProgress(SyncProgressPhase.APPLYING, completed, total)
+            }
+            if (datasetId != null) localData?.saveDesktopSyncSequence(datasetId, desktopSequence)
+            appendDebugLog(
+                "sync-timing",
+                "snapshot-room-committed elapsedMs=${elapsedSince(applyStartedAt)}",
+            )
             if (acknowledgeTombstones) acknowledgeStandaloneSnapshot(snapshot)
             resumeAttachmentTransfers(snapshot)
             flushStandaloneOutbox()
@@ -1321,6 +1478,7 @@ object WsRepository : WsClient {
 
     private fun reportSyncFailure(stage: String, error: Exception) {
         _syncInProgress.value = false
+        _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
         val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
         _lastError.value = "Android sync failed during $stage: $detail"
         appendDebugLog("sync-$stage-error", "${error.javaClass.simpleName}: $detail")
@@ -1446,7 +1604,11 @@ object WsRepository : WsClient {
     }
 
     private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
+    private const val FOREGROUND_PROBE_TIMEOUT_MS = 750L
     private const val POLLING_DELAY_MS = 60_000L
+
+    private fun elapsedSince(startedAtMs: Long): Long =
+        if (startedAtMs <= 0L) 0L else (android.os.SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)
 
     private fun reconnectDelayMs(attempt: Int): Long =
         if (attempt < BACKOFF_DELAYS.size) BACKOFF_DELAYS[attempt] else POLLING_DELAY_MS
@@ -1454,6 +1616,8 @@ object WsRepository : WsClient {
     fun disconnect() {
         reconnectJob?.cancel()
         handshakeTimeoutJob?.cancel()
+        foregroundProbeJob?.cancel()
+        pendingForegroundProbeId = null
         currentUrl = null
         currentToken = null
         currentCertFingerprint = null
@@ -1461,6 +1625,7 @@ object WsRepository : WsClient {
         ws = null
         _connectionState.value = ConnectionState.DISCONNECTED
         _syncInProgress.value = false
+        _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
         _models.value = STANDALONE_MODELS
         _modelSource.value = ModelListSource(type = "standalone", label = "On-device catalog")
         _androidUpdateManifest.value = null
@@ -1580,6 +1745,14 @@ object WsRepository : WsClient {
                 return
             }
         }
+        // While a foreground probe is outstanding, hold normal commands until the socket is
+        // validated. This prevents a chat history refresh (or the foreground signal itself)
+        // from being written into a silent half-open connection. Probe acknowledgement flushes
+        // the queue immediately; timeout/reconnect flushes it from onWsOpen().
+        if (pendingForegroundProbeId != null && command != "sync:probe") {
+            synchronized(pendingCommands) { pendingCommands.add(command to data) }
+            return
+        }
         val socket = ws
         val token = currentToken
         // Queue-or-fail instead of silently dropping: a command fired during a brief
@@ -1597,6 +1770,13 @@ object WsRepository : WsClient {
         obj.put("data", mapToJson(data))
         registerGeneratorActivityForCommand(command)
         socket.send(obj.toString())
+    }
+
+    private fun flushPendingCommands() {
+        val queued = synchronized(pendingCommands) {
+            pendingCommands.toList().also { pendingCommands.clear() }
+        }
+        queued.forEach { (command, data) -> send(command, data) }
     }
 
     /**
@@ -2595,8 +2775,7 @@ object WsRepository : WsClient {
     fun restoreAndroidVersion(versionCode: Int) { send("android:restore-version", mapOf("versionCode" to versionCode)) }
 
     fun cancelApprovalNotification() {
-        app?.getSystemService(NotificationManager::class.java)
-            ?.cancel(ApprovalNotificationManager.NOTIFICATION_ID)
+        app?.let(ApprovalNotificationManager::cancel)
     }
 
     // ─── Scheduler ─────────────────────────────────────────────────────────────
