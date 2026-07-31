@@ -15,6 +15,7 @@ import { initErrorLogCapture } from './error-log-handlers'
 import { autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 import { schedulerEngine } from './scheduler-engine'
+import { initializeActivityBadge } from './activity-badge'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -72,6 +73,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    initializeActivityBadge()
     const db = getDatabase()
     const zoomRow = db.prepare("SELECT value FROM settings WHERE key = 'zoomFactor'").get() as { value: string } | undefined
     if (zoomRow) {
@@ -218,6 +220,7 @@ app.whenReady().then(() => {
   registerUpdaterHandlers()
 
   createWindow()
+  initializeActivityBadge()
   registerIpcHandlers(mainWindow ?? undefined)
   setIpChangeCallback((newUrl) => {
     void sendIpChangedPush(getDatabase(), newUrl).catch(() => {})

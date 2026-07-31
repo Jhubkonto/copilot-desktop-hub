@@ -44,6 +44,7 @@ import { registerTeachbackHandlers } from './teachback-handlers'
 import { registerRatingHandlers } from './rating-handlers'
 import { registerProjectAuditHandlers } from './project-audit'
 import { registerActivityHandlers } from './activity-tracker'
+import { markApplicationViewed } from './activity-badge'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -101,6 +102,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
       cacheExternalWindowLabel(mainWindow.getTitle()).catch(() => {})
     })
     mainWindow.on('focus', () => {
+      markApplicationViewed()
       if (consumeSuppressFocusEvent()) return
       mainWindow.webContents.send('clipboard:auto-focus')
     })

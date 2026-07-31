@@ -336,9 +336,19 @@ export function registerProjectHandlers(): void {
   safeHandle(
     "project:set-default-model",
     (_event, id: string, model: string | null) => {
+      const normalizedModel = model && model !== "default" ? model : null;
       db.prepare(
         "UPDATE projects SET default_model = ?, updated_at = ? WHERE id = ?",
-      ).run(model ?? null, Date.now(), id);
+      ).run(normalizedModel, Date.now(), id);
+      const row = db.prepare("SELECT config_json FROM projects WHERE id = ?").get(id) as
+        { config_json: string | null } | undefined;
+      broadcastToMobile({
+        event: "project:config-changed",
+        data: {
+          id,
+          config: { ...parseProjectConfig(row?.config_json ?? null), defaultModel: normalizedModel },
+        },
+      });
       return true;
     },
   );

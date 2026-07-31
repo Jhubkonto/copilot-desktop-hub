@@ -6,6 +6,7 @@ import { dispatchChatSend } from './chat-handlers'
 import { broadcastToMobile } from './ws-server'
 import { sendSchedulerRunNotification } from './fcm-sender'
 import { log } from './logger'
+import { recordUnseenDestination } from './activity-badge'
 import {
   saveAutomatedWorkflowRunFromSpec,
   findAutomatedWorkflowRunByScheduleTag,
@@ -302,6 +303,7 @@ function pushRunUpdated(run: ScheduledRun): void {
 // ─────────────────────────────────────────────────────────────
 
 function maybeNotify(task: ScheduledTask, status: 'success' | 'failed' | 'approval_required'): void {
+  recordUnseenDestination(`scheduled:${task.id}`)
   const pref = task.notificationPref ?? 'failures_only'
   if (pref === 'off') return
   if (pref === 'failures_only' && status === 'success') return

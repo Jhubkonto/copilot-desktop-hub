@@ -4,6 +4,7 @@ import { app, BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
 import { getFeedUrl, isFeedRunning } from './local-feed-server'
 import { log } from './logger'
+import { recordUnseenDestination } from './activity-badge'
 
 let mainWindow: BrowserWindow | null = null
 let lastFeedUrl = ''
@@ -51,6 +52,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
   })
 
   autoUpdater.on('update-downloaded', () => {
+    recordUnseenDestination('update:downloaded')
     mainWindow?.webContents.send('updater:update-downloaded')
   })
 

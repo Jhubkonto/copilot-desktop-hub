@@ -4,6 +4,7 @@ import { safeHandle } from './safe-handle'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendApprovalPush } from './fcm-sender'
 import { registerApprovalResolver } from './ws-handlers'
+import { clearUnseenDestination, recordUnseenDestination } from './activity-badge'
 
 function setToolPreference(toolName: string, value: string): void {
   const db = getDatabase()
@@ -49,12 +50,14 @@ export async function requestApproval(
     pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
     webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
     broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
+    recordUnseenDestination(`approval:${requestId}`)
     if (!isMobileInForeground()) {
       sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
     }
     setTimeout(() => {
       if (pendingApprovals.has(requestId)) {
         pendingApprovals.delete(requestId)
+        clearUnseenDestination(`approval:${requestId}`)
         resolve(false)
       }
     }, 60000)
@@ -72,6 +75,7 @@ export function denyPendingApprovalsForConversation(conversationId: string): voi
     if (pending.conversationId === conversationId) {
       pending.resolve(false)
       pendingApprovals.delete(requestId)
+      clearUnseenDestination(`approval:${requestId}`)
     }
   }
 }
@@ -81,6 +85,7 @@ export function drainPendingApprovals(agentId: string): void {
     if (pending.agentId === agentId) {
       pending.resolve(true)
       pendingApprovals.delete(requestId)
+      clearUnseenDestination(`approval:${requestId}`)
     }
   }
 }
@@ -90,6 +95,7 @@ export function resolveApprovalFromWs(requestId: string, approved: boolean): boo
   if (!pending) return false
   pending.resolve(approved)
   pendingApprovals.delete(requestId)
+  clearUnseenDestination(`approval:${requestId}`)
   return true
 }
 
@@ -110,6 +116,7 @@ export function registerToolHandlers(): void {
         }
         pending.resolve(approved)
         pendingApprovals.delete(requestId)
+        clearUnseenDestination(`approval:${requestId}`)
       }
       return true
     }
