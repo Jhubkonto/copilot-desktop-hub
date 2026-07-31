@@ -100,6 +100,63 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun progressively prepends streamed history chunks and settles on completion() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationHistoryStart(
+                conversationId = "conv-1",
+                requestId = "",
+                totalItems = 3,
+                chunkCount = 2,
+                historyVersion = "v1",
+            ),
+        )
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m2", "user", "Newest question", 2),
+                    HistoryMessage("m3", "assistant", "Newest answer", 3),
+                ),
+                paged = true,
+                chunkIndex = 0,
+                chunkCount = 2,
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(listOf("m2", "m3"), vm.messages.value.map { it.id })
+        assertTrue(vm.isReconcilingHistory.value)
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m1", "assistant", "Older", 1)),
+                paged = true,
+                chunkIndex = 1,
+                chunkCount = 2,
+            ),
+        )
+        fakeWs.emit(
+            WsEvent.ConversationHistoryComplete(
+                conversationId = "conv-1",
+                requestId = "",
+                historyVersion = "v1",
+                hasMore = false,
+                nextBeforeTimestamp = 1,
+                nextBeforeId = "m1",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf("m1", "m2", "m3"), vm.messages.value.map { it.id })
+        assertFalse(vm.isReconcilingHistory.value)
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun prependsOlderPagedHistoryWithoutReplacingLatestMessages() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("conv-1", fakeWs)
@@ -655,6 +712,32 @@ class ChatViewModelTest {
         assertTrue(vm.isAwaitingResponse.value)
         assertEquals(
             SentCommand("chat:send-message", mapOf("conversationId" to "conv-1", "content" to "Hello")),
+            fakeWs.sentCommands.last(),
+        )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun immediateSendCarriesUnconfirmedModeOverrides() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        vm.setCliModeOverride("workspace-write")
+        vm.setFullAutoApproveOverride(true)
+        vm.sendMessage("Apply the fix")
+
+        assertEquals(
+            SentCommand(
+                "chat:send-message",
+                mapOf(
+                    "conversationId" to "conv-1",
+                    "content" to "Apply the fix",
+                    "cliModeOverride" to "workspace-write",
+                    "fullAutoApproveOverride" to true,
+                ),
+            ),
             fakeWs.sentCommands.last(),
         )
 

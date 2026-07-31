@@ -69,6 +69,21 @@ class ConnectionIndicatorStateTest {
     }
 
     @Test
+    fun `chat readiness is not held open by unrelated background sync`() {
+        assertEquals(
+            ConnectionIndicatorState.CONNECTED,
+            resolveConnectionIndicatorState(
+                mode = EffectiveConnectionMode.CONNECTED,
+                syncInProgress = true,
+                pendingChanges = 0,
+                failedChanges = 0,
+                conflicts = 0,
+                contentSyncInProgress = false,
+            ),
+        )
+    }
+
+    @Test
     fun `disconnected mode resolves to error`() {
         assertEquals(
             ConnectionIndicatorState.ERROR,

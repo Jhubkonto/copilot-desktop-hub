@@ -49,6 +49,8 @@ class StandaloneSyncParserTest {
                 "protocolVersion":1,
                 "desktopDeviceId":"desktop-1",
                 "datasetId":"dataset-1",
+                "desktopSequence":42,
+                "isDelta":true,
                 "snapshot":{"projects":[{"id":"project-1"}],"versions":{"project:project-1":2}}
               }
             }
@@ -57,7 +59,19 @@ class StandaloneSyncParserTest {
 
         assertEquals(1, event.protocolVersion)
         assertEquals("desktop-1", event.desktopDeviceId)
+        assertEquals(42L, event.desktopSequence)
+        assertTrue(event.isDelta)
         assertEquals(2, event.snapshot.optJSONObject("versions")?.optInt("project:project-1"))
+    }
+
+    @Test
+    fun parsesForegroundProbeAcknowledgement() = runTest {
+        val event = parse(
+            """{"event":"sync:probe-ack","data":{"probeId":"probe-1","serverReceivedAt":456}}""",
+        ) as WsEvent.SyncProbeAck
+
+        assertEquals("probe-1", event.probeId)
+        assertEquals(456L, event.serverReceivedAt)
     }
 
     @Test
@@ -77,6 +91,30 @@ class StandaloneSyncParserTest {
         ) as WsEvent.SyncError
         assertEquals("unsupported-protocol", error.code)
         assertEquals(1, error.supportedProtocolVersion)
+    }
+
+    @Test
+    fun parsesChunkedAndConditionalHistoryEvents() = runTest {
+        val chunk = parse(
+            """
+            {"event":"conversation:history-chunk","data":{"conversationId":"conv-1",
+            "requestId":"request-1","chunkIndex":0,"chunkCount":2,
+            "messages":[{"id":"m1","role":"assistant","content":"Ready","timestamp":5}]}}
+            """.trimIndent(),
+        ) as WsEvent.ConversationMessages
+        assertEquals("request-1", chunk.requestId)
+        assertEquals(0, chunk.chunkIndex)
+        assertEquals(2, chunk.chunkCount)
+        assertEquals("m1", chunk.messages.single().id)
+
+        val unchanged = parse(
+            """
+            {"event":"conversation:history-not-modified","data":{"conversationId":"conv-1",
+            "requestId":"request-2","historyVersion":"v1","hasMore":true}}
+            """.trimIndent(),
+        ) as WsEvent.ConversationHistoryNotModified
+        assertEquals("v1", unchanged.historyVersion)
+        assertTrue(unchanged.hasMore)
     }
 
     private suspend fun TestScope.parse(json: String): WsEvent {

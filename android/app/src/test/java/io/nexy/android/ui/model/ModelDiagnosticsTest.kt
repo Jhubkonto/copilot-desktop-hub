@@ -72,6 +72,15 @@ class ModelDiagnosticsTest {
     }
 
     @Test
+    fun resolvesOnlyAvailableProjectDefaults() {
+        val models = listOf(ModelOption(id = "gpt-5-mini", label = "GPT-5 mini"))
+
+        assertEquals("gpt-5-mini", resolveAvailableProjectDefault("gpt-5-mini", models))
+        assertEquals(null, resolveAvailableProjectDefault("removed-cli-model", models))
+        assertEquals(null, resolveAvailableProjectDefault(null, models))
+    }
+
+    @Test
     fun explainsAgentLockedToHermes() {
         val agent = Agent(
             id = "agent-2",
