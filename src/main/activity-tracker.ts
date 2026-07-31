@@ -3,6 +3,11 @@ import { safeHandle } from './safe-handle'
 import { broadcastToMobile } from './ws-server'
 import { getDatabase } from './database'
 import type { BackgroundActivity, BackgroundActivityKind } from '../shared/types'
+import {
+  getUnseenActivityCount,
+  recordUnseenActivity,
+  setViewedConversation,
+} from './activity-badge'
 
 /**
  * Cross-device "ongoing activity" registry — the main-process source of truth so activity
@@ -107,11 +112,14 @@ export function updateActivity(id: string, patch: Partial<Omit<BackgroundActivit
   broadcast()
 }
 
-export function endActivity(id: string): void {
+export function endActivity(id: string, options: { completed?: boolean } = {}): void {
   const finished = activities.get(id)
   if (!finished) return
   activities.delete(id)
-  notifyActivityFinished(finished)
+  if (options.completed !== false) {
+    recordUnseenActivity(withDisplayContext(finished))
+    notifyActivityFinished(finished)
+  }
   broadcast()
 }
 
@@ -188,7 +196,11 @@ export function getActivitySnapshot(): BackgroundActivity[] {
 export function registerActivityHandlers(): void {
   safeHandle('activity:list', (): BackgroundActivity[] => getActivitySnapshot())
   safeHandle('activity:dismiss', (_event, id: string): boolean => {
-    endActivity(id)
+    endActivity(id, { completed: false })
     return true
   })
+  safeHandle('activity-badge:set-viewed-conversation', (_event, conversationId: string | null): number =>
+    setViewedConversation(conversationId),
+  )
+  safeHandle('activity-badge:get-count', (): number => getUnseenActivityCount())
 }

@@ -5,7 +5,9 @@ import { initializeBaseSchema, runMigrations } from '../database-migrations'
 const { getDatabaseMock } = vi.hoisted(() => ({ getDatabaseMock: vi.fn() }))
 
 vi.mock('electron', () => ({
+  app: { setBadgeCount: vi.fn() },
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  nativeImage: { createFromDataURL: vi.fn(() => ({})) },
   Notification: { isSupported: vi.fn(() => false) },
 }))
 vi.mock('../database', () => ({ getDatabase: getDatabaseMock }))
@@ -13,10 +15,12 @@ vi.mock('../safe-handle', () => ({ safeHandle: vi.fn() }))
 vi.mock('../ws-server', () => ({ broadcastToMobile: vi.fn() }))
 
 import { endActivity, getActivitySnapshot, startActivity } from '../activity-tracker'
+import { resetActivityBadgeForTests } from '../activity-badge'
 
 let db: Database.Database
 
 beforeEach(() => {
+  resetActivityBadgeForTests()
   db = new Database(':memory:')
   initializeBaseSchema(db)
   runMigrations(db)
