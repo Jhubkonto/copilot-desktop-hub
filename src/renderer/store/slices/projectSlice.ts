@@ -32,6 +32,7 @@ export interface ProjectSlice {
   setHistoryProjectId: (id: string | null) => void
   createProject: (name: string, color: string) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
+  updateProjectColor: (id: string, name: string, color: string) => Promise<void>
   deleteProject: (id: string) => Promise<void>
   setConversationProject: (
     conversationId: string,
@@ -194,6 +195,19 @@ export const createProjectSlice: StateCreator<
       await get().loadProjects()
     } catch {
       get().addToast('Failed to rename project', 'error')
+    }
+  },
+
+  updateProjectColor: async (id, name, color) => {
+    try {
+      const result = await window.api.updateProjectColor(id, name, color)
+      if (isApiError(result)) {
+        get().addToast('Failed to update project color', 'error')
+        return
+      }
+      await get().loadProjects()
+    } catch {
+      get().addToast('Failed to update project color', 'error')
     }
   },
 

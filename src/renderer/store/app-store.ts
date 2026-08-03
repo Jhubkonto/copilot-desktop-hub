@@ -51,6 +51,7 @@ export type {
   ScopeRule,
   SkillConfig,
   Theme,
+  UiStyle,
   Toast,
   ToolApprovalRequest
 } from './types'
@@ -82,11 +83,15 @@ export const useAppStore = create<AppState>()(
 
     hydrate: async () => {
       try {
-        const savedTheme = await window.api.getTheme()
+        const [savedTheme, savedUiStyle] = await Promise.all([
+          window.api.getTheme(),
+          window.api.getSetting('ui_style').catch(() => null),
+        ])
         const t = savedTheme === 'light' ? 'light' : 'dark'
         get().setTheme(t)
+        get().setUiStyle(savedUiStyle === '8bit' ? '8bit' : 'classic', false)
       } catch {
-        /* use default */
+        get().setUiStyle('classic', false)
       }
 
       const [, onboardingVal] = await Promise.all([

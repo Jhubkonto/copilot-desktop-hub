@@ -3,6 +3,7 @@ import type { AppState } from '../app-store'
 import type {
   ActiveSectionPane,
   Theme,
+  UiStyle,
   Toast,
   ToolApprovalRequest
 } from '../types'
@@ -10,6 +11,7 @@ import type { AvailableModelGroup, CatalogModel } from '../../../shared/types'
 
 export interface UiSlice {
   theme: Theme
+  uiStyle: UiStyle
   showSidebar: boolean
   showMcpPanel: boolean
   showSettings: boolean
@@ -28,6 +30,7 @@ export interface UiSlice {
   toasts: Toast[]
   toolApprovalRequests: ToolApprovalRequest[]
   unreadConversationIds: string[]
+  syncedUnreadConversationIds: string[]
   generatingConversationIds: string[]
   generatingStartTimes: Record<string, number>
   pendingConversationIds: string[]
@@ -38,6 +41,7 @@ export interface UiSlice {
   debugLogging: boolean
   androidDebugLog: boolean
   setTheme: (theme: Theme) => void
+  setUiStyle: (style: UiStyle, persist?: boolean) => void
   setDebugLogging: (enabled: boolean) => void
   setAndroidDebugLog: (enabled: boolean) => void
   toggleTheme: () => void
@@ -70,6 +74,7 @@ export interface UiSlice {
   ) => Promise<void>
   markConversationUnread: (id: string) => void
   markConversationRead: (id: string) => void
+  syncUnreadConversationIds: (ids: string[]) => void
   markConversationGenerating: (id: string) => void
   markConversationDoneGenerating: (id: string) => void
   markConversationPending: (id: string) => void
@@ -88,6 +93,7 @@ export const createUiSlice: StateCreator<
   UiSlice
 > = (set, get) => ({
   theme: 'dark',
+  uiStyle: 'classic',
   showSidebar: true,
   showMcpPanel: false,
   showSettings: false,
@@ -103,6 +109,7 @@ export const createUiSlice: StateCreator<
   toasts: [],
   toolApprovalRequests: [],
   unreadConversationIds: [],
+  syncedUnreadConversationIds: [],
   generatingConversationIds: [],
   generatingStartTimes: {},
   pendingConversationIds: [],
@@ -332,6 +339,32 @@ export const createUiSlice: StateCreator<
       if (s.unreadConversationIds.includes(id)) {
         s.unreadConversationIds = s.unreadConversationIds.filter((cid) => cid !== id)
       }
+      if (s.syncedUnreadConversationIds.includes(id)) {
+        s.syncedUnreadConversationIds = s.syncedUnreadConversationIds.filter((cid) => cid !== id)
+      }
+    })
+  },
+
+  setUiStyle: (style, persist = true) => {
+    set((s) => {
+      s.uiStyle = style
+    })
+    document.documentElement.dataset.uiStyle = style
+    if (persist) {
+      void window.api.setSetting('ui_style', style).catch(() => {})
+    }
+  },
+
+  syncUnreadConversationIds: (ids) => {
+    set((s) => {
+      // Keep renderer-only unread state (new content below the user's scroll position)
+      // while reconciling the persisted main-process snapshot for background chats.
+      const localOnly = s.unreadConversationIds.filter(
+        (id) => !s.syncedUnreadConversationIds.includes(id),
+      )
+      const nextSynced = [...new Set(ids)]
+      s.syncedUnreadConversationIds = nextSynced
+      s.unreadConversationIds = [...new Set([...localOnly, ...nextSynced])]
     })
   },
 
