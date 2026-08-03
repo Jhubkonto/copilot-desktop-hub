@@ -4,12 +4,11 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Bold N: left bar, right bar, diagonal strip. Scaled ~0.65x toward the 54,54 center so the
-         glyph's corners sit inside the adaptive-icon safe zone (~33dp radius) instead of the
-         original ~46.7dp, which got clipped by circular/squircle launcher masks. -->
+    <!-- Grid-authored N kept inside the adaptive-icon 66dp safe zone. The diagonal is a
+         staircase of whole-dp blocks so launcher scaling does not soften the 8-bit silhouette. -->
     <path
-        android:fillColor="#A78BFA"
-        android:pathData="M 33.2,31.9 L 41,31.9 L 41,76.1 L 33.2,76.1 Z
-                          M 67,31.9 L 74.8,31.9 L 74.8,76.1 L 67,76.1 Z
-                          M 41,31.9 L 50.1,31.9 L 67,76.1 L 57.9,76.1 Z" />
+        android:fillColor="#8D7CFF"
+        android:pathData="M34,32h8v44h-8z M66,32h8v44h-8z
+                          M42,32h8v12h-8z M46,40h8v12h-8z M50,48h8v12h-8z
+                          M54,56h8v12h-8z M58,64h8v12h-8z" />
 </vector>
