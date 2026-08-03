@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle, Loader2, Mic, RefreshCw, RotateCcw, Square, Volume2, VolumeX, X } from 'lucide-react'
 import type { ArtifactRow, ArtifactVersion, TeachbackArtifactData, TeachbackAttempt, TeachbackFeedback } from '@shared/types'
 import { isApiError } from '@shared/types'
 import { useVoiceInput } from '../../hooks/useVoiceInput'
 import { useAppStore } from '../../store/app-store'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 
 const RUBRIC_LABELS: Array<keyof TeachbackFeedback['rubric']> = ['accuracy', 'completeness', 'clarity']
 
@@ -209,17 +209,17 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
       return <div className="px-3 py-2 rounded-lg border border-red-200 dark:border-red-800 text-[11px] text-red-600 dark:text-red-300">{error}</div>
     }
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/30 dark:bg-teal-900/10 text-[11px] text-teal-700 dark:text-teal-300">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      <div className="flex items-center gap-2 rounded-nexy-sm border-2 border-nexy-activity bg-nexy-recessed px-3 py-2 text-[11px] text-nexy-activity shadow-nexy">
+        <NexyIcon name="busy" size={14} />
         {isPendingGenerating ? 'Generating teach-back…' : 'Loading teach-back…'}
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/40 dark:bg-teal-900/10 p-4 space-y-4 max-w-2xl">
+    <div className="max-w-2xl space-y-4 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-4 shadow-nexy">
       <div className="flex items-center gap-2">
-        <Mic className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+        <NexyIcon name="microphone" size={16} className="text-primary" />
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1 truncate">{artifact.title}</p>
         <span className="text-[10px] text-gray-400 shrink-0">v{version.versionNumber}</span>
       </div>
@@ -229,7 +229,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
         <div className="mt-1 flex items-start gap-2">
           <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap flex-1">{currentPrompt}</p>
           <button type="button" onClick={toggleSpeech} className="p-1.5 rounded-md text-teal-600 hover:bg-teal-100 dark:hover:bg-teal-900/30" title={speaking ? 'Stop speaking' : 'Read prompt aloud'} aria-label={speaking ? 'Stop speaking' : 'Read prompt aloud'}>
-            {speaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            <NexyIcon name={speaking ? 'stop' : 'play'} size={16} />
           </button>
         </div>
         {turnNumber > 0 && <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-1">Viva follow-up {turnNumber} of 2</p>}
@@ -249,10 +249,10 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
               className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition-colors"
             >
               {voiceState === 'transcribing'
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ? <NexyIcon name="busy" size={14} />
                 : voiceState === 'recording'
-                  ? <Square className="w-3.5 h-3.5" />
-                  : <Mic className="w-3.5 h-3.5" />}
+                  ? <NexyIcon name="stop" size={14} />
+                  : <NexyIcon name="microphone" size={14} />}
               {voiceState === 'transcribing' ? 'Transcribing…' : voiceState === 'recording' ? 'Stop recording' : transcript ? 'Record again' : 'Record explanation'}
             </button>
             {voiceState === 'recording' && (
@@ -263,7 +263,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
                 title="Cancel recording"
                 aria-label="Cancel recording"
               >
-                <X className="w-4 h-4" />
+                <NexyIcon name="close" size={16} />
               </button>
             )}
           </div>
@@ -285,7 +285,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
                 disabled={grading || !transcript.trim()}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
-                {grading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                <NexyIcon name={grading ? 'busy' : 'check'} size={14} />
                 {grading ? 'Grading…' : 'Grade explanation'}
               </button>
             </div>
@@ -352,7 +352,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
             onClick={() => void resetAttempt()}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-white/70 dark:hover:bg-gray-900/40 transition-colors"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <NexyIcon name="refresh" size={14} />
             Try again
           </button>
         )}
@@ -362,7 +362,7 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
           disabled={regenerating || voiceState !== 'idle'}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-white/70 dark:hover:bg-gray-900/40 disabled:opacity-50 transition-colors"
         >
-          {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          <NexyIcon name={regenerating ? 'busy' : 'refresh'} size={14} />
           Regenerate
         </button>
       </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BrainCircuit, CheckCircle, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import type { ArtifactRow, ArtifactVersion, QuizDifficulty, QuizQuestion, QuizResult, QuizSource, QuizSpec, QuizAttempt, QuizCategoryBreakdown } from '@shared/types'
 import { useAppStore } from '../../store/app-store'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 
 type Step = 'loading' | 'generating' | 'question' | 'feedback' | 'summary'
 
@@ -27,7 +27,7 @@ function QuizSpecDialog({ initial, onCancel, onConfirm }: { initial: QuizSpec | 
   const [questionCount, setQuestionCount] = useState<number | ''>(initial?.questionCount ?? '')
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white/70 dark:bg-black/20 p-3 max-w-xl">
+    <div className="flex max-w-xl flex-col gap-3 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-3 shadow-nexy">
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">Source</p>
         <div className="flex gap-1.5 flex-wrap">
@@ -36,7 +36,7 @@ function QuizSpecDialog({ initial, onCancel, onConfirm }: { initial: QuizSpec | 
               key={s.value}
               type="button"
               onClick={() => setSource(s.value)}
-              className={`px-2 py-0.5 rounded-full text-xs transition-colors ${source === s.value ? 'bg-indigo-500 text-white' : 'bg-indigo-100/70 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300'}`}
+              className={`rounded-nexy-sm border-2 px-2 py-0.5 text-xs transition-colors ${source === s.value ? 'border-nexy-accent bg-nexy-accent text-nexy-on-accent' : 'border-nexy-border bg-nexy-raised text-nexy-text'}`}
             >
               {s.label}
             </button>
@@ -51,7 +51,7 @@ function QuizSpecDialog({ initial, onCancel, onConfirm }: { initial: QuizSpec | 
               key={d.value}
               type="button"
               onClick={() => setDifficulty(d.value)}
-              className={`px-2 py-0.5 rounded-full text-xs transition-colors ${difficulty === d.value ? 'bg-indigo-500 text-white' : 'bg-indigo-100/70 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300'}`}
+              className={`rounded-nexy-sm border-2 px-2 py-0.5 text-xs transition-colors ${difficulty === d.value ? 'border-nexy-accent bg-nexy-accent text-nexy-on-accent' : 'border-nexy-border bg-nexy-raised text-nexy-text'}`}
             >
               {d.label}
             </button>
@@ -66,7 +66,7 @@ function QuizSpecDialog({ initial, onCancel, onConfirm }: { initial: QuizSpec | 
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="e.g. the IPC layer"
-            className="mt-1 w-full rounded-md border border-gray-200 dark:border-gray-600 bg-transparent px-2 py-1 text-sm text-gray-800 dark:text-gray-200"
+            className="mt-1 w-full rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-2 py-1 text-sm text-nexy-text outline-none focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-nexy-accent"
           />
         </label>
         <label className="w-28 text-xs text-gray-500 dark:text-gray-400">
@@ -78,7 +78,7 @@ function QuizSpecDialog({ initial, onCancel, onConfirm }: { initial: QuizSpec | 
             value={questionCount}
             onChange={(e) => setQuestionCount(e.target.value ? Number(e.target.value) : '')}
             placeholder="5-8"
-            className="mt-1 w-full rounded-md border border-gray-200 dark:border-gray-600 bg-transparent px-2 py-1 text-sm text-gray-800 dark:text-gray-200"
+            className="mt-1 w-full rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-2 py-1 text-sm text-nexy-text outline-none focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-nexy-accent"
           />
         </label>
       </div>
@@ -354,8 +354,8 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
   if (error) {
     const canRegenerate = artifact?.status === 'failed' && Boolean(version?.sourceConversationId ?? artifact.currentVersion?.sourceConversationId ?? artifact.conversationId)
     return (
-      <div className="flex flex-col items-center gap-3 px-4 py-4 rounded-lg border border-red-200 dark:border-red-800 max-w-xl">
-        <XCircle className="w-8 h-8 text-red-400" />
+      <div className="flex max-w-xl flex-col items-center gap-3 rounded-nexy-sm border-2 border-nexy-error bg-nexy-recessed px-4 py-4 shadow-nexy">
+        <NexyIcon name="error" size={32} className="text-nexy-error" />
         <p className="text-sm text-red-500 text-center">{error}</p>
         <button
           type="button"
@@ -363,7 +363,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
           disabled={regenerating}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white disabled:opacity-50 transition-colors"
         >
-          {regenerating && <Loader2 className="w-3 h-3 animate-spin" />}
+          {regenerating && <NexyIcon name="busy" size={12} />}
           {canRegenerate ? 'Try again' : 'Retry'}
         </button>
       </div>
@@ -372,8 +372,8 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
 
   if (step === 'generating') {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-900/10 text-[11px] text-indigo-600 dark:text-indigo-300 max-w-xl">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      <div className="flex max-w-xl items-center gap-2 rounded-nexy-sm border-2 border-nexy-activity bg-nexy-recessed px-3 py-2 text-[11px] text-nexy-activity shadow-nexy">
+        <NexyIcon name="busy" size={14} />
         Generating quiz…
       </div>
     )
@@ -381,17 +381,17 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
 
   if (step === 'loading' || !artifact) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-400 max-w-xl">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      <div className="flex max-w-xl items-center gap-2 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed px-3 py-2 text-[11px] text-nexy-muted">
+        <NexyIcon name="busy" size={14} />
         Loading quiz…
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-900/10 p-4 space-y-4 max-w-xl">
+    <div className="max-w-xl space-y-4 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-4 shadow-nexy">
       <div className="flex items-center gap-2">
-        <BrainCircuit className="w-4 h-4 text-indigo-500 shrink-0" />
+        <NexyIcon name="skill" size={16} className="text-primary" />
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1 truncate">{artifact.title}</p>
         {(version ?? artifact.currentVersion) && (
           <span className="text-[10px] text-gray-400 shrink-0">v{(version ?? artifact.currentVersion)!.versionNumber}</span>
@@ -401,16 +401,16 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
       {step === 'question' && currentQuestion && (
         <>
           <div className="flex items-center gap-3">
-            <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-1.5 flex-1 overflow-hidden border border-nexy-border bg-nexy-raised">
               <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                className="h-full bg-nexy-accent"
                 style={{ width: `${(currentIndex / total) * 100}%` }}
               />
             </div>
             <span className="text-xs text-gray-400 shrink-0">{currentIndex + 1} / {total}</span>
           </div>
 
-          <span className={`self-start inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${getCategoryColor(currentQuestion.category)}`}>
+          <span className={`self-start inline-block rounded-nexy-sm border border-current px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${getCategoryColor(currentQuestion.category)}`}>
             {currentQuestion.category}
           </span>
 
@@ -424,13 +424,13 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
                   key={i}
                   type="button"
                   onClick={() => setSelectedIndex(i)}
-                  className={`flex items-center gap-3 w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                  className={`flex w-full items-center gap-3 rounded-nexy-sm border-2 px-3 py-2.5 text-left text-sm transition-colors ${
                     isSelected
                       ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-gray-900 dark:text-gray-100'
                       : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300'
                   }`}
                 >
-                  <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center border border-current text-xs font-semibold ${
                     isSelected ? 'bg-indigo-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                   }`}>
                     {OPTION_LABELS[i]}
@@ -466,8 +466,8 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
                   : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
               }`}>
                 {isCorrect
-                  ? <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                  : <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+                  ? <NexyIcon name="check" size={16} className="text-nexy-success" />
+                  : <NexyIcon name="error" size={16} className="text-nexy-error" />}
                 <span className={`text-sm font-medium ${isCorrect ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
                   {isCorrect ? 'Correct!' : 'Incorrect'}
                 </span>
@@ -482,7 +482,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
               return (
                 <div
                   key={i}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                  className={`flex items-center gap-3 rounded-nexy-sm border-2 px-3 py-2.5 text-sm transition-colors ${
                     isCorrect
                       ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 text-gray-900 dark:text-gray-100'
                       : isWrongSelected
@@ -490,7 +490,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
                         : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'
                   }`}
                 >
-                  <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center border border-current text-xs font-semibold ${
                     isCorrect ? 'bg-emerald-500 text-white' : isWrongSelected ? 'bg-red-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
                   }`}>
                     {OPTION_LABELS[i]}
@@ -597,7 +597,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
               disabled={regenerating}
               className="flex items-center justify-center gap-1.5 flex-1 px-4 py-2 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white disabled:opacity-50 transition-colors"
             >
-              {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              <NexyIcon name={regenerating ? 'busy' : 'refresh'} size={14} />
               Regenerate
             </button>
           </div>
@@ -609,7 +609,7 @@ export function QuizArtifactCard({ artifactId, versionId, pending = false }: { a
               disabled={regenerating}
               className="flex items-center justify-center gap-1.5 w-full px-4 py-2 text-sm rounded-lg border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 transition-colors"
             >
-              {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BrainCircuit className="w-3.5 h-3.5" />}
+              <NexyIcon name={regenerating ? 'busy' : 'skill'} size={14} />
               Re-quiz the {missedInLatest.length} I missed
             </button>
           )}

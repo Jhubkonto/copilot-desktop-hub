@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BookOpen, Download, FolderDown, Loader2, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import type { ArtifactRow, ArtifactVersion, DebriefStory, DebriefStoryTone, StoryMood } from '@shared/types'
 import { sanitizeStorySvg } from '../../lib/story-svg'
 import { useAppStore } from '../../store/app-store'
@@ -42,7 +42,7 @@ function StoryBeatView({ caption, mood, svg }: { caption: string; mood: StoryMoo
   }
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-indigo-100 dark:border-indigo-800/60 bg-white/60 dark:bg-black/10 p-2.5">
+    <div className="flex items-start gap-3 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-2.5">
       <div className="w-10 h-10 shrink-0 flex items-center justify-center rounded-md bg-indigo-100/70 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-300">
         {safeSvg
           ? <span className="w-6 h-6" dangerouslySetInnerHTML={{ __html: safeSvg }} />
@@ -57,7 +57,7 @@ function StoryBeatView({ caption, mood, svg }: { caption: string; mood: StoryMoo
           aria-label={speaking ? 'Stop reading' : 'Read beat aloud'}
           className="shrink-0 p-1 mt-1 rounded-md text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900/30"
         >
-          {speaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+          <NexyIcon name={speaking ? 'stop' : 'play'} size={14} />
         </button>
       )}
     </div>
@@ -234,7 +234,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
             disabled={regenerating}
             className="flex items-center gap-1 shrink-0 px-2 py-0.5 rounded border border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 transition-colors"
           >
-            {regenerating && <Loader2 className="w-3 h-3 animate-spin" />}
+            {regenerating && <NexyIcon name="busy" size={12} />}
             Try again
           </button>
         )}
@@ -245,24 +245,24 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
   const isPendingGenerating = pending && !versionId && !lockedVersionId && artifact?.status === 'generating'
   if (isPendingGenerating || !artifact || !section) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-900/10 text-[11px] text-indigo-600 dark:text-indigo-300">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      <div className="flex items-center gap-2 rounded-nexy-sm border-2 border-nexy-activity bg-nexy-recessed px-3 py-2 text-[11px] text-nexy-activity shadow-nexy">
+        <NexyIcon name="busy" size={14} />
         {isPendingGenerating ? 'Generating debrief…' : 'Loading debrief…'}
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/10 p-4 space-y-3 max-w-2xl">
+    <div className="max-w-2xl space-y-3 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-4 shadow-nexy">
       <div className="flex items-center gap-2">
-        <BookOpen className="w-4 h-4 text-indigo-500 shrink-0" />
+        <NexyIcon name="artifact" size={16} className="text-primary" />
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1 truncate">{artifact.title}</p>
         {(version ?? artifact.currentVersion) && (
           <span className="text-[10px] text-gray-400 shrink-0">v{(version ?? artifact.currentVersion)!.versionNumber}</span>
         )}
       </div>
 
-      <div className="flex items-center gap-1 rounded-md bg-indigo-100/60 dark:bg-indigo-900/20 p-0.5 w-fit">
+      <div className="flex w-fit items-center gap-1 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-0.5">
         <button
           type="button"
           onClick={() => setView('structured')}
@@ -275,7 +275,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
           onClick={handleViewStory}
           className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${view === 'story' ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300'}`}
         >
-          <Sparkles className="w-3 h-3" />
+          <NexyIcon name="spark" size={12} />
           Story
         </button>
       </div>
@@ -283,7 +283,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
       {view === 'story' ? (
         <div className="space-y-2.5">
           {showStylePicker && (
-            <div className="flex flex-col gap-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white/70 dark:bg-black/20 p-2.5">
+            <div className="flex flex-col gap-2 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-2.5 shadow-nexy">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Tone</span>
                 {STORY_TONES.map((t) => (
@@ -291,7 +291,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
                     key={t.value}
                     type="button"
                     onClick={() => setStoryTone(t.value)}
-                    className={`px-2 py-0.5 rounded-full text-xs transition-colors ${storyTone === t.value ? 'bg-indigo-500 text-white' : 'bg-indigo-100/70 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300'}`}
+                    className={`rounded-nexy-sm border-2 px-2 py-0.5 text-xs transition-colors ${storyTone === t.value ? 'border-nexy-accent bg-nexy-accent text-nexy-on-accent' : 'border-nexy-border bg-nexy-recessed text-nexy-text'}`}
                   >
                     {t.label}
                   </button>
@@ -314,14 +314,14 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
                 onClick={() => { setShowStylePicker(false); void fetchStory(Boolean(story)) }}
                 className="self-end flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
               >
-                <Sparkles className="w-3 h-3" />
+                <NexyIcon name="spark" size={12} />
                 {story ? 'Retell with this style' : 'Tell the story'}
               </button>
             </div>
           )}
           {storyLoading && (
             <div className="flex items-center gap-2 text-[11px] text-indigo-600 dark:text-indigo-300">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <NexyIcon name="busy" size={14} />
               Writing the story…
             </div>
           )}
@@ -349,7 +349,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
                 disabled={storyLoading}
                 className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
               >
-                <RefreshCw className="w-3 h-3" />
+                <NexyIcon name="refresh" size={12} />
                 Retell
               </button>
             </>
@@ -367,7 +367,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
           <p className={LABEL_CLASS}>Commands & Tools</p>
           <div className="flex flex-wrap gap-1.5 mt-1">
             {section.commandsAndTools.map((tag, i) => (
-              <span key={i} className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs">
+              <span key={i} className="rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2 py-0.5 text-xs text-nexy-text">
                 {tag}
               </span>
             ))}
@@ -395,7 +395,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
             disabled={exporting}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors whitespace-nowrap"
           >
-            {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+            <NexyIcon name={exporting ? 'busy' : 'download'} size={12} />
             Export Markdown
           </button>
           <button
@@ -404,7 +404,7 @@ export function DebriefArtifactCard({ artifactId, versionId, pending = false }: 
             disabled={downloading}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors whitespace-nowrap"
           >
-            {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderDown className="w-3 h-3" />}
+            <NexyIcon name={downloading ? 'busy' : 'folder'} size={12} />
             Download
           </button>
         </div>
