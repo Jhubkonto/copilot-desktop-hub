@@ -5,6 +5,7 @@ import { getDatabase } from './database'
 import type { BackgroundActivity, BackgroundActivityKind } from '../shared/types'
 import {
   getUnseenActivityCount,
+  getUnseenConversationIds,
   recordUnseenActivity,
   setViewedConversation,
 } from './activity-badge'
@@ -203,4 +204,5 @@ export function registerActivityHandlers(): void {
     setViewedConversation(conversationId),
   )
   safeHandle('activity-badge:get-count', (): number => getUnseenActivityCount())
+  safeHandle('activity-badge:get-unseen-conversations', (): string[] => getUnseenConversationIds())
 }

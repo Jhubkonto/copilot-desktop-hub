@@ -1,11 +1,19 @@
 import https from 'https'
 import type { RequestOptions } from 'https'
 import type { IncomingMessage } from 'http'
+import type { ClientRequest } from 'http'
 
 export interface HttpsResponse {
   status: number
   headers: IncomingMessage['headers']
   data: string
+}
+
+const activeHttpsRequests = new Set<ClientRequest>()
+
+export function abortAllHttpsRequests(): void {
+  for (const request of activeHttpsRequests) request.destroy(new Error('Emergency stop activated'))
+  activeHttpsRequests.clear()
 }
 
 function requestWithResponse(options: RequestOptions, body?: string): Promise<HttpsResponse> {
@@ -16,19 +24,21 @@ function requestWithResponse(options: RequestOptions, body?: string): Promise<Ht
         data += chunk.toString()
       })
       res.on('end', () => {
+        activeHttpsRequests.delete(req)
         resolve({
           status: res.statusCode || 0,
           headers: res.headers,
           data
         })
       })
-      res.on('error', reject)
+      res.on('error', (error) => { activeHttpsRequests.delete(req); reject(error) })
     })
 
+    activeHttpsRequests.add(req)
     req.setTimeout(30000, () => {
       req.destroy(new Error('Request timed out'))
     })
-    req.on('error', reject)
+    req.on('error', (error) => { activeHttpsRequests.delete(req); reject(error) })
     if (body !== undefined) req.write(body)
     req.end()
   })

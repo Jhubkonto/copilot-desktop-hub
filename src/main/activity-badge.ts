@@ -64,6 +64,19 @@ function applyNativeBadge(): void {
   }
 }
 
+function broadcastUnseenConversations(): void {
+  const conversationIds = getUnseenConversationIds()
+  try {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('activity-badge:changed', conversationIds)
+      }
+    })
+  } catch {
+    // Best-effort renderer synchronization; native badge state remains authoritative.
+  }
+}
+
 export function initializeActivityBadge(): void {
   if (!initialized) {
     initialized = true
@@ -99,6 +112,7 @@ export function recordUnseenDestination(destination: string): void {
   unseenDestinations.add(destination)
   persist()
   applyNativeBadge()
+  if (destination.startsWith('chat:')) broadcastUnseenConversations()
 }
 
 export function clearUnseenDestination(destination: string): number {
@@ -106,6 +120,7 @@ export function clearUnseenDestination(destination: string): number {
   if (unseenDestinations.delete(destination)) {
     persist()
     applyNativeBadge()
+    if (destination.startsWith('chat:')) broadcastUnseenConversations()
   }
   return unseenDestinations.size
 }
@@ -128,6 +143,7 @@ export function markApplicationViewed(): number {
     unseenDestinations = new Set(remaining)
     persist()
     applyNativeBadge()
+    broadcastUnseenConversations()
   }
   return unseenDestinations.size
 }
@@ -135,6 +151,13 @@ export function markApplicationViewed(): number {
 export function getUnseenActivityCount(): number {
   initializeActivityBadge()
   return unseenDestinations.size
+}
+
+export function getUnseenConversationIds(): string[] {
+  initializeActivityBadge()
+  return [...unseenDestinations]
+    .filter((destination) => destination.startsWith('chat:'))
+    .map((destination) => destination.slice('chat:'.length))
 }
 
 export function resetActivityBadgeForTests(): void {
