@@ -20,6 +20,7 @@ import io.nexy.android.navigation.AppShell
 import io.nexy.android.ui.theme.NexyTheme
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
+import io.nexy.android.ui.theme.UiStylePreference
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
@@ -37,13 +38,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val themePreference by ThemePreferenceStore.themePreference.collectAsStateWithLifecycle()
+            val uiStylePreference by ThemePreferenceStore.uiStylePreference.collectAsStateWithLifecycle()
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (themePreference) {
                 ThemePreference.System -> systemDark
                 ThemePreference.Light -> false
                 ThemePreference.Dark -> true
             }
-            NexyTheme(darkTheme = darkTheme) {
+            NexyTheme(
+                darkTheme = darkTheme,
+                eightBit = uiStylePreference == UiStylePreference.EightBit,
+            ) {
                 AppShell(
                     onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded,
                     pendingDeeplink = pendingDeeplink,

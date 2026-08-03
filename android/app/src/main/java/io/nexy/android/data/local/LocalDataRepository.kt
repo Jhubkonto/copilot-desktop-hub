@@ -654,10 +654,11 @@ class LocalDataRepository private constructor(
         return entity.toModel()
     }
 
-    override suspend fun renameProject(id: String, name: String) {
+    override suspend fun renameProject(id: String, name: String, color: String?) {
         val current = database.projects().get(id) ?: return
         val updated = current.copy(
             name = name,
+            color = color ?: current.color,
             updatedAt = System.currentTimeMillis(),
             localVersion = current.localVersion + 1,
             syncStatus = SyncStatus.PENDING,
@@ -1295,7 +1296,7 @@ class LocalDataRepository private constructor(
                     .forEach { database.messages().upsert(it.copy(deleted = true, remoteVersion = it.remoteVersion + 1)) }
             is WsEvent.ProjectCreated -> mergeRemoteProject(event.project)
             is WsEvent.ProjectRenamed -> database.projects().get(event.id)?.let {
-                database.projects().upsert(it.copy(name = event.name, updatedAt = System.currentTimeMillis(), remoteVersion = it.remoteVersion + 1))
+                database.projects().upsert(it.copy(name = event.name, color = event.color ?: it.color, updatedAt = System.currentTimeMillis(), remoteVersion = it.remoteVersion + 1))
             }
             is WsEvent.ProjectDeleted -> database.projects().get(event.id)?.let {
                 database.projects().upsert(it.copy(deleted = true, remoteVersion = it.remoteVersion + 1))
@@ -1837,7 +1838,8 @@ private fun List<ThinkingBlock>.toThinkingBlocksJson(): String = JSONArray().als
             JSONObject()
                 .put("blockId", item.blockId)
                 .put("content", item.content)
-                .put("done", item.done),
+                .put("done", item.done)
+                .put("firstSeenAt", item.firstSeenAt ?: JSONObject.NULL),
         )
     }
 }.toString()
@@ -1860,7 +1862,12 @@ private fun String.toThinkingBlocks(): List<ThinkingBlock> = runCatching {
     val array = JSONArray(this)
     (0 until array.length()).map { index ->
         array.getJSONObject(index).let {
-            ThinkingBlock(it.optString("blockId"), it.optString("content"), it.optBoolean("done"))
+            ThinkingBlock(
+                blockId = it.optString("blockId"),
+                content = it.optString("content"),
+                done = it.optBoolean("done"),
+                firstSeenAt = it.nullableLong("firstSeenAt"),
+            )
         }
     }
 }.getOrDefault(emptyList())

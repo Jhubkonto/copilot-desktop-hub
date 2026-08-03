@@ -18,23 +18,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -47,7 +38,9 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -83,6 +76,9 @@ import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.settings.SettingsNavRow
 import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.model.activeModelLabel
+import io.nexy.android.ui.home.projectColor
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import kotlinx.coroutines.launch
 
 private val instructionModeOptions = listOf(
@@ -106,6 +102,7 @@ private val instructionModeDescriptions = mapOf(
 )
 
 private val milestoneStatuses = listOf("upcoming", "active", "completed")
+private val projectColorOptions = listOf("blue", "green", "red", "purple", "orange", "pink", "yellow", "gray")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,6 +124,7 @@ fun ProjectConfigScreen(
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val project = projects.find { it.id == projectId }
 
+    var color by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
     var instructions by remember { mutableStateOf("") }
     var rootDirectory by remember { mutableStateOf("") }
     var instructionMode by remember { mutableStateOf("prepend") }
@@ -140,6 +138,7 @@ fun ProjectConfigScreen(
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Snapshot variables for dirty-check
+    var loadedColor by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
     var loadedInstructions by remember { mutableStateOf("") }
     var loadedRootDirectory by remember { mutableStateOf("") }
     var loadedInstructionMode by remember { mutableStateOf("prepend") }
@@ -173,6 +172,7 @@ fun ProjectConfigScreen(
     var toolsExpanded by rememberSaveable { mutableStateOf(false) }
 
     val hasUnsavedChanges = loaded && (
+        color != loadedColor ||
         instructions != loadedInstructions ||
         rootDirectory != loadedRootDirectory ||
         instructionMode != loadedInstructionMode ||
@@ -193,6 +193,7 @@ fun ProjectConfigScreen(
         WsRepository.events.collect { event ->
             when (event) {
                 is WsEvent.ProjectConfig -> if (event.id == projectId) {
+                    color = project?.color ?: color
                     instructions = event.config.instructions
                     rootDirectory = event.config.rootDirectory.orEmpty()
                     instructionMode = event.config.instructionMode
@@ -206,6 +207,7 @@ fun ProjectConfigScreen(
                     outOfScope.replaceWith(event.config.outOfScope)
                     milestones.replaceWith(event.config.milestones)
                     // Sync snapshots
+                    loadedColor = project?.color ?: color
                     loadedInstructions = event.config.instructions
                     loadedRootDirectory = event.config.rootDirectory.orEmpty()
                     loadedInstructionMode = event.config.instructionMode
@@ -218,6 +220,7 @@ fun ProjectConfigScreen(
                 }
                 is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) {
                     saving = false
+                    loadedColor = color
                     loadedInstructions = instructions
                     loadedRootDirectory = rootDirectory
                     loadedInstructionMode = instructionMode
@@ -354,11 +357,14 @@ fun ProjectConfigScreen(
         },
         bottomBar = {
             if (project != null && loaded) {
-                Surface(shadowElevation = 3.dp, modifier = Modifier.navigationBarsPadding()) {
+                Surface(shadowElevation = 0.dp, tonalElevation = 0.dp, modifier = Modifier.navigationBarsPadding()) {
                     Button(
                         onClick = {
                             if (saving || disconnected) return@Button
                             saving = true
+                            if (color != project.color) {
+                                WsRepository.updateProjectColor(projectId, project.name, color)
+                            }
                             WsRepository.updateProjectConfig(
                                 projectId,
                                 ProjectSettingsConfig(
@@ -401,7 +407,12 @@ fun ProjectConfigScreen(
 
         if (!loaded) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                NexyIcon(
+                    name = NexyIconName.Busy,
+                    contentDescription = "Loading project configuration",
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
             return@Scaffold
         }
@@ -423,6 +434,28 @@ fun ProjectConfigScreen(
                 onToggle = { coreExpanded = !coreExpanded },
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Project color", style = MaterialTheme.typography.labelMedium)
+                        projectColorOptions.chunked(4).forEach { rowColors ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                rowColors.forEach { option ->
+                                    FilterChip(
+                                        selected = color == option,
+                                        onClick = { if (!saving && !disconnected) color = option },
+                                        label = { Text(option.replaceFirstChar { it.uppercase() }) },
+                                        leadingIcon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .background(projectColor(option), RoundedCornerShape(4.dp)),
+                                            )
+                                        },
+                                        enabled = !saving && !disconnected,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     OutlinedTextField(
                         value = instructions,
                         onValueChange = { instructions = it },
@@ -802,7 +835,7 @@ fun ProjectConfigScreen(
                                         enabled = entryIndex > 0,
                                         modifier = Modifier.size(36.dp),
                                     ) {
-                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up", modifier = Modifier.size(18.dp))
+                                        NexyIcon(NexyIconName.ChevronUp, "Move up", Modifier.size(18.dp))
                                     }
                                     IconButton(
                                         onClick = {
@@ -814,13 +847,13 @@ fun ProjectConfigScreen(
                                         enabled = entryIndex < projectAgents.lastIndex,
                                         modifier = Modifier.size(36.dp),
                                     ) {
-                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down", modifier = Modifier.size(18.dp))
+                                        NexyIcon(NexyIconName.ChevronDown, "Move down", Modifier.size(18.dp))
                                     }
                                     IconButton(
                                         onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) },
                                         modifier = Modifier.size(36.dp),
                                     ) {
-                                        Icon(Icons.Default.Close, contentDescription = "Remove ${entry.agentName}", modifier = Modifier.size(18.dp))
+                                        NexyIcon(NexyIconName.Close, "Remove ${entry.agentName}", Modifier.size(18.dp))
                                     }
                                 }
                             }
@@ -832,7 +865,7 @@ fun ProjectConfigScreen(
                             onClick = { showAddAgentSheet = true },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            NexyIcon(NexyIconName.Add, null, Modifier.padding(end = 4.dp).size(18.dp))
                             Text("Add agent")
                         }
                     }
@@ -846,7 +879,7 @@ fun ProjectConfigScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
             ) {
-                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                NexyIcon(NexyIconName.Warning, null, Modifier.size(14.dp), MaterialTheme.colorScheme.error)
                 Text("Danger Zone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }
             Surface(
@@ -978,7 +1011,7 @@ private fun EditableKeyValueList(
                 enabled = enabled,
                 modifier = Modifier.size(36.dp),
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyIcon(NexyIconName.Close, "Remove", Modifier.size(18.dp), MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -987,7 +1020,7 @@ private fun EditableKeyValueList(
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+        NexyIcon(NexyIconName.Add, null, Modifier.padding(end = 4.dp).size(18.dp))
         Text(addLabel)
     }
 }
@@ -1037,7 +1070,7 @@ private fun EditableScopeList(
                 enabled = enabled,
                 modifier = Modifier.size(36.dp),
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyIcon(NexyIconName.Close, "Remove", Modifier.size(18.dp), MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1046,7 +1079,7 @@ private fun EditableScopeList(
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+        NexyIcon(NexyIconName.Add, null, Modifier.padding(end = 4.dp).size(18.dp))
         Text(addLabel)
     }
 }
@@ -1110,7 +1143,7 @@ private fun EditableMilestonesList(
                 enabled = enabled,
                 modifier = Modifier.size(36.dp).align(Alignment.Top),
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Remove milestone", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyIcon(NexyIconName.Close, "Remove milestone", Modifier.size(18.dp), MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1119,7 +1152,7 @@ private fun EditableMilestonesList(
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+        NexyIcon(NexyIconName.Add, null, Modifier.padding(end = 4.dp).size(18.dp))
         Text("Add milestone")
     }
 }
