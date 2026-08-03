@@ -273,6 +273,15 @@ function extractCost(line: string): { inputTokens: number; outputTokens: number 
   return null
 }
 
+function extractTurnTerminal(line: string): 'completed' | 'failed' | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>
+    if (obj.type === 'turn.completed') return 'completed'
+    if (obj.type === 'turn.failed') return 'failed'
+  } catch { /* non-JSON line — skip */ }
+  return null
+}
+
 function tomlString(value: string): string {
   return JSON.stringify(value)
 }
@@ -818,7 +827,10 @@ export const CodexAdapter: CliAgentAdapter = {
         }
       }
 
+      let cleanedUp = false
       const cleanup = () => {
+        if (cleanedUp) return
+        cleanedUp = true
         for (const f of tempFiles) {
           try { unlinkSync(f) } catch { /* best-effort cleanup */ }
         }
@@ -891,6 +903,7 @@ export const CodexAdapter: CliAgentAdapter = {
       let stderrText = ''
       let parsedAnyJson = false
       let turnError: string | null = null
+      let settled = false
       const endedThinkingBlocks = new Set<string>()
       // The model can reason, call a tool, then reason again — 'codex-reasoning-summary'
       // used to be one fixed blockId for the entire turn, silently merging every burst
@@ -951,6 +964,7 @@ export const CodexAdapter: CliAgentAdapter = {
       })
 
       const parseLine = (line: string) => {
+        if (settled) return
         if (!line.trim()) return
         try {
           JSON.parse(line)
@@ -1052,19 +1066,9 @@ export const CodexAdapter: CliAgentAdapter = {
         }
       }
 
-      const lineBuffer = createLineBuffer(parseLine)
-      proc.stdout.on('data', (chunk: Buffer) => {
-        rawStdout += chunk.toString('utf8')
-        lineBuffer.push(chunk)
-      })
-
-      proc.on('error', (err) => {
-        cleanup()
-        reject(err)
-      })
-
-      proc.on('close', (code) => {
-        if (lineBuffer.remainder().trim()) parseLine(lineBuffer.remainder())
+      const settle = (code: number | null, spawnError?: Error) => {
+        if (settled) return
+        settled = true
         cleanup()
 
         if (openReasoningBlockId) {
@@ -1073,8 +1077,9 @@ export const CodexAdapter: CliAgentAdapter = {
         }
         closeOpenTextBlock()
 
+        const isError = Boolean(spawnError || turnError || (code !== null && code !== 0))
         for (const id of openToolIds) {
-          onEvent?.({ type: 'tool_end', id, content: '', isError: code !== 0 })
+          onEvent?.({ type: 'tool_end', id, content: '', isError })
         }
         openToolIds.clear()
 
@@ -1088,17 +1093,38 @@ export const CodexAdapter: CliAgentAdapter = {
           }
         }
 
-        if (fullText) {
-          resolve(fullText)
+        if (spawnError) {
+          reject(spawnError)
         } else if (turnError) {
           reject(new Error(`Codex error: ${turnError}`))
-        } else if (code !== 0) {
+        } else if (fullText) {
+          resolve(fullText)
+        } else if (code !== null && code !== 0) {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
           onEvent?.({ type: 'activity', label: `Codex exited with code ${code}${detail}` })
           reject(new Error(`codex exited with code ${code}${detail}`))
         } else {
           resolve(fullText)
         }
+      }
+
+      const lineBuffer = createLineBuffer((line) => {
+        parseLine(line)
+        const terminal = extractTurnTerminal(line)
+        if (terminal) settle(terminal === 'completed' ? 0 : 1)
+      })
+      proc.stdout.on('data', (chunk: Buffer) => {
+        rawStdout += chunk.toString('utf8')
+        lineBuffer.push(chunk)
+      })
+
+      proc.on('error', (err) => {
+        settle(null, err)
+      })
+
+      proc.on('close', (code) => {
+        if (lineBuffer.remainder().trim()) parseLine(lineBuffer.remainder())
+        settle(code)
       })
     })
   },
