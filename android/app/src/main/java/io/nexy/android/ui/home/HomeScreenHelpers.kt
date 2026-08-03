@@ -2,6 +2,7 @@ package io.nexy.android.ui.home
 
 import androidx.compose.ui.graphics.Color
 import io.nexy.android.data.BackgroundActivity
+import io.nexy.android.ui.theme.GeneratedNexyColors
 
 // Whether it's safe to flip Standalone/Remote mode right now. Switching mid-stream would yank
 // the active chat/generation/sync out from under itself, so the toggle is gated on all of these
@@ -18,16 +19,16 @@ fun hasActiveActivity(
         backgroundActivities.isNotEmpty()
 
 fun projectColor(color: String): Color = when (color.lowercase()) {
-    "red" -> Color(0xFFEF4444)
-    "orange" -> Color(0xFFF97316)
-    "yellow" -> Color(0xFFEAB308)
-    "green" -> Color(0xFF22C55E)
-    "teal" -> Color(0xFF14B8A6)
-    "blue" -> Color(0xFF3B82F6)
-    "indigo" -> Color(0xFF6366F1)
-    "purple" -> Color(0xFFA855F7)
-    "pink" -> Color(0xFFEC4899)
-    else -> Color(0xFF3B82F6)
+    "red" -> GeneratedNexyColors.ProjectRedMain
+    "orange" -> GeneratedNexyColors.ProjectOrangeMain
+    "yellow" -> GeneratedNexyColors.ProjectYellowMain
+    "green" -> GeneratedNexyColors.ProjectGreenMain
+    "teal", "cyan" -> GeneratedNexyColors.ProjectCyanMain
+    "blue" -> GeneratedNexyColors.ProjectBlueMain
+    "indigo", "purple" -> GeneratedNexyColors.ProjectPurpleMain
+    "pink" -> GeneratedNexyColors.ProjectPinkMain
+    "gray", "grey" -> GeneratedNexyColors.ProjectGrayMain
+    else -> GeneratedNexyColors.ProjectBlueMain
 }
 
 fun timeAgo(ms: Long): String {

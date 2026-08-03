@@ -1,13 +1,5 @@
 package io.nexy.android.ui.home
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,23 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +38,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.theme.NexyNotificationDotShape
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -132,26 +113,27 @@ fun ConversationRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         if (conv.pinned) {
-                            Icon(
-                                Icons.Default.PushPin,
+                            NexyIcon(
+                                NexyIconName.Pin,
                                 contentDescription = null,
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                         if (conv.kind == "code-change") {
-                            Icon(
-                                Icons.AutoMirrored.Filled.CallSplit,
+                            NexyIcon(
+                                NexyIconName.Fork,
                                 contentDescription = "Code change",
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                         if (isActive) {
-                            CircularProgressIndicator(
+                            NexyIcon(
+                                NexyIconName.Busy,
+                                contentDescription = "Chat active",
                                 modifier = Modifier.size(12.dp),
-                                strokeWidth = 1.5.dp,
-                                color = MaterialTheme.colorScheme.primary,
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         } else if (hasNewContent) {
                             Box(
@@ -159,16 +141,16 @@ fun ConversationRow(
                                     .size(7.dp)
                                     .background(
                                         color = MaterialTheme.colorScheme.primary,
-                                        shape = CircleShape,
+                                        shape = NexyNotificationDotShape,
                                     ),
                             )
                         }
                         if (isCompleted) {
-                            Icon(
-                                Icons.Default.CheckCircle,
+                            NexyIcon(
+                                NexyIconName.Check,
                                 contentDescription = "Complete",
                                 modifier = Modifier.size(13.dp),
-                                tint = Color(0xFF34D399),
+                                tint = MaterialTheme.colorScheme.tertiary,
                             )
                         }
                         Text(
@@ -234,8 +216,8 @@ fun ConversationRow(
                             onClick = { menuExpanded = true },
                             modifier = Modifier.size(36.dp),
                         ) {
-                            Icon(
-                                Icons.Default.MoreVert,
+                            NexyIcon(
+                                NexyIconName.More,
                                 contentDescription = "Chat actions",
                                 modifier = Modifier.size(18.dp),
                                 tint = mutedColor,
@@ -245,7 +227,7 @@ fun ConversationRow(
                             if (onTogglePin != null) {
                                 DropdownMenuItem(
                                     text = { Text(if (conv.pinned) "Unpin" else "Pin") },
-                                    leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Pin, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onTogglePin.invoke(conv.id, !conv.pinned)
@@ -255,7 +237,7 @@ fun ConversationRow(
                             if (onRename != null) {
                                 DropdownMenuItem(
                                     text = { Text("Rename") },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Prompt, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onRename.invoke(conv.id, conv.title)
@@ -265,7 +247,7 @@ fun ConversationRow(
                             if (onDelete != null) {
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
-                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onDelete.invoke(conv.id)
@@ -275,7 +257,7 @@ fun ConversationRow(
                             if (onDebrief != null) {
                                 DropdownMenuItem(
                                     text = { Text("Debrief") },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Artifact, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onDebrief.invoke(conv.id)
@@ -285,7 +267,7 @@ fun ConversationRow(
                             if (onMarkComplete != null && !isCompleted) {
                                 DropdownMenuItem(
                                     text = { Text("Mark complete") },
-                                    leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Check, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onMarkComplete.invoke(conv.id)
@@ -295,7 +277,7 @@ fun ConversationRow(
                             if (onMarkIncomplete != null && isCompleted) {
                                 DropdownMenuItem(
                                     text = { Text("Mark incomplete") },
-                                    leadingIcon = { Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Close, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onMarkIncomplete.invoke(conv.id)
@@ -305,7 +287,7 @@ fun ConversationRow(
                             if (onQuiz != null && isCompleted) {
                                 DropdownMenuItem(
                                     text = { Text("Quiz me") },
-                                    leadingIcon = { Icon(Icons.Default.Psychology, contentDescription = null) },
+                                    leadingIcon = { NexyIcon(NexyIconName.Rating, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onQuiz.invoke(conv.id)
@@ -335,7 +317,7 @@ fun PendingConversationRow() {
                 .size(7.dp)
                 .background(
                     color = MaterialTheme.colorScheme.primary,
-                    shape = CircleShape,
+                    shape = MaterialTheme.shapes.extraSmall,
                 ),
         )
         Text(

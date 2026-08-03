@@ -5,16 +5,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 /**
  * Translucent tap-only tab anchored to the left edge, vertically centered — the Android
@@ -30,17 +29,22 @@ fun ActivityEdgeTab(
 ) {
     if (!visible) return
 
+    val edgeTabShape = MaterialTheme.shapes.extraSmall.copy(
+        topStart = CornerSize(0.dp),
+        bottomStart = CornerSize(0.dp),
+    )
+
     Box(
         modifier = modifier
             .padding(start = 0.dp)
-            .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+            .clip(edgeTabShape)
+            .background(MaterialTheme.colorScheme.primary)
             .clickable(onClick = onClick)
             .padding(vertical = 14.dp, horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+        NexyIcon(
+            NexyIconName.ChevronRight,
             contentDescription = "Activity in progress — open activity feed",
             tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(18.dp),

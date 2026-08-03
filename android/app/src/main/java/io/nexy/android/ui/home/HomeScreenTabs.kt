@@ -72,6 +72,7 @@ import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexyPaginationFooter
 import kotlinx.coroutines.launch
 
 private sealed class ChatFilter {
@@ -99,6 +100,9 @@ fun ChatsTab(
     activeConversationIds: Set<String> = emptySet(),
     pendingConversationIds: Set<String> = emptySet(),
     completedWhileAwayIds: Set<String> = emptySet(),
+    totalCount: Int = conversations.size,
+    hasMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
 ) {
     var activeFilter by remember { mutableStateOf<ChatFilter>(ChatFilter.All) }
     var showFilterSheet by remember { mutableStateOf(false) }
@@ -393,6 +397,17 @@ fun ChatsTab(
                                 onMarkIncomplete = { id -> WsRepository.markConversationIncomplete(id) },
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                        item(key = "pagination-footer") {
+                            NexyPaginationFooter(
+                                loadedCount = conversations.size,
+                                totalCount = totalCount,
+                                hasMore = hasMore,
+                                isLoading = isRefreshing,
+                                error = null,
+                                onLoadMore = onLoadMore,
+                                onRetry = onRefresh,
+                            )
                         }
                     }
                 }

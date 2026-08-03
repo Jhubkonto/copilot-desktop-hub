@@ -16,26 +16,17 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -86,6 +77,8 @@ import io.nexy.android.ui.components.NexyInputValidation
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -418,7 +411,7 @@ fun AgentConfigScreen(
         },
         bottomBar = {
             if (agent != null && loaded) {
-                Surface(shadowElevation = 3.dp, modifier = Modifier.navigationBarsPadding()) {
+                Surface(shadowElevation = 0.dp, tonalElevation = 0.dp, modifier = Modifier.navigationBarsPadding()) {
                     Button(
                         onClick = {
                             var valid = true
@@ -487,7 +480,12 @@ fun AgentConfigScreen(
 
         if (!loaded) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                NexyIcon(
+                    name = NexyIconName.Busy,
+                    contentDescription = "Loading agent configuration",
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
             return@Scaffold
         }
@@ -1082,7 +1080,7 @@ fun AgentConfigScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
             ) {
-                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                NexyIcon(NexyIconName.Warning, null, Modifier.size(14.dp), MaterialTheme.colorScheme.error)
                 Text("Danger Zone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }
             Card(
@@ -1224,7 +1222,7 @@ private fun StringListEditor(
                 onClick = { onItemsChange(items + "") },
                 enabled = !disabled,
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add $label")
+                NexyIcon(NexyIconName.Add, "Add $label", Modifier.size(18.dp))
             }
         }
         items.forEachIndexed { index, item ->
@@ -1253,7 +1251,7 @@ private fun StringListEditor(
                     },
                     enabled = !disabled,
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                    NexyIcon(NexyIconName.Delete, "Remove", Modifier.size(18.dp), MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -1284,7 +1282,7 @@ private fun CustomCommandsEditor(
                 onClick = { onCommandsChange(commands + AgentCustomCommand(name = "", description = "", prompt = "")) },
                 enabled = !disabled,
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add command")
+                NexyIcon(NexyIconName.Add, "Add command", Modifier.size(18.dp))
             }
         }
         commands.forEachIndexed { index, cmd ->
@@ -1307,7 +1305,7 @@ private fun CustomCommandsEditor(
                             },
                             enabled = !disabled,
                         ) {
-                            Icon(Icons.Default.Delete, contentDescription = "Remove command", tint = MaterialTheme.colorScheme.error)
+                            NexyIcon(NexyIconName.Delete, "Remove command", Modifier.size(18.dp), MaterialTheme.colorScheme.error)
                         }
                     }
                     OutlinedTextField(
@@ -1372,7 +1370,7 @@ private fun SkillAttachmentsSection(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(8.dp),
+            shape = MaterialTheme.shapes.extraSmall,
         ) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("No skills available.", style = MaterialTheme.typography.bodyMedium)
@@ -1494,9 +1492,10 @@ private fun SkillAttachmentRow(
                         enabled = !disabled && canMoveUp,
                         modifier = Modifier.size(48.dp),
                     ) {
-                        Icon(
-                            Icons.Default.KeyboardArrowUp,
+                        NexyIcon(
+                            name = NexyIconName.ChevronUp,
                             contentDescription = "Move ${skill.name} up",
+                            modifier = Modifier.size(18.dp),
                             tint = if (canMoveUp) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         )
                     }
@@ -1505,9 +1504,10 @@ private fun SkillAttachmentRow(
                         enabled = !disabled && canMoveDown,
                         modifier = Modifier.size(48.dp),
                     ) {
-                        Icon(
-                            Icons.Default.KeyboardArrowDown,
+                        NexyIcon(
+                            name = NexyIconName.ChevronDown,
                             contentDescription = "Move ${skill.name} down",
+                            modifier = Modifier.size(18.dp),
                             tint = if (canMoveDown) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         )
                     }
@@ -1660,7 +1660,7 @@ private fun KnowledgeFilesSection(
                         Row {
                             TextButton(onClick = { onEdit(file) }, enabled = !disabled) { Text("Edit") }
                             IconButton(onClick = { onRemove(file.id) }, enabled = !disabled) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remove knowledge file", tint = MaterialTheme.colorScheme.error)
+                                NexyIcon(NexyIconName.Delete, "Remove knowledge file", Modifier.size(18.dp), MaterialTheme.colorScheme.error)
                             }
                         }
                     }
@@ -1697,7 +1697,7 @@ private fun KnowledgeFilesSection(
             }
         } else {
             TextButton(onClick = { showAddField = true }, enabled = !disabled) {
-                Icon(Icons.Default.Add, contentDescription = null)
+                NexyIcon(NexyIconName.Add, null, Modifier.size(18.dp))
                 Text("Add file")
             }
         }
@@ -1730,7 +1730,12 @@ private fun KnowledgeFileEditorSection(
             }
         }
         if (loading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            NexyIcon(
+                name = NexyIconName.Busy,
+                contentDescription = "Loading knowledge file",
+                modifier = Modifier.align(Alignment.CenterHorizontally).size(24.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
         } else {
             OutlinedTextField(
                 value = content,

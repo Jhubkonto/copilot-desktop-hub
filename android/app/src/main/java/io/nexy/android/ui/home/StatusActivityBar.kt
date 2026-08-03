@@ -10,18 +10,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.BackgroundActivity
 import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.ui.connection.getEffectiveModePresentation
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 // Extends the original POLLING-only "Looking for your desktop..." banner into a general
 // status strip: each row appears only when there is something worth surfacing (connectivity
@@ -50,14 +50,14 @@ fun StatusActivityBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFFFF3CD))
+                    .background(MaterialTheme.colorScheme.errorContainer)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     presentation.label,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF856404),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.weight(1f),
                 )
                 if (effectiveMode == EffectiveConnectionMode.SEARCHING) {
@@ -65,7 +65,7 @@ fun StatusActivityBar(
                         "Wake it up",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF664D03),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier
                             .clickable(onClick = onWakeDesktop)
                             .padding(start = 8.dp),
@@ -78,7 +78,7 @@ fun StatusActivityBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFE0E7FF))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
                     .clickable(onClick = onOpenConnection)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -95,7 +95,7 @@ fun StatusActivityBar(
                 Text(
                     label,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF3730A3),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -110,7 +110,12 @@ fun StatusActivityBar(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                NexyIcon(
+                    NexyIconName.Busy,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     activity.label,

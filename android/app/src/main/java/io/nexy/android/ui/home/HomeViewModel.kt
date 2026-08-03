@@ -31,7 +31,14 @@ class HomeViewModel(
     val effectiveMode: StateFlow<io.nexy.android.data.EffectiveConnectionMode> = WsRepository.effectiveMode
     val reconnectExhausted: StateFlow<Boolean> = WsRepository.reconnectExhausted
     val intentionalRestartExpected: StateFlow<Boolean> = WsRepository.intentionalRestartExpected
-    val conversations: StateFlow<List<Conversation>> = WsRepository.conversations
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
+    private val _conversationTotalCount = MutableStateFlow(0)
+    val conversationTotalCount: StateFlow<Int> = _conversationTotalCount.asStateFlow()
+    private val _conversationHasMore = MutableStateFlow(false)
+    val conversationHasMore: StateFlow<Boolean> = _conversationHasMore.asStateFlow()
+    private val _conversationNextCursor = MutableStateFlow<String?>(null)
+    private val pendingConversationPages = mutableMapOf<String, Boolean>()
     val agents: StateFlow<List<Agent>> = WsRepository.agents
     val projects: StateFlow<List<Project>> = WsRepository.projects
     val profiles: StateFlow<List<PairedServerProfile>> = WsRepository.profiles
@@ -132,7 +139,22 @@ class HomeViewModel(
                             }
                         }
                     }
-                    is WsEvent.ConversationList -> _isRefreshingConversations.value = false
+                    is WsEvent.ConversationList -> {
+                        _conversations.value = event.conversations
+                        _conversationTotalCount.value = event.conversations.size
+                        _isRefreshingConversations.value = false
+                    }
+                    is WsEvent.ConversationPage -> {
+                        val append = pendingConversationPages.remove(event.requestId) ?: return@collect
+                        _conversations.value = if (append) {
+                            (_conversations.value + event.conversations).distinctBy { it.id }
+                        } else event.conversations
+                        _conversationTotalCount.value = event.totalCount
+                        _conversationHasMore.value = event.hasMore
+                        _conversationNextCursor.value = event.nextCursor
+                        _isRefreshingConversations.value = false
+                        _searchResults.value = if (_searchQuery.value.isBlank()) null else _conversations.value
+                    }
                     is WsEvent.AgentList -> _isRefreshingAgents.value = false
                     is WsEvent.ProjectList -> _isRefreshingProjects.value = false
                     is WsEvent.ConversationCreated -> _newConversationId.value = event.id
@@ -148,7 +170,29 @@ class HomeViewModel(
 
     fun refreshConversations() {
         _isRefreshingConversations.value = true
-        wsClient.send("conversation:list", emptyMap())
+        requestConversationPage(append = false)
+    }
+
+    fun loadMoreConversations() {
+        if (!_isRefreshingConversations.value && _conversationHasMore.value) {
+            _isRefreshingConversations.value = true
+            requestConversationPage(append = true)
+        }
+    }
+
+    private fun requestConversationPage(append: Boolean) {
+        val requestId = java.util.UUID.randomUUID().toString()
+        if (!append) pendingConversationPages.clear()
+        pendingConversationPages[requestId] = append
+        val payload = mutableMapOf<String, Any>(
+            "requestId" to requestId,
+            "scopeType" to "all",
+            "scope" to mapOf("type" to "all"),
+            "query" to _searchQuery.value.trim(),
+            "limit" to 30,
+        )
+        if (append) _conversationNextCursor.value?.let { payload["cursor"] = it }
+        wsClient.send("conversation:list-page", payload)
     }
 
     fun requestAgents() {
@@ -179,11 +223,9 @@ class HomeViewModel(
 
     fun setSearchQuery(q: String) {
         _searchQuery.value = q
-        if (q.isBlank()) {
-            _searchResults.value = null
-        } else {
-            WsRepository.searchConversations(q)
-        }
+        _searchResults.value = if (q.isBlank()) null else emptyList()
+        _isRefreshingConversations.value = true
+        requestConversationPage(append = false)
     }
 
     fun renameConversation(id: String, title: String) = WsRepository.renameConversation(id, title)

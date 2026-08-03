@@ -11,24 +11,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -64,8 +51,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import io.nexy.android.ui.theme.NexyViolet
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
@@ -80,7 +67,10 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.ApprovalDialog
 import io.nexy.android.ui.connection.StandaloneModeToggle
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.material.icons.filled.QrCodeScanner
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.theme.NexyTextStyles
+import io.nexy.android.ui.theme.LocalNexyEightBit
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
@@ -124,6 +114,8 @@ fun HomeScreen(
     val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
     val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsStateWithLifecycle()
     val conversations by vm.conversations.collectAsStateWithLifecycle()
+    val conversationTotalCount by vm.conversationTotalCount.collectAsStateWithLifecycle()
+    val conversationHasMore by vm.conversationHasMore.collectAsStateWithLifecycle()
     val agents by vm.agents.collectAsStateWithLifecycle()
     val projects by vm.projects.collectAsStateWithLifecycle()
     val isRefreshingConversations by vm.isRefreshingConversations.collectAsStateWithLifecycle()
@@ -152,6 +144,10 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
+
+    RefreshConversationsOnResume {
+        vm.refreshConversations()
+    }
 
     LaunchedEffect(Unit) {
         vm.projectCreated.collect { projectId ->
@@ -403,8 +399,8 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.small,
                 ) {
-                    Icon(
-                        Icons.Default.QrCodeScanner,
+                    NexyIcon(
+                        NexyIconName.Scan,
                         contentDescription = null,
                         modifier = Modifier.padding(end = 8.dp),
                     )
@@ -444,22 +440,22 @@ fun HomeScreen(
                                 withStyle(SpanStyle(color = NexyViolet)) { append("N") }
                                 withStyle(SpanStyle(color = Color.White)) { append("exy") }
                             },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            fontStyle = FontStyle.Italic,
+                            style = if (LocalNexyEightBit.current) NexyTextStyles.Brand else MaterialTheme.typography.titleMedium,
+                            fontWeight = if (LocalNexyEightBit.current) FontWeight.Normal else FontWeight.Bold,
+                            fontStyle = if (LocalNexyEightBit.current) FontStyle.Normal else FontStyle.Italic,
                         )
                     }
                 },
                 actions = {
                     IconButton(onClick = { showConnectionSheet = true }) {
-                        Icon(Icons.Default.ExpandMore, contentDescription = "Connection details")
+                        NexyIcon(NexyIconName.ChevronDown, contentDescription = "Connection details")
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        NexyIcon(NexyIconName.Settings, contentDescription = "Settings")
                     }
                     Box {
                         IconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            NexyIcon(NexyIconName.More, contentDescription = "More options")
                         }
                         DropdownMenu(
                             expanded = showOverflowMenu,
@@ -467,30 +463,30 @@ fun HomeScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Skills") },
-                                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                leadingIcon = { NexyIcon(NexyIconName.Skill, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenSkills() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Artifacts") },
-                                leadingIcon = { Icon(Icons.Default.Inventory2, contentDescription = null) },
+                                leadingIcon = { NexyIcon(NexyIconName.Artifact, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenArtifacts() },
                                 enabled = connectionState == ConnectionState.CONNECTED,
                             )
                             DropdownMenuItem(
                                 text = { Text(if (connectionState == ConnectionState.CONNECTED) "Scheduled" else "Scheduled · desktop required") },
-                                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                                leadingIcon = { NexyIcon(NexyIconName.Scheduled, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenScheduled() },
                                 enabled = connectionState == ConnectionState.CONNECTED,
                             )
                             DropdownMenuItem(
                                 text = { Text(if (connectionState == ConnectionState.CONNECTED) "Automated Workflows" else "Automated Workflows · desktop required") },
-                                leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
+                                leadingIcon = { NexyIcon(NexyIconName.Workflow, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenAutomatedWorkflows() },
                                 enabled = connectionState == ConnectionState.CONNECTED,
                             )
                             DropdownMenuItem(
                                 text = { Text(if (connectionState == ConnectionState.CONNECTED) "Ratings" else "Ratings · desktop required") },
-                                leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) },
+                                leadingIcon = { NexyIcon(NexyIconName.Rating, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenRatings() },
                                 enabled = connectionState == ConnectionState.CONNECTED,
                             )
@@ -514,8 +510,8 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 ) {
-                    Icon(
-                        Icons.Default.Add,
+                    NexyIcon(
+                        NexyIconName.Add,
                         contentDescription = when (selectedTab) {
                             0 -> "New Chat"; 1 -> "New Project"; else -> "New Agent"
                         },
@@ -593,6 +589,9 @@ fun HomeScreen(
                     activeConversationIds = activeConversationIds,
                     pendingConversationIds = pendingConversationIds,
                     completedWhileAwayIds = completedWhileAwayIds,
+                    totalCount = conversationTotalCount,
+                    hasMore = conversationHasMore,
+                    onLoadMore = { vm.loadMoreConversations() },
                 )
                 1 -> ProjectsTab(
                     projects = projects,

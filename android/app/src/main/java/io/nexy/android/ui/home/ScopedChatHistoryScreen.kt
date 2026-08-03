@@ -11,15 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -29,6 +24,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.components.NexyPaginationFooter
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.WsRepository
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 enum class HistoryScope {
     Agent,
@@ -61,7 +60,6 @@ fun ScopedChatHistoryScreen(
     onOpenDebrief: ((String) -> Unit)? = null,
     onOpenQuiz: ((String) -> Unit)? = null,
 ) {
-    val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
     val agents by WsRepository.agents.collectAsStateWithLifecycle()
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
     val activeConversationIds by WsRepository.activeConversationIds.collectAsStateWithLifecycle()
@@ -69,11 +67,73 @@ fun ScopedChatHistoryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isRefreshing by remember { mutableStateOf(false) }
     var deletingConversation by remember { mutableStateOf<Conversation?>(null) }
+    var conversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
+    var totalCount by remember { mutableStateOf(0) }
+    var nextCursor by remember { mutableStateOf<String?>(null) }
+    var hasMore by remember { mutableStateOf(false) }
+    var isLoadingPage by remember { mutableStateOf(false) }
+    var pageError by remember { mutableStateOf<String?>(null) }
+    var pendingRequests by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    val listState = rememberLazyListState()
+    var freshPageGeneration by remember { mutableStateOf(0) }
+
+    fun requestPage(append: Boolean) {
+        if (isLoadingPage && append) return
+        val requestId = UUID.randomUUID().toString()
+        pendingRequests = if (append) pendingRequests + (requestId to true) else mapOf(requestId to false)
+        isLoadingPage = true
+        pageError = null
+        if (!append) {
+            conversations = emptyList()
+            totalCount = 0
+            nextCursor = null
+            hasMore = false
+        }
+        WsRepository.listConversationPage(
+            scopeType = scopeType.name.lowercase(),
+            scopeId = scopeId,
+            query = searchQuery.trim(),
+            cursor = if (append) nextCursor else null,
+            requestId = requestId,
+        )
+    }
+
+    RefreshConversationsOnResume {
+        isRefreshing = true
+        requestPage(append = false)
+    }
 
     LaunchedEffect(Unit) {
         WsRepository.events.collect { event ->
-            if (event is WsEvent.ConversationList) isRefreshing = false
+            if (event is WsEvent.ConversationPage) {
+                val append = pendingRequests[event.requestId] ?: return@collect
+                pendingRequests = pendingRequests - event.requestId
+                conversations = if (append) {
+                    (conversations + event.conversations).distinctBy { it.id }
+                } else {
+                    freshPageGeneration += 1
+                    event.conversations
+                }
+                totalCount = event.totalCount
+                nextCursor = event.nextCursor
+                hasMore = event.hasMore
+                isLoadingPage = false
+                isRefreshing = false
+            }
         }
+    }
+
+    // A navigation entry keeps its LazyListState while a chat is open above it. Every fresh
+    // history page represents entering/resuming this destination (or starting a new search), so
+    // explicitly return to the newest conversation. Appended pagination pages intentionally keep
+    // the user's position.
+    LaunchedEffect(freshPageGeneration) {
+        if (conversations.isNotEmpty()) listState.scrollToItem(0)
+    }
+
+    LaunchedEffect(scopeType, scopeId, searchQuery) {
+        delay(if (searchQuery.isBlank()) 0 else 250)
+        requestPage(append = false)
     }
 
     val title = when (scopeType) {
@@ -81,17 +141,6 @@ fun ScopedChatHistoryScreen(
             if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name
         } ?: "Agent chats"
         HistoryScope.Project -> projects.find { it.id == scopeId }?.name ?: "Project chats"
-    }
-    val filtered = remember(conversations, scopeType, scopeId, searchQuery) {
-        val scoped = when (scopeType) {
-            HistoryScope.Agent -> conversations.filter { it.agent_id == scopeId }
-            HistoryScope.Project -> conversations.filter { it.project_id == scopeId }
-        }
-        val query = searchQuery.trim()
-        if (query.isBlank()) scoped else scoped.filter { conversation ->
-            listOfNotNull(conversation.title, conversation.last_message, conversation.agent_name, conversation.project_name)
-                .any { it.contains(query, ignoreCase = true) }
-        }
     }
 
     deletingConversation?.let { conv ->
@@ -115,7 +164,7 @@ fun ScopedChatHistoryScreen(
                     Column {
                         Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "${filtered.size} chat${if (filtered.size == 1) "" else "s"}",
+                            "$totalCount chat${if (totalCount == 1) "" else "s"}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -136,13 +185,13 @@ fun ScopedChatHistoryScreen(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             ) {
-                Icon(Icons.Default.Add, contentDescription = "New Chat")
+                NexyIcon(NexyIconName.Add, contentDescription = "New Chat")
             }
         },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = { isRefreshing = true; WsRepository.listConversations() },
+            onRefresh = { isRefreshing = true; requestPage(append = false) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -151,20 +200,20 @@ fun ScopedChatHistoryScreen(
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp),
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                leadingIcon = { NexyIcon(NexyIconName.Search, contentDescription = null) },
                 trailingIcon = {
                     if (searchQuery.isNotBlank()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            NexyIcon(NexyIconName.Close, contentDescription = "Clear search")
                         }
                     }
                 },
                 placeholder = { Text("Search chats", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                shape = RoundedCornerShape(14.dp),
+                shape = MaterialTheme.shapes.small,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 8.dp))
-            if (filtered.isEmpty()) {
+            if (conversations.isEmpty() && !isLoadingPage) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -180,8 +229,11 @@ fun ScopedChatHistoryScreen(
                     }
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(filtered, key = { it.id }) { conversation ->
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(conversations, key = { it.id }) { conversation ->
                         ConversationRow(
                             conv = conversation,
                             projects = projects,
@@ -195,6 +247,17 @@ fun ScopedChatHistoryScreen(
                             onQuiz = if (onOpenQuiz != null) { id -> onOpenQuiz(id) } else null,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    item(key = "pagination-footer") {
+                        NexyPaginationFooter(
+                            loadedCount = conversations.size,
+                            totalCount = totalCount,
+                            hasMore = hasMore,
+                            isLoading = isLoadingPage,
+                            error = pageError,
+                            onLoadMore = { requestPage(append = true) },
+                            onRetry = { requestPage(append = conversations.isNotEmpty()) },
+                        )
                     }
                 }
             }

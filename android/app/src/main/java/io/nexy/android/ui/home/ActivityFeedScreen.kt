@@ -11,12 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -39,6 +35,8 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 /** Full-screen activity feed — styled like the chat/project/agent history screens, per the
  *  edge tab that opens it. Reflects the same [BackgroundActivityTracker] state as the tab. */
@@ -129,7 +127,12 @@ private fun ActivityFeedRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        NexyIcon(
+            NexyIconName.Busy,
+            contentDescription = "Activity in progress",
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 activity.label,
@@ -154,8 +157,8 @@ private fun ActivityFeedRow(
             }
         }
         IconButton(onClick = onDismiss) {
-            Icon(
-                Icons.Default.Close,
+            NexyIcon(
+                NexyIconName.Close,
                 contentDescription = "Dismiss",
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
