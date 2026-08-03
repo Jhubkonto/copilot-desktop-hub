@@ -115,6 +115,33 @@ describe("ChatWindow — Empty State", () => {
 });
 
 describe("ChatWindow — Sending Messages", () => {
+  it("keeps a new chat's Claude mode selected while its generated conversation row is loading", async () => {
+    const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: false,
+        mode: "none",
+        user: null,
+        cliInstalled: true,
+        clis: { claude: true, codex: false },
+      },
+      currentConversationId: null as string | null,
+    });
+    setupStoreMock(useAppStore, mockStore);
+    const view = render(<ChatWindow />);
+
+    await user.click(screen.getByRole("button", { name: /chat mode settings/i }));
+    const claudeSection = screen.getByText("Claude Code mode (this chat)").parentElement!;
+    const bypass = within(claudeSection).getByRole("button", { name: "Bypass" });
+    await user.click(bypass);
+    expect(bypass).toHaveClass("bg-purple-500");
+
+    (mockStore as { currentConversationId: string | null }).currentConversationId = "conv-generated";
+    view.rerender(<ChatWindow />);
+
+    expect(screen.getByRole("button", { name: /chat mode settings/i })).toHaveClass("bg-blue-50");
+  });
+
   it("waits for an in-flight mode update before launching the turn", async () => {
     const user = userEvent.setup();
     let resolveModeWrite!: (value: true) => void;
@@ -152,7 +179,11 @@ describe("ChatWindow — Sending Messages", () => {
 
     await user.click(screen.getByRole("button", { name: /chat mode settings/i }));
     const sandboxSection = screen.getByText("Codex sandbox (this chat)").parentElement!;
-    await user.click(within(sandboxSection).getByRole("button", { name: "Workspace" }));
+    const workspace = within(sandboxSection).getByRole("button", { name: "Workspace" });
+    await user.click(workspace);
+    // The conversation list still contains the preceding null override while IPC is pending.
+    // The optimistic choice must remain visible instead of snapping back to Default.
+    expect(workspace).toHaveClass("bg-purple-500");
 
     await user.type(screen.getByRole("textbox", { name: /message input/i }), "Apply the fix");
     await user.click(screen.getByRole("button", { name: /^send message$/i }));
@@ -162,6 +193,50 @@ describe("ChatWindow — Sending Messages", () => {
 
     await act(async () => resolveModeWrite(true));
     await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledTimes(1));
+  });
+
+  it("waits for an in-flight model update before launching the turn", async () => {
+    const user = userEvent.setup();
+    let resolveModelWrite!: (value: true) => void;
+    mockApi.setConversationModel.mockReturnValue(new Promise((resolve) => {
+      resolveModelWrite = resolve;
+    }));
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [{
+        id: "conv-1",
+        title: "Existing chat",
+        project_id: null,
+        model: "gpt-old",
+        pinned: false,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      availableModelGroups: [{
+        sourceKey: "openai",
+        sourceLabel: "OpenAI",
+        sourceType: "provider",
+        models: [
+          { id: "gpt-old", label: "GPT old" },
+          { id: "gpt-new", label: "GPT new" },
+        ],
+      }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await user.click(screen.getByRole("button", { name: /conversation model/i }));
+    await user.click(screen.getByText("GPT new"));
+    expect(screen.getByRole("button", { name: /conversation model/i })).toHaveTextContent("gpt-new");
+
+    await user.type(screen.getByRole("textbox", { name: /message input/i }), "Use the new model");
+    await user.click(screen.getByRole("button", { name: /^send message$/i }));
+    expect(mockApi.sendMessage).not.toHaveBeenCalled();
+
+    await act(async () => resolveModelWrite(true));
+    await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledTimes(1));
+    expect(mockApi.sendMessage.mock.calls[0]?.[2]).toMatchObject({ model: "gpt-new" });
   });
 
   it("chat-r-3: user message appears immediately after send (optimistic)", async () => {
@@ -564,21 +639,13 @@ describe("ChatWindow — Messages Display", () => {
 });
 
 describe("ChatWindow — File Attachments", () => {
-  it("shows screen capture labels under image attachments", async () => {
+  it("does not offer screen capture in the attachment actions", async () => {
     const user = userEvent.setup();
-    mockApi.captureScreen.mockResolvedValue({
-      dataUrl: "data:image/png;base64,capture",
-      windowLabel: "VS Code",
-    });
 
     render(<ChatWindow />);
 
-    await user.click(screen.getByRole("button", { name: /capture screen/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText("VS Code")).toBeInTheDocument();
-    });
-    expect(screen.getByAltText("Screen capture")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More message actions" }));
+    expect(screen.queryByRole("menuitem", { name: /capture screen/i })).not.toBeInTheDocument();
   });
 
   it("chat-r-11: file attachment badge appears after file pick", async () => {
@@ -835,6 +902,35 @@ describe("ChatWindow — Slash Commands", () => {
 
     expect(mockApi.deleteMessagesAfter).toHaveBeenCalledWith("conv-1", 0);
     expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+  });
+
+  it("deletes the selected message and everything after it after confirmation", async () => {
+    const user = userEvent.setup();
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "Keep this", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "Delete this", timestamp: 2000 },
+      { id: "m3", role: "user", content: "Delete this too", timestamp: 3000 },
+    ]);
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+    const target = (await screen.findByText("Delete this")).closest('[data-message-id="m2"]')!;
+    await user.click(within(target as HTMLElement).getByRole("button", { name: "More message actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete from here" }));
+
+    expect(screen.getByRole("dialog", { name: "Delete from here?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockApi.deleteMessagesAfter).toHaveBeenCalledWith("conv-1", 2000);
+      expect(screen.queryByText("Delete this")).not.toBeInTheDocument();
+      expect(screen.queryByText("Delete this too")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Keep this")).toBeInTheDocument();
   });
 
   it("transforms /explain into an instruction prompt and sends it", async () => {

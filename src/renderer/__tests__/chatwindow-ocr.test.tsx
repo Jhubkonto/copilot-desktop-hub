@@ -26,25 +26,27 @@ beforeEach(() => {
     return () => {}
   })
 
-  mockApi.captureScreen.mockResolvedValue({
+  mockApi.readClipboardContent.mockResolvedValue({
+    type: 'image',
     dataUrl: 'data:image/png;base64,screenshot',
-    windowLabel: 'VS Code',
   })
 
   mockStore = createMockAppStore({ authState: { authenticated: true, user: null } })
   setupStoreMock(useAppStore, mockStore)
 })
 
-async function captureAndGetImage(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: /capture screen/i }))
-  await waitFor(() => expect(screen.getByAltText('Screen capture')).toBeInTheDocument())
+async function pasteAndGetImage(user: ReturnType<typeof userEvent.setup>) {
+  const previousCount = screen.queryAllByAltText('Clipboard image').length
+  await user.click(screen.getByRole('button', { name: 'More message actions' }))
+  await user.click(screen.getByRole('menuitem', { name: 'Paste image from clipboard' }))
+  await waitFor(() => expect(screen.getAllByAltText('Clipboard image')).toHaveLength(previousCount + 1))
 }
 
 describe('ChatWindow — OCR toggle UI', () => {
-  it('shows "Switch to Text (OCR) mode" toggle button after a screen capture', async () => {
+  it('shows "Switch to Text (OCR) mode" toggle button after adding an image', async () => {
     const user = userEvent.setup()
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     expect(
       screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }),
@@ -55,7 +57,7 @@ describe('ChatWindow — OCR toggle UI', () => {
     const user = userEvent.setup()
     mockApi.ocrImage.mockResolvedValue({ text: 'some extracted text' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
 
@@ -66,7 +68,7 @@ describe('ChatWindow — OCR toggle UI', () => {
     const user = userEvent.setup()
     mockApi.ocrImage.mockResolvedValue({ text: 'extracted content' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
 
@@ -78,7 +80,7 @@ describe('ChatWindow — OCR toggle UI', () => {
     const user = userEvent.setup()
     mockApi.ocrImage.mockResolvedValue({ error: 'engine crash' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
 
@@ -93,7 +95,7 @@ describe('ChatWindow — OCR toggle UI', () => {
     const user = userEvent.setup()
     mockApi.ocrImage.mockResolvedValue({ text: '   ' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
 
@@ -107,7 +109,7 @@ describe('ChatWindow — OCR toggle UI', () => {
     const user = userEvent.setup()
     mockApi.ocrImage.mockResolvedValue({ text: 'text content' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
     await waitFor(() => expect(screen.getByText('OCR ready')).toBeInTheDocument())
@@ -129,7 +131,7 @@ describe('ChatWindow — OCR send path', () => {
       () => new Promise((resolve) => { resolveOcr = resolve }),
     )
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
     // OCR is pending — type text and attempt send
@@ -150,7 +152,7 @@ describe('ChatWindow — OCR send path', () => {
     const user = userEvent.setup()
     mockApi.ocrImage.mockResolvedValue({ text: 'detected text from screenshot' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
 
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
     await waitFor(() => expect(screen.getByText('OCR ready')).toBeInTheDocument())
@@ -162,7 +164,7 @@ describe('ChatWindow — OCR send path', () => {
     await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledOnce())
 
     const [, content, options] = mockApi.sendMessage.mock.calls[0] as [string, string, { images?: unknown[] }]
-    expect(content).toContain('[OCR from: Screen capture')
+    expect(content).toContain('[OCR from: Clipboard image')
     expect(content).toContain('detected text from screenshot')
     expect(content).toContain('what is this?')
     // OCR image should NOT be in vision images sent to LLM
@@ -171,20 +173,20 @@ describe('ChatWindow — OCR send path', () => {
 
   it('sends vision images to LLM and injects OCR text for OCR-mode images side by side', async () => {
     const user = userEvent.setup()
-    // First capture → OCR mode
+    // First clipboard image → OCR mode
     mockApi.ocrImage.mockResolvedValue({ text: 'text from first' })
     render(<ChatWindow />)
-    await captureAndGetImage(user)
+    await pasteAndGetImage(user)
     await user.click(screen.getByRole('button', { name: /switch to text \(ocr\) mode/i }))
     await waitFor(() => expect(screen.getByText('OCR ready')).toBeInTheDocument())
 
-    // Second capture → stays as vision
-    mockApi.captureScreen.mockResolvedValue({
+    // Second clipboard image → stays as vision
+    mockApi.readClipboardContent.mockResolvedValue({
+      type: 'image',
       dataUrl: 'data:image/png;base64,second',
-      windowLabel: 'Terminal',
     })
-    await user.click(screen.getByRole('button', { name: /capture screen/i }))
-    await waitFor(() => expect(screen.getAllByAltText('Screen capture')).toHaveLength(2))
+    await pasteAndGetImage(user)
+    await waitFor(() => expect(screen.getAllByAltText('Clipboard image')).toHaveLength(2))
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'analyze both')
@@ -193,7 +195,7 @@ describe('ChatWindow — OCR send path', () => {
     await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledOnce())
 
     const [, content, options] = mockApi.sendMessage.mock.calls[0] as [string, string, { images?: { dataUrl: string }[] }]
-    expect(content).toContain('[OCR from: Screen capture')
+    expect(content).toContain('[OCR from: Clipboard image')
     expect(content).toContain('text from first')
     // Only the vision image should be in options.images
     expect(options.images).toHaveLength(1)

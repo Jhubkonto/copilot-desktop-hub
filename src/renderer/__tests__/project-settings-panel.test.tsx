@@ -69,6 +69,16 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
   })
 
+  it('allows an existing project color to be changed', async () => {
+    render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Color blue' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: 'Color purple' }))
+
+    expect(mockStore.updateProjectColor).toHaveBeenCalledWith('proj-1', 'My Project', 'purple')
+    expect(screen.getByRole('button', { name: 'Color purple' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('k-3: initialTab prop selects the correct tab on mount', () => {
     render(<ProjectSettingsPanel projectId="proj-1" initialTab="scope" onClose={vi.fn()} />)
     expect(screen.getByRole('tab', { name: /scope/i })).toHaveAttribute('aria-selected', 'true')

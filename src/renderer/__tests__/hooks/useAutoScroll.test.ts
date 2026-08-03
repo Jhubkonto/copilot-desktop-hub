@@ -81,4 +81,63 @@ describe('useAutoScroll', () => {
 
     expect(scrollTo).toHaveBeenCalled()
   })
+
+  it('does not treat restored messages as new content when reopening a scrolled chat', async () => {
+    const onNewContentWhileScrolledUp = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ contentSignal, resetKey, isContentInitializing }) => useAutoScroll({
+        isGenerating: false,
+        contentSignal,
+        resetKey,
+        isContentInitializing,
+        onNewContentWhileScrolledUp,
+      }),
+      {
+        initialProps: {
+          contentSignal: '10:0:0',
+          resetKey: 'restore-source',
+          isContentInitializing: false,
+        },
+      },
+    )
+
+    const { el } = mockScrollElement({ scrollTop: 500 })
+    result.current.scrollContainerRef.current = el
+    await flushRaf()
+    act(() => result.current.handleScrollContainerScroll())
+    expect(result.current.isUserScrolledUp).toBe(true)
+
+    // Select another existing conversation, restore its saved/database snapshot, then finish
+    // loading. These are navigation and hydration changes, not content-arrival events.
+    rerender({ contentSignal: '0:0:0', resetKey: 'restore-target', isContentInitializing: true })
+    rerender({ contentSignal: '24:0:0', resetKey: 'restore-target', isContentInitializing: true })
+    rerender({ contentSignal: '24:0:0', resetKey: 'restore-target', isContentInitializing: false })
+
+    expect(result.current.hasUnreadBelow).toBe(false)
+    expect(onNewContentWhileScrolledUp).not.toHaveBeenCalled()
+  })
+
+  it('still marks genuinely new content after conversation restoration completes', async () => {
+    const onNewContentWhileScrolledUp = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ contentSignal, isContentInitializing }) => useAutoScroll({
+        isGenerating: false,
+        contentSignal,
+        resetKey: 'restored-then-updated',
+        isContentInitializing,
+        onNewContentWhileScrolledUp,
+      }),
+      { initialProps: { contentSignal: '20:0:0', isContentInitializing: true } },
+    )
+
+    const { el } = mockScrollElement({ scrollTop: 500 })
+    result.current.scrollContainerRef.current = el
+    rerender({ contentSignal: '20:0:0', isContentInitializing: false })
+    act(() => result.current.handleScrollContainerScroll())
+
+    rerender({ contentSignal: '21:0:0', isContentInitializing: false })
+
+    expect(result.current.hasUnreadBelow).toBe(true)
+    expect(onNewContentWhileScrolledUp).toHaveBeenCalledTimes(1)
+  })
 })

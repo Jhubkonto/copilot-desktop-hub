@@ -41,7 +41,10 @@ describe('spoken output', () => {
         : null,
     }
     expect(readSpokenOutputSettings(storage)).toEqual({
+      engine: 'system',
       voiceUri: 'voice-1',
+      supertonicSpeakerId: 0,
+      supertonicLanguage: 'auto',
       rate: 2,
       pitch: 0.5,
       offlineOnly: false,

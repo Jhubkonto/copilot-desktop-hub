@@ -125,6 +125,24 @@ describe('AttachmentBar — OCR toggle', () => {
     expect(onRemove).toHaveBeenCalledWith('img-99')
   })
 
+  it('opens an image preview and closes it when the preview is clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <AttachmentBar
+        attachments={[]}
+        images={[makeImage()]}
+        onRemoveAttachment={vi.fn()}
+        onRemoveImage={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Preview Screen capture' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close preview of Screen capture' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('renders nothing when both attachments and images are empty', () => {
     const { container } = render(
       <AttachmentBar

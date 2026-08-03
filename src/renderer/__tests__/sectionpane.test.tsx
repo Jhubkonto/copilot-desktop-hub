@@ -717,4 +717,19 @@ describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
     render(<SectionPane section="projects" />);
     expect(screen.getByTitle("Generating…")).toBeInTheDocument();
   });
+
+  it("q2-7: completed conversation action uses a static incomplete indicator", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+      completedConversationIds: ["pc1"],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+
+    const markIncomplete = screen.getByRole("button", { name: /mark conversation incomplete/i });
+    expect(markIncomplete.querySelector("svg")).not.toBeInTheDocument();
+    expect(markIncomplete.firstElementChild).toHaveClass("border-2", "border-current");
+  });
 });

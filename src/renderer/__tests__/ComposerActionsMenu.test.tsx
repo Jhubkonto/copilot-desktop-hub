@@ -8,7 +8,6 @@ function renderMenu(overrides: Partial<Parameters<typeof ComposerActionsMenu>[0]
     showContextInspector: false,
     onAttachFiles: vi.fn(),
     onAttachFolder: vi.fn(),
-    onCaptureScreen: vi.fn(),
     onPasteClipboardImage: vi.fn(),
     onOpenPromptLibrary: vi.fn(),
     onToggleContextInspector: vi.fn(),
@@ -27,10 +26,11 @@ describe('ComposerActionsMenu', () => {
     await user.click(screen.getByRole('button', { name: 'More message actions' }))
 
     expect(screen.getByRole('menu', { name: 'Message actions' })).toBeInTheDocument()
-    expect(screen.getAllByRole('menuitem')).toHaveLength(6)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
+    expect(screen.queryByRole('menuitem', { name: 'Capture screen' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('menuitem', { name: 'Capture screen' }))
-    expect(props.onCaptureScreen).toHaveBeenCalledOnce()
+    await user.click(screen.getByRole('menuitem', { name: 'Paste image from clipboard' }))
+    expect(props.onPasteClipboardImage).toHaveBeenCalledOnce()
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 

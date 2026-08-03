@@ -72,6 +72,17 @@ describe('uiSlice', () => {
     expect(mockApi.setTheme).toHaveBeenCalledWith('light')
   })
 
+  it('switches UI style independently and persists it', () => {
+    const store = createUiStore()
+
+    store.getState().setUiStyle('8bit')
+
+    expect(store.getState().theme).toBe('dark')
+    expect(store.getState().uiStyle).toBe('8bit')
+    expect(document.documentElement.dataset.uiStyle).toBe('8bit')
+    expect(mockApi.setSetting).toHaveBeenCalledWith('ui_style', '8bit')
+  })
+
   it('toggles sidebar and agent panel visibility', () => {
     const store = createUiStore()
 

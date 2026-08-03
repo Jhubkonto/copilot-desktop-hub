@@ -76,6 +76,29 @@ describe('MessageBubble', () => {
     expect(screen.getByText(/1\.0KB/)).toBeInTheDocument()
   })
 
+  it('uses the high-resolution attachment source in the image preview', () => {
+    render(
+      <MessageBubble
+        {...baseProps}
+        attachments={[{
+          id: 'image-1',
+          name: 'screen.png',
+          size: 2048,
+          type: 'image',
+          thumbnailDataUrl: 'data:image/jpeg;base64,thumbnail',
+          previewDataUrl: 'data:image/jpeg;base64,preview',
+        }]}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview screen.png' }))
+
+    expect(screen.getByRole('dialog').querySelector('img')).toHaveAttribute(
+      'src',
+      'data:image/jpeg;base64,preview',
+    )
+  })
+
   it('shows copy action on hover', () => {
     render(<MessageBubble {...baseProps} />)
     const container = screen.getByText('Hello there').closest('.group')!
@@ -153,6 +176,22 @@ describe('MessageBubble', () => {
     expect(onSaveAsPrompt).toHaveBeenCalledWith('Hello there')
   })
 
+  it('offers delete from here for user and assistant messages', () => {
+    const onDeleteUser = vi.fn()
+    const { unmount } = render(<MessageBubble {...baseProps} onDeleteAfter={onDeleteUser} />)
+
+    fireEvent.mouseEnter(screen.getByText('Hello there').closest('.group')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete from here' }))
+    expect(onDeleteUser).toHaveBeenCalledOnce()
+
+    unmount()
+    const onDeleteAssistant = vi.fn()
+    render(<MessageBubble {...baseProps} role="assistant" onDeleteAfter={onDeleteAssistant} />)
+    openAssistantActions()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete from here' }))
+    expect(onDeleteAssistant).toHaveBeenCalledOnce()
+  })
+
   it('shows saved state for assistant messages linked to wiki entries', () => {
     render(
       <MessageBubble
@@ -212,9 +251,10 @@ describe('MessageBubble', () => {
     expect(screen.getByRole('menuitem', { name: 'Regenerate' })).toHaveAttribute('title', 'Regenerate')
   })
 
-  it('offers speech-safe response and Quick Recap actions', () => {
+  it('groups full, short, and AI listening modes behind one Listen action', () => {
     const onRead = vi.fn()
     const onQuickRecap = vi.fn()
+    const onAiRecap = vi.fn()
     render(
       <MessageBubble
         {...baseProps}
@@ -228,10 +268,11 @@ describe('MessageBubble', () => {
         aiRecapLoading: false,
         aiRecapError: null,
           voices: [],
-          settings: { voiceUri: null, rate: 1, pitch: 1, offlineOnly: true, autoPlay: false },
+          settings: { engine: 'system', voiceUri: null, supertonicSpeakerId: 0, supertonicLanguage: 'auto', rate: 1, pitch: 1, offlineOnly: true, autoPlay: false },
+          supertonicReady: false,
           onRead,
         onQuickRecap,
-        onAiRecap: vi.fn(),
+        onAiRecap,
           onPause: vi.fn(),
           onResume: vi.fn(),
           onStop: vi.fn(),
@@ -241,11 +282,18 @@ describe('MessageBubble', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Read response' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Quick Recap' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Listen' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Full response' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Listen' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Short version' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Listen' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'AI summary' }))
 
     expect(onRead).toHaveBeenCalledOnce()
     expect(onQuickRecap).toHaveBeenCalledOnce()
+    expect(onAiRecap).toHaveBeenCalledOnce()
+
+    expect(screen.queryByRole('button', { name: 'More message actions' })).not.toBeInTheDocument()
   })
 
 

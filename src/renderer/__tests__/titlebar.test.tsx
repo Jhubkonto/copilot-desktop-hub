@@ -57,8 +57,23 @@ describe('TitleBar — Smoke', () => {
     render(<TitleBar />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
+      const restoreButton = screen.getByRole('button', { name: /restore/i })
+      expect(restoreButton).toBeInTheDocument()
+      expect(restoreButton.querySelector('[data-window-caption-icon="restore"]')).toBeInTheDocument()
     })
+  })
+
+  it('tb-5a: uses Windows 10 caption glyphs for minimize and maximize', () => {
+    render(<TitleBar />)
+
+    expect(
+      screen.getByRole('button', { name: /minimize/i })
+        .querySelector('[data-window-caption-icon="minimize"]'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /maximize/i })
+        .querySelector('[data-window-caption-icon="maximize"]'),
+    ).toBeInTheDocument()
   })
 })
 
@@ -267,6 +282,32 @@ describe('TitleBar — Quick settings icon (M.9)', () => {
     render(<TitleBar />)
     await user.click(screen.getByRole('button', { name: /open settings/i }))
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(true)
+  })
+})
+
+describe('TitleBar — Emergency stop', () => {
+  it('opens a confirmation dialog before activating the emergency stop', async () => {
+    const user = userEvent.setup()
+    render(<TitleBar />)
+
+    await user.click(screen.getByRole('button', { name: /emergency stop all conversations/i }))
+
+    expect(screen.getByRole('dialog', { name: /confirm emergency stop/i })).toBeInTheDocument()
+    expect(mockApi.activateEmergencyStop).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /^emergency stop$/i }))
+    expect(mockApi.activateEmergencyStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not activate the emergency stop when confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+    render(<TitleBar />)
+
+    await user.click(screen.getByRole('button', { name: /emergency stop all conversations/i }))
+    await user.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(mockApi.activateEmergencyStop).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: /confirm emergency stop/i })).not.toBeInTheDocument()
   })
 })
 

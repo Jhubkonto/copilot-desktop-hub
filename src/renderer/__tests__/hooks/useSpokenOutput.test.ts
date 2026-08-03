@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSpokenOutput } from '../../hooks/useSpokenOutput'
 
@@ -85,6 +85,52 @@ describe('useSpokenOutput', () => {
     expect(utterance.text.length).toBeLessThanOrEqual(420)
     expect(utterance.text).not.toContain('hidden')
     expect(result.current.active?.kind).toBe('quick-recap')
+  })
+
+  it('synthesizes and plays Supertonic audio when the neural engine is selected', async () => {
+    const synthesizeSupertonic = vi.fn().mockResolvedValue({
+      audio: new Uint8Array([82, 73, 70, 70]),
+      sampleRate: 44_100,
+      durationSeconds: 1,
+    })
+    const play = vi.fn(function (this: { onplay: (() => void) | null }) {
+      this.onplay?.()
+      return Promise.resolve()
+    })
+    class MockAudio {
+      onplay: (() => void) | null = null
+      onended: (() => void) | null = null
+      onerror: (() => void) | null = null
+      pause = vi.fn()
+      play = play
+    }
+    vi.stubGlobal('Audio', MockAudio)
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:supertonic'),
+      revokeObjectURL: vi.fn(),
+    })
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSupertonicStatus: vi.fn().mockResolvedValue({ supported: true, installed: true, ready: true }),
+        synthesizeSupertonic,
+        saveSpokenOutput: vi.fn().mockResolvedValue(null),
+      },
+    })
+    const { result } = renderHook(() => useSpokenOutput())
+    await waitFor(() => expect(result.current.supertonicStatus?.ready).toBe(true))
+
+    act(() => result.current.setSettings({ ...result.current.settings, engine: 'supertonic', supertonicSpeakerId: 3, supertonicLanguage: 'de' }))
+    act(() => result.current.speakResponse('message-neural', 'Hallo von Nexy.'))
+
+    await waitFor(() => expect(synthesizeSupertonic).toHaveBeenCalledWith({
+      text: 'Hallo von Nexy.',
+      speakerId: 3,
+      language: 'de',
+      speed: 1,
+    }))
+    await waitFor(() => expect(result.current.state).toBe('speaking'))
+    expect(play).toHaveBeenCalledOnce()
   })
 
   it('speaks a persisted provider recap and exposes its model label', async () => {
