@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Check, RotateCcw, SkipForward, MessageSquare, Ban, Trash2, Clock, CheckCircle2, AlertCircle, XCircle, Sparkles, Play } from 'lucide-react'
+import { NexyIcon, type NexyIconName } from '../ui/icons/NexyIcon'
 import type {
   AutomatedWorkflowConfirmationMode,
   AutomatedWorkflowRunStatus,
@@ -22,11 +22,11 @@ export function stripSpecTags(content: string): string {
 // panels — a single source of truth for the icons/wording so the two surfaces never drift apart.
 // "Run it whenever you're ready" is deliberate: a saved plan sits as "Pending" indefinitely until
 // the user presses Start — reviewing it does not commit you to running it immediately.
-export const WORKFLOW_STAGES: { icon: typeof Check; label: string }[] = [
-  { icon: MessageSquare, label: 'Describe your goal' },
-  { icon: Sparkles, label: 'Review the generated plan' },
-  { icon: Play, label: 'Run it whenever you\'re ready — step-by-step or automatic' },
-  { icon: RotateCcw, label: 'Reuse it later with "Run again" — no need to re-describe the goal' },
+export const WORKFLOW_STAGES: { icon: NexyIconName; label: string }[] = [
+  { icon: 'chat', label: 'Describe your goal' },
+  { icon: 'spark', label: 'Review the generated plan' },
+  { icon: 'play', label: 'Run it whenever you\'re ready — step-by-step or automatic' },
+  { icon: 'refresh', label: 'Reuse it later with "Run again" — no need to re-describe the goal' },
 ]
 
 export function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: string }) {
@@ -36,7 +36,7 @@ export function ChatBubble({ role, content }: { role: 'user' | 'assistant'; cont
   if (role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] bg-blue-500 text-white rounded-2xl rounded-tr-sm px-3 py-1.5 text-xs whitespace-pre-wrap">
+        <div className="max-w-[85%] rounded-nexy-sm border-2 border-nexy-accent bg-nexy-accent px-3 py-1.5 text-xs text-white whitespace-pre-wrap">
           {displayContent}
         </div>
       </div>
@@ -44,7 +44,7 @@ export function ChatBubble({ role, content }: { role: 'user' | 'assistant'; cont
   }
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-1.5 text-xs text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
+      <div className="max-w-[85%] rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-3 py-1.5 text-xs text-nexy-text whitespace-pre-wrap">
         <StreamingFadeText text={displayContent} />
       </div>
     </div>
@@ -53,18 +53,17 @@ export function ChatBubble({ role, content }: { role: 'user' | 'assistant'; cont
 
 export function StepStatusBadge({ status }: { status: AutomatedWorkflowRunStep['status'] }) {
   const config = {
-    pending: { label: 'Not started', cls: 'text-gray-400 dark:text-gray-500', icon: Clock },
-    running: { label: 'Running…', cls: 'text-blue-500', icon: Loader2 },
-    awaiting_confirmation: { label: 'Needs review', cls: 'text-amber-500', icon: AlertCircle },
-    done: { label: 'Done', cls: 'text-green-500', icon: CheckCircle2 },
-    failed: { label: 'Failed', cls: 'text-red-500', icon: AlertCircle },
-    skipped: { label: 'Skipped', cls: 'text-gray-400 dark:text-gray-500', icon: Ban },
-    cancelled: { label: 'Cancelled', cls: 'text-gray-400 dark:text-gray-500', icon: Ban },
+    pending: { label: 'Not started', cls: 'text-nexy-muted', icon: 'scheduled' as NexyIconName },
+    running: { label: 'Running…', cls: 'text-nexy-activity', icon: 'busy' as NexyIconName },
+    awaiting_confirmation: { label: 'Needs review', cls: 'text-nexy-warning', icon: 'warning' as NexyIconName },
+    done: { label: 'Done', cls: 'text-nexy-success', icon: 'check' as NexyIconName },
+    failed: { label: 'Failed', cls: 'text-nexy-error', icon: 'error' as NexyIconName },
+    skipped: { label: 'Skipped', cls: 'text-nexy-muted', icon: 'stop' as NexyIconName },
+    cancelled: { label: 'Cancelled', cls: 'text-nexy-muted', icon: 'stop' as NexyIconName },
   }[status]
-  const Icon = config.icon
   return (
-    <span className={`flex items-center gap-1 text-[10px] font-medium shrink-0 ${config.cls}`}>
-      <Icon className={`w-3 h-3 shrink-0 ${status === 'running' ? 'animate-spin' : ''}`} />
+    <span className={`nexy-font-status flex shrink-0 items-center gap-1 ${config.cls}`}>
+      <NexyIcon name={config.icon} className="w-3 h-3 shrink-0" />
       {config.label}
     </span>
   )
@@ -74,17 +73,16 @@ export function StepStatusBadge({ status }: { status: AutomatedWorkflowRunStep['
 // own StatusBadge visual language instead of the colored-pill style this used to have.
 export function RunStatusBadge({ status }: { status: AutomatedWorkflowRunStatus }) {
   const config = {
-    pending: { label: 'Pending', cls: 'text-gray-400 dark:text-gray-500', icon: Clock },
-    running: { label: 'Active', cls: 'text-blue-500', icon: Loader2 },
-    awaiting_confirmation: { label: 'Active', cls: 'text-blue-500', icon: Loader2 },
-    done: { label: 'Completed', cls: 'text-green-500', icon: CheckCircle2 },
-    failed: { label: 'Failed', cls: 'text-red-500', icon: XCircle },
-    cancelled: { label: 'Cancelled', cls: 'text-gray-400 dark:text-gray-500', icon: Ban },
+    pending: { label: 'Pending', cls: 'text-nexy-muted', icon: 'scheduled' as NexyIconName },
+    running: { label: 'Active', cls: 'text-nexy-activity', icon: 'busy' as NexyIconName },
+    awaiting_confirmation: { label: 'Active', cls: 'text-nexy-activity', icon: 'busy' as NexyIconName },
+    done: { label: 'Completed', cls: 'text-nexy-success', icon: 'check' as NexyIconName },
+    failed: { label: 'Failed', cls: 'text-nexy-error', icon: 'error' as NexyIconName },
+    cancelled: { label: 'Cancelled', cls: 'text-nexy-muted', icon: 'stop' as NexyIconName },
   }[status]
-  const Icon = config.icon
   return (
-    <span className={`flex items-center gap-1 text-[9px] font-medium shrink-0 ${config.cls}`}>
-      <Icon className={`w-3 h-3 shrink-0 ${status === 'running' ? 'animate-spin' : ''}`} />
+    <span className={`nexy-font-status flex shrink-0 items-center gap-1 ${config.cls}`}>
+      <NexyIcon name={config.icon} className="w-3 h-3 shrink-0" />
       {config.label}
     </span>
   )
@@ -94,28 +92,28 @@ export function ActionButton({
   onClick,
   disabled,
   variant = 'default',
-  icon: Icon,
+  icon,
   children,
 }: {
   onClick: () => void
   disabled?: boolean
   variant?: 'default' | 'primary' | 'danger'
-  icon: typeof Check
+  icon: NexyIconName
   children: React.ReactNode
 }) {
   const variantCls = {
-    default: 'border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800',
-    primary: 'bg-blue-600 text-white hover:bg-blue-700',
-    danger: 'border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30',
+    default: 'border-2 border-nexy-border bg-nexy-raised text-nexy-text hover:bg-nexy-recessed',
+    primary: 'border-2 border-nexy-accent bg-nexy-accent text-white hover:brightness-110',
+    danger: 'border-2 border-nexy-error bg-nexy-raised text-nexy-error hover:bg-nexy-recessed',
   }[variant]
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${variantCls}`}
+      className={`nexy-font-status inline-flex items-center gap-1 rounded-nexy-sm px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variantCls}`}
     >
-      <Icon className="w-3 h-3" />
+      <NexyIcon name={icon} className="w-3 h-3" />
       {children}
     </button>
   )
@@ -173,18 +171,18 @@ export function StepCard({
   )
 
   const openConversationButton = step.conversationId ? (
-    <ActionButton icon={MessageSquare} onClick={() => onOpenConversation(step.conversationId!)}>
+    <ActionButton icon="chat" onClick={() => onOpenConversation(step.conversationId!)}>
       Open conversation
     </ActionButton>
   ) : null
 
   if (step.status === 'running') {
     return (
-      <div className="rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/10 px-3 py-2 space-y-2">
+      <div className="space-y-2 rounded-nexy-sm border-2 border-nexy-activity bg-nexy-recessed px-3 py-2">
         {header}
-        <pre className="whitespace-pre-wrap rounded bg-gray-50 dark:bg-gray-800 px-2.5 py-2 text-[10px] text-gray-700 dark:text-gray-200 max-h-40 overflow-y-auto">
+        <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2.5 py-2 text-[10px] text-nexy-text">
           {streamingText || 'Starting…'}
-          <span className="inline-block w-1.5 h-3 bg-blue-400 align-middle animate-pulse ml-0.5" />
+          <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse align-middle bg-nexy-activity" />
         </pre>
       </div>
     )
@@ -197,24 +195,24 @@ export function StepCard({
     // own auto-advance and misfire against whatever step is running by the time it lands.
     if (confirmationMode === 'auto') {
       return (
-        <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/10 px-3 py-2 space-y-2">
+        <div className="space-y-2 rounded-nexy-sm border-2 border-nexy-warning bg-nexy-recessed px-3 py-2">
           {header}
           <p className="text-[10px] text-amber-600 dark:text-amber-400">Advancing automatically…</p>
         </div>
       )
     }
     return (
-      <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/10 px-3 py-2 space-y-2">
+      <div className="space-y-2 rounded-nexy-sm border-2 border-nexy-warning bg-nexy-recessed px-3 py-2">
         {header}
         <textarea
           value={draftOutput}
           onChange={(e) => setDraftOutput(e.target.value)}
           rows={4}
           aria-label={`Output for step ${step.stepIndex + 1}`}
-          className="w-full resize-y rounded bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-2.5 py-2 text-[10px] text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-amber-400"
+          className="w-full resize-y rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-2.5 py-2 text-[10px] text-nexy-text focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-nexy-warning"
         />
         <div className="flex items-center gap-1 flex-wrap">
-          <ActionButton icon={Check} variant="primary" disabled={busy} onClick={() => onApprove(step, draftOutput)}>
+          <ActionButton icon="check" variant="primary" disabled={busy} onClick={() => onApprove(step, draftOutput)}>
             Approve &amp; continue
           </ActionButton>
           {openConversationButton}
@@ -225,12 +223,12 @@ export function StepCard({
 
   if (step.status === 'failed') {
     return (
-      <div className="rounded-md border border-red-200 dark:border-red-900/50 bg-red-50/40 dark:bg-red-950/10 px-3 py-2 space-y-2">
+      <div className="space-y-2 rounded-nexy-sm border-2 border-nexy-error bg-nexy-recessed px-3 py-2">
         {header}
         {step.error && <p className="text-[10px] text-red-600 dark:text-red-400">{step.error}</p>}
         <div className="flex items-center gap-1 flex-wrap">
-          <ActionButton icon={RotateCcw} disabled={busy} onClick={() => onRetry(step)}>Retry</ActionButton>
-          <ActionButton icon={SkipForward} disabled={busy} onClick={() => onSkip(step)}>Skip</ActionButton>
+          <ActionButton icon="refresh" disabled={busy} onClick={() => onRetry(step)}>Retry</ActionButton>
+          <ActionButton icon="chevron-right" disabled={busy} onClick={() => onSkip(step)}>Skip</ActionButton>
           {openConversationButton}
         </div>
       </div>
@@ -239,14 +237,14 @@ export function StepCard({
 
   if (step.status === 'done') {
     return (
-      <details className="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2">
+      <details className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-3 py-2">
         <summary className="cursor-pointer text-[11px] font-medium text-gray-700 dark:text-gray-200 flex items-center justify-between gap-3">
           <span className="min-w-0 truncate">{step.stepIndex + 1}. {step.title}</span>
           <StepStatusBadge status={step.status} />
         </summary>
         <div className="mt-2 space-y-2">
           {step.output && (
-            <pre className="whitespace-pre-wrap rounded bg-gray-50 dark:bg-gray-800 px-2.5 py-2 text-[10px] text-gray-700 dark:text-gray-200">
+            <pre className="whitespace-pre-wrap rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-2.5 py-2 text-[10px] text-nexy-text">
               {step.output}
             </pre>
           )}
@@ -258,7 +256,7 @@ export function StepCard({
 
   if (step.status === 'skipped') {
     return (
-      <div className="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 space-y-1 opacity-70">
+      <div className="space-y-1 rounded-nexy-sm border border-nexy-border px-3 py-2 opacity-70">
         {header}
         <p className="text-[10px] text-gray-500 dark:text-gray-400 italic">You skipped this step.</p>
       </div>
@@ -267,7 +265,7 @@ export function StepCard({
 
   if (step.status === 'cancelled') {
     return (
-      <div className="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 space-y-1 opacity-70">
+      <div className="space-y-1 rounded-nexy-sm border border-nexy-border px-3 py-2 opacity-70">
         {header}
         <p className="text-[10px] text-gray-500 dark:text-gray-400 italic">This step was cancelled.</p>
       </div>
@@ -276,7 +274,7 @@ export function StepCard({
 
   // pending
   return (
-    <div className="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 space-y-1 opacity-80">
+    <div className="space-y-1 rounded-nexy-sm border border-nexy-border px-3 py-2 opacity-80">
       {header}
       {step.summary && <p className="text-[11px] text-gray-600 dark:text-gray-300">{step.summary}</p>}
     </div>
@@ -293,7 +291,7 @@ export function ConfirmationModeToggle({
   onChange: (mode: AutomatedWorkflowConfirmationMode) => void
 }) {
   return (
-    <div className="inline-flex rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 text-[10px]">
+    <div className="inline-flex overflow-hidden rounded-nexy-sm border-2 border-nexy-border text-[10px]">
       {(['gated', 'auto'] as const).map((value) => (
         <button
           key={value}
@@ -303,8 +301,8 @@ export function ConfirmationModeToggle({
           aria-pressed={mode === value}
           className={`px-2 py-1 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             mode === value
-              ? 'bg-blue-600 text-white'
-              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+              ? 'bg-nexy-accent text-white'
+              : 'bg-nexy-raised text-nexy-text hover:bg-nexy-recessed'
           }`}
         >
           {value === 'gated' ? 'Confirm each step' : 'Run automatically'}
@@ -332,7 +330,7 @@ export function RunListRow({
   return (
     <div
       onClick={onOpen}
-      className="rounded-md border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/70 px-3 py-2.5 space-y-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/70 transition-colors"
+      className="cursor-pointer space-y-1 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-3 py-2.5 transition-colors hover:bg-nexy-recessed"
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{run.title}</p>
@@ -345,7 +343,7 @@ export function RunListRow({
         </span>
         <div className="flex items-center gap-2">
           {projectName && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium">
+            <span className="nexy-font-status border border-nexy-border bg-nexy-recessed px-1.5 py-0.5 text-nexy-muted">
               {projectName}
             </span>
           )}
@@ -356,7 +354,7 @@ export function RunListRow({
             className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
             aria-label="Discard workflow plan"
           >
-            <Trash2 className="w-3 h-3" />
+            <NexyIcon name="delete" className="w-3 h-3" />
           </button>
         </div>
       </div>

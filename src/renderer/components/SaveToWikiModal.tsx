@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Loader2 } from 'lucide-react'
 import type { WikiEntry } from '../../shared/types'
 import { Button, ModalShell } from './ui/primitives'
+import { NexyIcon } from './ui/icons/NexyIcon'
 
 interface SaveToWikiModalProps {
   projectId: string
@@ -89,7 +89,7 @@ export function SaveToWikiModal({
   return (
     <ModalShell
       title="Save to project wiki"
-      icon={<BookOpen className="w-4 h-4 text-blue-500 shrink-0" />}
+      icon={<NexyIcon name="artifact" size={16} className="text-primary" />}
       ariaLabel="Save to project wiki"
       maxWidth="max-w-lg"
       height=""
@@ -106,7 +106,7 @@ export function SaveToWikiModal({
             disabled={saving || !title.trim()}
             className="px-4 py-2 text-sm"
           >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {saving && <NexyIcon name="busy" size={16} />}
             <span>{saving ? 'Saving...' : 'Save to wiki'}</span>
           </Button>
         </>
@@ -151,7 +151,7 @@ export function SaveToWikiModal({
               {previewTags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+                  className="inline-flex items-center gap-1 rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2 py-0.5 text-xs text-nexy-text"
                 >
                   <span>{tag}</span>
                   {tags.includes(tag) && (

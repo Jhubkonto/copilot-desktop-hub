@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Loader2, Pencil, X } from 'lucide-react'
 import type { WikiCandidate } from '../../shared/types'
 import { Button, ModalShell } from './ui/primitives'
+import { NexyIcon } from './ui/icons/NexyIcon'
 
 type CandidateStatus = 'pending' | 'accepted' | 'discarded' | 'saving' | 'error'
 
@@ -167,7 +167,7 @@ export function WikiExtractionModal({
               disabled={pendingCount === 0}
               className="px-4 py-2 text-sm"
             >
-              {items.some((item) => item.status === 'saving') && <Loader2 className="w-4 h-4 animate-spin" />}
+              {items.some((item) => item.status === 'saving') && <NexyIcon name="busy" size={16} />}
               <span>Accept All</span>
             </Button>
             <Button onClick={onClose} className="px-4 py-2 text-sm">
@@ -186,7 +186,7 @@ export function WikiExtractionModal({
             return (
               <div
                 key={`${candidate.title}-${index}`}
-                className={`rounded-xl border p-4 transition-all ${
+                className={`rounded-nexy-sm border-2 p-4 shadow-nexy transition-colors ${
                   item.status === 'discarded'
                     ? 'border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/40 opacity-60'
                     : item.status === 'accepted'
@@ -257,7 +257,7 @@ export function WikiExtractionModal({
                               {previewTags.map((tag) => (
                                 <span
                                   key={tag}
-                                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+                                  className="inline-flex items-center gap-1 rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2 py-0.5 text-xs text-nexy-text"
                                 >
                                   <span>{tag}</span>
                                   {item.tags.includes(tag) && (
@@ -283,7 +283,7 @@ export function WikiExtractionModal({
                           {previewTags.map((tag) => (
                             <span
                               key={tag}
-                              className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+                              className="inline-flex items-center rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2 py-0.5 text-xs text-nexy-text"
                             >
                               {tag}
                             </span>
@@ -325,7 +325,7 @@ export function WikiExtractionModal({
                         variant="primary"
                         className="bg-green-600 px-3 py-1.5 text-sm hover:bg-green-500 dark:bg-green-600 dark:hover:bg-green-500 dark:text-white"
                       >
-                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        <NexyIcon name={isSaving ? 'busy' : 'check'} size={16} />
                         <span>{candidate.matchingEntryId ? 'Update existing' : 'Accept'}</span>
                       </Button>
                       <Button
@@ -334,7 +334,7 @@ export function WikiExtractionModal({
                         disabled={isSaving || isDone}
                         className="px-3 py-1.5 text-sm"
                       >
-                        <Pencil className="w-4 h-4" />
+                        <NexyIcon name="edit" size={16} />
                         <span>{item.editing ? 'Editing' : 'Edit'}</span>
                       </Button>
                       <Button
@@ -344,15 +344,15 @@ export function WikiExtractionModal({
                         variant="danger"
                         className="border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-red-600 dark:text-red-300 dark:hover:bg-red-900/10"
                       >
-                        <X className="w-4 h-4" />
+                        <NexyIcon name="close" size={16} />
                         <span>Discard</span>
                       </Button>
                     </div>
                   </div>
 
                   {(item.status === 'accepted' || item.status === 'discarded') && (
-                    <div className={`mt-1 shrink-0 rounded-full p-1.5 ${item.status === 'accepted' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-200 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
-                      {item.status === 'accepted' ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                    <div className={`mt-1 shrink-0 rounded-nexy-sm border p-1.5 ${item.status === 'accepted' ? 'border-nexy-success bg-nexy-recessed text-nexy-success' : 'border-nexy-border bg-nexy-raised text-nexy-muted'}`}>
+                      <NexyIcon name={item.status === 'accepted' ? 'check' : 'close'} size={16} />
                     </div>
                   )}
                 </div>
