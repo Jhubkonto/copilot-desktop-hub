@@ -4,11 +4,16 @@ export type {
   SpokenOutputGenerationKind,
   SpokenOutputKind,
 } from '../../shared/spoken-output'
+import { SUPERTONIC_LANGUAGES } from '../../shared/neural-tts'
+import type { SpeechEngine, SupertonicLanguage } from '../../shared/neural-tts'
 
 export const SPOKEN_OUTPUT_SETTINGS_KEY = 'nexy.spokenOutput.settings.v1'
 
 export interface SpokenOutputSettings {
+  engine: SpeechEngine
   voiceUri: string | null
+  supertonicSpeakerId: number
+  supertonicLanguage: SupertonicLanguage
   rate: number
   pitch: number
   offlineOnly: boolean
@@ -16,7 +21,10 @@ export interface SpokenOutputSettings {
 }
 
 export const DEFAULT_SPOKEN_OUTPUT_SETTINGS: SpokenOutputSettings = {
+  engine: 'system',
   voiceUri: null,
+  supertonicSpeakerId: 0,
+  supertonicLanguage: 'auto',
   rate: 1,
   pitch: 1,
   offlineOnly: true,
@@ -26,8 +34,14 @@ export const DEFAULT_SPOKEN_OUTPUT_SETTINGS: SpokenOutputSettings = {
 export function readSpokenOutputSettings(storage: Pick<Storage, 'getItem'>): SpokenOutputSettings {
   try {
     const parsed = JSON.parse(storage.getItem(SPOKEN_OUTPUT_SETTINGS_KEY) ?? '{}') as Partial<SpokenOutputSettings>
+    const language = SUPERTONIC_LANGUAGES.some(([code]) => code === parsed.supertonicLanguage)
+      ? parsed.supertonicLanguage as SupertonicLanguage
+      : DEFAULT_SPOKEN_OUTPUT_SETTINGS.supertonicLanguage
     return {
+      engine: parsed.engine === 'supertonic' ? 'supertonic' : 'system',
       voiceUri: typeof parsed.voiceUri === 'string' ? parsed.voiceUri : null,
+      supertonicSpeakerId: Math.round(clampNumber(parsed.supertonicSpeakerId, 0, 9, 0)),
+      supertonicLanguage: language,
       rate: clampNumber(parsed.rate, 0.5, 2, DEFAULT_SPOKEN_OUTPUT_SETTINGS.rate),
       pitch: clampNumber(parsed.pitch, 0.5, 2, DEFAULT_SPOKEN_OUTPUT_SETTINGS.pitch),
       offlineOnly: typeof parsed.offlineOnly === 'boolean' ? parsed.offlineOnly : true,
