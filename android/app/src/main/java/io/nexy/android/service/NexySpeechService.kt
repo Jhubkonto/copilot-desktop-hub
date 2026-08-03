@@ -290,8 +290,8 @@ class NexySpeechService : Service() {
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(
                 when (kind) {
-                    SpokenOutputKind.QUICK_RECAP -> "Quick Recap"
-                    SpokenOutputKind.AI_RECAP -> "AI Recap"
+                    SpokenOutputKind.QUICK_RECAP -> "Short version"
+                    SpokenOutputKind.AI_RECAP -> "AI summary"
                     SpokenOutputKind.NOTIFICATION_SUMMARY -> "Reading summary"
                     SpokenOutputKind.RESPONSE -> "Reading response"
                 },
