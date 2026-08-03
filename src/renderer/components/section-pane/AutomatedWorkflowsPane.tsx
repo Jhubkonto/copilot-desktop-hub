@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Sparkles, ArrowLeft, Ban, RefreshCw, Info, MessageSquare, RotateCcw } from 'lucide-react'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import type {
   AutomatedWorkflowConfirmationMode,
   AutomatedWorkflowRunDetail,
@@ -208,7 +208,7 @@ export function AutomatedWorkflowsPane() {
             className="p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             aria-label="Back to workflows"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <NexyIcon name="back" className="w-4 h-4" />
           </button>
           <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{activeRun.title}</span>
         </div>
@@ -241,7 +241,7 @@ export function AutomatedWorkflowsPane() {
                 onChange={(mode: AutomatedWorkflowConfirmationMode) =>
                   void runAction('mode', () => window.api.setAutomatedWorkflowConfirmationMode(activeRun.id, mode))}
               />
-              <ActionButton icon={Sparkles} variant="primary" disabled={busyAction !== null} onClick={() => void runAction('start', () => window.api.startAutomatedWorkflowRun(activeRun.id))}>
+              <ActionButton icon="spark" variant="primary" disabled={busyAction !== null} onClick={() => void runAction('start', () => window.api.startAutomatedWorkflowRun(activeRun.id))}>
                 Start workflow
               </ActionButton>
             </div>
@@ -251,7 +251,7 @@ export function AutomatedWorkflowsPane() {
                 {activeRun.confirmationMode === 'auto' ? 'Ran automatically' : 'Ran with step-by-step confirmation'}
               </span>
               {runInProgress && (
-                <ActionButton icon={Ban} variant="danger" disabled={busyAction === 'abort'} onClick={() => void runAction('abort', () => window.api.abortAutomatedWorkflowRun(activeRun.id))}>
+                <ActionButton icon="stop" variant="danger" disabled={busyAction === 'abort'} onClick={() => void runAction('abort', () => window.api.abortAutomatedWorkflowRun(activeRun.id))}>
                   Abort run
                 </ActionButton>
               )}
@@ -266,7 +266,7 @@ export function AutomatedWorkflowsPane() {
             activeRun.templateId ? (
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-[10px] text-gray-400 dark:text-gray-500">This run has finished.</span>
-                <ActionButton icon={RotateCcw} disabled={busyAction !== null} onClick={() => void runAgainFromTemplate()}>
+                <ActionButton icon="refresh" disabled={busyAction !== null} onClick={() => void runAgainFromTemplate()}>
                   Run again
                 </ActionButton>
               </div>
@@ -313,14 +313,14 @@ export function AutomatedWorkflowsPane() {
             title="How Automated Workflows work"
             aria-label="How Automated Workflows work"
           >
-            <Info className="w-3.5 h-3.5" />
+            <NexyIcon name="info" className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setShowGenerator(true)}
             className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
             aria-label="Generate a new standalone workflow"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <NexyIcon name="spark" className="w-3.5 h-3.5" />
             Generate
           </button>
           <button
@@ -328,7 +328,7 @@ export function AutomatedWorkflowsPane() {
             className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
             title="Refresh"
           >
-            <RefreshCw className="w-3 h-3" />
+            <NexyIcon name="refresh" className="w-3 h-3" />
           </button>
         </div>
       </div>
@@ -337,15 +337,15 @@ export function AutomatedWorkflowsPane() {
         <div
           ref={infoPopoverRef}
           style={{ position: 'fixed', top: infoPosition.top, left: infoPosition.left, width: 320 }}
-          className="z-50 rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/95 dark:bg-blue-950/95 backdrop-blur-sm shadow-lg px-3 py-2 space-y-2"
+          className="nexy-hard-shadow z-50 space-y-2 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-3 py-2"
         >
           <p className="text-[10px] text-gray-700 dark:text-gray-200 font-medium flex items-center gap-1">
-            <MessageSquare className="w-3 h-3" /> How Automated Workflows work
+            <NexyIcon name="chat" className="w-3 h-3" /> How Automated Workflows work
           </p>
           <div className="space-y-1">
-            {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
+            {WORKFLOW_STAGES.map(({ icon, label }, i) => (
               <div key={i} className="flex items-center gap-1.5">
-                <Icon className="w-3 h-3 shrink-0 text-blue-500" />
+                <NexyIcon name={icon} className="w-3 h-3 shrink-0 text-nexy-accent" />
                 <span className="text-[10px] text-gray-600 dark:text-gray-300">{label}</span>
               </div>
             ))}

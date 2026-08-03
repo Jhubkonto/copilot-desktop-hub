@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Play, Pause, Pencil, Trash2, RefreshCw, Clock, CheckCircle2, XCircle, AlertTriangle, Loader2, Sparkles } from 'lucide-react'
+import { NexyIcon, type NexyIconName } from '../ui/icons/NexyIcon'
 import type { ScheduledTask, ScheduledRun } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
@@ -23,19 +23,18 @@ function formatNextRun(nextRunAt: number | null): string {
 
 function StatusBadge({ status }: { status: ScheduledRun['status'] | 'idle' }) {
   const configs = {
-    idle: { label: 'Idle', cls: 'text-gray-400 dark:text-gray-500', Icon: Clock },
-    pending: { label: 'Pending', cls: 'text-blue-500', Icon: Loader2 },
-    running: { label: 'Running', cls: 'text-blue-500', Icon: Loader2 },
-    approval_required: { label: 'Approval needed', cls: 'text-amber-500', Icon: AlertTriangle },
-    success: { label: 'Success', cls: 'text-green-500', Icon: CheckCircle2 },
-    failed: { label: 'Failed', cls: 'text-red-500', Icon: XCircle },
-    skipped: { label: 'Skipped', cls: 'text-gray-400', Icon: Clock },
+    idle: { label: 'Idle', cls: 'text-nexy-muted', icon: 'scheduled' as NexyIconName },
+    pending: { label: 'Pending', cls: 'text-nexy-activity', icon: 'busy' as NexyIconName },
+    running: { label: 'Running', cls: 'text-nexy-activity', icon: 'busy' as NexyIconName },
+    approval_required: { label: 'Approval needed', cls: 'text-nexy-warning', icon: 'warning' as NexyIconName },
+    success: { label: 'Success', cls: 'text-nexy-success', icon: 'check' as NexyIconName },
+    failed: { label: 'Failed', cls: 'text-nexy-error', icon: 'error' as NexyIconName },
+    skipped: { label: 'Skipped', cls: 'text-nexy-muted', icon: 'scheduled' as NexyIconName },
   }
-  const { label, cls, Icon } = configs[status] ?? configs.idle
-  const spin = status === 'running' || status === 'pending'
+  const { label, cls, icon } = configs[status] ?? configs.idle
   return (
-    <span className={`flex items-center gap-1 text-[10px] font-medium ${cls}`}>
-      <Icon className={`w-3 h-3 shrink-0 ${spin ? 'animate-spin' : ''}`} />
+    <span className={`nexy-font-status flex items-center gap-1 ${cls}`}>
+      <NexyIcon name={icon} className="w-3 h-3 shrink-0" />
       {label}
     </span>
   )
@@ -187,7 +186,7 @@ export function ScheduledPane() {
             className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
             aria-label="Generate scheduled task with AI"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <NexyIcon name="spark" className="w-3.5 h-3.5" />
             Generate
           </button>
           <button
@@ -195,7 +194,7 @@ export function ScheduledPane() {
             className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             aria-label="Create scheduled task"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <NexyIcon name="add" className="w-3.5 h-3.5" />
             New
           </button>
         </div>
@@ -218,10 +217,10 @@ export function ScheduledPane() {
         ))}
         <button
           onClick={loadTasks}
-          className="ml-auto p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="ml-auto rounded-nexy-sm border border-transparent p-1 text-nexy-muted hover:border-nexy-border hover:bg-nexy-raised hover:text-nexy-text"
           title="Refresh"
         >
-          <RefreshCw className="w-3 h-3" />
+          <NexyIcon name="refresh" className="w-3 h-3" />
         </button>
       </div>
 
@@ -237,7 +236,7 @@ export function ScheduledPane() {
           return (
             <div
               key={task.id}
-              className="group flex flex-col gap-1 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+              className="group flex cursor-pointer flex-col gap-1 rounded-nexy-sm border border-transparent px-3 py-2 transition-colors hover:border-nexy-border hover:bg-nexy-recessed"
               onClick={() => setDetailTask(task)}
             >
               <div className="flex items-center justify-between gap-2">
@@ -255,28 +254,28 @@ export function ScheduledPane() {
                     className="p-1 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                     title="Run now"
                   >
-                    <Play className="w-3 h-3" />
+                    <NexyIcon name="play" className="w-3 h-3" />
                   </button>
                   <button
                     onClick={() => handleToggleEnabled(task)}
                     className="p-1 rounded text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20"
                     title={task.enabled ? 'Pause' : 'Resume'}
                   >
-                    <Pause className="w-3 h-3" />
+                    <NexyIcon name={task.enabled ? 'pause' : 'play'} className="w-3 h-3" />
                   </button>
                   <button
                     onClick={() => { setEditTask(task); setShowForm(true) }}
                     className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
                     title="Edit"
                   >
-                    <Pencil className="w-3 h-3" />
+                    <NexyIcon name="edit" className="w-3 h-3" />
                   </button>
                   <button
                     onClick={() => handleDelete(task)}
                     className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
                     title="Delete"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <NexyIcon name="delete" className="w-3 h-3" />
                   </button>
                 </div>
               </div>

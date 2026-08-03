@@ -1,5 +1,5 @@
 import { useEffect, useDeferredValue, useMemo, useState } from 'react'
-import { Plus, Settings, Folder, FolderOpen, Trash2, Search, X, Sparkles } from 'lucide-react'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import { useAppStore } from '../../store/app-store'
 import type { ProjectAgent } from '../../store/types'
 import { DeleteProjectDialog } from '../DeleteProjectDialog'
@@ -77,8 +77,8 @@ export function ProjectsPane() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 h-9 border-b border-gray-100 dark:border-gray-800">
-        <span className="text-xs text-gray-400 dark:text-gray-500">
+      <div className="flex h-9 items-center justify-between border-b border-nexy-border px-4">
+        <span className="nexy-font-status text-nexy-muted">
           {projects.length} project{projects.length !== 1 ? 's' : ''}
         </span>
         <div className="flex items-center gap-1">
@@ -87,7 +87,7 @@ export function ProjectsPane() {
             className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
             aria-label="Generate project with AI"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <NexyIcon name="spark" className="w-3.5 h-3.5" />
             Generate
           </button>
           <button
@@ -95,21 +95,21 @@ export function ProjectsPane() {
             className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             aria-label="Create new project"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <NexyIcon name="add" className="w-3.5 h-3.5" />
             New
           </button>
         </div>
       </div>
 
-      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+      <div className="border-b border-nexy-border px-3 py-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          <NexyIcon name="search" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search projects..."
-            className="w-full pl-8 pr-7 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-transparent focus:border-blue-400 focus:bg-white dark:focus:bg-gray-900 rounded-lg outline-none transition-colors placeholder:text-gray-400"
+            className="w-full rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed py-1.5 pl-8 pr-7 text-xs text-nexy-text outline-none transition-colors placeholder:text-nexy-muted focus:bg-nexy-raised focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-nexy-accent"
           />
           {query && (
             <button
@@ -117,7 +117,7 @@ export function ProjectsPane() {
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
               aria-label="Clear search"
             >
-              <X className="w-3 h-3" />
+              <NexyIcon name="close" className="w-3 h-3" />
             </button>
           )}
         </div>
@@ -137,12 +137,12 @@ export function ProjectsPane() {
             <div
               key={project.id}
               data-project-id={project.id}
-              className={`group relative flex items-center gap-2 rounded-lg cursor-pointer overflow-hidden transition-colors ${
+              className={`group relative flex cursor-pointer items-center gap-2 overflow-hidden rounded-nexy-sm border transition-colors ${
                 isActive
-                  ? `${colors.bg} ring-1 ${colors.ring}`
+                  ? `${colors.bg} ring-1 ${colors.ring} border-transparent`
                   : isDragTarget
-                    ? 'bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-300 dark:ring-blue-600'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                    ? 'border-nexy-activity bg-nexy-recessed'
+                    : 'border-transparent hover:border-nexy-border hover:bg-nexy-recessed'
               }`}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes('agent-id') || e.dataTransfer.types.includes('sidebar-agent-id')) {
@@ -178,10 +178,7 @@ export function ProjectsPane() {
             >
               <div className={`w-1 self-stretch shrink-0 ${colors.dot}`} />
 
-              {isActive
-                ? <FolderOpen className="w-3.5 h-3.5 text-gray-500 dark:text-gray-300 shrink-0" />
-                : <Folder className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              }
+              <NexyIcon name="project" className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-nexy-text' : 'text-nexy-muted'}`} />
 
               <div className="flex-1 min-w-0 py-2">
                 {isRenaming ? (
@@ -195,17 +192,17 @@ export function ProjectsPane() {
                       if (e.key === 'Escape') setRenamingId(null)
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
+                    className="w-full rounded-nexy-sm border border-nexy-accent bg-nexy-raised px-1 py-0.5 text-xs text-nexy-text focus:outline-none"
                   />
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{project.name}</p>
                     {activeCodeChanges > 0 && (
                       <span
-                        className="flex shrink-0 items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                        className="nexy-font-status flex shrink-0 items-center gap-1 border border-nexy-activity bg-nexy-recessed px-1.5 py-0.5 text-nexy-activity"
                         title={`${activeCodeChanges} Code Changes request${activeCodeChanges !== 1 ? 's' : ''} in progress`}
                       >
-                        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500 dark:bg-blue-400" />
+                        <NexyIcon name="busy" motion="pulse" className="h-2.5 w-2.5 shrink-0" />
                         {activeCodeChanges}
                       </span>
                     )}
@@ -230,7 +227,7 @@ export function ProjectsPane() {
                   title="Project settings"
                   aria-label="Edit project settings"
                 >
-                  <Settings className="w-3 h-3" />
+                  <NexyIcon name="settings" className="w-3 h-3" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setPendingDeleteProject({ id: project.id, name: project.name }) }}
@@ -238,7 +235,7 @@ export function ProjectsPane() {
                   title="Delete project"
                   aria-label="Delete project"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <NexyIcon name="delete" className="w-3 h-3" />
                 </button>
               </div>
             </div>

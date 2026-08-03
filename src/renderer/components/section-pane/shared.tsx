@@ -5,16 +5,34 @@ export const PANE_MIN = 220
 export const PANE_MAX = 500
 
 export const PROJECT_COLOR_MAP: Record<string, { bg: string; dot: string; ring: string }> = {
-  blue:   { bg: 'bg-blue-50 dark:bg-blue-900/20',     dot: 'bg-blue-500',   ring: 'ring-blue-300 dark:ring-blue-700' },
-  green:  { bg: 'bg-green-50 dark:bg-green-900/20',   dot: 'bg-green-500',  ring: 'ring-green-300 dark:ring-green-700' },
-  red:    { bg: 'bg-red-50 dark:bg-red-900/20',       dot: 'bg-red-500',    ring: 'ring-red-300 dark:ring-red-700' },
-  purple: { bg: 'bg-purple-50 dark:bg-purple-900/20', dot: 'bg-purple-500', ring: 'ring-purple-300 dark:ring-purple-700' },
-  orange: { bg: 'bg-orange-50 dark:bg-orange-900/20', dot: 'bg-orange-500', ring: 'ring-orange-300 dark:ring-orange-700' },
-  pink:   { bg: 'bg-pink-50 dark:bg-pink-900/20',     dot: 'bg-pink-500',   ring: 'ring-pink-300 dark:ring-pink-700' },
-  yellow: { bg: 'bg-yellow-50 dark:bg-yellow-900/20', dot: 'bg-yellow-500', ring: 'ring-yellow-300 dark:ring-yellow-700' },
-  gray:   { bg: 'bg-gray-50 dark:bg-gray-800',        dot: 'bg-gray-400',   ring: 'ring-gray-300 dark:ring-gray-700' },
+  blue:   { bg: 'bg-nexy-project-blue-light dark:bg-nexy-project-blue-dark/60',     dot: 'bg-nexy-project-blue',   ring: 'ring-nexy-project-blue' },
+  green:  { bg: 'bg-nexy-project-green-light dark:bg-nexy-project-green-dark/60',   dot: 'bg-nexy-project-green',  ring: 'ring-nexy-project-green' },
+  red:    { bg: 'bg-nexy-project-red-light dark:bg-nexy-project-red-dark/60',       dot: 'bg-nexy-project-red',    ring: 'ring-nexy-project-red' },
+  purple: { bg: 'bg-nexy-project-purple-light dark:bg-nexy-project-purple-dark/60', dot: 'bg-nexy-project-purple', ring: 'ring-nexy-project-purple' },
+  orange: { bg: 'bg-nexy-project-orange-light dark:bg-nexy-project-orange-dark/60', dot: 'bg-nexy-project-orange', ring: 'ring-nexy-project-orange' },
+  pink:   { bg: 'bg-nexy-project-pink-light dark:bg-nexy-project-pink-dark/60',     dot: 'bg-nexy-project-pink',   ring: 'ring-nexy-project-pink' },
+  yellow: { bg: 'bg-nexy-project-yellow-light dark:bg-nexy-project-yellow-dark/60', dot: 'bg-nexy-project-yellow', ring: 'ring-nexy-project-yellow' },
+  cyan:   { bg: 'bg-nexy-project-cyan-light dark:bg-nexy-project-cyan-dark/60',     dot: 'bg-nexy-project-cyan',   ring: 'ring-nexy-project-cyan' },
+  gray:   { bg: 'bg-nexy-project-gray-light dark:bg-nexy-project-gray-dark/60',     dot: 'bg-nexy-project-gray',   ring: 'ring-nexy-project-gray' },
 }
-export const COLOR_OPTIONS = Object.keys(PROJECT_COLOR_MAP)
+PROJECT_COLOR_MAP.teal = PROJECT_COLOR_MAP.cyan
+PROJECT_COLOR_MAP.indigo = PROJECT_COLOR_MAP.purple
+
+export const COLOR_OPTIONS = ['blue', 'green', 'red', 'purple', 'orange', 'pink', 'yellow', 'cyan', 'gray']
+
+export const PROJECT_BADGE_COLOR_MAP: Record<string, { bg: string; text: string; border: string; hover: string }> = {
+  blue:   { bg: 'bg-nexy-project-blue-light dark:bg-nexy-project-blue-dark/60',     text: 'text-nexy-project-blue-dark dark:text-nexy-project-blue-light',     border: 'border-nexy-project-blue',   hover: 'hover:bg-nexy-project-blue-light/70 dark:hover:bg-nexy-project-blue-dark/80' },
+  green:  { bg: 'bg-nexy-project-green-light dark:bg-nexy-project-green-dark/60',   text: 'text-nexy-project-green-dark dark:text-nexy-project-green-light',   border: 'border-nexy-project-green',  hover: 'hover:bg-nexy-project-green-light/70 dark:hover:bg-nexy-project-green-dark/80' },
+  red:    { bg: 'bg-nexy-project-red-light dark:bg-nexy-project-red-dark/60',       text: 'text-nexy-project-red-dark dark:text-nexy-project-red-light',       border: 'border-nexy-project-red',    hover: 'hover:bg-nexy-project-red-light/70 dark:hover:bg-nexy-project-red-dark/80' },
+  purple: { bg: 'bg-nexy-project-purple-light dark:bg-nexy-project-purple-dark/60', text: 'text-nexy-project-purple-dark dark:text-nexy-project-purple-light', border: 'border-nexy-project-purple', hover: 'hover:bg-nexy-project-purple-light/70 dark:hover:bg-nexy-project-purple-dark/80' },
+  orange: { bg: 'bg-nexy-project-orange-light dark:bg-nexy-project-orange-dark/60', text: 'text-nexy-project-orange-dark dark:text-nexy-project-orange-light', border: 'border-nexy-project-orange', hover: 'hover:bg-nexy-project-orange-light/70 dark:hover:bg-nexy-project-orange-dark/80' },
+  pink:   { bg: 'bg-nexy-project-pink-light dark:bg-nexy-project-pink-dark/60',     text: 'text-nexy-project-pink-dark dark:text-nexy-project-pink-light',     border: 'border-nexy-project-pink',   hover: 'hover:bg-nexy-project-pink-light/70 dark:hover:bg-nexy-project-pink-dark/80' },
+  yellow: { bg: 'bg-nexy-project-yellow-light dark:bg-nexy-project-yellow-dark/60', text: 'text-nexy-project-yellow-dark dark:text-nexy-project-yellow-light', border: 'border-nexy-project-yellow', hover: 'hover:bg-nexy-project-yellow-light/70 dark:hover:bg-nexy-project-yellow-dark/80' },
+  cyan:   { bg: 'bg-nexy-project-cyan-light dark:bg-nexy-project-cyan-dark/60',     text: 'text-nexy-project-cyan-dark dark:text-nexy-project-cyan-light',     border: 'border-nexy-project-cyan',   hover: 'hover:bg-nexy-project-cyan-light/70 dark:hover:bg-nexy-project-cyan-dark/80' },
+  gray:   { bg: 'bg-nexy-project-gray-light dark:bg-nexy-project-gray-dark/60',     text: 'text-nexy-project-gray-dark dark:text-nexy-project-gray-light',     border: 'border-nexy-project-gray',   hover: 'hover:bg-nexy-project-gray-light/70 dark:hover:bg-nexy-project-gray-dark/80' },
+}
+PROJECT_BADGE_COLOR_MAP.teal = PROJECT_BADGE_COLOR_MAP.cyan
+PROJECT_BADGE_COLOR_MAP.indigo = PROJECT_BADGE_COLOR_MAP.purple
 
 export function AgentAvatarStack({ members }: { members: ProjectAgent[] }) {
   if (members.length === 0) return null

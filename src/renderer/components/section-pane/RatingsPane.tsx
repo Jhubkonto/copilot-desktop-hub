@@ -1,8 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Search, Star, X } from 'lucide-react'
 import type { ConversationRatingListItem, ConversationRatingStats, RatingAggregate, RatingTrendPoint } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
 
 const EMPTY_STATS: ConversationRatingStats = {
@@ -11,21 +11,19 @@ const EMPTY_STATS: ConversationRatingStats = {
 
 function StarRow({ rating }: { rating: number }) {
   return (
-    <span className="inline-flex items-center gap-0.5 text-amber-500 shrink-0" aria-label={`${rating} out of 5 stars`}>
+    <span className="inline-flex shrink-0 items-center gap-0.5 text-nexy-warning" aria-label={`${rating} out of 5 stars`}>
       {[1, 2, 3, 4, 5].map((n) => (
-        <Star key={n} className={`w-3 h-3 ${n <= rating ? 'fill-current' : 'text-gray-300 dark:text-gray-600'}`} />
+        <NexyIcon key={n} name="rating" className={`h-3 w-3 ${n <= rating ? '' : 'text-nexy-border opacity-60'}`} />
       ))}
     </span>
   )
 }
 
 function useChartColors() {
-  const theme = useAppStore((s) => s.theme)
-  const dark = theme === 'dark'
   return {
-    bar: dark ? '#60a5fa' : '#2563eb',
-    grid: dark ? '#374151' : '#e5e7eb',
-    axis: dark ? '#9ca3af' : '#6b7280',
+    bar: 'rgb(var(--nexy-accent))',
+    grid: 'rgb(var(--nexy-border))',
+    axis: 'rgb(var(--nexy-muted-text))',
   }
 }
 
@@ -35,7 +33,7 @@ function RatingBarChart({ title, data }: { title: string; data: RatingAggregate[
   const top = data.slice(0, 8)
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">{title}</p>
+      <p className="nexy-font-status mb-1 text-nexy-muted">{title}</p>
       <ResponsiveContainer width="100%" height={Math.max(56, top.length * 26)}>
         <BarChart data={top} layout="vertical" margin={{ top: 2, right: 20, bottom: 2, left: 2 }}>
           <CartesianGrid horizontal={false} stroke={grid} />
@@ -55,9 +53,9 @@ function RatingBarChart({ title, data }: { title: string; data: RatingAggregate[
               `${Number(value).toFixed(1)} / 5 (${(item.payload as RatingAggregate).count} rated)`,
               'Average',
             ]}
-            contentStyle={{ fontSize: 11, borderRadius: 8 }}
+            contentStyle={{ fontSize: 11, borderRadius: 0, border: '2px solid rgb(var(--nexy-border))', background: 'rgb(var(--nexy-raised))' }}
           />
-          <Bar dataKey="average" fill={bar} radius={[0, 4, 4, 0]} maxBarSize={14} />
+          <Bar dataKey="average" fill={bar} radius={0} maxBarSize={14} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -69,7 +67,7 @@ function RatingTrendChart({ data }: { data: RatingTrendPoint[] }) {
   if (data.length === 0) return null
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">Rating Trend</p>
+      <p className="nexy-font-status mb-1 text-nexy-muted">Rating Trend</p>
       <ResponsiveContainer width="100%" height={120}>
         <LineChart data={data} margin={{ top: 4, right: 12, bottom: 4, left: -20 }}>
           <CartesianGrid vertical={false} stroke={grid} />
@@ -80,7 +78,7 @@ function RatingTrendChart({ data }: { data: RatingTrendPoint[] }) {
               `${Number(value).toFixed(1)} / 5 (${(item.payload as RatingTrendPoint).count} rated)`,
               'Average',
             ]}
-            contentStyle={{ fontSize: 11, borderRadius: 8 }}
+            contentStyle={{ fontSize: 11, borderRadius: 0, border: '2px solid rgb(var(--nexy-border))', background: 'rgb(var(--nexy-raised))' }}
           />
           <Line type="monotone" dataKey="average" stroke={bar} strokeWidth={2} dot={{ r: 2 }} />
         </LineChart>
@@ -95,25 +93,25 @@ function RatingListItem({ item, onClick }: { item: ConversationRatingListItem; o
   return (
     <div
       onClick={() => onClick(item.conversationId)}
-      className="group flex flex-col gap-1 rounded-lg px-2 py-2 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/60"
+      className="group flex cursor-pointer flex-col gap-1 rounded-nexy-sm border border-transparent px-2 py-2 transition-colors hover:border-nexy-border hover:bg-nexy-recessed"
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate flex-1">{item.conversationTitle}</p>
+        <p className="flex-1 truncate text-xs font-medium text-nexy-text">{item.conversationTitle}</p>
         <StarRow rating={item.rating} />
       </div>
       {subtitleParts.length > 0 && (
-        <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{subtitleParts.join(' · ')}</p>
+        <p className="truncate text-[10px] text-nexy-muted">{subtitleParts.join(' · ')}</p>
       )}
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {tags.slice(0, 6).map((tag) => (
-            <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+            <span key={tag} className="rounded-nexy-sm border border-nexy-border bg-nexy-surface px-1.5 py-0.5 text-[9px] text-nexy-muted">
               {tag}
             </span>
           ))}
         </div>
       )}
-      {item.note && <p className="text-[10px] text-gray-500 dark:text-gray-400 italic truncate">"{item.note}"</p>}
+      {item.note && <p className="truncate text-[10px] italic text-nexy-muted">"{item.note}"</p>}
     </div>
   )
 }
@@ -170,8 +168,8 @@ export function RatingsPane() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 h-9 border-b border-gray-100 dark:border-gray-800 shrink-0">
-        <span className="text-xs text-gray-400 dark:text-gray-500">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b-2 border-nexy-border bg-nexy-surface px-4">
+        <span className="nexy-font-status text-nexy-muted">
           {ratings.length} rated conversation{ratings.length !== 1 ? 's' : ''}
         </span>
       </div>
@@ -182,7 +180,7 @@ export function RatingsPane() {
         ) : (
           <>
             {hasStats && (
-              <div className="px-3 py-2 space-y-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="space-y-3 border-b-2 border-nexy-border bg-nexy-raised px-3 py-2">
                 <RatingTrendChart data={stats.trend} />
                 <RatingBarChart title="Average by Agent" data={stats.averageByAgent} />
                 <RatingBarChart title="Average by Model" data={stats.averageByModel} />
@@ -192,30 +190,30 @@ export function RatingsPane() {
               </div>
             )}
 
-            <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
+            <div className="flex items-center gap-2 border-b-2 border-nexy-border bg-nexy-surface px-3 py-2">
               <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                <NexyIcon name="search" className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-nexy-muted" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search ratings…"
-                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-transparent focus:border-blue-400 focus:bg-white dark:focus:bg-gray-900 rounded-lg outline-none transition-colors placeholder:text-gray-400"
+                  className="w-full rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed py-1.5 pl-8 pr-7 text-xs text-nexy-text outline-none placeholder:text-nexy-muted focus:border-nexy-accent focus:bg-nexy-raised"
                 />
                 {query && (
                   <button
                     onClick={() => setQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-nexy-muted hover:text-nexy-text"
                     aria-label="Clear search"
                   >
-                    <X className="w-3 h-3" />
+                    <NexyIcon name="close" className="h-3 w-3" />
                   </button>
                 )}
               </div>
               <select
                 value={sortMode}
                 onChange={(e) => setSortMode(e.target.value as SortMode)}
-                className="text-[11px] px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-2 py-1.5 text-[11px] text-nexy-text focus:outline-none focus:ring-2 focus:ring-nexy-accent"
                 aria-label="Sort ratings"
               >
                 <option value="recent">Recent</option>
