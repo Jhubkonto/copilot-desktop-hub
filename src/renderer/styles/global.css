@@ -1,9 +1,130 @@
+@import './generated-theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Nexy Silkscreen';
+  src: url('../assets/fonts/silkscreen-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Developer/build surfaces keep their established grid and control bounds while sharing the
+   hard-edged terminal treatment. Scoped overrides avoid touching feature behavior or layout. */
+[data-ui-style='8bit'] .nexy-developer-tools :is(.rounded-xl, .rounded-lg, .rounded-md, .rounded, .rounded-full) {
+  border-radius: var(--nexy-desktop-corner-small) !important;
+}
+
+[data-ui-style='8bit'] .nexy-developer-tools :is(input, select, textarea):focus {
+  outline: 2px solid rgb(var(--nexy-accent));
+  outline-offset: 1px;
+  box-shadow: none !important;
+}
+
+[data-ui-style='8bit'] .nexy-developer-tools :is(.shadow-xl, .shadow-lg, .shadow-md) {
+  box-shadow: var(--nexy-desktop-shadow-offset) var(--nexy-desktop-shadow-offset) 0 rgb(var(--nexy-shadow)) !important;
+}
+
+/* Pairing and recovery settings retain their measured rows while dropping the remaining soft
+   card language. QR imagery is intentionally unaffected so scanner contrast stays reliable. */
+[data-ui-style='8bit'] .nexy-mobile-settings :is(.rounded-xl, .rounded-lg, .rounded-md, .rounded, .rounded-full) {
+  border-radius: var(--nexy-desktop-corner-small) !important;
+}
+
+[data-ui-style='8bit'] .nexy-mobile-settings :is(input, textarea):focus {
+  outline: 2px solid rgb(var(--nexy-accent));
+  outline-offset: 1px;
+  box-shadow: none !important;
+}
+
+[data-ui-style='8bit'] .nexy-onboarding-frame :is(.rounded-xl, .rounded-lg, .rounded-md, .rounded, .rounded-full) {
+  border-radius: var(--nexy-desktop-corner-small) !important;
+}
+
 :root {
   --sidebar-width: 260px;
+}
+
+/* Classic and 8-bit are visual styles; `.dark` remains the independent brightness axis. */
+[data-ui-style='classic'] {
+  --nexy-outer-frame: 249 250 251;
+  --nexy-background: 249 250 251;
+  --nexy-surface: 255 255 255;
+  --nexy-raised-surface: 255 255 255;
+  --nexy-recessed-surface: 243 244 246;
+  --nexy-text: 17 24 39;
+  --nexy-muted-text: 107 114 128;
+  --nexy-highlight-edge: 255 255 255;
+  --nexy-border: 209 213 219;
+  --nexy-soft-border: 229 231 235;
+  --nexy-shadow: 156 163 175;
+  --nexy-accent: 37 99 235;
+  --nexy-on-accent: 255 255 255;
+  --nexy-error-main: 220 38 38;
+  --nexy-warning-main: 217 119 6;
+  --nexy-success-main: 22 163 74;
+  --nexy-info-main: 37 99 235;
+  --nexy-activity-main: 147 51 234;
+  --nexy-offline-main: 107 114 128;
+  --nexy-project-blue-main: 59 130 246;
+  --nexy-project-blue-dark: 29 78 216;
+  --nexy-project-blue-light: 219 234 254;
+  --nexy-project-green-main: 34 197 94;
+  --nexy-project-green-dark: 21 128 61;
+  --nexy-project-green-light: 220 252 231;
+  --nexy-project-red-main: 239 68 68;
+  --nexy-project-red-dark: 185 28 28;
+  --nexy-project-red-light: 254 226 226;
+  --nexy-project-purple-main: 168 85 247;
+  --nexy-project-purple-dark: 126 34 206;
+  --nexy-project-purple-light: 243 232 255;
+  --nexy-project-orange-main: 249 115 22;
+  --nexy-project-orange-dark: 194 65 12;
+  --nexy-project-orange-light: 255 237 213;
+  --nexy-project-pink-main: 236 72 153;
+  --nexy-project-pink-dark: 190 24 93;
+  --nexy-project-pink-light: 252 231 243;
+  --nexy-project-yellow-main: 234 179 8;
+  --nexy-project-yellow-dark: 161 98 7;
+  --nexy-project-yellow-light: 254 249 195;
+  --nexy-project-cyan-main: 6 182 212;
+  --nexy-project-cyan-dark: 14 116 144;
+  --nexy-project-cyan-light: 207 250 254;
+  --nexy-neutral-50: 249 250 251;
+  --nexy-neutral-100: 243 244 246;
+  --nexy-neutral-200: 229 231 235;
+  --nexy-neutral-300: 209 213 219;
+  --nexy-neutral-400: 156 163 175;
+  --nexy-neutral-500: 107 114 128;
+  --nexy-neutral-600: 75 85 99;
+  --nexy-neutral-700: 55 65 81;
+  --nexy-neutral-800: 31 41 55;
+  --nexy-neutral-900: 17 24 39;
+  --nexy-neutral-950: 3 7 18;
+  --nexy-desktop-corner-small: 0.5rem;
+  --nexy-desktop-corner-medium: 0.75rem;
+  --nexy-desktop-corner-large: 1rem;
+  --nexy-desktop-border: 1px;
+  --nexy-desktop-shadow-offset: 0px;
+}
+
+.dark[data-ui-style='classic'] {
+  --nexy-outer-frame: 17 24 39;
+  --nexy-background: 17 24 39;
+  --nexy-surface: 31 41 55;
+  --nexy-raised-surface: 31 41 55;
+  --nexy-recessed-surface: 17 24 39;
+  --nexy-text: 243 244 246;
+  --nexy-muted-text: 156 163 175;
+  --nexy-highlight-edge: 75 85 99;
+  --nexy-border: 75 85 99;
+  --nexy-soft-border: 55 65 81;
+  --nexy-shadow: 3 7 18;
+  --nexy-accent: 96 165 250;
+  --nexy-on-accent: 17 24 39;
 }
 
 html {
@@ -16,6 +137,104 @@ body {
     Ubuntu, Cantarell, sans-serif;
   overflow: hidden;
   height: 100%;
+  color: rgb(var(--nexy-text));
+  background: rgb(var(--nexy-background));
+}
+
+/* Bitmap typography is deliberately limited to short interface chrome. Body,
+ * form, Markdown, and chat copy retain the platform UI stack above. */
+[data-ui-style='8bit'] .nexy-font-pixel,
+[data-ui-style='8bit'] .nexy-brand,
+[data-ui-style='8bit'] .nexy-panel-title,
+[data-ui-style='8bit'] .nexy-status-label {
+  font-family: 'Nexy Silkscreen', ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 400;
+  font-synthesis: none;
+}
+
+.nexy-brand {
+  letter-spacing: 0.02em;
+}
+
+.nexy-panel-title,
+.nexy-status-label {
+  letter-spacing: 0.04em;
+}
+
+.nexy-pixel-art {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+[data-ui-style='classic'] .nexy-pixel-art {
+  image-rendering: auto;
+}
+
+/* Keep classic form controls aligned with the search/filter fields used in the overview panes.
+ * Native toggles and sliders keep their platform-specific geometry. */
+[data-ui-style='classic'] :is(
+  textarea,
+  select,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color'])
+) {
+  border-radius: var(--nexy-desktop-corner-small) !important;
+}
+
+/* Unread activity is a pixel in the 8-bit style and a dot in classic. */
+.nexy-notification-dot {
+  border-radius: 0;
+}
+
+[data-ui-style='classic'] .nexy-notification-dot {
+  border-radius: 9999px;
+}
+
+/* Feature migrations intentionally kept their footprints. These compatibility
+ * rules restore the softer classic treatment for explicit terminal utilities. */
+[data-ui-style='classic'] .rounded-none {
+  border-radius: 0.5rem;
+}
+
+[data-ui-style='classic'] .border-2 {
+  border-width: 1px;
+}
+
+[data-ui-style='classic'] [class*='shadow-[2px'],
+[data-ui-style='classic'] [class*='shadow-[3px'] {
+  box-shadow: none !important;
+}
+
+/* Settings retain their established rail, content width, and control footprints;
+ * this scoped layer only removes legacy soft geometry from nested feature forms. */
+[data-ui-style='8bit'] .nexy-settings-shell input,
+[data-ui-style='8bit'] .nexy-settings-shell textarea,
+[data-ui-style='8bit'] .nexy-settings-shell select,
+[data-ui-style='8bit'] .nexy-settings-shell button,
+[data-ui-style='8bit'] .nexy-settings-shell [role='menu'],
+[data-ui-style='8bit'] .nexy-settings-shell [role='listbox'] {
+  border-radius: 0 !important;
+}
+
+/* Generator dialogs retain their established measurements and two-column flow,
+ * while legacy nested controls adopt the shared terminal geometry. */
+[data-ui-style='8bit'] .nexy-generator-shell [class*='rounded'] {
+  border-radius: 0 !important;
+}
+
+[data-ui-style='8bit'] .nexy-generator-shell input,
+[data-ui-style='8bit'] .nexy-generator-shell textarea,
+[data-ui-style='8bit'] .nexy-generator-shell select {
+  border-color: rgb(var(--nexy-border)) !important;
+  background: rgb(var(--nexy-recessed-surface)) !important;
+  color: rgb(var(--nexy-text)) !important;
+  box-shadow: inset 2px 2px 0 rgb(var(--nexy-shadow));
+}
+
+[data-ui-style='8bit'] .nexy-generator-shell input:focus,
+[data-ui-style='8bit'] .nexy-generator-shell textarea:focus,
+[data-ui-style='8bit'] .nexy-generator-shell select:focus {
+  outline: 2px solid rgb(var(--nexy-accent));
+  outline-offset: 1px;
 }
 
 #root {
@@ -34,11 +253,23 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+  background: rgb(var(--nexy-soft-border));
+  border: 1px solid rgb(var(--nexy-border));
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-400 dark:bg-gray-500;
+  background: rgb(var(--nexy-accent));
+}
+
+[data-ui-style='classic'] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 9999px;
+  background: rgb(var(--nexy-neutral-300));
+}
+
+.dark[data-ui-style='classic'] ::-webkit-scrollbar-thumb {
+  background: rgb(var(--nexy-neutral-600));
 }
 
 ::-webkit-scrollbar-corner {
@@ -61,7 +292,7 @@ body {
 
 .code-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.45);
-  border-radius: 9999px;
+  border-radius: 0;
 }
 
 .code-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -92,36 +323,74 @@ body {
 /* Exception: loading indicators (spinners, bounce dots, pulse dots) are the user's only
  * signal that work is in progress, not decorative motion — the no-motion policy above
  * would otherwise leave them frozen mid-frame, looking broken instead of "busy". */
-.animate-spin {
+[data-ui-style='classic'] .animate-spin {
   animation: spin 1s linear infinite !important;
 }
 
-.animate-bounce {
+[data-ui-style='classic'] .animate-bounce {
   animation: bounce 1s infinite !important;
 }
 
 .animate-pulse {
+  animation: none !important;
+}
+
+[data-ui-style='classic'] .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
 }
 
+/* Retro loading records use the same opacity vocabulary as the pixel display instead of
+ * rotating. The longer cycle keeps the cue legible without making the interface feel busy. */
+[data-ui-style='8bit'] :is(.animate-pulse, .nexy-retro-loading-pulse) {
+  animation: pulse 2.4s steps(4, end) infinite !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-style='8bit'] :is(.animate-pulse, .nexy-retro-loading-pulse) {
+    animation: none !important;
+  }
+}
+
+.nexy-dither {
+  background-color: rgb(var(--nexy-recessed-surface));
+  background-image:
+    linear-gradient(45deg, rgb(var(--nexy-soft-border)) 25%, transparent 25%),
+    linear-gradient(-45deg, rgb(var(--nexy-soft-border)) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgb(var(--nexy-soft-border)) 75%),
+    linear-gradient(-45deg, transparent 75%, rgb(var(--nexy-soft-border)) 75%);
+  background-position: 0 0, 0 2px, 2px -2px, -2px 0;
+  background-size: 4px 4px;
+}
+
+[data-ui-style='classic'] .nexy-dither {
+  background-image: none;
+}
+
 .skeleton-shimmer {
-  background: linear-gradient(
+  background-color: rgb(var(--nexy-recessed-surface));
+  background-image: repeating-linear-gradient(
     90deg,
-    theme('colors.gray.100') 25%,
-    theme('colors.gray.200') 50%,
-    theme('colors.gray.100') 75%
+    transparent 0 6px,
+    rgb(var(--nexy-soft-border)) 6px 10px
   );
-  background-size: 800px 100%;
-  background-position: 0 0;
 }
 
 .dark .skeleton-shimmer {
-  background: linear-gradient(
+  background-color: rgb(var(--nexy-recessed-surface));
+  background-image: repeating-linear-gradient(
     90deg,
-    theme('colors.gray.800') 25%,
-    theme('colors.gray.700') 50%,
-    theme('colors.gray.800') 75%
+    transparent 0 6px,
+    rgb(var(--nexy-soft-border)) 6px 10px
   );
+}
+
+[data-ui-style='classic'] .skeleton-shimmer {
+  background: linear-gradient(90deg, rgb(var(--nexy-neutral-100)) 25%, rgb(var(--nexy-neutral-200)) 50%, rgb(var(--nexy-neutral-100)) 75%);
+  background-size: 800px 100%;
+}
+
+.dark[data-ui-style='classic'] .skeleton-shimmer {
+  background: linear-gradient(90deg, rgb(var(--nexy-neutral-800)) 25%, rgb(var(--nexy-neutral-700)) 50%, rgb(var(--nexy-neutral-800)) 75%);
   background-size: 800px 100%;
 }
 
