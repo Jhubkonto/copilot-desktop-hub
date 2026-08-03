@@ -246,14 +246,26 @@ export function registerProjectHandlers(): void {
     };
   });
 
-  safeHandle("project:rename", (_event, id: string, name: string) => {
+  safeHandle("project:rename", (_event, id: string, name: string, color?: string) => {
     const safeName = String(name).trim().slice(0, 100);
     if (!safeName) throw new Error("Project name is required");
-    db.prepare("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?").run(
-      safeName,
-      Date.now(),
-      id,
-    );
+    const safeColor = color === undefined ? undefined : PROJECT_COLORS.has(color) ? color : null;
+    if (safeColor === null) throw new Error("Invalid project color");
+    if (safeColor) {
+      db.prepare("UPDATE projects SET name = ?, color = ?, updated_at = ? WHERE id = ?").run(
+        safeName,
+        safeColor,
+        Date.now(),
+        id,
+      );
+    } else {
+      db.prepare("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?").run(
+        safeName,
+        Date.now(),
+        id,
+      );
+    }
+    broadcastToMobile({ event: "project:renamed", data: { id, name: safeName, ...(safeColor ? { color: safeColor } : {}) } });
     return true;
   });
 

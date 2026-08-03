@@ -14,6 +14,13 @@ import {
   saveMessageSpokenOutput,
 } from './spoken-output'
 import type { SaveSpokenOutputInput } from '../shared/spoken-output'
+import type { SupertonicSynthesisInput } from '../shared/neural-tts'
+import {
+  getSupertonicStatus,
+  installSupertonicModel,
+  removeSupertonicModel,
+  synthesizeSupertonic,
+} from './local-supertonic'
 
 const execFileAsync = promisify(execFile)
 const WHISPER_VERSION = 'v1.9.1'
@@ -55,6 +62,12 @@ async function findFile(directory: string, fileName: string): Promise<string | n
 
 export function registerVoiceHandlers(): void {
   safeHandle('voice:get-status', () => getLocalWhisperConfig())
+  safeHandle('tts:get-status', () => getSupertonicStatus())
+  safeHandle('tts:install-supertonic', () => installSupertonicModel())
+  safeHandle('tts:remove-supertonic', () => removeSupertonicModel())
+  safeHandle('tts:synthesize-supertonic', (_event, input: SupertonicSynthesisInput) => {
+    return synthesizeSupertonic(input)
+  })
 
   safeHandle('voice:install-local', async () => {
     const installDir = path.join(app.getPath('userData'), 'voice', `whisper.cpp-${WHISPER_VERSION}`)
