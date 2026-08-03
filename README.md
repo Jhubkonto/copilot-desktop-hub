@@ -228,6 +228,9 @@ Wait for Vite to finish its initial bundle — the renderer URL loads before the
 **Backend unavailable**
 If chats cannot start, open Settings and verify that at least one backend is ready: a configured BYOK provider key, Claude CLI, Codex CLI, or Hermes CLI.
 
+**Install natural local speech output**
+Open **Settings → General → Local neural voice output** and select **Install Supertonic**. Nexy verifies the optional model download and keeps system voices as a fallback. Supertonic model licensing and attribution are documented in [docs/licenses/SUPERTONIC.md](docs/licenses/SUPERTONIC.md).
+
 **Windows installer closes without installing**
 Run `Nexy Setup x.x.x.exe` as Administrator, or install to a user-owned path (e.g. `C:\Users\<you>\Apps\Nexy`) instead of `C:\Program Files\`. Alternatively run `win-unpacked\Nexy.exe` directly — no installation needed.
 
