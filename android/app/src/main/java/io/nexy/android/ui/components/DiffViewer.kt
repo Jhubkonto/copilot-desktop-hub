@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.nexy.android.ui.theme.GeneratedNexyColors
 import org.json.JSONArray
 
 @Composable
@@ -33,14 +34,14 @@ fun NexyDiffContent(
         ) {
             diffText.lines().forEach { line ->
                 val bg = when {
-                    line.startsWith("+") -> Color(0xFF22C55E).copy(alpha = 0.12f)
-                    line.startsWith("-") -> Color(0xFFEF4444).copy(alpha = 0.12f)
+                    line.startsWith("+") -> GeneratedNexyColors.SemanticSuccessMain.copy(alpha = 0.16f)
+                    line.startsWith("-") -> MaterialTheme.colorScheme.error.copy(alpha = 0.16f)
                     line.startsWith("@@") -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
                     else -> Color.Transparent
                 }
                 val textColor = when {
-                    line.startsWith("+") -> Color(0xFF22C55E)
-                    line.startsWith("-") -> Color(0xFFEF4444)
+                    line.startsWith("+") -> GeneratedNexyColors.SemanticSuccessMain
+                    line.startsWith("-") -> MaterialTheme.colorScheme.error
                     line.startsWith("@@") -> MaterialTheme.colorScheme.onSecondaryContainer
                     else -> MaterialTheme.colorScheme.onSurface
                 }

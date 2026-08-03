@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -27,7 +28,8 @@ fun GeneratorChatBubble(role: String, text: String, streaming: Boolean = false, 
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            shape = MaterialTheme.shapes.medium,
+            shape = MaterialTheme.shapes.extraSmall,
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
             color = when {
                 isError -> MaterialTheme.colorScheme.errorContainer
                 isUser -> MaterialTheme.colorScheme.primaryContainer

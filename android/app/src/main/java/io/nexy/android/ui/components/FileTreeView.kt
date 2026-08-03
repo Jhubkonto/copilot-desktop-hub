@@ -9,13 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -25,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.RemoteEditStagedFileEntry
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 sealed class FileTreeNode {
     abstract val name: String
@@ -165,8 +162,8 @@ private fun FolderRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                Icons.Default.Folder,
+            NexyIcon(
+                NexyIconName.Folder,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 2.dp),
@@ -182,8 +179,8 @@ private fun FolderRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Icon(
-                if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+            NexyIcon(
+                if (expanded) NexyIconName.ChevronDown else NexyIconName.ChevronRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -243,8 +240,8 @@ fun FileLeafRow(
                     Text("Mark reviewed", style = MaterialTheme.typography.labelSmall)
                 }
             }
-            Icon(
-                if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+            NexyIcon(
+                if (expanded) NexyIconName.ChevronDown else NexyIconName.ChevronRight,
                 contentDescription = null,
             )
         }

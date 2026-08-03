@@ -1,14 +1,7 @@
 package io.nexy.android.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -58,8 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -83,6 +73,9 @@ fun NexyConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
@@ -109,6 +102,9 @@ fun NexyInfoDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
@@ -185,7 +181,7 @@ fun NexySearchField(
             }
         },
         placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium) },
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.small,
         textStyle = MaterialTheme.typography.bodyMedium,
         keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.Sentences,
@@ -248,7 +244,8 @@ fun NexyInfoIcon(text: String, modifier: Modifier = Modifier) {
                 Surface(
                     shape = MaterialTheme.shapes.small,
                     color = MaterialTheme.colorScheme.inverseSurface,
-                    shadowElevation = 4.dp,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
+                    shadowElevation = 0.dp,
                     modifier = Modifier.widthIn(max = 260.dp),
                 ) {
                     Text(
@@ -351,8 +348,9 @@ fun NexyStatusBadge(
 ) {
     androidx.compose.material3.Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.small,
         color = containerColor,
+        border = BorderStroke(2.dp, contentColor),
     ) {
         Text(
             text = label,
@@ -369,12 +367,8 @@ fun NexySkeletonLoader(
     modifier: Modifier = Modifier,
     lines: Int = 3,
 ) {
-    val progress = 0.4f
-    val shimmerColors = listOf(
-        MaterialTheme.colorScheme.surfaceVariant,
-        MaterialTheme.colorScheme.surface,
-        MaterialTheme.colorScheme.surfaceVariant,
-    )
+    val background = MaterialTheme.colorScheme.surfaceVariant
+    val foreground = MaterialTheme.colorScheme.outlineVariant
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -387,14 +381,9 @@ fun NexySkeletonLoader(
                 modifier = Modifier
                     .fillMaxWidth(widthFraction)
                     .height(14.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = shimmerColors,
-                            start = Offset(progress * 1000f - 400f, 0f),
-                            end = Offset(progress * 1000f, 0f),
-                        )
-                    ),
+                    .clip(MaterialTheme.shapes.extraSmall)
+                    .nexyDither(background = background, foreground = foreground)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall),
             )
         }
     }
@@ -430,7 +419,7 @@ fun NexyExpandableSection(
                 )
                 if (badge != null) {
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = MaterialTheme.shapes.small,
                         color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Text(
@@ -470,6 +459,7 @@ fun NexyStepIndicator(
         steps.forEachIndexed { index, label ->
             val isDone = index < currentStep
             val isActive = index == currentStep
+            val stepShape = MaterialTheme.shapes.extraSmall
             val circleColor = if (isDone || isActive) MaterialTheme.colorScheme.primary else Color.Transparent
             val borderColor = if (isDone || isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
             val textColor = if (isDone || isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -481,9 +471,9 @@ fun NexyStepIndicator(
                 Box(
                     modifier = Modifier
                         .size(24.dp)
-                        .clip(CircleShape)
+                        .clip(stepShape)
                         .background(circleColor)
-                        .border(1.5.dp, borderColor, CircleShape),
+                        .border(1.5.dp, borderColor, stepShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
