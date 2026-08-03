@@ -254,6 +254,16 @@ class ChatRenderItemTest {
     }
 
     @Test
+    fun usesListOrderForTheTailOfLegacyTimestampLessSegments() {
+        val segments = listOf(
+            ThinkingBlock(blockId = "text-0", content = "I'll investigate.", done = true),
+            ThinkingBlock(blockId = "text-1", content = "The complete answer.", done = true),
+        )
+
+        assertEquals("The complete answer.", tailTextSegment(segments)?.content)
+    }
+
+    @Test
     fun resolvesTheRetrySourceWhileBuildingTheTimeline() {
         val user = ChatMessage(id = "user-1", text = "Question", isUser = true, isStreaming = false)
         val assistant = ChatMessage(id = "assistant-1", text = "Answer", isUser = false, isStreaming = false)

@@ -100,7 +100,7 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun progressively prepends streamed history chunks and settles on completion() = runTest {
+    fun `progressively prepends streamed history chunks and settles on completion`() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("conv-1", fakeWs)
         advanceUntilIdle()

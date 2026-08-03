@@ -40,11 +40,15 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun requestsConversationListOnInit() = runTest {
+    fun requestsFirstConversationPageOnInit() = runTest {
         val fakeWs = FakeWsClient()
         val vm = HomeViewModel(Application(), fakeWs, FakeApprovalEffects())
 
-        assertEquals(SentCommand("conversation:list", emptyMap()), fakeWs.sentCommands.single())
+        val command = fakeWs.sentCommands.single()
+        assertEquals("conversation:list-page", command.command)
+        assertEquals(mapOf("type" to "all"), command.data["scope"])
+        assertEquals(30, command.data["limit"])
+        assertTrue((command.data["requestId"] as? String).orEmpty().isNotBlank())
         assertTrue(vm.isRefreshingConversations.value)
 
         vm.viewModelScope.cancel()
