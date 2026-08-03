@@ -21,6 +21,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.combinedClickable
@@ -61,7 +62,7 @@ import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -110,6 +111,8 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyInfoIcon
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.theme.Blue100
 import io.nexy.android.ui.theme.Blue400
 import io.nexy.android.ui.theme.Blue500
@@ -511,17 +514,18 @@ fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (isTool) {
-                Icon(
-                    Icons.Default.Build,
+                NexyIcon(
+                    NexyIconName.Tool,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = blue,
                 )
             } else {
-                androidx.compose.material3.CircularProgressIndicator(
+                NexyIcon(
+                    NexyIconName.Busy,
+                    contentDescription = null,
                     modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                    color = textColor,
+                    tint = textColor,
                 )
             }
             if (isTool) {
@@ -563,14 +567,14 @@ fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
                     .size(8.dp)
                     .background(
                         dotColor,
-                        CircleShape,
+                        RoundedCornerShape(1.dp),
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
-                        .background(dotColor, CircleShape),
+                        .background(dotColor, RoundedCornerShape(1.dp)),
                 )
             }
         }
@@ -627,8 +631,8 @@ fun ThinkingHistoryBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    Icons.Default.Psychology,
+                NexyIcon(
+                    NexyIconName.Inspect,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = iconColor,
@@ -642,16 +646,16 @@ fun ThinkingHistoryBubble(
                 )
                 if (!collapsed && totalChars > 0) {
                     IconButton(onClick = { showFullscreen = true }, modifier = Modifier.size(24.dp)) {
-                        Icon(
-                            Icons.Default.OpenInFull,
+                        NexyIcon(
+                            NexyIconName.Expand,
                             contentDescription = "View full reasoning text",
                             modifier = Modifier.size(13.dp),
                             tint = iconColor,
                         )
                     }
                 }
-                Icon(
-                    if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+                NexyIcon(
+                    if (collapsed) NexyIconName.ChevronRight else NexyIconName.ChevronDown,
                     contentDescription = if (collapsed) "Expand thinking" else "Collapse thinking",
                     modifier = Modifier.size(16.dp),
                     tint = iconColor,
@@ -814,6 +818,7 @@ fun MessageBubble(
         // --- Assistant: full-width, no bubble, left-border accent ---
         var menuExpanded by remember { mutableStateOf(false) }
         var overflowExpanded by remember { mutableStateOf(false) }
+        var listenExpanded by remember { mutableStateOf(false) }
         val textColor = MaterialTheme.colorScheme.onSurface
         val textColorArgb = textColor.toArgb()
         val markwon = LocalMarkwon.current
@@ -837,13 +842,6 @@ fun MessageBubble(
                     if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { menuExpanded = false; onAddToProject() })
                     if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
                     if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
-                    if (onReadAloud != null) DropdownMenuItem(text = { Text("Read response") }, onClick = { menuExpanded = false; onReadAloud() })
-                    if (onQuickRecap != null) DropdownMenuItem(text = { Text("Quick Recap") }, onClick = { menuExpanded = false; onQuickRecap() })
-                    if (onAiRecap != null) DropdownMenuItem(
-                        text = { Text(if (aiRecapLoading) "Creating AI Recap…" else "AI Recap · uses provider/CLI") },
-                        onClick = { menuExpanded = false; onAiRecap() },
-                        enabled = !aiRecapLoading,
-                    )
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
                     if (onDeleteAfter != null) DropdownMenuItem(text = { Text("Delete from here") }, onClick = { menuExpanded = false; onDeleteAfter() })
                 }
@@ -987,26 +985,43 @@ fun MessageBubble(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy message", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        NexyIcon(NexyIconName.Copy, contentDescription = "Copy message", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (onShare != null) {
                         IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Share, contentDescription = "Share message", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            NexyIcon(NexyIconName.Share, contentDescription = "Share message", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     if (onReadAloud != null) {
-                        IconButton(onClick = onReadAloud, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = "Read response", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    if (onQuickRecap != null) {
-                        IconButton(onClick = onQuickRecap, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Summarize, contentDescription = "Quick Recap", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box {
+                            IconButton(onClick = { listenExpanded = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    Icons.Filled.VolumeUp,
+                                    contentDescription = "Listen",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            DropdownMenu(expanded = listenExpanded, onDismissRequest = { listenExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Full response") },
+                                    onClick = { listenExpanded = false; onReadAloud() },
+                                )
+                                if (onQuickRecap != null) DropdownMenuItem(
+                                    text = { Text("Short version") },
+                                    onClick = { listenExpanded = false; onQuickRecap() },
+                                )
+                                if (onAiRecap != null) DropdownMenuItem(
+                                    text = { Text(if (aiRecapLoading) "Creating AI summary…" else "AI summary") },
+                                    onClick = { listenExpanded = false; onAiRecap() },
+                                    enabled = !aiRecapLoading,
+                                )
+                            }
                         }
                     }
                     Box {
                         IconButton(onClick = { overflowExpanded = true }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More message actions", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            NexyIcon(NexyIconName.More, contentDescription = "More message actions", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
                             if (onSaveAsPrompt != null) DropdownMenuItem(text = { Text("Save as prompt") }, onClick = { overflowExpanded = false; onSaveAsPrompt() })
@@ -1016,11 +1031,6 @@ fun MessageBubble(
                             if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { overflowExpanded = false; onAddToProject() })
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
                             if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
-                            if (onAiRecap != null) DropdownMenuItem(
-                                text = { Text(if (aiRecapLoading) "Creating AI Recap…" else "AI Recap · uses provider/CLI") },
-                                onClick = { overflowExpanded = false; onAiRecap() },
-                                enabled = !aiRecapLoading,
-                            )
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
                         }
                     }
@@ -1036,9 +1046,9 @@ fun MessageBubble(
                         when {
                             spokenPlaybackState.status == SpokenPlaybackStatus.ERROR ->
                                 spokenPlaybackState.error ?: "Playback error"
-                            spokenPlaybackState.kind == SpokenOutputKind.QUICK_RECAP -> "Quick Recap"
+                            spokenPlaybackState.kind == SpokenOutputKind.QUICK_RECAP -> "Reading short version"
                             spokenPlaybackState.kind == SpokenOutputKind.AI_RECAP ->
-                                "AI Recap${spokenPlaybackState.model?.let { " · $it" }.orEmpty()}"
+                                "AI summary${spokenPlaybackState.model?.let { " · $it" }.orEmpty()}"
                             else -> "Reading response"
                         },
                         style = MaterialTheme.typography.labelSmall,
@@ -1050,21 +1060,21 @@ fun MessageBubble(
                     )
                     if (spokenPlaybackState.status == SpokenPlaybackStatus.PAUSED) {
                         IconButton(onClick = { onResumeSpeech?.invoke() }, enabled = onResumeSpeech != null) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Resume spoken response")
+                            NexyIcon(NexyIconName.Play, contentDescription = "Resume spoken response")
                         }
                     } else if (
                         spokenPlaybackState.status == SpokenPlaybackStatus.PLAYING ||
                         spokenPlaybackState.status == SpokenPlaybackStatus.PREPARING
                     ) {
                         IconButton(onClick = { onPauseSpeech?.invoke() }, enabled = onPauseSpeech != null) {
-                            Icon(Icons.Default.Pause, contentDescription = "Pause spoken response")
+                            NexyIcon(NexyIconName.Pause, contentDescription = "Pause spoken response")
                         }
                     }
                     IconButton(onClick = { onStopSpeech?.invoke() }, enabled = onStopSpeech != null) {
-                        Icon(Icons.Default.Stop, contentDescription = "Stop spoken response")
+                        NexyIcon(NexyIconName.Stop, contentDescription = "Stop spoken response")
                     }
                     IconButton(onClick = { onReplaySpeech?.invoke() }, enabled = onReplaySpeech != null) {
-                        Icon(Icons.Default.Replay, contentDescription = "Replay spoken response")
+                        NexyIcon(NexyIconName.Play, contentDescription = "Replay spoken response")
                     }
                 }
             }
@@ -1078,12 +1088,12 @@ fun MessageBubble(
             }
         }
     } else {
-        // --- User: right-aligned pill bubble ---
+        // --- User: right-aligned framed Command Office record ---
         var menuExpanded by remember { mutableStateOf(false) }
         val isDark = LocalNexyColors.current.isDark
         val bubbleColor = if (isDark) Blue900.copy(alpha = 0.6f) else Blue100
         val textColor = if (isDark) Gray100 else Gray900
-        val bubbleShape = RoundedCornerShape(8.dp)
+        val bubbleShape = RoundedCornerShape(4.dp)
         val displayText = remember(msg.text) { stripInjectedContextBlocks(msg.text) }
 
         Column(
@@ -1095,6 +1105,7 @@ fun MessageBubble(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(bubbleColor, bubbleShape)
+                    .border(2.dp, MaterialTheme.colorScheme.outline, bubbleShape)
                     .combinedClickable(onClick = {}, onLongClick = { menuExpanded = true })
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
@@ -1117,11 +1128,11 @@ fun MessageBubble(
                                 thumbs.forEach { att ->
                                     val bmp = remember(att.thumbnailDataUrl) { decodeDataUrl(att.thumbnailDataUrl!!) }
                                     if (bmp != null) {
-                                        Image(
+                                        PreviewableImage(
                                             bitmap = bmp.asImageBitmap(),
                                             contentDescription = att.name,
                                             contentScale = ContentScale.Crop,
-                                            modifier = Modifier.height(96.dp).width(120.dp).clip(RoundedCornerShape(8.dp)),
+                                            modifier = Modifier.height(96.dp).width(120.dp).clip(RoundedCornerShape(2.dp)),
                                         )
                                     }
                                 }
@@ -1129,14 +1140,14 @@ fun MessageBubble(
                         }
                         msg.attachments.filter { it.type != "image" || it.thumbnailDataUrl == null }.forEach { att ->
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(12.dp), tint = textColor.copy(alpha = 0.7f))
+                                NexyIcon(NexyIconName.Image, contentDescription = null, modifier = Modifier.size(12.dp), tint = textColor.copy(alpha = 0.7f))
                                 Text(att.name, style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                     if (msg.sendFailed) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.Error, contentDescription = "Send failed", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
+                            NexyIcon(NexyIconName.Error, contentDescription = "Send failed", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
                             Text("Not delivered · tap Resend", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -1208,15 +1219,15 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (inProgress) {
-                        Icon(
-                            Icons.Default.Psychology,
+                        NexyIcon(
+                            NexyIconName.Busy,
                             contentDescription = "Tool running",
                             modifier = Modifier.size(14.dp),
                             tint = Blue500,
                         )
                 } else {
-                        Icon(
-                            if (msg.toolSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                        NexyIcon(
+                            if (msg.toolSuccess) NexyIconName.Check else NexyIconName.Error,
                             contentDescription = if (msg.toolSuccess) "Tool succeeded" else "Tool failed",
                             modifier = Modifier.size(14.dp),
                             tint = if (msg.toolSuccess) Green500 else Red500,
@@ -1234,7 +1245,7 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
                 )
                 if (!msg.serverName.isNullOrBlank()) {
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = RoundedCornerShape(2.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
                     ) {
                         Text(
@@ -1256,8 +1267,8 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
                     modifier = Modifier.weight(1f),
                 )
                 if (hasDetails) {
-                    Icon(
-                        if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    NexyIcon(
+                        if (expanded) NexyIconName.ChevronDown else NexyIconName.ChevronRight,
                         contentDescription = if (expanded) "Collapse tool details" else "Expand tool details",
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1476,7 +1487,7 @@ fun ArtifactRefBubble(
 
     if (isDeleted) {
         Surface(
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(4.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -1523,10 +1534,10 @@ fun ArtifactRefBubble(
         else -> "View artifact"
     }
     val icon = when (effectiveKind) {
-        "debrief" -> Icons.AutoMirrored.Filled.MenuBook
-        "quiz" -> Icons.Default.Psychology
-        "teachback" -> Icons.Default.RecordVoiceOver
-        else -> Icons.AutoMirrored.Filled.Article
+        "debrief" -> NexyIconName.Artifact
+        "quiz" -> NexyIconName.Skill
+        "teachback" -> NexyIconName.Microphone
+        else -> NexyIconName.Artifact
     }
     val isIndigo = effectiveKind == "debrief" || effectiveKind == "quiz" || effectiveKind == "teachback"
 
@@ -1569,7 +1580,7 @@ fun ArtifactRefBubble(
             }
         },
         enabled = !ref.pending && !isLookupPending,
-        shape = RoundedCornerShape(10.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = bubbleColor,
         border = BorderStroke(1.dp, borderColor),
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -1579,7 +1590,7 @@ fun ArtifactRefBubble(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentColor)
+            NexyIcon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentColor)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     kindLabel,
@@ -1597,18 +1608,9 @@ fun ArtifactRefBubble(
                 )
             }
             if (ref.pending || isLookupPending) {
-                androidx.compose.material3.CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = accentColor,
-                )
+                NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(16.dp), tint = accentColor)
             } else {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = accentColor,
-                )
+                NexyIcon(NexyIconName.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentColor)
             }
         }
     }

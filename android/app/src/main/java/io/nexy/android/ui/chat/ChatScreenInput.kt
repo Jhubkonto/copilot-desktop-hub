@@ -1,6 +1,7 @@
 package io.nexy.android.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,23 +15,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.OpenWith
-import androidx.compose.material.icons.filled.Screenshot
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +43,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.AgentCustomCommand
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +57,6 @@ fun ChatInputBar(
     onSend: () -> Unit,
     onAttachFile: () -> Unit,
     onAttachDesktopPath: (() -> Unit)? = null,
-    onCaptureScreen: () -> Unit = {},
     onInsertPrompt: () -> Unit = {},
     onShowInspector: () -> Unit = {},
     isListening: Boolean = false,
@@ -138,32 +129,27 @@ fun ChatInputBar(
             if (showAttachOptions) {
                 ListItem(
                     headlineContent = { Text("Attach File") },
-                    leadingContent = { Icon(Icons.Default.AttachFile, contentDescription = null) },
+                    leadingContent = { NexyIcon(NexyIconName.Attach, contentDescription = null) },
                     modifier = Modifier.clickable { showAttachSheet = false; onAttachFile() },
                 )
                 onAttachDesktopPath?.let { attachDesktopPath ->
                     ListItem(
                         headlineContent = { Text("Attach from connected desktop") },
                         supportingContent = { Text("Choose a desktop file or folder") },
-                        leadingContent = { Icon(Icons.Default.OpenWith, contentDescription = null) },
+                        leadingContent = { NexyIcon(NexyIconName.Expand, contentDescription = null) },
                         modifier = Modifier.clickable { showAttachSheet = false; attachDesktopPath() },
                     )
                 }
-                ListItem(
-                    headlineContent = { Text("Latest Screenshot") },
-                    leadingContent = { Icon(Icons.Default.Screenshot, contentDescription = null) },
-                    modifier = Modifier.clickable { showAttachSheet = false; onCaptureScreen() },
-                )
             }
             ListItem(
                 headlineContent = { Text("Insert Prompt") },
-                leadingContent = { Icon(Icons.Default.TextFields, contentDescription = null) },
+                leadingContent = { NexyIcon(NexyIconName.Prompt, contentDescription = null) },
                 modifier = Modifier.clickable { showAttachSheet = false; onInsertPrompt() },
             )
             if (showAttachOptions) {
                 ListItem(
                     headlineContent = { Text("Context Inspector") },
-                    leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+                    leadingContent = { NexyIcon(NexyIconName.Inspect, contentDescription = null) },
                     modifier = Modifier.clickable { showAttachSheet = false; onShowInspector() },
                 )
             }
@@ -187,8 +173,9 @@ fun ChatInputBar(
             }
         }
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            tonalElevation = 2.dp,
+            shape = RoundedCornerShape(4.dp),
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
+            tonalElevation = 0.dp,
             color = MaterialTheme.colorScheme.surfaceVariant,
         ) {
             Column {
@@ -241,8 +228,8 @@ fun ChatInputBar(
                         onClick = { showAttachSheet = true },
                         modifier = Modifier.size(36.dp),
                     ) {
-                        Icon(
-                            Icons.Default.Add,
+                        NexyIcon(
+                            NexyIconName.Add,
                             contentDescription = "Attach or insert",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -260,8 +247,8 @@ fun ChatInputBar(
                     Spacer(Modifier.weight(1f))
                     if (!voiceDockFloating) {
                         IconButton(onClick = onVoiceInput, modifier = Modifier.size(36.dp)) {
-                            Icon(
-                                Icons.Default.Mic,
+                            NexyIcon(
+                                NexyIconName.Microphone,
                                 contentDescription = if (isListening) "Stop voice input" else "Start voice input",
                                 tint = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -269,8 +256,8 @@ fun ChatInputBar(
                     }
                     if (voiceDockAvailable && !voiceDockFloating) {
                         IconButton(onClick = onFloatVoiceDock, modifier = Modifier.size(36.dp)) {
-                            Icon(
-                                Icons.Default.OpenWith,
+                            NexyIcon(
+                                NexyIconName.Expand,
                                 contentDescription = "Float microphone",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -283,7 +270,7 @@ fun ChatInputBar(
                             .background(
                                 color = if (canSend) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                                shape = CircleShape,
+                                shape = RoundedCornerShape(2.dp),
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -292,8 +279,8 @@ fun ChatInputBar(
                             enabled = canSend,
                             modifier = Modifier.size(40.dp),
                         ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
+                            NexyIcon(
+                                NexyIconName.Send,
                                 contentDescription = "Send",
                                 tint = if (canSend) MaterialTheme.colorScheme.onPrimary
                                 else MaterialTheme.colorScheme.onSurface,

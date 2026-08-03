@@ -1,5 +1,6 @@
 package io.nexy.android.ui.chat
 
+import android.animation.ValueAnimator
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -26,15 +27,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -52,11 +47,14 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import io.nexy.android.ui.components.nexyDither
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.PromptEntry
@@ -64,6 +62,9 @@ import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.theme.LocalNexyEightBit
 import kotlin.math.roundToInt
 
 @Composable
@@ -72,7 +73,8 @@ fun AttachmentChip(attachment: PendingAttachment, onRemove: () -> Unit) {
         if (attachment.isImage && attachment.dataUrl != null) decodeDataUrl(attachment.dataUrl) else null
     }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Row(
@@ -81,7 +83,7 @@ fun AttachmentChip(attachment: PendingAttachment, onRemove: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (thumbnail != null) {
-                Image(
+                PreviewableImage(
                     bitmap = thumbnail.asImageBitmap(),
                     contentDescription = attachment.name,
                     contentScale = ContentScale.Crop,
@@ -90,8 +92,8 @@ fun AttachmentChip(attachment: PendingAttachment, onRemove: () -> Unit) {
                         .clip(RoundedCornerShape(10.dp)),
                 )
             } else {
-                Icon(
-                    if (attachment.isImage) Icons.Default.Image else Icons.Default.AttachFile,
+                NexyIcon(
+                    if (attachment.isImage) NexyIconName.Image else NexyIconName.Attach,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp).padding(start = 4.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -106,8 +108,8 @@ fun AttachmentChip(attachment: PendingAttachment, onRemove: () -> Unit) {
                 modifier = Modifier.widthIn(max = 120.dp),
             )
             IconButton(onClick = onRemove, modifier = Modifier.size(20.dp)) {
-                Icon(
-                    Icons.Default.Close,
+                NexyIcon(
+                    NexyIconName.Close,
                     contentDescription = "Remove",
                     modifier = Modifier.size(12.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -219,11 +221,11 @@ fun ModelPickerSheet(
                 value = modelQuery,
                 onValueChange = { modelQuery = it },
                 placeholder = { Text("Search models…", style = MaterialTheme.typography.bodyMedium) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                leadingIcon = { NexyIcon(NexyIconName.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                 trailingIcon = {
                     if (modelQuery.isNotEmpty()) {
                         IconButton(onClick = { modelQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                            NexyIcon(NexyIconName.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                         }
                     }
                 },
@@ -378,8 +380,8 @@ fun EmptyChatContent(agentLabel: String?, projectLabel: String?) {
 
 // Placeholder rows shown while an existing conversation's history is still loading from disk —
 // alternating alignment/width to loosely echo the user/assistant bubble shapes so the swap to
-// real content doesn't jump the layout around. A shared alpha pulse (not per-row Animatables)
-// keeps every row in sync and avoids restarting the animation on each recomposition.
+// real content doesn't jump the layout around. Classic retains its original shared pulse;
+// the 8-bit style uses a slower pulse over its dithered loading record.
 private data class SkeletonRow(val alignEnd: Boolean, val widthFraction: Float)
 
 private val chatSkeletonRows = listOf(
@@ -392,6 +394,30 @@ private val chatSkeletonRows = listOf(
 
 @Composable
 fun ChatLoadingSkeleton() {
+    if (LocalNexyEightBit.current) {
+        val motionEnabled = !LocalInspectionMode.current && ValueAnimator.areAnimatorsEnabled()
+        val transition = rememberInfiniteTransition(label = "retro-chat-skeleton-pulse")
+        val pulseAlpha by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = if (motionEnabled) 0.62f else 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_400),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "retro-chat-skeleton-pulse-alpha",
+        )
+        ChatSkeletonRows(
+            shape = RoundedCornerShape(2.dp),
+            decoration = Modifier
+                .graphicsLayer(alpha = pulseAlpha)
+                .nexyDither(
+                    background = MaterialTheme.colorScheme.surfaceVariant,
+                    foreground = MaterialTheme.colorScheme.outlineVariant,
+                ),
+        )
+        return
+    }
+
     val transition = rememberInfiniteTransition(label = "chat-skeleton-pulse")
     val pulseAlpha by transition.animateFloat(
         initialValue = 0.35f,
@@ -402,8 +428,19 @@ fun ChatLoadingSkeleton() {
         ),
         label = "chat-skeleton-pulse-alpha",
     )
-    val shimmerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.25f)
+    ChatSkeletonRows(
+        shape = RoundedCornerShape(8.dp),
+        decoration = Modifier.background(
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.25f),
+        ),
+    )
+}
 
+@Composable
+private fun ChatSkeletonRows(
+    shape: RoundedCornerShape,
+    decoration: Modifier,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -417,8 +454,8 @@ fun ChatLoadingSkeleton() {
                         .align(if (row.alignEnd) Alignment.CenterEnd else Alignment.CenterStart)
                         .fillMaxWidth(row.widthFraction)
                         .height(16.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(shimmerColor),
+                        .clip(shape)
+                        .then(decoration),
                 )
             }
         }

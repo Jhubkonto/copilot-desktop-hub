@@ -1605,6 +1605,10 @@ class ChatViewModel(
     }
 
     private fun sendMessage(text: String, retryMessageId: String?) {
+        if (wsClient === WsRepository && WsRepository.emergencyStopActive.value) {
+            _sendError.value = "Emergency stop is active. Resume conversations before sending."
+            return
+        }
         val atts = _attachments.value
         if (text.isBlank() && atts.isEmpty()) return
         _attachments.value = emptyList()
@@ -1623,7 +1627,9 @@ class ChatViewModel(
             text = if (augmented.isBlank() && imageAtts.isNotEmpty()) "" else augmented,
             isUser = true,
             isStreaming = false,
-            attachments = imageAtts.map { AttachmentMeta(id = it.id, name = it.name, type = "image", thumbnailDataUrl = null) },
+            attachments = imageAtts.map {
+                AttachmentMeta(id = it.id, name = it.name, type = "image", thumbnailDataUrl = it.dataUrl)
+            },
         )
         if (retryMessageId == null) {
             _messages.value = _messages.value + optimisticMessage

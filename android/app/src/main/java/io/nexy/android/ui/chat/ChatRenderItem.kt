@@ -109,9 +109,16 @@ sealed class ChatRenderItem {
 // The most recent text segment (by firstSeenAt) is excluded from the interleaved timeline —
 // it becomes the owning message's own displayed text (see AssistantMessage/MessageBubble's
 // displayText) instead of an inline item, so the reply reads as "narration, tool calls,
-// narration, ..., final answer" rather than repeating the final segment's text twice.
+// narration, ..., final answer" rather than repeating the final segment's text twice. Segment
+// list order breaks timestamp ties and, importantly, selects the last segment for legacy Room
+// rows whose firstSeenAt values were lost during serialization.
 fun tailTextSegment(textSegments: List<ThinkingBlock>): ThinkingBlock? =
-    textSegments.maxByOrNull { it.firstSeenAt ?: 0L }
+    textSegments.withIndex().maxWithOrNull(
+        compareBy<IndexedValue<ThinkingBlock>>(
+            { it.value.firstSeenAt ?: Long.MIN_VALUE },
+            { it.index },
+        ),
+    )?.value
 
 fun buildChatRenderItems(
     messages: List<ChatMessage>,

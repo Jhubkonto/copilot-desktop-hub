@@ -5,8 +5,6 @@ import android.Manifest
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -51,10 +49,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -74,6 +69,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -269,6 +266,7 @@ fun ChatScreen(
     val voiceCapabilities by WsRepository.voiceCapabilities.collectAsStateWithLifecycle()
     val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
+    val emergencyStopActive by WsRepository.emergencyStopActive.collectAsStateWithLifecycle()
     val conversation = conversations.find { it.id == conversationId }
     val isCompleted = conversation?.completed_at != null
     val conversationRating = conversation?.rating
@@ -360,6 +358,7 @@ fun ChatScreen(
     var showModeSheet by remember { mutableStateOf(false) }
     val modeSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
+    var showEmergencyStopConfirmation by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
     val promptSheetState = rememberModalBottomSheetState()
     var showInspectorSheet by remember { mutableStateOf(false) }
@@ -368,7 +367,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val preferenceStore = remember(context) { PreferenceStore.getInstance(context) }
     val voiceDockEnabled by preferenceStore.getVoiceDockV1().collectAsState(initial = true)
-    val spokenOutputEnabled by preferenceStore.getSpokenOutputV1().collectAsState(initial = false)
+    val spokenOutputEnabled by preferenceStore.getSpokenOutputV1().collectAsState(initial = true)
     val spokenOutputSettings by preferenceStore.getSpokenOutputSettings().collectAsState(
         initial = preferenceStore.currentSpokenOutputSettings(),
     )
@@ -568,82 +567,6 @@ fun ChatScreen(
     }
 
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
-
-    val attachLatestScreenshot: () -> Unit = attachLatestScreenshot@{
-        val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.DISPLAY_NAME,
-            MediaStore.Images.Media.MIME_TYPE,
-        )
-        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-        } else {
-            "${MediaStore.Images.Media.DATA} LIKE ?"
-        }
-        val selectionArg = "%Screenshot%"
-        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
-        val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-        val cursor = context.contentResolver.query(uri, projection, selection, arrayOf(selectionArg), sortOrder)
-            ?: run {
-                scope.launch { snackbarHostState.showSnackbar("Could not query screenshots.") }
-                return@attachLatestScreenshot
-            }
-        val imageUri = cursor.use { c ->
-            if (!c.moveToFirst()) return@use null
-            val idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            val id = c.getLong(idCol)
-            android.content.ContentUris.withAppendedId(uri, id)
-        }
-        if (imageUri == null) {
-            scope.launch { snackbarHostState.showSnackbar("No screenshots found.") }
-            return@attachLatestScreenshot
-        }
-        val mimeType = context.contentResolver.getType(imageUri) ?: "image/png"
-        val name = context.contentResolver.query(imageUri, null, null, null, null)?.use { c ->
-            val idx = runCatching { c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME) }.getOrElse { -1 }
-            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
-        } ?: "screenshot.png"
-        val inputStream = context.contentResolver.openInputStream(imageUri) ?: run {
-            scope.launch { snackbarHostState.showSnackbar("Could not read screenshot.") }
-            return@attachLatestScreenshot
-        }
-        val bytes = inputStream.use { it.readBytes() }
-        if (bytes.size > 4 * 1024 * 1024) {
-            scope.launch { snackbarHostState.showSnackbar("Screenshot is larger than 4 MB.") }
-            return@attachLatestScreenshot
-        }
-        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-        vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
-    }
-
-    // On Android 14+, the system permission dialog offers "Select photos..." as well as
-    // "Allow all". Picking "Select photos..." grants only READ_MEDIA_VISUAL_USER_SELECTED,
-    // not READ_MEDIA_IMAGES — so both must be requested and checked, or a partial grant
-    // is reported back as a denial even though the user did grant access.
-    val screenshotPermissions = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
-            Manifest.permission.READ_MEDIA_IMAGES,
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-        )
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
-        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-
-    fun hasScreenshotPermission(): Boolean = screenshotPermissions.any {
-        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-    }
-
-    val screenshotPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        if (results.values.any { it }) attachLatestScreenshot()
-        else scope.launch { snackbarHostState.showSnackbar("Permission denied — cannot read screenshots.") }
-    }
-
-    val onCaptureScreen: () -> Unit = {
-        if (hasScreenshotPermission()) attachLatestScreenshot()
-        else screenshotPermissionLauncher.launch(screenshotPermissions)
-    }
 
     // Expanding a persisted history into timeline items may involve hundreds of reasoning
     // blocks, tool calls, and timestamp sorts. Do it away from the Compose thread so the
@@ -1028,7 +951,11 @@ fun ChatScreen(
     }
 
     val assistantBusy = isStreaming || isAwaitingResponse
+    LaunchedEffect(emergencyStopActive) {
+        if (emergencyStopActive && assistantBusy) vm.stopStream()
+    }
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) &&
+        !emergencyStopActive &&
         !assistantBusy &&
         (connectionState == ConnectionState.CONNECTED || capabilities.internetState != InternetState.UNAVAILABLE)
     val draftAgent = agentId?.let { id -> agents.find { it.id == id } }
@@ -1118,6 +1045,23 @@ fun ChatScreen(
             },
             onImportNavigate = { importedId ->
                 onOpenFork?.invoke(importedId)
+            },
+        )
+    }
+
+    if (showEmergencyStopConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showEmergencyStopConfirmation = false },
+            title = { Text("Emergency stop all conversations?") },
+            text = { Text("This immediately cancels every active response and blocks new messages until you explicitly resume.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showEmergencyStopConfirmation = false
+                    WsRepository.activateEmergencyStop()
+                }) { Text("Emergency stop", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmergencyStopConfirmation = false }) { Text("Cancel") }
             },
         )
     }
@@ -1451,6 +1395,7 @@ fun ChatScreen(
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary,
                         )
+                        Spacer(modifier = Modifier.size(6.dp))
                         Column(modifier = Modifier.widthIn(max = 118.dp)) {
                             Text(
                                 activeModelLabel,
@@ -1468,8 +1413,8 @@ fun ChatScreen(
                         }
                     }
                     IconButton(onClick = { showModeSheet = true }) {
-                        Icon(
-                            Icons.Default.Settings,
+                        NexyIcon(
+                            NexyIconName.Settings,
                             contentDescription = "Chat mode settings",
                             tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null || chatTerminalSandboxOverride != null || (activeCliBackend != null && chatCliModeOverride != null))
                                 MaterialTheme.colorScheme.primary
@@ -1481,11 +1426,23 @@ fun ChatScreen(
                         IconButton(
                             onClick = { vm.stopStream() },
                         ) {
-                            Icon(Icons.Default.Stop, contentDescription = "Stop")
+                            NexyIcon(NexyIconName.Stop, contentDescription = "Stop")
                         }
                     }
+                    IconButton(
+                        onClick = {
+                            if (emergencyStopActive) WsRepository.resumeConversations()
+                            else showEmergencyStopConfirmation = true
+                        },
+                    ) {
+                        NexyIcon(
+                            if (emergencyStopActive) NexyIconName.Play else NexyIconName.Warning,
+                            contentDescription = if (emergencyStopActive) "Resume conversations" else "Emergency stop all conversations",
+                            tint = if (emergencyStopActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     IconButton(onClick = { showActionsSheet = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More actions")
+                        NexyIcon(NexyIconName.More, contentDescription = "More actions")
                     }
                 },
             )
@@ -1517,7 +1474,6 @@ fun ChatScreen(
                 },
                 onAttachFile = { filePicker.launch("*/*") },
                 onAttachDesktopPath = onOpenDesktopPathPicker,
-                onCaptureScreen = onCaptureScreen,
                 onInsertPrompt = {
                     // Project prompts must be requested with the active project. Calling the
                     // unscoped list here replaces the repository flow with global prompts only,

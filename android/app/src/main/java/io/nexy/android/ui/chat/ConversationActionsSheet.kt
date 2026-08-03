@@ -13,20 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -41,13 +30,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyInfoDialog
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -135,7 +125,7 @@ fun ConversationActionsSheet(
                     enabled = !state.compressionSaving,
                 ) {
                     if (state.compressionSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(16.dp))
                     } else {
                         Text("Compress")
                     }
@@ -204,7 +194,7 @@ fun ConversationActionsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             ActionRow(
-                icon = Icons.Default.Download,
+                icon = NexyIconName.Download,
                 label = "Export as JSON",
                 sublabel = "Full conversation data",
                 loading = state.isExporting,
@@ -212,7 +202,7 @@ fun ConversationActionsSheet(
             )
 
             ActionRow(
-                icon = Icons.Default.Download,
+                icon = NexyIconName.Download,
                 label = "Export as Markdown",
                 sublabel = "Human-readable transcript",
                 loading = state.isExporting,
@@ -220,7 +210,7 @@ fun ConversationActionsSheet(
             )
 
             ActionRow(
-                icon = Icons.Default.Upload,
+                icon = NexyIconName.Upload,
                 label = "Import JSON",
                 sublabel = "Restore a previously exported conversation",
                 loading = state.isImporting,
@@ -228,7 +218,7 @@ fun ConversationActionsSheet(
             )
 
             ActionRow(
-                icon = Icons.Default.PushPin,
+                icon = NexyIconName.Pin,
                 label = if (state.isPinned) "Unpin conversation" else "Pin conversation",
                 sublabel = if (state.isPinned) "Remove from pinned chats" else "Keep at top of chat list",
                 loading = state.isPinning,
@@ -236,7 +226,7 @@ fun ConversationActionsSheet(
             )
 
             ActionRow(
-                icon = Icons.Default.Star,
+                icon = NexyIconName.Rating,
                 label = if (currentRating != null) "Rated $currentRating/5" else "Rate conversation",
                 sublabel = "Tell Nexy how this conversation went",
                 loading = false,
@@ -250,10 +240,10 @@ fun ConversationActionsSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     for (star in 1..5) {
-                        Icon(
-                            imageVector = if (currentRating != null && star <= currentRating) Icons.Default.Star else Icons.Default.StarBorder,
+                        NexyIcon(
+                            name = NexyIconName.Rating,
                             contentDescription = "$star star${if (star == 1) "" else "s"}",
-                            tint = MaterialTheme.colorScheme.tertiary,
+                            tint = if (currentRating != null && star <= currentRating) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline,
                             modifier = Modifier
                                 .size(28.dp)
                                 .clickable {
@@ -266,7 +256,7 @@ fun ConversationActionsSheet(
             }
 
             ActionRow(
-                icon = Icons.Default.Compress,
+                icon = NexyIconName.Compress,
                 label = "Compress conversation",
                 sublabel = "Summarise old messages to free up context",
                 loading = state.compressionDraftLoading,
@@ -276,7 +266,7 @@ fun ConversationActionsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 4.dp))
 
             ActionRow(
-                icon = Icons.AutoMirrored.Filled.CallSplit,
+                icon = NexyIconName.Fork,
                 label = "Fork conversation",
                 sublabel = "Continue in a new branch or project",
                 loading = state.isForkInProgress,
@@ -284,7 +274,7 @@ fun ConversationActionsSheet(
             )
 
             ActionRow(
-                icon = Icons.Default.Archive,
+                icon = NexyIconName.Archive,
                 label = "Archive conversation",
                 sublabel = "Hide from the active conversation list",
                 loading = false,
@@ -301,7 +291,7 @@ fun ConversationActionsSheet(
 
 @Composable
 private fun ActionRow(
-    icon: ImageVector,
+    icon: NexyIconName,
     label: String,
     sublabel: String,
     loading: Boolean,
@@ -314,13 +304,13 @@ private fun ActionRow(
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        NexyIcon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
             Text(label, style = MaterialTheme.typography.bodyMedium)
             Text(sublabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

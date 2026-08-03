@@ -11,20 +11,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -42,12 +36,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.local.ConversationSummaryEntity
 import io.nexy.android.data.model.ContextInspectorAttachmentSnapshot
 import io.nexy.android.data.model.ContextInspectorRefSnapshot
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.min
@@ -95,7 +92,7 @@ fun ContextInspectorSheet(
             item {
                 if (state.loading && state.snapshot == null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         Text("Loading context from desktop…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else if (state.snapshot == null) {
@@ -139,7 +136,11 @@ fun ContextInspectorSheet(
                 }
 
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Card(
+                        shape = RectangleShape,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Current chat", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                             LabelValueRow("History", "${snapshot.historyMessageCount} messages")
@@ -172,7 +173,7 @@ private fun TokenBudgetCard(totalTokens: Int, maxTokens: Int) {
         pct >= 0.5f -> Color(0xFFF59E0B)
         else -> Color(0xFF10B981)
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(shape = RectangleShape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LinearProgressIndicator(
@@ -180,7 +181,7 @@ private fun TokenBudgetCard(totalTokens: Int, maxTokens: Int) {
                     modifier = Modifier
                         .weight(1f)
                         .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
+                        .clip(RectangleShape),
                     color = color,
                     trackColor = MaterialTheme.colorScheme.outlineVariant,
                 )
@@ -197,7 +198,7 @@ private fun TokenBudgetCard(totalTokens: Int, maxTokens: Int) {
 
 @Composable
 private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(modifier = modifier, shape = RectangleShape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -250,8 +251,8 @@ private fun ExpandableTextSection(label: String, tokenLabel: String, body: Strin
     Column {
         InfoRow(label = label, value = "$tokenLabel tok")
         TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp)) {
-            Icon(
-                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            NexyIcon(
+                if (expanded) NexyIconName.ChevronDown else NexyIconName.ChevronRight,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
             )
@@ -259,7 +260,7 @@ private fun ExpandableTextSection(label: String, tokenLabel: String, body: Strin
             Text(if (expanded) "Hide prompt" else "Show prompt", style = MaterialTheme.typography.labelSmall)
         }
         if (expanded) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Card(shape = RectangleShape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Text(
                     body,
                     style = MaterialTheme.typography.bodySmall,
@@ -279,15 +280,15 @@ private fun ExpandableTextSection(label: String, tokenLabel: String, body: Strin
  */
 @Composable
 private fun StandaloneCompressionCard(loading: Boolean, summary: ConversationSummaryEntity?) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(shape = RectangleShape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.Compress, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyIcon(NexyIconName.Compress, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Compression (standalone)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             }
             when {
                 loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     Text("Loading…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 summary == null -> Text(
@@ -314,10 +315,10 @@ private fun CompressionCard(
     state: ContextInspectorState,
     vm: ContextInspectorViewModel,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(shape = RectangleShape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.Compress, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyIcon(NexyIconName.Compress, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Compression", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             }
 
@@ -337,7 +338,7 @@ private fun CompressionCard(
                 }
             } else if (state.compressionPreviewLoading) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     Text("Loading…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
@@ -350,7 +351,7 @@ private fun CompressionCard(
                 contentPadding = PaddingValues(0.dp),
             ) {
                 if (state.compressionDraftLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(if (state.compressionDraftLoading) "Preparing…" else "Compress now")
@@ -374,7 +375,7 @@ private fun CompressionCard(
             confirmButton = {
                 TextButton(onClick = { vm.saveCompression(conversationId) }, enabled = !state.compressionSaving) {
                     if (state.compressionSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                     } else {
                         Text("Save summary")
                     }
