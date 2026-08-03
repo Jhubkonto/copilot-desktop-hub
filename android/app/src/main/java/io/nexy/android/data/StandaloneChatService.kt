@@ -26,6 +26,7 @@ class StandaloneChatService(
     private val providerStore: StandaloneProviderStore,
     private val emit: suspend (WsEvent) -> Unit,
 ) {
+    @Volatile private var emergencyStopped = false
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
@@ -52,6 +53,10 @@ class StandaloneChatService(
     }
 
     suspend fun send(data: Map<String, Any>) {
+        if (emergencyStopped) {
+            emit(WsEvent.ChatActivity(data["conversationId"] as? String ?: "", "error", "Emergency stop is active", null, null))
+            return
+        }
         val conversationId = data["conversationId"] as? String ?: return
         val content = data["content"] as? String ?: ""
         val agentId = data["agentId"] as? String
@@ -122,6 +127,8 @@ class StandaloneChatService(
             )
             val call = client.newCall(request)
             activeCalls[conversationId] = call
+            // Close the small race where the latch flips while this turn is preparing its request.
+            if (emergencyStopped) call.cancel()
             withContext(Dispatchers.IO) {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
@@ -191,6 +198,15 @@ class StandaloneChatService(
 
     fun stop(conversationId: String) {
         activeCalls.remove(conversationId)?.cancel()
+    }
+
+    fun activateEmergencyStop() {
+        emergencyStopped = true
+        activeCalls.values.forEach { it.cancel() }
+    }
+
+    fun resumeConversations() {
+        emergencyStopped = false
     }
 
     suspend fun test(provider: String, key: String, endpoint: String? = null): Pair<Boolean, String?> =

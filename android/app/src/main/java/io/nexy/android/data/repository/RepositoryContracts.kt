@@ -83,7 +83,7 @@ interface AgentRepository {
 interface ProjectRepository {
     val projects: StateFlow<List<Project>>
     suspend fun createProject(name: String, color: String): Project
-    suspend fun renameProject(id: String, name: String)
+    suspend fun renameProject(id: String, name: String, color: String? = null)
     suspend fun deleteProject(id: String)
 }
 

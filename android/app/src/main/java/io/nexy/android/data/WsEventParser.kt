@@ -224,7 +224,7 @@ fun parseWsEvent(
 
             "voice:ai-recap-error" -> WsEvent.VoiceAiRecapError(
                 messageId = data?.optString("messageId") ?: return,
-                message = data.optString("message", "AI recap failed."),
+                message = data.optString("message", "AI summary failed."),
             )
 
             "sync:welcome" -> WsEvent.SyncWelcome(
@@ -357,6 +357,17 @@ fun parseWsEvent(
                 val list = parseConversationArray(rows)
                 conversations.value = list
                 WsEvent.ConversationList(list)
+            }
+
+            "conversation:list-page" -> {
+                val rows = data?.optJSONArray("items") ?: JSONArray()
+                WsEvent.ConversationPage(
+                    requestId = data?.optString("requestId") ?: "",
+                    conversations = parseConversationArray(rows),
+                    totalCount = data?.optInt("totalCount", 0) ?: 0,
+                    nextCursor = data?.nullableString("nextCursor"),
+                    hasMore = data?.optBoolean("hasMore", false) ?: false,
+                )
             }
 
             "project:list" -> {
@@ -1202,8 +1213,9 @@ fun parseWsEvent(
             "project:renamed" -> {
                 val id = data?.optString("id") ?: ""
                 val name = data?.optString("name") ?: ""
-                projects.value = projects.value.map { if (it.id == id) it.copy(name = name) else it }
-                WsEvent.ProjectRenamed(id, name)
+                val color = data?.nullableString("color")
+                projects.value = projects.value.map { if (it.id == id) it.copy(name = name, color = color ?: it.color) else it }
+                WsEvent.ProjectRenamed(id, name, color)
             }
 
             "project:deleted" -> {

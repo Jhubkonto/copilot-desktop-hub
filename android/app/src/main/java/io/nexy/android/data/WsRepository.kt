@@ -121,6 +121,29 @@ object WsRepository : WsClient {
     private val _reconnectExhausted = MutableStateFlow(false)
     val reconnectExhausted: StateFlow<Boolean> = _reconnectExhausted
 
+    private val _emergencyStopActive = MutableStateFlow(false)
+    val emergencyStopActive: StateFlow<Boolean> = _emergencyStopActive
+
+    fun activateEmergencyStop() {
+        _emergencyStopActive.value = true
+        app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(true) }
+        if (_connectionState.value == ConnectionState.CONNECTED && !_preferStandaloneMode.value) {
+            send("chat:activate-emergency-stop", emptyMap())
+        } else {
+            standaloneChat?.activateEmergencyStop()
+        }
+    }
+
+    fun resumeConversations() {
+        _emergencyStopActive.value = false
+        app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(false) }
+        if (_connectionState.value == ConnectionState.CONNECTED && !_preferStandaloneMode.value) {
+            send("chat:resume-conversations", emptyMap())
+        } else {
+            standaloneChat?.resumeConversations()
+        }
+    }
+
 
     private val _serverVersion = MutableStateFlow<String?>(null)
     val serverVersion: StateFlow<String?> = _serverVersion
@@ -996,6 +1019,8 @@ object WsRepository : WsClient {
             .onFailure { _lastError.value = it.message ?: "Unable to open secure pairing storage" }
             .getOrNull()
         val preferenceStore = PreferenceStore.getInstance(application)
+        _emergencyStopActive.value = preferenceStore.isEmergencyStopActive()
+        if (_emergencyStopActive.value) standaloneChat?.activateEmergencyStop()
         scope.launch {
             preferenceStore.getPreferStandaloneMode().collect { prefer ->
                 val wasStandalone = _preferStandaloneMode.value
@@ -1195,6 +1220,7 @@ object WsRepository : WsClient {
             refreshProfiles()
         }
         flushPendingCommands()
+        send("chat:get-emergency-stop", emptyMap())
         // If the desktop doesn't send the "connected" event within 15s, treat it as a failure.
         handshakeTimeoutJob?.cancel()
         handshakeTimeoutJob = scope.launch {
@@ -1213,6 +1239,13 @@ object WsRepository : WsClient {
     }
 
     private fun onWsMessage(text: String) {
+        runCatching {
+            val envelope = JSONObject(text)
+            if (envelope.optString("event") == "chat:emergency-stop-changed") {
+                _emergencyStopActive.value = envelope.optJSONObject("data")?.optBoolean("active", false) == true
+                app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(_emergencyStopActive.value) }
+            }
+        }
         val isSyncWelcome = text.take(160).contains("\"sync:welcome\"")
         val parseStartedAt = if (isSyncWelcome) android.os.SystemClock.elapsedRealtime() else 0L
         if (isSyncWelcome) {
@@ -1789,6 +1822,43 @@ object WsRepository : WsClient {
             "conversation:list" -> {
                 _events.tryEmit(WsEvent.ConversationList(local.conversations.value))
             }
+            "conversation:list-page" -> {
+                val scopeType = data["scopeType"] as? String ?: "all"
+                val scopeId = data["scopeId"] as? String
+                val query = (data["query"] as? String).orEmpty().trim()
+                val offset = (data["cursor"] as? String)
+                    ?.removePrefix("local:")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val limit = ((data["limit"] as? Number)?.toInt() ?: 30).coerceIn(1, 100)
+                val filtered = local.conversations.value
+                    .asSequence()
+                    .filter { conversation ->
+                        when (scopeType) {
+                            "project" -> conversation.project_id == scopeId
+                            "agent" -> conversation.agent_id == scopeId
+                            else -> true
+                        }
+                    }
+                    .filter { conversation ->
+                        query.isBlank() || listOfNotNull(
+                            conversation.title,
+                            conversation.last_message,
+                            conversation.agent_name,
+                            conversation.project_name,
+                        ).any { it.contains(query, ignoreCase = true) }
+                    }
+                    .sortedWith(compareByDescending<Conversation> { it.pinned }
+                        .thenByDescending { it.updated_at }.thenByDescending { it.id })
+                    .toList()
+                val items = filtered.drop(offset).take(limit)
+                val nextOffset = offset + items.size
+                _events.tryEmit(WsEvent.ConversationPage(
+                    requestId = data["requestId"] as? String ?: "",
+                    conversations = items,
+                    totalCount = filtered.size,
+                    nextCursor = if (nextOffset < filtered.size) "local:$nextOffset" else null,
+                    hasMore = nextOffset < filtered.size,
+                ))
+            }
             "model:list" -> {
                 _events.tryEmit(
                     WsEvent.ModelList(
@@ -1901,9 +1971,10 @@ object WsRepository : WsClient {
             "project:rename" -> {
                 val id = data["id"] as? String ?: return true
                 val name = data["name"] as? String ?: return true
+                val color = data["color"] as? String
                 scope.launch {
-                    local.renameProject(id, name)
-                    _events.emit(WsEvent.ProjectRenamed(id, name))
+                    local.renameProject(id, name, color)
+                    _events.emit(WsEvent.ProjectRenamed(id, name, color))
                 }
             }
             "project:delete" -> {
@@ -2080,7 +2151,24 @@ object WsRepository : WsClient {
                 }
             }
             "chat:send-message" -> {
-                scope.launch { standaloneChat?.send(data) }
+                if (_emergencyStopActive.value) {
+                    _lastError.value = "Emergency stop is active. Resume conversations before sending."
+                } else {
+                    scope.launch { standaloneChat?.send(data) }
+                }
+            }
+            "chat:get-emergency-stop" -> {
+                // StateFlow is already authoritative for standalone mode.
+            }
+            "chat:activate-emergency-stop" -> {
+                _emergencyStopActive.value = true
+                app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(true) }
+                standaloneChat?.activateEmergencyStop()
+            }
+            "chat:resume-conversations" -> {
+                _emergencyStopActive.value = false
+                app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(false) }
+                standaloneChat?.resumeConversations()
             }
             "agent:stop" -> {
                 val conversationId = data["conversationId"] as? String ?: return true
@@ -2169,6 +2257,29 @@ object WsRepository : WsClient {
         .take(2_000)
 
     fun listConversations() { send("conversation:list", emptyMap()) }
+    fun listConversationPage(
+        scopeType: String,
+        scopeId: String?,
+        query: String,
+        cursor: String?,
+        requestId: String,
+        limit: Int = 30,
+    ) {
+        val payload = mutableMapOf<String, Any>(
+            "scopeType" to scopeType,
+            "query" to query,
+            "requestId" to requestId,
+            "limit" to limit,
+        )
+        scopeId?.let { payload["scopeId"] = it }
+        cursor?.let { payload["cursor"] = it }
+        // The desktop contract nests scope; retain the flat fields for local-mode handling.
+        payload["scope"] = buildMap<String, Any> {
+            put("type", scopeType)
+            scopeId?.let { put("id", it) }
+        }
+        send("conversation:list-page", payload)
+    }
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
     fun archiveConversation(id: String) {
@@ -2432,6 +2543,7 @@ object WsRepository : WsClient {
     }
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
     fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
+    fun updateProjectColor(id: String, name: String, color: String) { send("project:rename", mapOf("id" to id, "name" to name, "color" to color)) }
     fun deleteProject(id: String) { send("project:delete", mapOf("id" to id)) }
     fun createAgent(name: String, icon: String) { send("agent:create", mapOf("name" to name, "icon" to icon)) }
     fun updateAgent(id: String, name: String, icon: String) { send("agent:update", mapOf("id" to id, "name" to name, "icon" to icon)) }

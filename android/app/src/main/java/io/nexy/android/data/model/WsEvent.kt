@@ -175,6 +175,13 @@ sealed class WsEvent {
         val durationMs: Long?,
     ) : WsEvent()
     data class ConversationList(val conversations: List<Conversation>) : WsEvent()
+    data class ConversationPage(
+        val requestId: String,
+        val conversations: List<Conversation>,
+        val totalCount: Int,
+        val nextCursor: String?,
+        val hasMore: Boolean,
+    ) : WsEvent()
     data class ConversationMessages(
         val conversationId: String,
         val messages: List<HistoryMessage>,
@@ -390,7 +397,7 @@ sealed class WsEvent {
     data class RemoteEditReportsChanged(val reportId: String, val status: String) : WsEvent()
     data class RemoteEditInvestigationSettingsLoaded(val settings: RemoteEditInvestigationSettings) : WsEvent()
     data class ProjectCreated(val project: Project) : WsEvent()
-    data class ProjectRenamed(val id: String, val name: String) : WsEvent()
+    data class ProjectRenamed(val id: String, val name: String, val color: String? = null) : WsEvent()
     data class ProjectDeleted(val id: String) : WsEvent()
     data class AgentCreated(val agent: Agent) : WsEvent()
     data class AgentUpdated(val agent: Agent) : WsEvent()

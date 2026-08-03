@@ -16,6 +16,7 @@ class PreferenceStore private constructor(context: Context) {
         }
 
         private const val PREFER_STANDALONE_MODE = "prefer_standalone_mode"
+        private const val EMERGENCY_STOP_ACTIVE = "emergency_stop_active"
         private const val READ_ALOUD_ENABLED = "read_aloud_enabled"
         private const val FEATURE_VOICE_DOCK_V1 = "feature_voice_dock_v1"
         private const val FEATURE_SPOKEN_OUTPUT_V1 = "feature_spoken_output_v1"
@@ -38,7 +39,7 @@ class PreferenceStore private constructor(context: Context) {
     private val _preferStandaloneMode = MutableStateFlow(prefs.getBoolean(PREFER_STANDALONE_MODE, false))
     private val _readAloudEnabled = MutableStateFlow(prefs.getBoolean(READ_ALOUD_ENABLED, false))
     private val _voiceDockV1 = MutableStateFlow(prefs.getBoolean(FEATURE_VOICE_DOCK_V1, true))
-    private val _spokenOutputV1 = MutableStateFlow(prefs.getBoolean(FEATURE_SPOKEN_OUTPUT_V1, false))
+    private val _spokenOutputV1 = MutableStateFlow(prefs.getBoolean(FEATURE_SPOKEN_OUTPUT_V1, true))
     private val _spokenOutputSettings = MutableStateFlow(readSpokenOutputSettings())
 
     fun getPreferStandaloneMode(): Flow<Boolean> = _preferStandaloneMode
@@ -46,6 +47,12 @@ class PreferenceStore private constructor(context: Context) {
     fun setPreferStandaloneMode(value: Boolean) {
         prefs.edit().putBoolean(PREFER_STANDALONE_MODE, value).apply()
         _preferStandaloneMode.value = value
+    }
+
+    fun isEmergencyStopActive(): Boolean = prefs.getBoolean(EMERGENCY_STOP_ACTIVE, false)
+
+    fun setEmergencyStopActive(value: Boolean) {
+        prefs.edit().putBoolean(EMERGENCY_STOP_ACTIVE, value).apply()
     }
 
     fun getReadAloudEnabled(): Flow<Boolean> = _readAloudEnabled
