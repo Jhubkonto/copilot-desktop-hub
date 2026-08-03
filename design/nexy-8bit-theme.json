@@ -1,0 +1,82 @@
+{
+  "$schema": "./nexy-8bit-theme.schema.json",
+  "name": "Nexy Command Office",
+  "version": 1,
+  "themes": {
+    "light": {
+      "outerFrame": "#252A36",
+      "background": "#F2EED8",
+      "surface": "#F2EED8",
+      "raisedSurface": "#FFFBE8",
+      "recessedSurface": "#D8D4BE",
+      "text": "#171922",
+      "mutedText": "#5C5D59",
+      "highlightEdge": "#FFFFFF",
+      "border": "#65675F",
+      "softBorder": "#A8A596",
+      "shadow": "#65675F",
+      "accent": "#5146C8",
+      "onAccent": "#FFFFFF"
+    },
+    "dark": {
+      "outerFrame": "#090D18",
+      "background": "#090D18",
+      "surface": "#121A2B",
+      "raisedSurface": "#1C2740",
+      "recessedSurface": "#080C15",
+      "text": "#F0EBCF",
+      "mutedText": "#9EA7A2",
+      "highlightEdge": "#53627D",
+      "border": "#53627D",
+      "softBorder": "#343F58",
+      "shadow": "#02040A",
+      "accent": "#8D7CFF",
+      "onAccent": "#090D18"
+    }
+  },
+  "neutralRamp": {
+    "50": "#FFFBE8",
+    "100": "#F2EED8",
+    "200": "#D8D4BE",
+    "300": "#B9B5A2",
+    "400": "#8E8C80",
+    "500": "#65675F",
+    "600": "#4B4E55",
+    "700": "#343945",
+    "800": "#1C2740",
+    "900": "#090D18",
+    "950": "#080C15"
+  },
+  "semantic": {
+    "error": { "main": "#D34A4A", "dark": "#702626", "light": "#F2CCCC" },
+    "warning": { "main": "#C59A22", "dark": "#66500F", "light": "#F4E5A9" },
+    "success": { "main": "#3A9D58", "dark": "#1B512E", "light": "#CDECCF" },
+    "info": { "main": "#278E9D", "dark": "#164C54", "light": "#C5E8E9" },
+    "activity": { "main": "#8257C7", "dark": "#432B6D", "light": "#DFD0F4" },
+    "offline": { "main": "#667078", "dark": "#394047", "light": "#E1E5E7" }
+  },
+  "projects": {
+    "blue": { "main": "#3478D4", "dark": "#1A376E", "light": "#C9DDFC" },
+    "green": { "main": "#3A9D58", "dark": "#1B512E", "light": "#CDECCF" },
+    "red": { "main": "#D34A4A", "dark": "#702626", "light": "#F2CCCC" },
+    "purple": { "main": "#8257C7", "dark": "#432B6D", "light": "#DFD0F4" },
+    "orange": { "main": "#D37832", "dark": "#70401D", "light": "#F1D3B9" },
+    "pink": { "main": "#C45185", "dark": "#702A4A", "light": "#F1CCE0" },
+    "yellow": { "main": "#C59A22", "dark": "#66500F", "light": "#F4E5A9" },
+    "cyan": { "main": "#278E9D", "dark": "#164C54", "light": "#C5E8E9" },
+    "gray": { "main": "#667078", "dark": "#394047", "light": "#E1E5E7" }
+  },
+  "legacyProjectAliases": {
+    "teal": "cyan",
+    "indigo": "purple"
+  },
+  "geometry": {
+    "desktop": { "cornerSmall": 0, "cornerMedium": 2, "cornerLarge": 4, "border": 2, "shadowOffset": 3 },
+    "android": { "cornerSmall": 2, "cornerMedium": 4, "cornerLarge": 8, "border": 2, "shadowOffset": 2 }
+  },
+  "typography": {
+    "displayRole": "pixelDisplay",
+    "bodyRole": "systemSans",
+    "metadataRole": "systemMono"
+  }
+}

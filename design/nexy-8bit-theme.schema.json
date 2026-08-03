@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Nexy 8-bit cross-platform theme",
+  "type": "object",
+  "required": ["name", "version", "themes", "neutralRamp", "semantic", "projects", "geometry", "typography"],
+  "properties": {
+    "name": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "themes": { "$ref": "#/$defs/themePair" },
+    "neutralRamp": { "$ref": "#/$defs/colorMap" },
+    "semantic": { "$ref": "#/$defs/paletteMap" },
+    "projects": { "$ref": "#/$defs/paletteMap" },
+    "legacyProjectAliases": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "geometry": { "type": "object" },
+    "typography": { "type": "object" }
+  },
+  "$defs": {
+    "hexColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+    "colorMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/hexColor" }
+    },
+    "paletteMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/colorMap" }
+    },
+    "themePair": {
+      "type": "object",
+      "required": ["light", "dark"],
+      "properties": {
+        "light": { "$ref": "#/$defs/colorMap" },
+        "dark": { "$ref": "#/$defs/colorMap" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
