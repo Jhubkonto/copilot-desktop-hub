@@ -1109,6 +1109,7 @@ const EXCLUDED_SYNC_KEYS = new Set([
   'pairingsecret',
   'password',
   'path',
+  'previewdataurl',
   'rootdirectory',
   'secret',
   'thumbnaildataurl',

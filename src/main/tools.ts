@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendApprovalPush } from './fcm-sender'
-import { registerApprovalResolver } from './ws-handlers'
+import { registerApprovalResolver, registerConversationApprovalEscalator } from './ws-handlers'
 import { clearUnseenDestination, recordUnseenDestination } from './activity-badge'
 
 function setToolPreference(toolName: string, value: string): void {
@@ -16,7 +16,7 @@ function setToolPreference(toolName: string, value: string): void {
 
 const pendingApprovals = new Map<
   string,
-  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string; conversationId?: string }
+  { toolName: string; resolve: (approved: boolean) => void; webContents: Electron.WebContents; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string; conversationId?: string }
 >()
 
 /**
@@ -47,7 +47,7 @@ export async function requestApproval(
     // Register the resolver before publishing the request. Both the renderer IPC listener and
     // the Android WebSocket client can answer immediately; publishing first creates a race where
     // that answer is treated as stale and the request later times out as a false denial.
-    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
+    pendingApprovals.set(requestId, { toolName, resolve, webContents, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
     webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
     broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
     recordUnseenDestination(`approval:${requestId}`)
@@ -80,6 +80,28 @@ export function denyPendingApprovalsForConversation(conversationId: string): voi
   }
 }
 
+export function denyAllPendingApprovals(): void {
+  for (const [requestId, pending] of pendingApprovals) {
+    pending.resolve(false)
+    pendingApprovals.delete(requestId)
+    clearUnseenDestination(`approval:${requestId}`)
+  }
+}
+
+/** Approves requests already waiting when an in-flight Claude turn is escalated to bypass. */
+export function approvePendingApprovalsForConversation(conversationId: string): void {
+  for (const [requestId, pending] of pendingApprovals) {
+    if (pending.conversationId === conversationId) {
+      pending.resolve(true)
+      pendingApprovals.delete(requestId)
+      clearUnseenDestination(`approval:${requestId}`)
+      if (!pending.webContents.isDestroyed()) {
+        pending.webContents.send('tool:approval-resolved', requestId)
+      }
+    }
+  }
+}
+
 export function drainPendingApprovals(agentId: string): void {
   for (const [requestId, pending] of pendingApprovals) {
     if (pending.agentId === agentId) {
@@ -101,6 +123,7 @@ export function resolveApprovalFromWs(requestId: string, approved: boolean): boo
 
 export function registerToolHandlers(): void {
   registerApprovalResolver(resolveApprovalFromWs)
+  registerConversationApprovalEscalator(approvePendingApprovalsForConversation)
 
   safeHandle(
     'tool:approval-response',

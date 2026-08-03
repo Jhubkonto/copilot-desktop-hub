@@ -3,6 +3,7 @@ import { registerProjectHandlers, registerProjectAgentHandlers } from './project
 import { registerSettingsHandlers } from './settings-handlers'
 import { registerConversationHandlers, registerMessageHandlers } from './conversation-handlers'
 import { registerChatHandlers } from './chat-handlers'
+import { registerEmergencyStopHandlers } from './emergency-stop'
 import { registerFileHandlers, registerContextHandlers } from './file-handlers'
 import { registerSystemHandlers } from './system-handlers'
 import { registerAgentHandlers } from './agents'
@@ -55,6 +56,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerPromptHandlers()
   registerConversationHandlers()
   registerChatHandlers()
+  registerEmergencyStopHandlers()
   registerMessageHandlers()
   registerFileHandlers()
   registerContextHandlers()
