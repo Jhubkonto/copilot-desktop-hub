@@ -106,24 +106,23 @@ export function GeneralTab({
         />
       </div>
 
-      {/* Color (draft only) */}
-      {isDraft && (
-        <div>
-          <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Color</label>
-          <div className="mt-1.5 flex gap-2 flex-wrap">
-            {COLOR_OPTIONS.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => onSetColor(c.value)}
-                className={`w-5 h-5 rounded-full ${c.bg} ${color === c.value ? `ring-2 ring-offset-2 ${c.ring}` : ''}`}
-                aria-label={`Color ${c.value}`}
-                title={c.value}
-              />
-            ))}
-          </div>
+      {/* Color */}
+      <div>
+        <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Color</label>
+        <div className="mt-1.5 flex gap-2 flex-wrap">
+          {COLOR_OPTIONS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => onSetColor(c.value)}
+              className={`w-5 h-5 rounded-full ${c.bg} ${color === c.value ? `ring-2 ring-offset-2 ${c.ring}` : ''}`}
+              aria-label={`Color ${c.value}`}
+              aria-pressed={color === c.value}
+              title={c.value}
+            />
+          ))}
         </div>
-      )}
+      </div>
 
       {!isDraft && (
         <div>

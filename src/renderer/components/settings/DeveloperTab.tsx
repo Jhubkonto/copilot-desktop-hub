@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight, Rss, UploadCloud, History, Smartphone } from 'lucide-react'
+import { NexyIcon } from '../ui/icons'
 import { TabHeader } from './TabHeader'
 import type {
   AdbDevice,
@@ -18,6 +18,18 @@ import type {
 } from '@shared/types'
 import { Button, SegmentedTabs } from '../ui/primitives'
 import { BuildLog } from '../BuildLog'
+
+type LegacyIconProps = { className?: string }
+const RefreshCw = ({ className }: LegacyIconProps) => <NexyIcon name="refresh" className={className} />
+const CheckCircle = ({ className }: LegacyIconProps) => <NexyIcon name="check" className={className} />
+const AlertTriangle = ({ className }: LegacyIconProps) => <NexyIcon name="warning" className={className} />
+const XCircle = ({ className }: LegacyIconProps) => <NexyIcon name="error" className={className} />
+const ChevronDown = ({ className }: LegacyIconProps) => <NexyIcon name="minimize" className={className} />
+const ChevronRight = ({ className }: LegacyIconProps) => <NexyIcon name="chevron-right" className={className} />
+const Rss = ({ className }: LegacyIconProps) => <NexyIcon name="external" className={className} />
+const UploadCloud = ({ className }: LegacyIconProps) => <NexyIcon name="upload" className={className} />
+const History = ({ className }: LegacyIconProps) => <NexyIcon name="restore" className={className} />
+const Smartphone = ({ className }: LegacyIconProps) => <NexyIcon name="mobile" className={className} />
 
 interface Props {
   // Desktop workspace
@@ -499,7 +511,7 @@ export function DeveloperTab({
   )
 
   return (
-    <>
+    <div className="nexy-developer-tools text-nexy-text">
       <TabHeader title="Developer" description="Build, test, and package the app from within Nexy." />
 
       <SegmentedTabs
@@ -1307,6 +1319,6 @@ export function DeveloperTab({
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }

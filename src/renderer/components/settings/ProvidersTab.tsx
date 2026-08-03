@@ -1,5 +1,6 @@
 import type { ProviderInfo } from './types'
 import { TabHeader } from './TabHeader'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 
 interface Props {
   authMode: string
@@ -33,24 +34,24 @@ export function ProvidersTab({
       <TabHeader title="API Providers" description="Configure API keys for OpenAI, Anthropic, and other providers." />
 
       {authMode === 'byok' && providers.every((p) => !p.configured) && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 mb-1">
-          <span className="text-blue-500 shrink-0 mt-0.5">🔑</span>
-          <p className="text-xs text-blue-700 dark:text-blue-300">
+        <div className="flex items-start gap-2 p-3 rounded-none bg-nexy-info/10 border-2 border-nexy-info mb-1 shadow-nexy">
+          <NexyIcon name="key" size={14} className="text-nexy-info shrink-0 mt-0.5" />
+          <p className="text-xs text-nexy-info">
             You're in API key mode — configure at least one provider below to start chatting.
           </p>
         </div>
       )}
       {providers.map((provider) => (
-        <div key={provider.name} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div key={provider.name} className="p-3 rounded-none border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900">
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{provider.label}</span>
               {provider.name === 'copilot' ? (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Default</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-none border border-nexy-accent bg-nexy-accent/10 text-nexy-accent">Default</span>
               ) : provider.configured ? (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">✓ Configured</span>
+                <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-none border border-nexy-success bg-nexy-success/10 text-nexy-success"><NexyIcon name="check" size={10} />Configured</span>
               ) : (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">Not configured</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-none border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-500">Not configured</span>
               )}
             </div>
             {provider.name !== 'copilot' && (
@@ -61,14 +62,14 @@ export function ProvidersTab({
                     onSetApiKeyInput('')
                     onSetTestResult(null)
                   }}
-                  className="text-xs px-2 py-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="text-xs px-2 py-1 rounded-none border border-transparent text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
                   {editingProvider === provider.name ? 'Cancel' : 'Set Key'}
                 </button>
                 {provider.configured && (
                   <button
                     onClick={() => onRemoveKey(provider.name)}
-                    className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                    className="text-xs px-2 py-1 rounded-none border border-transparent text-nexy-error hover:border-nexy-error hover:bg-nexy-error/10"
                   >
                     Remove
                   </button>
@@ -87,7 +88,7 @@ export function ProvidersTab({
                   value={azureEndpoint}
                   onChange={(e) => onSetAzureEndpoint(e.target.value)}
                   placeholder="Azure endpoint (e.g. https://myresource.openai.azure.com)"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm rounded-none border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-nexy-accent"
                 />
               )}
               <input
@@ -95,25 +96,26 @@ export function ProvidersTab({
                 value={apiKeyInput}
                 onChange={(e) => onSetApiKeyInput(e.target.value)}
                 placeholder={`Enter ${provider.label} API key...`}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm rounded-none border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-nexy-accent"
               />
               {testResult && (
-                <p className={`text-xs ${testResult.valid ? 'text-green-500' : 'text-red-500'}`}>
-                  {testResult.valid ? '✓ API key is valid' : `✗ ${testResult.error || 'Invalid key'}`}
+                <p className={`flex items-center gap-1 text-xs ${testResult.valid ? 'text-nexy-success' : 'text-nexy-error'}`}>
+                  <NexyIcon name={testResult.valid ? 'check' : 'error'} size={12} />
+                  {testResult.valid ? 'API key is valid' : testResult.error || 'Invalid key'}
                 </p>
               )}
               <div className="flex gap-2">
                 <button
                   onClick={onTestKey}
                   disabled={!apiKeyInput.trim() || testing}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-none border-2 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
                 >
-                  {testing ? 'Testing...' : 'Test'}
+                  {testing && <NexyIcon name="busy" size={12} />}{testing ? 'Testing...' : 'Test'}
                 </button>
                 <button
                   onClick={onSaveKey}
                   disabled={!apiKeyInput.trim()}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 font-medium"
+                  className="text-xs px-3 py-1.5 rounded-none border-2 border-nexy-accent bg-nexy-accent text-nexy-on-accent hover:brightness-110 disabled:opacity-50 font-medium shadow-nexy"
                 >
                   Save Key
                 </button>
@@ -124,23 +126,23 @@ export function ProvidersTab({
       ))}
 
       {pendingKeyHandoffProvider && (
-        <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20">
-          <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+        <div className="p-3 rounded-none border-2 border-nexy-info bg-nexy-info/10 shadow-nexy">
+          <p className="text-sm font-medium text-nexy-info mb-2">
             Key handoff from Android
           </p>
-          <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
+          <p className="text-xs text-gray-700 dark:text-gray-200 mb-3">
             Your Android device is requesting to receive the {providers.find(p => p.name === pendingKeyHandoffProvider)?.label || pendingKeyHandoffProvider} API key from this desktop.
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => onConfirmKeyHandoff?.(pendingKeyHandoffProvider)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium"
+              className="text-xs px-3 py-1.5 rounded-none border-2 border-nexy-accent bg-nexy-accent text-nexy-on-accent hover:brightness-110 font-medium shadow-nexy"
             >
               Send Key
             </button>
             <button
               onClick={() => onRequestKeyHandoff?.(null)}
-              className="text-xs px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+              className="text-xs px-3 py-1.5 rounded-none border-2 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               Cancel
             </button>

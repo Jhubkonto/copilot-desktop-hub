@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Plus, BookOpen, Edit2, Trash2, Check, RotateCcw } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import { Button } from '../ui/primitives'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import type { WikiEntry } from '../../../shared/types'
 
 function parseWikiTags(value: string): string[] {
@@ -102,16 +102,16 @@ export function WikiTab({ projectId }: { projectId: string }) {
   const parsedDraftTags = parseWikiTags(draftTags)
 
   const renderEditor = (mode: 'new' | 'edit') => (
-    <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-white dark:bg-gray-800 shadow-sm p-3 space-y-3">
+    <div className="space-y-3 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-3 shadow-nexy">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
+          <NexyIcon name="artifact" size={16} className="text-primary" />
           <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
             {mode === 'new' ? 'New wiki entry' : 'Editing wiki entry'}
           </span>
         </div>
         <Button variant="secondary" onClick={resetEditor} className="text-[11px]">
-          <RotateCcw className="w-3 h-3" />
+          <NexyIcon name="refresh" size={12} />
           Cancel
         </Button>
       </div>
@@ -140,7 +140,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
         {parsedDraftTags.length > 0 && (
           <div className="flex flex-wrap gap-1 pt-1">
             {parsedDraftTags.map((tag) => (
-              <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+              <span key={tag} className="rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2 py-0.5 text-[10px] text-nexy-text">
                 {tag}
               </span>
             ))}
@@ -162,7 +162,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
 
       <div className="flex items-center justify-end gap-2">
         <Button variant="primary" onClick={handleSave} disabled={saving || !draftTitle.trim()}>
-          <Check className="w-3.5 h-3.5" />
+          <NexyIcon name="check" size={14} />
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </div>
@@ -181,7 +181,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
           onClick={openNewEntry}
           className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <NexyIcon name="add" size={14} />
           New entry
         </button>
       </div>
@@ -189,12 +189,12 @@ export function WikiTab({ projectId }: { projectId: string }) {
       {editingId == 'new' && renderEditor('new')}
 
       {loading ? (
-        <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+        <div className="rounded-nexy-sm border-2 border-dashed border-nexy-border bg-nexy-recessed px-4 py-8 text-center text-sm text-nexy-muted">
           Loading wiki entries…
         </div>
       ) : entries.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 px-4 py-8 text-center space-y-2">
-          <BookOpen className="w-5 h-5 mx-auto text-gray-400 dark:text-gray-500" />
+        <div className="space-y-2 rounded-nexy-sm border-2 border-dashed border-nexy-border bg-nexy-recessed px-4 py-8 text-center">
+          <NexyIcon name="artifact" size={20} className="mx-auto text-muted-foreground" />
           <p className="text-sm text-gray-600 dark:text-gray-300">No wiki entries yet. Add your first entry to start building project knowledge.</p>
         </div>
       ) : (
@@ -205,7 +205,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
               <div
                 key={entry.id}
                 onClick={() => openEntry(entry)}
-                className={`rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/80 p-3 transition-colors cursor-pointer hover:border-blue-300 dark:hover:border-blue-700 ${entry.superseded_by ? 'opacity-60' : ''}`}
+                className={`cursor-pointer rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-3 shadow-nexy transition-colors hover:border-nexy-accent ${entry.superseded_by ? 'opacity-60' : ''}`}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
@@ -219,7 +219,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
                         {entry.title}
                       </span>
                       {entry.tags.map((tag) => (
-                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                        <span key={tag} className="rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-2 py-0.5 text-[10px] text-nexy-text">
                           {tag}
                         </span>
                       ))}
@@ -240,7 +240,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
                       aria-label={`Edit ${entry.title}`}
                       title="Edit entry"
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
+                      <NexyIcon name="edit" size={14} />
                     </button>
                     {confirmDeleteId === entry.id ? (
                       <div className="flex items-center gap-1 text-[11px]">
@@ -268,7 +268,7 @@ export function WikiTab({ projectId }: { projectId: string }) {
                         aria-label={`Delete ${entry.title}`}
                         title="Delete entry"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <NexyIcon name="delete" size={14} />
                       </button>
                     )}
                   </div>

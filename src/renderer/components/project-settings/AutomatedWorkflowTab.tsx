@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, Ban, ArrowLeft, Info, MessageSquare, RotateCcw } from 'lucide-react'
+import { Sparkles, ArrowLeft, Info, MessageSquare } from 'lucide-react'
 import type {
   AutomatedWorkflowConfirmationMode,
   AutomatedWorkflowRunDetail,
@@ -18,6 +18,7 @@ import {
 } from '../automated-workflow/AutomatedWorkflowShared'
 import { DiscardWorkflowRunDialog } from '../automated-workflow/DiscardWorkflowRunDialog'
 import { AutomatedWorkflowGeneratorModal } from '../automated-workflow/AutomatedWorkflowGeneratorModal'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 
 interface Props {
   projectId: string
@@ -201,9 +202,9 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
             <MessageSquare className="w-3 h-3" /> How Automated Workflows work
           </p>
           <div className="space-y-1">
-            {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
+            {WORKFLOW_STAGES.map(({ icon, label }, i) => (
               <div key={i} className="flex items-center gap-1.5">
-                <Icon className="w-3 h-3 shrink-0 text-blue-500" />
+                <NexyIcon name={icon} className="w-3 h-3 shrink-0 text-nexy-accent" />
                 <span className="text-[10px] text-gray-600 dark:text-gray-300">{label}</span>
               </div>
             ))}
@@ -310,7 +311,7 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
                 disabled={busyAction !== null}
                 onChange={handleModeChange}
               />
-              <ActionButton icon={Sparkles} variant="primary" disabled={busyAction !== null} onClick={() => void runAction('start', () => window.api.startAutomatedWorkflowRun(activeRun.id), 'Failed to start workflow')}>
+              <ActionButton icon="spark" variant="primary" disabled={busyAction !== null} onClick={() => void runAction('start', () => window.api.startAutomatedWorkflowRun(activeRun.id), 'Failed to start workflow')}>
                 Start workflow
               </ActionButton>
             </div>
@@ -320,7 +321,7 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
                 {activeRun.confirmationMode === 'auto' ? 'Ran automatically' : 'Ran with step-by-step confirmation'}
               </span>
               {runInProgress && (
-                <ActionButton icon={Ban} variant="danger" disabled={busyAction === 'abort'} onClick={handleAbortRun}>
+                <ActionButton icon="stop" variant="danger" disabled={busyAction === 'abort'} onClick={handleAbortRun}>
                   Abort run
                 </ActionButton>
               )}
@@ -335,7 +336,7 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
             activeRun.templateId ? (
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-[10px] text-gray-400 dark:text-gray-500">This run has finished.</span>
-                <ActionButton icon={RotateCcw} disabled={busyAction !== null} onClick={handleRunAgain}>
+                <ActionButton icon="refresh" disabled={busyAction !== null} onClick={handleRunAgain}>
                   Run again
                 </ActionButton>
               </div>

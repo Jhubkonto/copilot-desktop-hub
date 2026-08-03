@@ -1,5 +1,5 @@
-import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Plus, Trash2, Globe, Wifi, Pencil, Check, X } from 'lucide-react'
 import { ToggleSwitch } from '../ui/primitives'
+import { NexyIcon } from '../ui/icons'
 import { useState, useRef, useEffect } from 'react'
 import type { ConnectedAndroidDevice, WsUrlProfile } from '@shared/types'
 import { TabHeader } from './TabHeader'
@@ -110,14 +110,14 @@ function UrlProfileRow({
               disabled={!!urlError || !editing.url.trim()}
               className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
             >
-              <Check className="w-3 h-3" /> Save
+              <NexyIcon name="check" size={12} /> Save
             </button>
             <button
               type="button"
               onClick={cancelEdit}
               className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              <X className="w-3 h-3" /> Cancel
+              <NexyIcon name="close" size={12} /> Cancel
             </button>
           </div>
         </div>
@@ -146,7 +146,7 @@ function UrlProfileRow({
               disabled={disabled}
               className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              <Pencil className="w-3 h-3" />
+              <NexyIcon name="edit" size={12} />
             </button>
             <button
               type="button"
@@ -154,7 +154,7 @@ function UrlProfileRow({
               disabled={disabled}
               className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
             >
-              <Trash2 className="w-3 h-3" />
+              <NexyIcon name="delete" size={12} />
             </button>
           </div>
         </div>
@@ -211,7 +211,7 @@ export function MobileTab({
   }
 
   return (
-    <>
+    <div className="nexy-mobile-settings text-nexy-text">
       <TabHeader title="Mobile" description="Connect your Android phone to approve tool calls and monitor agent output over your local network." />
 
       {/* ── Server ── */}
@@ -260,8 +260,8 @@ export function MobileTab({
               <span className="text-gray-500">Active endpoint</span>
               <span className="flex items-center gap-1 text-gray-800 dark:text-gray-200">
                 {isUsingLan
-                  ? <><Wifi className="w-3 h-3 text-blue-500" /> Local LAN</>
-                  : <><Globe className="w-3 h-3 text-indigo-500" /> {activeProfile?.label}</>
+                  ? <><NexyIcon name="mobile" size={12} className="text-nexy-info" /> Local LAN</>
+                  : <><NexyIcon name="external" size={12} className="text-nexy-accent" /> {activeProfile?.label}</>
                 }
               </span>
             </div>
@@ -298,7 +298,7 @@ export function MobileTab({
                 onClick={onRefreshStatus}
                 className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
               >
-                <RefreshCw className="w-3 h-3" /> Refresh status
+                <NexyIcon name="refresh" size={12} /> Refresh status
               </button>
             </div>
           </div>
@@ -316,7 +316,7 @@ export function MobileTab({
                 title={isUsingLan ? 'Active' : 'Use local LAN'}
                 className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 transition-colors ${isUsingLan ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400'}`}
               />
-              <Wifi className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+              <NexyIcon name="mobile" size={14} className="text-nexy-info" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-medium text-gray-800 dark:text-gray-100">Local LAN</span>
@@ -345,7 +345,7 @@ export function MobileTab({
               disabled={mobileLoading}
               className="inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-40"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <NexyIcon name="add" size={14} />
               Add external profile
             </button>
           </div>
@@ -382,7 +382,7 @@ export function MobileTab({
                 disabled={mobileLoading}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
               >
-                <RefreshCw className="w-3 h-3" />
+                <NexyIcon name="refresh" size={12} />
                 Regenerate pairing code
               </button>
             </div>
@@ -405,7 +405,7 @@ export function MobileTab({
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
                   Firebase Cloud Messaging
                   {fcmStatus?.configured && (
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    <NexyIcon name="check" size={16} className="text-nexy-success" />
                   )}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
@@ -414,7 +414,7 @@ export function MobileTab({
                     : 'Not configured — push notifications disabled'}
                 </p>
               </div>
-              {fcmExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+              <NexyIcon name={fcmExpanded ? 'expand' : 'chevron-right'} size={16} className="text-nexy-muted" />
             </button>
 
             {fcmExpanded && (
@@ -475,7 +475,7 @@ export function MobileTab({
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Wake on LAN setup</p>
                     <p className="text-xs text-gray-500 mt-0.5">Allow your phone to wake this computer from sleep</p>
                   </div>
-                  {wolGuideExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                  <NexyIcon name={wolGuideExpanded ? 'expand' : 'chevron-right'} size={16} className="text-nexy-muted" />
                 </button>
 
                 {wolGuideExpanded && (
@@ -508,6 +508,6 @@ export function MobileTab({
           </div>
         </>
       )}
-    </>
+    </div>
   )
 }

@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Sun, Moon, Plug, Cpu } from 'lucide-react'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import { getModelLabel } from '../../../shared/models'
 import { Button, ToggleSwitch } from '../ui/primitives'
 import type { AvailableModelGroup } from '@shared/types'
+import type { UiStyle } from '../../store/types'
+import type { SupertonicStatus } from '@shared/neural-tts'
+import { SUPERTONIC_LANGUAGES } from '@shared/neural-tts'
+import {
+  readSpokenOutputSettings,
+  writeSpokenOutputSettings,
+  type SpokenOutputSettings,
+} from '../../lib/spoken-output'
 import { TabHeader } from './TabHeader'
 import {
   formatPushToTalkShortcut,
@@ -17,6 +25,8 @@ import {
 interface Props {
   theme: string
   toggleTheme: () => void
+  uiStyle: UiStyle
+  onSetUiStyle: (style: UiStyle) => void
   effectiveModel: string
   effectiveProvider: string
   autoStart: boolean
@@ -33,6 +43,8 @@ interface Props {
   whisperModelPath: string
   whisperInstalling: boolean
   whisperReady: boolean
+  supertonicStatus: SupertonicStatus | null
+  supertonicInstalling: boolean
   catalogModels: import('@shared/types').CatalogModel[] | undefined
   onToggleAutoStart: () => void
   onToggleAutoClipboard: () => void
@@ -46,6 +58,9 @@ interface Props {
   onSetWhisperModelPath: (path: string) => void
   onSaveWhisper: () => void
   onInstallWhisper: () => void
+  onInstallSupertonic: () => void
+  onRemoveSupertonic: () => void
+  onPreviewSupertonic: () => void
   onSaveAdvanced: () => void
   onOpenMcp: () => void
   defaultModelMenuRef: React.RefObject<HTMLDivElement | null>
@@ -53,18 +68,20 @@ interface Props {
 }
 
 export function GeneralTab({
-  theme, toggleTheme,
+  theme, toggleTheme, uiStyle, onSetUiStyle,
   effectiveModel, effectiveProvider,
   autoStart, autoClipboard,
   defaultModel, defaultModelSearch, showDefaultModelMenu, defaultModelMenuRect,
   availableModelGroups, modelIds,
   temperature, maxTokens,
   whisperCppPath, whisperModelPath, whisperInstalling, whisperReady,
+  supertonicStatus, supertonicInstalling,
   catalogModels,
   onToggleAutoStart, onToggleAutoClipboard,
   onSetDefaultModel, onSetDefaultModelSearch, onSetShowDefaultModelMenu, onSetDefaultModelMenuRect,
   onSetTemperature, onSetMaxTokens, onSaveAdvanced,
   onSetWhisperCppPath, onSetWhisperModelPath, onSaveWhisper, onInstallWhisper,
+  onInstallSupertonic, onRemoveSupertonic, onPreviewSupertonic,
   onOpenMcp,
   defaultModelMenuRef, defaultModelButtonRef,
 }: Props) {
@@ -75,6 +92,21 @@ export function GeneralTab({
   )
   const [capturingShortcut, setCapturingShortcut] = useState(false)
   const [shortcutError, setShortcutError] = useState<string | null>(null)
+  const [speechSettings, setSpeechSettings] = useState<SpokenOutputSettings>(
+    () => readSpokenOutputSettings(localStorage),
+  )
+
+  const updateSpeechSettings = (next: SpokenOutputSettings) => {
+    setSpeechSettings(next)
+    writeSpokenOutputSettings(localStorage, next)
+    window.dispatchEvent(new Event('nexy:spoken-output-settings-changed'))
+  }
+
+  useEffect(() => {
+    if (supertonicStatus && !supertonicStatus.ready && speechSettings.engine === 'supertonic') {
+      updateSpeechSettings({ ...speechSettings, engine: 'system' })
+    }
+  }, [speechSettings, supertonicStatus])
 
   const savePushToTalkShortcut = (shortcut: PushToTalkShortcut | null) => {
     writePushToTalkShortcut(localStorage, shortcut)
@@ -119,13 +151,33 @@ export function GeneralTab({
         <Button
           variant="secondary"
           onClick={toggleTheme}
-          className="border-0 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          className="border-2 rounded-none border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
         >
           <span className="flex items-center gap-1.5">
-            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            <NexyIcon name={theme === 'dark' ? 'spark' : 'milestone'} size={14} />
             {theme === 'dark' ? 'Light' : 'Dark'}
           </span>
         </Button>
+      </div>
+
+      {/* Visual style is independent from light/dark appearance. */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">UI style</p>
+          <p className="text-xs text-gray-500">Choose the visual language without changing brightness</p>
+        </div>
+        <div className="flex shrink-0 gap-1" role="group" aria-label="UI style">
+          {(['classic', '8bit'] as const).map((style) => (
+            <Button
+              key={style}
+              variant={uiStyle === style ? 'primary' : 'secondary'}
+              onClick={() => onSetUiStyle(style)}
+              aria-pressed={uiStyle === style}
+            >
+              {style === 'classic' ? 'Classic' : '8-bit'}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Active model */}
@@ -178,17 +230,17 @@ export function GeneralTab({
         <Button
           variant="secondary"
           onClick={onOpenMcp}
-          className="border-0 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          className="border-2 rounded-none border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
         >
           <span className="flex items-center gap-1.5">
-            <Plug className="w-3.5 h-3.5" />
+            <NexyIcon name="tool" size={14} />
             Configure
           </span>
         </Button>
       </div>
 
       {/* Advanced generation settings */}
-      <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+      <div className="p-3 rounded-none border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 space-y-3">
         <div>
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Local voice input</p>
           <p className="text-xs text-gray-500">Nexy downloads and configures whisper.cpp on Windows and Linux, or installs it through Homebrew on macOS. Audio is never uploaded.</p>
@@ -197,7 +249,7 @@ export function GeneralTab({
           <Button variant="primary" onClick={onInstallWhisper} disabled={whisperInstalling} className="rounded-lg">
             {whisperInstalling ? 'Downloading and installing…' : whisperReady ? 'Reinstall local Whisper' : 'Install local Whisper (~150 MB)'}
           </Button>
-          <span className={`text-xs ${whisperReady ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
+          <span className={`text-xs ${whisperReady ? 'text-nexy-success' : 'text-gray-500'}`}>
             {whisperReady ? 'Ready' : 'Not installed'}
           </span>
         </div>
@@ -241,7 +293,7 @@ export function GeneralTab({
               onKeyDown={capturingShortcut ? capturePushToTalkShortcut : undefined}
               className={`min-w-36 rounded-lg border px-3 py-2 text-xs font-medium ${
                 capturingShortcut
-                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                  ? 'border-nexy-accent bg-nexy-accent/10 text-nexy-accent'
                   : 'border-gray-300 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200'
               }`}
               aria-label="Change push-to-talk shortcut"
@@ -257,14 +309,79 @@ export function GeneralTab({
               </Button>
             )}
           </div>
-          {shortcutError && <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">{shortcutError}</p>}
+          {shortcutError && <p className="mt-2 text-xs text-nexy-error" role="alert">{shortcutError}</p>}
         </div>
       </div>
 
-      <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+      <div className="p-3 rounded-none border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 space-y-3">
+        <div>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Local neural voice output</p>
+          <p className="text-xs text-gray-500">Supertonic 3 reads responses with ten natural voices in 31 languages. Synthesis stays on this computer after the one-time model download.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {!supertonicStatus?.ready ? (
+            <Button
+              variant="primary"
+              onClick={onInstallSupertonic}
+              disabled={supertonicInstalling || supertonicStatus?.supported === false}
+              className="rounded-lg"
+            >
+              {supertonicInstalling ? 'Downloading and verifying…' : 'Install Supertonic (~129 MB)'}
+            </Button>
+          ) : <>
+            <Button variant="secondary" onClick={onPreviewSupertonic} className="rounded-lg">Preview voice</Button>
+            <Button variant="secondary" onClick={onRemoveSupertonic} className="rounded-lg">Remove model</Button>
+          </>}
+          <span className={`text-xs ${supertonicStatus?.ready ? 'text-nexy-success' : 'text-gray-500'}`}>
+            {supertonicStatus?.ready ? 'Ready' : supertonicStatus?.supported === false ? 'Unsupported on this platform' : 'Not installed'}
+          </span>
+        </div>
+        <p className="text-[11px] text-gray-500">Model: Supertonic 3 int8 · OpenRAIL-M license. System voices remain available as the zero-download fallback.</p>
+        <div className="grid gap-3 border-t border-gray-200 pt-3 dark:border-gray-700 sm:grid-cols-2">
+          <label className="grid gap-1">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Speech engine</span>
+            <select
+              value={speechSettings.engine}
+              onChange={(event) => updateSpeechSettings({ ...speechSettings, engine: event.target.value === 'supertonic' ? 'supertonic' : 'system' })}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="system">System voices</option>
+              <option value="supertonic" disabled={!supertonicStatus?.ready}>Supertonic neural voices</option>
+            </select>
+          </label>
+          <label className="grid gap-1">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Speed: {speechSettings.rate.toFixed(1)}×</span>
+            <input type="range" min="0.5" max="2" step="0.1" value={speechSettings.rate} onChange={(event) => updateSpeechSettings({ ...speechSettings, rate: Number(event.target.value) })} />
+          </label>
+          {speechSettings.engine === 'supertonic' && <>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Neural voice</span>
+              <select
+                value={speechSettings.supertonicSpeakerId}
+                onChange={(event) => updateSpeechSettings({ ...speechSettings, supertonicSpeakerId: Number(event.target.value) })}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              >
+                {Array.from({ length: 10 }, (_, id) => <option key={id} value={id}>Voice {id + 1}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Language</span>
+              <select
+                value={speechSettings.supertonicLanguage}
+                onChange={(event) => updateSpeechSettings({ ...speechSettings, supertonicLanguage: event.target.value as SpokenOutputSettings['supertonicLanguage'] })}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              >
+                {SUPERTONIC_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+              </select>
+            </label>
+          </>}
+        </div>
+      </div>
+
+      <div className="p-3 rounded-none border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 space-y-3">
         <div>
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-            <Cpu className="w-3.5 h-3.5 text-gray-400" />
+            <NexyIcon name="settings" size={14} className="text-gray-400" />
             Advanced
           </p>
           <p className="text-xs text-gray-500">Default model and generation parameters</p>
