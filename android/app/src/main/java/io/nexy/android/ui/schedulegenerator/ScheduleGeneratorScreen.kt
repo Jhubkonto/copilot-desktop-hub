@@ -23,13 +23,8 @@ import io.nexy.android.ui.chat.rememberChatAutoScrollState
 import io.nexy.android.ui.chat.rememberRevealedText
 import io.nexy.android.ui.chat.rememberStreamFadeAlpha
 import io.nexy.android.ui.chat.streamFade
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +58,9 @@ import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.components.NexyStaticProgressRecord
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.model.activeModelLabel
 import kotlinx.coroutines.launch
 
@@ -136,7 +134,7 @@ fun ScheduleGeneratorScreen(
                         val next = models.firstOrNull { it.id != displayModelId }?.id
                         viewModel.setModel(next)
                     }) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        NexyIcon(NexyIconName.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.size(4.dp))
                         Text(activeModelLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
@@ -220,7 +218,7 @@ private fun ChatPhase(uiState: ScheduleGeneratorUiState, modifier: Modifier = Mo
                 )
             }
         } else if (uiState.isLoading) {
-            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+            item { NexyStaticProgressRecord(modifier = Modifier.fillMaxWidth()) }
         }
     }
 }
@@ -343,7 +341,7 @@ private fun DonePhase(taskName: String, onDone: () -> Unit, modifier: Modifier =
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+        NexyIcon(NexyIconName.Scheduled, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(12.dp))
         Text("Scheduled task created", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(taskName.ifBlank { "Your task" }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

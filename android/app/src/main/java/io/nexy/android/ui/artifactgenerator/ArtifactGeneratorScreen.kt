@@ -3,6 +3,7 @@ package io.nexy.android.ui.artifactgenerator
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
@@ -26,15 +27,9 @@ import io.nexy.android.ui.chat.rememberChatAutoScrollState
 import io.nexy.android.ui.chat.rememberRevealedText
 import io.nexy.android.ui.chat.rememberStreamFadeAlpha
 import io.nexy.android.ui.chat.streamFade
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -74,6 +69,9 @@ import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.components.NexyStaticProgressRecord
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.model.activeModelLabel
 import kotlinx.coroutines.launch
 
@@ -154,8 +152,8 @@ fun ArtifactGeneratorScreen(
                 onBack = if (uiState.phase == ArtifactGenPhase.SPEC_REVIEW) { { vm.backToChat() } } else onBack,
                 actions = {
                     TextButton(onClick = { WsRepository.send("model:list", emptyMap()); showModelSheet = true }) {
-                        Icon(
-                            Icons.Default.Tune,
+                        NexyIcon(
+                            NexyIconName.Settings,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary,
@@ -302,11 +300,11 @@ fun ArtifactGeneratorScreen(
                         value = modelQuery,
                         onValueChange = { modelQuery = it },
                         placeholder = { Text("Search models…", style = MaterialTheme.typography.bodyMedium) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        leadingIcon = { NexyIcon(NexyIconName.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                         trailingIcon = {
                             if (modelQuery.isNotEmpty()) {
                                 IconButton(onClick = { modelQuery = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                    NexyIcon(NexyIconName.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                                 }
                             }
                         },
@@ -389,7 +387,7 @@ private fun ChatPhase(
         }
 
         if (uiState.isLoading) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            NexyStaticProgressRecord(modifier = Modifier.fillMaxWidth())
         }
 
         if (uiState.missedSpec) {
@@ -415,7 +413,8 @@ private fun ChatBubble(role: String, text: String, streaming: Boolean = false) {
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            shape = MaterialTheme.shapes.medium,
+            shape = MaterialTheme.shapes.extraSmall,
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
             color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.fillMaxWidth(0.85f),
         ) {
@@ -490,7 +489,7 @@ private fun SpecReviewPhase(
         Spacer(Modifier.height(24.dp))
 
         if (isLoading) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            NexyStaticProgressRecord(modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
             Text("Preparing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
