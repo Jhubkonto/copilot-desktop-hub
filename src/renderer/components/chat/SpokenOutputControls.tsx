@@ -2,6 +2,7 @@ import { Pause, Play, RotateCcw, Settings2, Square } from 'lucide-react'
 import { useState } from 'react'
 import type { SpokenPlaybackState } from '../../hooks/useSpokenOutput'
 import type { SpokenOutputSettings } from '../../lib/spoken-output'
+import { SUPERTONIC_LANGUAGES } from '../../../shared/neural-tts'
 
 interface SpokenOutputControlsProps {
   state: SpokenPlaybackState
@@ -9,6 +10,7 @@ interface SpokenOutputControlsProps {
   model?: string | null
   voices: SpeechSynthesisVoice[]
   settings: SpokenOutputSettings
+  supertonicReady: boolean
   onSettingsChange: (settings: SpokenOutputSettings) => void
   onPause: () => void
   onResume: () => void
@@ -22,6 +24,7 @@ export function SpokenOutputControls({
   model,
   voices,
   settings,
+  supertonicReady,
   onSettingsChange,
   onPause,
   onResume,
@@ -30,9 +33,9 @@ export function SpokenOutputControls({
 }: SpokenOutputControlsProps) {
   const [showSettings, setShowSettings] = useState(false)
   const label = kind === 'quick-recap'
-    ? 'Quick Recap'
+    ? 'Short version'
     : kind === 'ai-recap'
-      ? `AI Recap${model ? ` · ${model}` : ''}`
+      ? `AI summary${model ? ` · ${model}` : ''}`
       : 'Reading response'
 
   return (
@@ -43,7 +46,7 @@ export function SpokenOutputControls({
     >
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-auto font-medium" aria-live="polite">
-          {state === 'paused' ? `${label} paused` : label}
+          {state === 'preparing' ? `Preparing ${label.toLowerCase()}…` : state === 'paused' ? `${label} paused` : label}
         </span>
         <ControlButton
           label={state === 'paused' ? 'Resume' : 'Pause'}
@@ -61,7 +64,20 @@ export function SpokenOutputControls({
       </div>
       {showSettings && (
         <div className="mt-2 grid gap-2 border-t border-blue-200/60 pt-2 dark:border-blue-800/60 sm:grid-cols-2">
-          <label className="grid gap-1">
+          <label className="grid gap-1 sm:col-span-2">
+            <span>Speech engine</span>
+            <select
+              value={settings.engine}
+              onChange={(event) => onSettingsChange({ ...settings, engine: event.target.value === 'supertonic' ? 'supertonic' : 'system' })}
+              className="min-w-0 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-gray-800 dark:border-blue-800 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="system">System voices</option>
+              <option value="supertonic" disabled={!supertonicReady}>
+                Supertonic neural voices{supertonicReady ? '' : ' (install in Settings)'}
+              </option>
+            </select>
+          </label>
+          {settings.engine === 'system' ? <label className="grid gap-1">
             <span>Installed voice</span>
             <select
               value={settings.voiceUri ?? ''}
@@ -75,7 +91,28 @@ export function SpokenOutputControls({
                 </option>
               ))}
             </select>
-          </label>
+          </label> : <>
+            <label className="grid gap-1">
+              <span>Neural voice</span>
+              <select
+                value={settings.supertonicSpeakerId}
+                onChange={(event) => onSettingsChange({ ...settings, supertonicSpeakerId: Number(event.target.value) })}
+                className="min-w-0 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-gray-800 dark:border-blue-800 dark:bg-gray-900 dark:text-gray-100"
+              >
+                {Array.from({ length: 10 }, (_, id) => <option key={id} value={id}>Voice {id + 1}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span>Language</span>
+              <select
+                value={settings.supertonicLanguage}
+                onChange={(event) => onSettingsChange({ ...settings, supertonicLanguage: event.target.value as SpokenOutputSettings['supertonicLanguage'] })}
+                className="min-w-0 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-gray-800 dark:border-blue-800 dark:bg-gray-900 dark:text-gray-100"
+              >
+                {SUPERTONIC_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+              </select>
+            </label>
+          </>}
           <label className="grid gap-1">
             <span>Speed: {settings.rate.toFixed(1)}×</span>
             <input
@@ -87,7 +124,7 @@ export function SpokenOutputControls({
               onChange={(event) => onSettingsChange({ ...settings, rate: Number(event.target.value) })}
             />
           </label>
-          <label className="grid gap-1">
+          {settings.engine === 'system' && <label className="grid gap-1">
             <span>Pitch: {settings.pitch.toFixed(1)}</span>
             <input
               type="range"
@@ -97,8 +134,8 @@ export function SpokenOutputControls({
               value={settings.pitch}
               onChange={(event) => onSettingsChange({ ...settings, pitch: Number(event.target.value) })}
             />
-          </label>
-          <div className="grid gap-1">
+          </label>}
+          {settings.engine === 'system' && <div className="grid gap-1">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -115,7 +152,7 @@ export function SpokenOutputControls({
               />
               Auto-play new responses
             </label>
-          </div>
+          </div>}
         </div>
       )}
     </div>

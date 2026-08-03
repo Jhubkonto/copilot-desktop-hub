@@ -1,5 +1,6 @@
 import { Eye, Loader2, Paperclip, Type, X } from 'lucide-react'
 import type { Attachment, PastedImage } from '../../hooks/chat-types'
+import { ImagePreview } from '../ImagePreview'
 
 interface AttachmentBarProps {
   attachments: Attachment[]
@@ -23,10 +24,10 @@ export function AttachmentBar({
       {images.map((image) => (
         <div key={image.id} className="relative group/img inline-flex flex-col items-center gap-0.5">
           <div className="relative">
-            <img
+            <ImagePreview
               src={image.dataUrl}
               alt={image.name}
-              className="h-16 w-16 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
+              thumbnailClassName="h-16 w-16 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
             />
             {image.mode === 'text' && !image.ocrPending && (
               <div className="absolute inset-0 rounded-lg bg-black/50 flex items-center justify-center">

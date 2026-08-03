@@ -281,7 +281,7 @@ export function ChatModePicker({ open, onOpenChange, thinkingEffortOverride, ful
             </div>
             <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1 pt-1.5">
               {activeCliBackend === 'claude-cli'
-                ? 'Also settable via /plan, /accept-edits, and /mode-default. Applies from the next message.'
+                ? 'Also settable via /plan, /accept-edits, and /mode-default. Bypass releases current Nexy approval prompts; native mode applies fully from the next message.'
                 : 'Also settable via /sandbox-read-only, /sandbox-workspace, and /sandbox-full. Applies from the next message.'}
             </p>
           </div>

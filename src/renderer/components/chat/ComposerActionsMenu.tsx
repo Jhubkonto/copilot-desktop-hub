@@ -1,23 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  BookOpen,
-  Camera,
-  ClipboardPaste,
-  Ellipsis,
-  Eye,
-  File,
-  FolderOpen,
-  Package,
-  type LucideIcon,
-} from 'lucide-react'
 import { useClickOutside } from '../../hooks/useClickOutside'
+import { NexyIcon, type NexyIconName } from '../ui/icons/NexyIcon'
 
 interface ComposerActionsMenuProps {
   disabled?: boolean
   showContextInspector: boolean
   onAttachFiles: () => void | Promise<void>
   onAttachFolder: () => void | Promise<void>
-  onCaptureScreen?: () => void | Promise<void>
   onPasteClipboardImage?: () => void | Promise<void>
   onOpenPromptLibrary?: () => void
   onAttachArtifact?: () => void
@@ -26,7 +15,7 @@ interface ComposerActionsMenuProps {
 
 interface MenuAction {
   label: string
-  icon: LucideIcon
+  icon: NexyIconName
   disabled?: boolean
   onSelect: () => void | Promise<void>
 }
@@ -36,7 +25,6 @@ export function ComposerActionsMenu({
   showContextInspector,
   onAttachFiles,
   onAttachFolder,
-  onCaptureScreen,
   onPasteClipboardImage,
   onOpenPromptLibrary,
   onAttachArtifact,
@@ -61,23 +49,20 @@ export function ComposerActionsMenu({
   }, [open])
 
   const actions: MenuAction[] = [
-    { label: 'Attach files', icon: File, disabled, onSelect: onAttachFiles },
-    { label: 'Attach folder', icon: FolderOpen, disabled, onSelect: onAttachFolder },
-    ...(onCaptureScreen
-      ? [{ label: 'Capture screen', icon: Camera, disabled, onSelect: onCaptureScreen }]
-      : []),
+    { label: 'Attach files', icon: 'attach', disabled, onSelect: onAttachFiles },
+    { label: 'Attach folder', icon: 'folder', disabled, onSelect: onAttachFolder },
     ...(onPasteClipboardImage
-      ? [{ label: 'Paste image from clipboard', icon: ClipboardPaste, disabled, onSelect: onPasteClipboardImage }]
+      ? [{ label: 'Paste image from clipboard', icon: 'clipboard' as const, disabled, onSelect: onPasteClipboardImage }]
       : []),
     ...(onOpenPromptLibrary
-      ? [{ label: 'Insert prompt', icon: BookOpen, disabled, onSelect: onOpenPromptLibrary }]
+      ? [{ label: 'Insert prompt', icon: 'prompt' as const, disabled, onSelect: onOpenPromptLibrary }]
       : []),
     ...(onAttachArtifact
-      ? [{ label: 'Attach artifact', icon: Package, disabled, onSelect: onAttachArtifact }]
+      ? [{ label: 'Attach artifact', icon: 'artifact' as const, disabled, onSelect: onAttachArtifact }]
       : []),
     {
       label: showContextInspector ? 'Close context inspector' : 'Open context inspector',
-      icon: Eye,
+      icon: 'inspect',
       onSelect: onToggleContextInspector,
     },
   ]
@@ -88,17 +73,17 @@ export function ComposerActionsMenu({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`rounded-md p-1.5 transition-colors ${
+        className={`rounded-nexy-sm border p-1.5 transition-colors ${
           open || showContextInspector
-            ? 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
-            : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+            ? 'border-nexy-border bg-nexy-raised text-nexy-text shadow-nexy'
+            : 'border-transparent text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text'
         }`}
         title="More message actions"
         aria-label="More message actions"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Ellipsis className="h-4 w-4" />
+        <NexyIcon name="menu" className="h-4 w-4" />
       </button>
 
       {open && (
@@ -106,21 +91,21 @@ export function ComposerActionsMenu({
           ref={menuRef}
           role="menu"
           aria-label="Message actions"
-          className="absolute bottom-full left-0 z-30 mb-1 min-w-52 rounded-lg border border-gray-200 bg-white p-1 text-gray-700 shadow-lg dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          className="absolute bottom-full left-0 z-30 mb-1 min-w-52 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-1 text-nexy-text shadow-nexy"
         >
-          {actions.map(({ label, icon: Icon, disabled: actionDisabled, onSelect }) => (
+          {actions.map(({ label, icon, disabled: actionDisabled, onSelect }) => (
             <button
               key={label}
               type="button"
               role="menuitem"
               disabled={actionDisabled}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-gray-800"
+              className="flex w-full items-center gap-2 rounded-nexy-sm border border-transparent px-2 py-1.5 text-left text-xs hover:border-nexy-border hover:bg-nexy-recessed disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => {
                 setOpen(false)
                 void onSelect()
               }}
             >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <NexyIcon name={icon} className="h-3.5 w-3.5 shrink-0" />
               {label}
             </button>
           ))}

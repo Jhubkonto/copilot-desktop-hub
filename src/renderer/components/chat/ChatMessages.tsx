@@ -46,6 +46,7 @@ interface ChatMessagesProps {
   wikiMessageIds: Set<string>
   onRegenerate: (modelOverride?: string) => void | Promise<void>
   onEdit: (index: number) => void
+  onDeleteAfter?: (message: ChatMessage) => void
   onRetry: () => void | Promise<void>
   onSignIn: () => void
   onPickModel: () => void
@@ -62,6 +63,7 @@ interface ChatMessagesProps {
     aiRecapErrorMessageId: string | null
     voices: SpeechSynthesisVoice[]
     settings: SpokenOutputSettings
+    supertonicReady: boolean
     onRead: (messageId: string, content: string) => void
     onQuickRecap: (messageId: string, content: string) => void
     onAiRecap: (messageId: string) => void
@@ -212,6 +214,7 @@ export function ChatMessagesBase({
   wikiMessageIds,
   onRegenerate,
   onEdit,
+  onDeleteAfter,
   onRetry,
   onSignIn,
   onPickModel,
@@ -672,6 +675,7 @@ export function ChatMessagesBase({
                 hasWikiEntry={wikiMessageIds.has(main.id)}
                 onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
                 onEdit={main.role === 'user' ? onEdit : undefined}
+                onDeleteAfter={main.id && main.timestamp > 0 && onDeleteAfter ? () => onDeleteAfter(main) : undefined}
                 onRetry={main.isError && main.retryable ? onRetry : undefined}
                 onSignIn={
                   main.isError && main.errorType === 'auth' ? onSignIn : undefined
@@ -691,6 +695,7 @@ export function ChatMessagesBase({
                   aiRecapError: spokenOutput.aiRecapErrorMessageId === main.id ? spokenOutput.aiRecapError : null,
                   voices: spokenOutput.voices,
                   settings: spokenOutput.settings,
+                  supertonicReady: spokenOutput.supertonicReady,
                   onRead: () => spokenOutput.onRead(main.id, main.content),
                   onQuickRecap: () => spokenOutput.onQuickRecap(main.id, main.content),
                   onAiRecap: () => spokenOutput.onAiRecap(main.id),

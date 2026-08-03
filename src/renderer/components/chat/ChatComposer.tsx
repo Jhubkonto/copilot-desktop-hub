@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
-import { Loader2, Mic, SendHorizontal, Square, UnfoldVertical, X } from 'lucide-react'
+import { UnfoldVertical } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
@@ -7,12 +7,14 @@ import { SlashCommandMenu } from './SlashCommandMenu'
 import { ModelPicker } from './ModelPicker'
 import { CliLockedModelBadge } from './CliLockedModelBadge'
 import { ChatModePicker } from './ChatModePicker'
+import { NexyIcon } from '../ui/icons/NexyIcon'
 import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend, CliModeOverride, CodexExecutionModeOverride } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
 import { ResizableChatInput } from './ResizableChatInput'
 import { ComposerActionsMenu } from './ComposerActionsMenu'
+import { useEmergencyStop } from '../../hooks/useEmergencyStop'
 
 
 interface ChatComposerProps {
@@ -49,7 +51,6 @@ interface ChatComposerProps {
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
   onAttachFiles: () => void | Promise<void>
   onAttachFolder: () => void | Promise<void>
-  onCaptureScreen?: () => void | Promise<void>
   onPasteClipboardImage?: () => void | Promise<void>
   onOpenPromptLibrary?: () => void
   onAttachArtifact?: () => void
@@ -127,7 +128,6 @@ export function ChatComposer({
   onPaste,
   onAttachFiles,
   onAttachFolder,
-  onCaptureScreen,
   onPasteClipboardImage,
   onOpenPromptLibrary,
   onAttachArtifact,
@@ -166,6 +166,7 @@ export function ChatComposer({
   conversationCodexExecutionModeOverride = null,
   onSetConversationMode,
 }: ChatComposerProps) {
+  const emergencyStop = useEmergencyStop()
   const [showModePicker, setShowModePicker] = useState(false)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
@@ -173,7 +174,7 @@ export function ChatComposer({
   const isCliLocked = lockModelToAgentBackend && (agentBackend === 'claude-cli' || agentBackend === 'codex-cli' || agentBackend === 'hermes-cli')
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700/80 relative">
+    <div className="border-t-2 border-nexy-border bg-nexy-surface relative">
       <div className="px-4 pb-4 pt-3">
         <div className="max-w-3xl mx-auto">
           <AttachmentBar
@@ -203,16 +204,16 @@ export function ChatComposer({
               {contextRefs.map((ref, index) => (
                 <span
                   key={`${ref.token}-${index}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-nexy-sm border border-nexy-border bg-nexy-recessed text-xs text-nexy-text shadow-nexy"
                 >
                   {ref.token}
                   <button
                     type="button"
                     onClick={() => onRemoveContextToken(ref.token)}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-0.5"
+                    className="text-nexy-muted hover:text-nexy-text ml-0.5"
                     aria-label={`Remove ${ref.token}`}
                   >
-                    <X className="w-3 h-3" />
+                    <NexyIcon name="close" className="w-3 h-3" />
                   </button>
                 </span>
               ))}
@@ -244,13 +245,15 @@ export function ChatComposer({
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={
-              !authenticated
+              emergencyStop.active
+                ? 'Emergency stop active — resume conversations from the sidebar'
+                : !authenticated
                 ? 'Sign in to start chatting'
                 : isOnline
                   ? 'Type a message... (paste images with Ctrl+V)'
                   : 'Offline — reconnect to send messages'
             }
-            disabled={!isOnline || !authenticated || rateLimitRemainingSec > 0}
+            disabled={emergencyStop.active || !isOnline || !authenticated || rateLimitRemainingSec > 0}
             aria-label="Message input"
             aria-expanded={showSlashMenu || showAtMenu || undefined}
             aria-controls={showSlashMenu ? 'slash-command-menu' : showAtMenu ? 'at-context-menu' : undefined}
@@ -265,7 +268,6 @@ export function ChatComposer({
                 showContextInspector={showContextInspector}
                 onAttachFiles={onAttachFiles}
                 onAttachFolder={onAttachFolder}
-                onCaptureScreen={onCaptureScreen}
                 onPasteClipboardImage={onPasteClipboardImage}
                 onOpenPromptLibrary={onOpenPromptLibrary}
                 onAttachArtifact={onAttachArtifact}
@@ -278,7 +280,7 @@ export function ChatComposer({
                 <button
                   type="button"
                   onClick={onCancelEdit}
-                  className="px-2 py-1 text-xs rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  className="px-2 py-1 text-xs rounded-nexy-sm border border-nexy-border bg-nexy-recessed text-nexy-muted hover:bg-nexy-raised hover:text-nexy-text transition-colors"
                 >
                   Cancel edit
                 </button>
@@ -302,6 +304,7 @@ export function ChatComposer({
                     buttonRef={modelPickerRef}
                     onSelectDefault={() => {
                       if (conversationId) {
+                        onSetPendingModel(null)
                         void onSetConversationModel('default')
                       } else {
                         onSetPendingModel(null)
@@ -329,11 +332,11 @@ export function ChatComposer({
                   <button
                     type="button"
                     onClick={onCancelVoice}
-                    className="p-1.5 rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                    className="p-1.5 rounded-nexy-sm border border-transparent text-nexy-muted transition-colors hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text"
                     title="Cancel recording"
                     aria-label="Cancel voice recording"
                   >
-                    <X className="w-4 h-4" />
+                    <NexyIcon name="close" className="w-4 h-4" />
                   </button>
                 )}
                 {voiceDocked && (
@@ -342,19 +345,19 @@ export function ChatComposer({
                       type="button"
                       onClick={onToggleVoice}
                       disabled={isGenerating || voiceState === 'transcribing'}
-                      className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${voiceState === 'recording' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                      className={`p-1.5 rounded-nexy-sm border transition-colors disabled:opacity-50 ${voiceState === 'recording' ? 'border-nexy-error text-nexy-error bg-nexy-recessed' : 'border-transparent text-nexy-muted hover:border-nexy-border hover:text-nexy-text hover:bg-nexy-recessed'}`}
                       title={voiceState === 'recording' ? 'Stop recording' : voiceState === 'transcribing' ? 'Transcribing locally…' : 'Voice input'}
                       aria-label={voiceState === 'recording' ? 'Stop voice recording' : 'Start voice input'}
                       aria-pressed={voiceState === 'recording'}
                     >
-                      {voiceState === 'transcribing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                      <NexyIcon name={voiceState === 'transcribing' ? 'busy' : 'microphone'} className="w-4 h-4" />
                     </button>
                     {onFloatVoice && voiceState === 'idle' && (
                       <button
                         type="button"
                         onClick={onFloatVoice}
                         disabled={isGenerating}
-                        className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                        className="p-1.5 rounded-nexy-sm border border-transparent text-nexy-muted hover:border-nexy-border hover:text-nexy-text hover:bg-nexy-recessed disabled:opacity-50"
                         title="Float microphone"
                         aria-label="Float microphone"
                       >
@@ -367,10 +370,10 @@ export function ChatComposer({
                   <button
                     type="button"
                     onClick={onStop}
-                    className="p-1.5 rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition-colors flex items-center justify-center"
+                    className="p-1.5 rounded-nexy-sm border-2 border-nexy-border bg-nexy-text text-nexy-surface hover:bg-nexy-muted transition-colors flex items-center justify-center shadow-nexy"
                     aria-label="Stop generating"
                   >
-                    <Square className="w-4 h-4" />
+                    <NexyIcon name="stop" className="w-4 h-4" />
                   </button>
                 ) : (
                   <button
@@ -378,24 +381,26 @@ export function ChatComposer({
                     onClick={onSend}
                     disabled={
                       isRunningCommand ||
+                      emergencyStop.active ||
                       ((!input.trim() && pendingImages.length === 0 && pendingAttachments.length === 0) ||
                         !isOnline ||
                         !authenticated ||
                         rateLimitRemainingSec > 0)
                     }
-                    className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
+                    className={`p-1.5 rounded-nexy-sm border-2 flex items-center justify-center transition-colors ${
                       !isRunningCommand &&
+                      !emergencyStop.active &&
                       (input.trim() || pendingImages.length > 0 || pendingAttachments.length > 0) &&
                       isOnline &&
                       authenticated &&
                       rateLimitRemainingSec === 0
-                        ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
-                        : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                        ? 'border-nexy-border bg-nexy-accent text-nexy-on-accent hover:brightness-110 shadow-nexy'
+                        : 'border-transparent bg-transparent text-nexy-muted cursor-not-allowed'
                     }`}
-                    aria-label={isRunningCommand ? 'Running command…' : 'Send message'}
-                    title={isRunningCommand ? 'A command is still running…' : undefined}
+                    aria-label={emergencyStop.active ? 'Emergency stop active' : isRunningCommand ? 'Running command…' : 'Send message'}
+                    title={emergencyStop.active ? 'Resume conversations from the sidebar to send' : isRunningCommand ? 'A command is still running…' : undefined}
                   >
-                    {isRunningCommand ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizontal className="w-4 h-4" />}
+                    <NexyIcon name={isRunningCommand ? 'busy' : 'send'} className="w-4 h-4" />
                   </button>
                 )}
               </>
