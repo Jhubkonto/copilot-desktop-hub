@@ -35,20 +35,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -71,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +74,8 @@ import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.model.activeModelLabel
 import java.io.File
 
@@ -138,7 +128,7 @@ fun DebriefScreen(
                 actions = {
                     if (state is DebriefUiState.Loaded) {
                         IconButton(onClick = { onQuizMe(conversationId) }) {
-                            Icon(Icons.Default.Psychology, contentDescription = "Quiz Me")
+                            NexyIcon(NexyIconName.Skill, contentDescription = "Quiz Me")
                         }
                     }
                 },
@@ -248,7 +238,7 @@ internal fun ReadyToGenerateContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextButton(onClick = onPickModel) {
-            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            NexyIcon(NexyIconName.Settings, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(4.dp))
             Text(modelLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -260,7 +250,7 @@ internal fun ReadyToGenerateContent(
 private fun LoadingContent(label: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            CircularProgressIndicator()
+            NexyIcon(NexyIconName.Busy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -274,7 +264,7 @@ private fun DebriefViewToggle(view: DebriefView, onSelect: (DebriefView) -> Unit
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Surface(
-            shape = RoundedCornerShape(10.dp),
+            shape = MaterialTheme.shapes.extraSmall,
             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.20f),
         ) {
             Row(modifier = Modifier.padding(3.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -283,7 +273,7 @@ private fun DebriefViewToggle(view: DebriefView, onSelect: (DebriefView) -> Unit
                     label = "Story",
                     selected = view == DebriefView.STORY,
                     onClick = { onSelect(DebriefView.STORY) },
-                    icon = Icons.Default.AutoAwesome,
+                    icon = NexyIconName.Spark,
                 )
             }
         }
@@ -291,18 +281,18 @@ private fun DebriefViewToggle(view: DebriefView, onSelect: (DebriefView) -> Unit
 }
 
 @Composable
-private fun DebriefTogglePill(label: String, selected: Boolean, onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
+private fun DebriefTogglePill(label: String, selected: Boolean, onClick: () -> Unit, icon: NexyIconName? = null) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent,
-        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
+        modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (icon != null) NexyIcon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,
@@ -347,7 +337,7 @@ private fun StoryContent(
         if (storyState.loading) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                     Text("Writing the story…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -356,7 +346,7 @@ private fun StoryContent(
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -376,7 +366,7 @@ private fun StoryContent(
             }
             item {
                 OutlinedButton(onClick = onRetell) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                    NexyIcon(NexyIconName.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Retell")
                 }
@@ -398,7 +388,7 @@ private fun StoryStylePicker(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
     ) {
@@ -408,9 +398,9 @@ private fun StoryStylePicker(
                 STORY_TONES.forEach { (value, label) ->
                     val selected = tone == value
                     Surface(
-                        shape = RoundedCornerShape(999.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable { onToneChange(value) },
+                        modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).clickable { onToneChange(value) },
                     ) {
                         Text(
                             label,
@@ -433,7 +423,7 @@ private fun StoryStylePicker(
                 Text("$beatCount", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(20.dp))
             }
             Button(onClick = onConfirm, modifier = Modifier.align(Alignment.End)) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                NexyIcon(NexyIconName.Spark, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(if (hasStory) "Retell with this style" else "Tell the story")
             }
@@ -446,7 +436,7 @@ private fun StoryBeatView(caption: String, moodKey: String, svg: String) {
     val nodes = rememberStorySvgNodes(svg)
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
     ) {
@@ -454,7 +444,7 @@ private fun StoryBeatView(caption: String, moodKey: String, svg: String) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f), MaterialTheme.shapes.extraSmall),
                 contentAlignment = Alignment.Center,
             ) {
                 if (nodes != null) {
@@ -493,13 +483,13 @@ private fun LoadedContent(
                         text = "Export Markdown",
                         onClick = onExport,
                         modifier = Modifier.weight(1f),
-                        leadingIcon = Icons.Default.Share,
+                        leadingNexyIcon = NexyIconName.Share,
                     )
                     NexySecondaryButton(
                         text = "Download",
                         onClick = onDownload,
                         modifier = Modifier.weight(1f),
-                        leadingIcon = Icons.Default.FileDownload,
+                        leadingNexyIcon = NexyIconName.Download,
                     )
                 }
             }
@@ -586,19 +576,14 @@ private fun DebriefOverviewCard(
     val borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f),
         border = BorderStroke(1.dp, borderColor),
         tonalElevation = 0.dp,
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.MenuBook,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                NexyIcon(NexyIconName.Artifact, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 Text(
                     "Debrief overview",
                     style = MaterialTheme.typography.titleMedium,
@@ -625,7 +610,7 @@ private fun DebriefOverviewCard(
             DebriefSection("How to Reproduce") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                 ) {
@@ -666,7 +651,7 @@ private fun DebriefSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun DebriefPill(label: String) {
     Surface(
-        shape = RoundedCornerShape(999.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.75f),
     ) {
         Text(
@@ -682,7 +667,7 @@ private fun DebriefPill(label: String) {
 private fun ErrorContent(message: String, onRetry: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(32.dp)) {
-            Icon(Icons.Default.ErrorOutline, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+            NexyIcon(NexyIconName.Error, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
             Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilledTonalButton(onClick = onRetry) { Text("Try Again") }
         }

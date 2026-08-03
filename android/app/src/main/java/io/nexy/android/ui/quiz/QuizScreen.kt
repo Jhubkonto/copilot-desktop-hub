@@ -35,16 +35,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -65,10 +58,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,7 +146,7 @@ fun QuizScreen(
 private fun GeneratingContent() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            androidx.compose.material3.CircularProgressIndicator()
+            NexyIcon(NexyIconName.Busy, null, tint = MaterialTheme.colorScheme.primary)
             Text("Generating quiz questions…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -232,9 +228,9 @@ private fun QuizSpecDialog(
 @Composable
 private fun SpecChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(999.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
-        modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = onClick),
+        modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(onClick = onClick),
     ) {
         Text(
             label,
@@ -278,7 +274,7 @@ private fun QuestionContent(
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(
-                                modifier = Modifier.size(28.dp).background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                modifier = Modifier.size(28.dp).background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, RectangleShape),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
@@ -316,8 +312,8 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
                         shape = MaterialTheme.shapes.medium,
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(
-                                imageVector = if (state.isCorrect) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                            NexyIcon(
+                                name = if (state.isCorrect) NexyIconName.Check else NexyIconName.Error,
                                 contentDescription = null,
                                 tint = if (state.isCorrect) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
                             )
@@ -334,7 +330,7 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
                     val isCorrect = i == state.question.correctIndex
                     val isWrongSelected = i == state.selected && !state.isCorrect
                     val borderColor = when {
-                            isCorrect -> Color(0xFF34D399)
+                            isCorrect -> MaterialTheme.colorScheme.tertiary
                             isWrongSelected -> MaterialTheme.colorScheme.error
                             else -> MaterialTheme.colorScheme.outline
                         }
@@ -353,7 +349,7 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(
-                                modifier = Modifier.size(28.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                modifier = Modifier.size(28.dp).background(MaterialTheme.colorScheme.surfaceVariant, RectangleShape),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(listOf("A", "B", "C", "D")[i], style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -366,7 +362,7 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
                 run {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
                     ) {
@@ -442,7 +438,7 @@ private fun SummaryContent(state: QuizUiState.Summary, onTryAgain: () -> Unit, o
 private fun ErrorContent(message: String, onRetry: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(32.dp)) {
-            Icon(Icons.Default.ErrorOutline, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+            NexyIcon(NexyIconName.Error, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
             Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilledTonalButton(onClick = onRetry) { Text("Try Again") }
         }
@@ -456,19 +452,14 @@ private fun QuizPanel(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
         tonalElevation = 0.dp,
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(
-                    Icons.Default.Psychology,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                NexyIcon(NexyIconName.Skill, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium,
@@ -487,14 +478,14 @@ private fun CategoryChip(category: String) {
     val chipColor = when (category) {
         "command" -> MaterialTheme.colorScheme.primaryContainer
         "concept" -> MaterialTheme.colorScheme.secondaryContainer
-        "sequence" -> Color(0xFFFEF3C7)
+        "sequence" -> MaterialTheme.colorScheme.surfaceVariant
         "approach" -> MaterialTheme.colorScheme.tertiaryContainer
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val textColor = when (category) {
         "command" -> MaterialTheme.colorScheme.onPrimaryContainer
         "concept" -> MaterialTheme.colorScheme.onSecondaryContainer
-        "sequence" -> Color(0xFF92400E)
+        "sequence" -> MaterialTheme.colorScheme.onSurfaceVariant
         "approach" -> MaterialTheme.colorScheme.onTertiaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }

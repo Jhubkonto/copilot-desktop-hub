@@ -25,26 +25,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -81,6 +67,9 @@ import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.theme.GeneratedNexyColors
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -187,7 +176,7 @@ private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 
 private data class ActionButtonSpec(
     val text: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val icon: NexyIconName,
     val enabled: Boolean,
     val onClick: () -> Unit,
 )
@@ -207,7 +196,7 @@ private fun ActionButtonGrid(buttons: List<ActionButtonSpec>, modifier: Modifier
                         text = button.text,
                         onClick = button.onClick,
                         enabled = button.enabled,
-                        leadingIcon = button.icon,
+                        leadingNexyIcon = button.icon,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -242,7 +231,7 @@ private fun RepoListSection(state: CodePanelState, onSelectRepo: (String) -> Uni
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            CircularProgressIndicator()
+            NexyIcon(NexyIconName.Busy, contentDescription = "Loading repositories", tint = MaterialTheme.colorScheme.primary)
         }
         state.workspaceRoot.isNullOrBlank() -> NexyEmptyState(
             title = "No workspace configured",
@@ -253,12 +242,12 @@ private fun RepoListSection(state: CodePanelState, onSelectRepo: (String) -> Uni
             detail = "Nothing under this project's workspace looks like a git repository yet.",
             action = {
                 if (state.isInitializingRepo) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    NexyIcon(NexyIconName.Busy, contentDescription = "Initializing repository", modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                 } else {
                     NexyPrimaryButton(
                         text = "Initialize repository here",
                         onClick = onInitRepo,
-                        leadingIcon = Icons.Default.Add,
+                        leadingNexyIcon = NexyIconName.Add,
                     )
                 }
             },
@@ -277,8 +266,8 @@ private fun RepoRow(repo: CodePanelRepo, onClick: () -> Unit) {
         title = repo.relativePath.ifBlank { "(workspace root)" },
         onClick = onClick,
         leading = {
-            Icon(
-                Icons.AutoMirrored.Filled.CallSplit,
+            NexyIcon(
+                NexyIconName.Fork,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -304,8 +293,8 @@ private fun RepoRow(repo: CodePanelRepo, onClick: () -> Unit) {
             }
         },
         trailing = {
-            Icon(
-                Icons.Default.ChevronRight,
+            NexyIcon(
+                NexyIconName.ChevronRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -360,23 +349,23 @@ private fun RepoDetailSection(
                     Spacer(modifier = Modifier.height(10.dp))
                     val unstagedPaths = remember(state.changedFiles) { state.changedFiles.filterNot { it.staged }.map { it.relativePath }.toSet() }
                     val actionButtons = buildList {
-                        add(ActionButtonSpec("Fetch", Icons.Default.Sync, !state.isActionInProgress) { vm.fetch() })
-                        add(ActionButtonSpec("Pull", Icons.Default.ArrowDownward, !state.isActionInProgress) { vm.pull() })
-                        add(ActionButtonSpec("Push", Icons.Default.ArrowUpward, !state.isActionInProgress) { vm.pushBranch() })
-                        add(ActionButtonSpec("Stage all", Icons.Default.Add, !state.isActionInProgress && unstagedPaths.isNotEmpty()) { vm.stageFiles(unstagedPaths) })
-                        add(ActionButtonSpec("Commit…", Icons.Default.CheckCircle, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { commitDialogOpen = true })
-                        add(ActionButtonSpec("New branch", Icons.Default.Add, !state.isActionInProgress) { newBranchDialogOpen = true })
-                        add(ActionButtonSpec("Merge…", Icons.AutoMirrored.Filled.CallSplit, !state.isActionInProgress && mergeCandidateCount > 0) { mergeDialogOpen = true })
-                        add(ActionButtonSpec("Stash", Icons.Default.Inventory2, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { stashConfirmOpen = true })
+                        add(ActionButtonSpec("Fetch", NexyIconName.Refresh, !state.isActionInProgress) { vm.fetch() })
+                        add(ActionButtonSpec("Pull", NexyIconName.Download, !state.isActionInProgress) { vm.pull() })
+                        add(ActionButtonSpec("Push", NexyIconName.Upload, !state.isActionInProgress) { vm.pushBranch() })
+                        add(ActionButtonSpec("Stage all", NexyIconName.Add, !state.isActionInProgress && unstagedPaths.isNotEmpty()) { vm.stageFiles(unstagedPaths) })
+                        add(ActionButtonSpec("Commit…", NexyIconName.Check, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { commitDialogOpen = true })
+                        add(ActionButtonSpec("New branch", NexyIconName.Add, !state.isActionInProgress) { newBranchDialogOpen = true })
+                        add(ActionButtonSpec("Merge…", NexyIconName.Fork, !state.isActionInProgress && mergeCandidateCount > 0) { mergeDialogOpen = true })
+                        add(ActionButtonSpec("Stash", NexyIconName.Archive, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { stashConfirmOpen = true })
                         if (state.stashCount > 0) {
-                            add(ActionButtonSpec("Stash pop (${state.stashCount})", Icons.Default.RestartAlt, !state.isActionInProgress) { vm.stashPop() })
+                            add(ActionButtonSpec("Stash pop (${state.stashCount})", NexyIconName.Refresh, !state.isActionInProgress) { vm.stashPop() })
                         }
                     }
                     ActionButtonGrid(buttons = actionButtons)
                     if (state.isActionInProgress) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.height(16.dp).width(16.dp), strokeWidth = 2.dp)
+                            NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.height(16.dp).width(16.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Working…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -451,7 +440,7 @@ private fun RepoDetailSection(
                     val branches = state.branches
                     if (branches == null) {
                         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-                            CircularProgressIndicator()
+                            NexyIcon(NexyIconName.Busy, contentDescription = "Loading branches", tint = MaterialTheme.colorScheme.primary)
                         }
                     } else {
                         branches.local.forEach { branch ->
@@ -502,7 +491,7 @@ private fun RepoDetailSection(
                                         text = "Stage selected (${state.selectedChangedFiles.size})",
                                         onClick = { vm.stageFiles() },
                                         enabled = !state.isActionInProgress,
-                                        leadingIcon = Icons.Default.Add,
+                                        leadingNexyIcon = NexyIconName.Add,
                                     )
                                 }
                                 if (selectedStagedCount > 0) {
@@ -510,7 +499,7 @@ private fun RepoDetailSection(
                                         text = "Unstage selected (${state.selectedChangedFiles.size})",
                                         onClick = { vm.unstageFiles() },
                                         enabled = !state.isActionInProgress,
-                                        leadingIcon = Icons.Default.RestartAlt,
+                                        leadingNexyIcon = NexyIconName.Refresh,
                                     )
                                 }
                                 NexyGhostButton(text = "Clear selection", onClick = { vm.clearFileSelection() })
@@ -592,8 +581,8 @@ private fun BranchRow(name: String, isCurrent: Boolean, onCheckout: () -> Unit, 
     NexyListRow(
         title = name,
         leading = {
-            Icon(
-                Icons.AutoMirrored.Filled.CallSplit,
+            NexyIcon(
+                NexyIconName.Fork,
                 contentDescription = null,
                 tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
@@ -619,8 +608,8 @@ private fun BranchRow(name: String, isCurrent: Boolean, onCheckout: () -> Unit, 
                 Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
                     if (onDelete != null) {
                         IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                Icons.Default.Close,
+                            NexyIcon(
+                                NexyIconName.Close,
                                 contentDescription = "Delete branch",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp),
@@ -659,8 +648,8 @@ private fun ChangedFileRow(
         leading = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = selected, onCheckedChange = { onToggleSelected() }, modifier = Modifier.size(32.dp))
-                Icon(
-                    Icons.Default.Description,
+                NexyIcon(
+                    NexyIconName.File,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
@@ -693,16 +682,16 @@ private fun ChangedFileRow(
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onToggleStaged, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        if (file.staged) Icons.Default.Close else Icons.Default.Add,
+                    NexyIcon(
+                        if (file.staged) NexyIconName.Close else NexyIconName.Add,
                         contentDescription = if (file.staged) "Unstage" else "Stage",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
                     )
                 }
                 IconButton(onClick = onDiscard, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        Icons.Default.RestartAlt,
+                    NexyIcon(
+                        NexyIconName.Refresh,
                         contentDescription = "Discard changes",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
@@ -722,7 +711,7 @@ private fun ChangedFileRow(
 private fun DiffSection(state: CodePanelState, fileName: String) {
     when {
         state.isLoadingDiff -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            NexyIcon(NexyIconName.Busy, contentDescription = "Loading diff", tint = MaterialTheme.colorScheme.primary)
         }
         state.diffBinary -> NexyEmptyState(
             title = "Binary file",
@@ -770,8 +759,8 @@ private fun DiffChangeIndicator(
     val scope = rememberCoroutineScope()
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     val thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
-    val addColor = Color(0xFF22C55E)
-    val removeColor = Color(0xFFEF4444)
+    val addColor = GeneratedNexyColors.SemanticSuccessMain
+    val removeColor = MaterialTheme.colorScheme.error
 
     Canvas(
         modifier = modifier.pointerInput(Unit) {

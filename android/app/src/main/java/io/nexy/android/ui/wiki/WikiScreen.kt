@@ -18,26 +18,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Surface
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -68,6 +59,8 @@ import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyFormSheet
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,7 +143,7 @@ fun WikiScreen(
                 actions = {
                     if (conversationId != null) {
                         if (state.isExtracting) {
-                            CircularProgressIndicator(modifier = Modifier.padding(horizontal = 12.dp), strokeWidth = 2.dp)
+                            NexyIcon(NexyIconName.Busy, "Extracting", modifier = Modifier.padding(horizontal = 12.dp), tint = MaterialTheme.colorScheme.primary)
                         } else {
                             TextButton(onClick = { vm.extractFromConversation(conversationId) }) {
                                 Text("Extract")
@@ -162,7 +155,7 @@ fun WikiScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { vm.showCreate() }) {
-                Icon(Icons.Default.Add, contentDescription = "New entry")
+                NexyIcon(NexyIconName.Add, contentDescription = "New entry")
             }
         },
     ) { padding ->
@@ -268,8 +261,8 @@ private fun WikiEntryScreen(
                     if (isEditing) {
                         TextButton(onClick = onSaveEdit) { Text("Save") }
                     } else {
-                        IconButton(onClick = onStartEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
-                        IconButton(onClick = { showDeleteDialog = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete") }
+                        IconButton(onClick = onStartEdit) { NexyIcon(NexyIconName.Edit, contentDescription = "Edit") }
+                        IconButton(onClick = { showDeleteDialog = true }) { NexyIcon(NexyIconName.Delete, contentDescription = "Delete") }
                     }
                 },
             )
@@ -383,8 +376,8 @@ private fun WikiExtractionSheet(
                             Text(candidate.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                             if (candidate.body.isNotBlank()) {
                                 IconButton(onClick = { expanded = !expanded }) {
-                                    Icon(
-                                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    NexyIcon(
+                                        if (expanded) NexyIconName.ChevronUp else NexyIconName.ChevronDown,
                                         contentDescription = if (expanded) "Collapse preview" else "Expand preview",
                                     )
                                 }
@@ -394,7 +387,8 @@ private fun WikiExtractionSheet(
                             val previewLines = candidate.body.lines().take(5).joinToString("\n")
                             Column {
                                 Surface(
-                                    shape = RoundedCornerShape(4.dp),
+                                    shape = MaterialTheme.shapes.extraSmall,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                     color = MaterialTheme.colorScheme.surfaceVariant,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {

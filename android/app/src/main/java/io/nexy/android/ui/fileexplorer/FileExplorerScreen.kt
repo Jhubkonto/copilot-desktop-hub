@@ -15,16 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -47,6 +40,8 @@ import io.nexy.android.data.model.FsEntry
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 /** Shows the tail of a long path (the part nearest the leaf), since that's what identifies
  *  "where am I" at a glance — the drive/home prefix is usually the least useful part. */
@@ -127,11 +122,11 @@ fun FileExplorerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TextButton(onClick = { vm.navigateTo(-1) }) {
-                        Icon(Icons.Default.Home, contentDescription = "Root")
+                        NexyIcon(NexyIconName.Home, contentDescription = "Root")
                     }
                     state.history.forEachIndexed { index, path ->
-                        Icon(
-                            Icons.Default.ChevronRight,
+                        NexyIcon(
+                            NexyIconName.ChevronRight,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -155,7 +150,11 @@ fun FileExplorerScreen(
 
             when {
                 state.loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    NexyIcon(
+                        NexyIconName.Busy,
+                        contentDescription = "Loading files",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 state.error != null -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -248,7 +247,7 @@ private fun LocationRow(label: String, path: String, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        NexyIcon(NexyIconName.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column {
             Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (label != path) {
@@ -279,14 +278,14 @@ private fun EntryRow(entry: FsEntry, allowFileSelection: Boolean, onOpen: () -> 
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         }
-        Icon(
-            if (entry.isDirectory) Icons.Default.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
+        NexyIcon(
+            if (entry.isDirectory) NexyIconName.Folder else NexyIconName.File,
             contentDescription = null,
             tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else contentColor,
         )
         Text(entry.name, color = contentColor, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         if (entry.isDirectory) {
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            NexyIcon(NexyIconName.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

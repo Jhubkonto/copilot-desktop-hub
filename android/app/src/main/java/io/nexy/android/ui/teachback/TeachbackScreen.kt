@@ -13,14 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -40,6 +35,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.TeachbackFeedback
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.service.NexySpeechService
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,7 +72,7 @@ fun TeachbackScreen(conversationId: String, artifactId: String?, onBack: () -> U
 
     Scaffold(topBar = { NexyTopAppBar(titleContent = { Text("Teach-back") }, onBack = onBack) }) { padding ->
         when (val current = state) {
-            TeachbackUiState.Loading -> Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { CircularProgressIndicator(); Text("Preparing teach-back…", modifier = Modifier.padding(top = 12.dp)) }
+            TeachbackUiState.Loading -> Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { NexyIcon(NexyIconName.Busy, null, tint = MaterialTheme.colorScheme.primary); Text("Preparing teach-back…", modifier = Modifier.padding(top = 12.dp)) }
             is TeachbackUiState.Error -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.Center) { Text(current.message, color = MaterialTheme.colorScheme.error); Button(onClick = { vm.load(conversationId, artifactId) }, modifier = Modifier.padding(top = 12.dp)) { Text("Try again") } }
             is TeachbackUiState.Practice -> PracticeContent(current, padding, record, { speakPrompt(current.prompt) }, vm::setTranscript, vm::grade)
             is TeachbackUiState.Grading -> PracticeContent(TeachbackUiState.Practice(current.exercise, current.prompt, current.transcript, current.turnNumber), padding, {}, { speakPrompt(current.prompt) }, {}, {}, grading = true)
@@ -91,11 +88,11 @@ private fun PracticeContent(state: TeachbackUiState.Practice, padding: PaddingVa
             Text(if (state.turnNumber == 0) "Explain in your own words" else "Viva follow-up ${state.turnNumber} of 2", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(state.prompt, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onSpeak) { Icon(Icons.Default.RecordVoiceOver, null); Text("Read aloud", modifier = Modifier.padding(start = 6.dp)) }
-                FilledTonalButton(onClick = onRecord, enabled = !grading) { Icon(Icons.Default.Mic, null); Text("Record", modifier = Modifier.padding(start = 6.dp)) }
+                OutlinedButton(onClick = onSpeak) { NexyIcon(NexyIconName.Play, null); Text("Read aloud", modifier = Modifier.padding(start = 6.dp)) }
+                FilledTonalButton(onClick = onRecord, enabled = !grading) { NexyIcon(NexyIconName.Microphone, null); Text("Record", modifier = Modifier.padding(start = 6.dp)) }
             }
             OutlinedTextField(value = state.transcript, onValueChange = onTranscript, label = { Text("Transcript") }, minLines = 5, modifier = Modifier.fillMaxWidth(), enabled = !grading)
-            Button(onClick = onGrade, enabled = state.transcript.isNotBlank() && !grading, modifier = Modifier.fillMaxWidth()) { if (grading) CircularProgressIndicator() else Text("Grade explanation") }
+            Button(onClick = onGrade, enabled = state.transcript.isNotBlank() && !grading, modifier = Modifier.fillMaxWidth()) { if (grading) NexyIcon(NexyIconName.Busy, null) else Text("Grade explanation") }
             if (state.savedTurns > 0) Text("${state.savedTurns} saved turns for this version", style = MaterialTheme.typography.labelSmall)
         } }
     }
