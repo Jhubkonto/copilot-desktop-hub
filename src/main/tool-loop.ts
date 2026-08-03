@@ -5,6 +5,7 @@ import { callMcpTool, servers } from './mcp'
 import { broadcastToMobile } from './ws-server'
 import type { ProviderNonStreamResult, ToolChoice, ToolDefinition } from './provider-types'
 import type { ProviderMessage } from './providers'
+import { assertConversationStartsAllowed } from './emergency-stop'
 
 export const MCP_MAX_ITERATIONS = 20
 export const MCP_REQUIRED_ITERATIONS = 0
@@ -184,7 +185,9 @@ export async function runProviderMcpToolLoop(
     }
 
     sendActivity({ type: 'thinking' })
+    assertConversationStartsAllowed()
     const result = await caller(loopMessages, toolDefs, toolChoice)
+    assertConversationStartsAllowed()
 
     if (!modelEmitted && onModel && result.model) {
       modelEmitted = true
@@ -229,6 +232,7 @@ export async function runProviderMcpToolLoop(
     })
 
     for (const call of result.toolCalls) {
+      assertConversationStartsAllowed()
       const toolShortName = call.name.split('__').pop() ?? call.name
       const resolved = toolMap.get(call.name)
       const inlineHandler = inlineHandlers?.get(call.name)
