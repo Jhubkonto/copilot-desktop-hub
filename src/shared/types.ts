@@ -17,6 +17,14 @@ export type {
   SpokenOutputKind,
 } from './spoken-output'
 
+export type {
+  SpeechEngine,
+  SupertonicLanguage,
+  SupertonicStatus,
+  SupertonicSynthesisInput,
+  SupertonicSynthesisResult,
+} from './neural-tts'
+
 export interface Attachment {
   id: string
   name: string
@@ -1441,6 +1449,27 @@ export interface ConversationForkResult {
   omitted_message_count: number
 }
 
+export type ConversationPageScope =
+  | { type: 'all' }
+  | { type: 'project'; id: string | null }
+  | { type: 'agent'; id: string }
+
+export interface ConversationPageRequest {
+  requestId?: string
+  scope?: ConversationPageScope
+  query?: string
+  limit?: number
+  cursor?: string | null
+}
+
+export interface ConversationPage {
+  requestId: string
+  items: ConversationRow[]
+  totalCount: number
+  nextCursor: string | null
+  hasMore: boolean
+}
+
 export interface StructuredConversationSummary {
   goals: string[]
   decisions: string[]
@@ -2034,6 +2063,10 @@ export type IpcReturnMap = {
   'chat:get-active-turn': import('./chat-turn-types').ActiveChatTurnSnapshot | null
   'chat:send-message': void
   'chat:stop-generation': void
+  'chat:get-emergency-stop': { active: boolean; activatedAt: number | null }
+  'chat:activate-emergency-stop': { active: boolean; activatedAt: number | null }
+  'chat:resume-conversations': { active: boolean; activatedAt: number | null }
+  'chat:emergency-stop-changed': void
   'chat:stream-error': void
   'chat:stream-response': void
   'chat:cli-tool-start': void
@@ -2076,6 +2109,7 @@ export type IpcReturnMap = {
   'conversation:get-messages': MessageRow[]
   'conversation:insert-message': MessageRow
   'conversation:list': ConversationRow[]
+  'conversation:list-page': ConversationPage
   'conversation:rename': boolean
   'conversation:search': ConversationRow[]
   'conversation:set-model': boolean
@@ -2109,6 +2143,8 @@ export type IpcReturnMap = {
   'activity:dismiss': boolean
   'activity-badge:set-viewed-conversation': number
   'activity-badge:get-count': number
+  'activity-badge:get-unseen-conversations': string[]
+  'activity-badge:changed': void
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -2394,6 +2430,10 @@ export type IpcReturnMap = {
   'voice:transcribe': { text: string } | { error: string }
   'voice:save-spoken-output': import('./spoken-output').MessageSpokenOutput
   'voice:generate-ai-recap': import('./spoken-output').MessageSpokenOutput | null
+  'tts:get-status': import('./neural-tts').SupertonicStatus
+  'tts:install-supertonic': import('./neural-tts').SupertonicStatus
+  'tts:remove-supertonic': import('./neural-tts').SupertonicStatus
+  'tts:synthesize-supertonic': import('./neural-tts').SupertonicSynthesisResult
   // Tool
   'tool:approval-response': boolean
   'tool:auto-approved': void
@@ -2526,6 +2566,10 @@ export type IpcChannels =
   | 'chat:new'
   | 'chat:send-message'
   | 'chat:stop-generation'
+  | 'chat:get-emergency-stop'
+  | 'chat:activate-emergency-stop'
+  | 'chat:resume-conversations'
+  | 'chat:emergency-stop-changed'
   | 'chat:stream-error'
   | 'chat:stream-response'
   | 'chat:cli-tool-start'
@@ -2569,6 +2613,7 @@ export type IpcChannels =
   | 'conversation:get-messages'
   | 'conversation:insert-message'
   | 'conversation:list'
+  | 'conversation:list-page'
   | 'conversation:rename'
   | 'conversation:search'
   | 'conversation:set-model'
@@ -2603,6 +2648,8 @@ export type IpcChannels =
   | 'activity:dismiss'
   | 'activity-badge:set-viewed-conversation'
   | 'activity-badge:get-count'
+  | 'activity-badge:get-unseen-conversations'
+  | 'activity-badge:changed'
   | 'artifact:updated'
   | 'debug:set-enabled'
   | 'debug:log'
@@ -2780,6 +2827,10 @@ export type IpcChannels =
   | 'voice:transcribe'
   | 'voice:save-spoken-output'
   | 'voice:generate-ai-recap'
+  | 'tts:get-status'
+  | 'tts:install-supertonic'
+  | 'tts:remove-supertonic'
+  | 'tts:synthesize-supertonic'
   | 'tool:approval-response'
   | 'tool:auto-approved'
   | 'tool:request-approval'
