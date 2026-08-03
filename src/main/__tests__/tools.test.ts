@@ -73,7 +73,7 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 }
 
 /* ── Import & Register ─────────────────────────────────────── */
-import { registerToolHandlers, requestApproval, drainPendingApprovals } from '../tools'
+import { registerToolHandlers, requestApproval, drainPendingApprovals, approvePendingApprovalsForConversation } from '../tools'
 
 beforeEach(() => {
   mockDb._store.clear()
@@ -226,5 +226,26 @@ describe('drainPendingApprovals', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     expect(resolvedOther).toBeUndefined()
+  })
+})
+
+describe('approvePendingApprovalsForConversation', () => {
+  it('releases a waiting approval for the escalated conversation only', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+
+    let escalated: boolean | undefined
+    let other: boolean | undefined
+    void requestApproval(wc, 'Edit', {}, 'desc', { conversationId: 'conv-1' }).then((value) => { escalated = value })
+    void requestApproval(wc, 'Edit', {}, 'desc', { conversationId: 'conv-2' }).then((value) => { other = value })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    approvePendingApprovalsForConversation('conv-1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(escalated).toBe(true)
+    expect(other).toBeUndefined()
+    expect(send).toHaveBeenCalledWith('tool:approval-resolved', expect.any(String))
+    approvePendingApprovalsForConversation('conv-2')
   })
 })

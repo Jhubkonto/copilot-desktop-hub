@@ -1050,6 +1050,39 @@ describe('chat handlers', () => {
     expect(getActiveChatTurnSnapshot('conv-1')).toBeNull()
   })
 
+  it('honors a live escalation to bypass in an already-running Claude permission hook', async () => {
+    let requestPermission: ((toolName: string, input: Record<string, unknown>) => Promise<boolean>) | undefined
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (
+        _win: unknown,
+        req: { requestPermission?: typeof requestPermission },
+      ) => {
+        requestPermission = req.requestPermission
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null,
+      model: null,
+      cli_backend: null,
+      cli_mode_override: null,
+    })
+    state.getOverrides.set('SELECT cli_mode_override FROM conversations', {
+      cli_mode_override: 'bypassPermissions',
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli-live-bypass', 'edit the file')
+
+    expect(requestPermission).toBeTypeOf('function')
+    await expect(requestPermission!('Edit', { file_path: 'README.md' })).resolves.toBe(true)
+  })
+
   it('closes out the background activity entry when an unexpected error occurs before any provider/CLI dispatch begins', async () => {
     // buildChatContext runs before any of the branch-specific try/catch blocks — an
     // unhandled throw there used to skip every turnEmitter.closeStream()/sendStreamEnd()

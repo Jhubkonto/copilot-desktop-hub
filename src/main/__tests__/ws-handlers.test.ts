@@ -16,6 +16,7 @@ const state = vi.hoisted(() => {
   const dispatchChatSend = vi.fn()
   const webContentsSend = vi.fn()
   const broadcastToMobile = vi.fn()
+  const approveConversationApprovals = vi.fn()
   const listProjectAuditSessions = vi.fn<(projectId?: string | null) => ProjectEditSession[]>(() => [])
   const listProjectAuditFiles = vi.fn<(sessionId: string) => ProjectTouchedFile[]>(() => [])
   const getProjectAuditDiff = vi.fn<(sessionId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
@@ -47,6 +48,7 @@ const state = vi.hoisted(() => {
     dispatchChatSend,
     webContentsSend,
     broadcastToMobile,
+    approveConversationApprovals,
     listProjectAuditSessions,
     listProjectAuditFiles,
     getProjectAuditDiff,
@@ -215,7 +217,7 @@ vi.mock('../rating-handlers', () => ({
   getRatingStats: state.getRatingStats,
 }))
 
-import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
+import { registerWsHandlers, registerApprovalResolver, registerConversationApprovalEscalator } from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
 import { getAndroidUpdateManifest } from '../android-handlers'
 import { isProviderConfigured } from '../providers'
@@ -251,6 +253,7 @@ describe('ws handlers', () => {
     state.dispatchChatSend.mockResolvedValue(undefined)
     state.webContentsSend.mockClear()
     state.broadcastToMobile.mockClear()
+    state.approveConversationApprovals.mockClear()
     state.projectConfigJson = null
     state.listProjectAuditSessions.mockReset()
     state.listProjectAuditSessions.mockReturnValue([])
@@ -287,6 +290,7 @@ describe('ws handlers', () => {
     vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
     vi.mocked(HermesAdapter.isAvailable).mockReturnValue(false)
     registerWsHandlers()
+    registerConversationApprovalEscalator(state.approveConversationApprovals)
   })
 
   it('replies to the requesting client for conversation lists', () => {
@@ -523,6 +527,15 @@ describe('ws handlers', () => {
         agenticModeOverride: 1,
       }),
     })
+  })
+
+  it('releases an in-flight approval when Android switches the conversation to Claude bypass', () => {
+    sendCommand('conversation:set-mode', {
+      conversationId: 'conv-1',
+      cliModeOverride: 'bypassPermissions',
+    })
+
+    expect(state.approveConversationApprovals).toHaveBeenCalledWith('conv-1')
   })
 
   it('serves the Android update manifest over the paired websocket', async () => {
@@ -818,6 +831,19 @@ describe('ws handlers', () => {
           orchestrationEnabled: false,
         }),
       },
+    })
+  })
+
+  it('updates and broadcasts a project color supplied by mobile', () => {
+    sendCommand('project:rename', { id: 'proj-1', name: 'Project 1', color: 'purple' })
+
+    expect(state.runs).toContainEqual({
+      sql: 'UPDATE projects SET name = ?, color = ?, updated_at = ? WHERE id = ?',
+      args: ['Project 1', 'purple', expect.any(Number), 'proj-1'],
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'project:renamed',
+      data: { id: 'proj-1', name: 'Project 1', color: 'purple' },
     })
   })
 

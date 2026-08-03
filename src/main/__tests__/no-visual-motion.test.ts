@@ -18,15 +18,29 @@ function executableKotlin(source: string): string {
     .join('\n')
 }
 
-describe('no visual motion policy', () => {
-  it('rejects Android visual motion APIs in application code', () => {
+describe('theme-aware visual motion policy', () => {
+  it('limits Android visual motion APIs to Classic-compatible shared boundaries', () => {
     const androidRoot = resolve(process.cwd(), 'android/app/src/main/java')
     const forbidden = /\b(?:AnimatedVisibility|AnimatedContent|Crossfade|rememberInfiniteTransition|animate(?:Float|Int|Color|Scroll|Item|To)|infiniteRepeatable|animationSpec\s*=|tween\s*\(|spring\s*\()/
+    const classicMotionBoundaries = new Set([
+      'ChatScreenComponents.kt',
+      'ConnectionStatusIndicator.kt',
+      'NexyIcon.kt',
+    ])
     const violations = sourceFiles(androidRoot).flatMap((path) => {
       const match = executableKotlin(readFileSync(path, 'utf8')).match(forbidden)
-      return match ? [`${path}: ${match[0]}`] : []
+      return match && !classicMotionBoundaries.has(path.split(/[\\/]/).at(-1) ?? '')
+        ? [`${path}: ${match[0]}`]
+        : []
     })
     expect(violations).toEqual([])
+
+    for (const name of classicMotionBoundaries) {
+      const path = sourceFiles(androidRoot).find((candidate) => candidate.endsWith(name))
+      expect(path, `${name} should exist`).toBeTruthy()
+      expect(readFileSync(path!, 'utf8'), `${name} must gate motion by UI style`)
+        .toContain('LocalNexyEightBit.current')
+    }
   })
 
   it('keeps desktop motion disabled globally except for busy/loading indicators, and chat streaming frame-free', () => {
@@ -36,11 +50,16 @@ describe('no visual motion policy', () => {
     expect(css).toContain('scroll-behavior: auto !important')
     expect(css).not.toMatch(/@keyframes/)
 
-    // Loading spinners/bounce/pulse dots are the sole carved-out exception: they signal
+    // Loading spinners/bounce/pulse records are the sole carved-out exception: they signal
     // in-progress work rather than decorative motion, so they must keep animating.
     expect(css).toContain('.animate-spin')
     expect(css).toContain('.animate-bounce')
     expect(css).toContain('.animate-pulse')
+    expect(css).toContain("[data-ui-style='8bit'] :is(.animate-pulse, .nexy-retro-loading-pulse)")
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+
+    const icon = readFileSync(resolve(process.cwd(), 'src/renderer/components/ui/icons/NexyIcon.tsx'), 'utf8')
+    expect(icon).toContain("name === 'busy' && motion !== 'none'")
 
     const streaming = readFileSync(resolve(process.cwd(), 'src/renderer/hooks/useStreamingQueue.ts'), 'utf8')
     expect(streaming).not.toMatch(/requestAnimationFrame|cancelAnimationFrame/)

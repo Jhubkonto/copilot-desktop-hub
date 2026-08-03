@@ -13,6 +13,7 @@ vi.mock('../database', () => ({ getDatabase: getDatabaseMock }))
 
 import {
   getUnseenActivityCount,
+  getUnseenConversationIds,
   recordUnseenActivity,
   resetActivityBadgeForTests,
   setViewedConversation,
@@ -46,7 +47,9 @@ describe('desktop activity badges', () => {
     recordUnseenActivity(activity)
 
     expect(getUnseenActivityCount()).toBe(1)
+    expect(getUnseenConversationIds()).toEqual(['conversation-1'])
     expect(setViewedConversation('conversation-1')).toBe(0)
+    expect(getUnseenConversationIds()).toEqual([])
   })
 
   it('restores persisted unseen destinations after reinitialization', () => {
@@ -59,5 +62,16 @@ describe('desktop activity badges', () => {
     resetActivityBadgeForTests()
 
     expect(getUnseenActivityCount()).toBe(1)
+  })
+
+  it('only exposes chat destinations to the conversation history', () => {
+    recordUnseenActivity({
+      id: 'build:1',
+      kind: 'build',
+      label: 'Build complete',
+      startedAt: Date.now(),
+    })
+
+    expect(getUnseenConversationIds()).toEqual([])
   })
 })

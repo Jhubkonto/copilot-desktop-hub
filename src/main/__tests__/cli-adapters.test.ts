@@ -744,6 +744,57 @@ describe('CLI adapters', () => {
     })
   })
 
+  it('CodexAdapter settles on turn.completed when inherited stdio prevents close', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'test' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({ type: 'item.started', item: { id: 'tool-1', type: 'command_execution', command: 'gradlew test' } }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item-1', type: 'agent_message', text: 'Implemented.' } }),
+      JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 3 } }),
+      '',
+    ].join('\n')))
+
+    await expect(sendPromise).resolves.toBe('Implemented.')
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'tool_end',
+      id: 'tool-1',
+      content: '',
+      isError: false,
+    })
+
+    // A delayed close must not run cleanup or emit terminal block events a second time.
+    proc.emit('close', 0)
+    expect(onEvent.mock.calls.filter(([event]) => event.type === 'tool_end')).toHaveLength(1)
+  })
+
+  it('CodexAdapter rejects on turn.failed without waiting for close', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'test' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'turn.failed',
+      error: { message: 'Verification failed' },
+    })}\n`))
+
+    await expect(sendPromise).rejects.toThrow('Codex error: Verification failed')
+  })
+
   it('CodexAdapter reports nested unsupported-model errors without raw JSON fallback', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
