@@ -9,6 +9,7 @@ import type {
   BuildStatus,
   CatalogModel,
   ConversationCompressionSaveInput,
+  ConversationPageRequest,
   ContextInspectorSnapshot,
   ErrorReportCaptureInput,
   RemoteEditInvestigationActivity,
@@ -36,6 +37,7 @@ import type {
   SkillGeneratorMessage,
   SkillGeneratorSpec,
   SaveSpokenOutputInput,
+  SupertonicSynthesisInput,
   ScheduleGeneratorMessage,
   ScheduleGeneratorSpec,
   AutomatedWorkflowConfirmationMode,
@@ -90,6 +92,11 @@ const api = {
   saveSpokenOutput: (input: SaveSpokenOutputInput) =>
     typedInvoke('voice:save-spoken-output', input),
   generateAiRecap: (messageId: string) => typedInvoke('voice:generate-ai-recap', messageId),
+  getSupertonicStatus: () => typedInvoke('tts:get-status'),
+  installSupertonic: () => typedInvoke('tts:install-supertonic'),
+  removeSupertonic: () => typedInvoke('tts:remove-supertonic'),
+  synthesizeSupertonic: (input: SupertonicSynthesisInput) =>
+    typedInvoke('tts:synthesize-supertonic', input),
   onDebugLog: (callback: (entry: { prefix: string; message: string; timestamp: number }) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -349,9 +356,18 @@ const api = {
     return () => typedOff('chat:thinking-end', handler)
   },
   stopGeneration: (conversationId?: string) => typedInvoke('chat:stop-generation', conversationId),
+  getEmergencyStop: () => typedInvoke('chat:get-emergency-stop'),
+  activateEmergencyStop: () => typedInvoke('chat:activate-emergency-stop'),
+  resumeConversations: () => typedInvoke('chat:resume-conversations'),
+  onEmergencyStopChanged: (callback: (status: { active: boolean; activatedAt: number | null }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: { active: boolean; activatedAt: number | null }) => callback(status)
+    typedOn('chat:emergency-stop-changed', handler)
+    return () => typedOff('chat:emergency-stop-changed', handler)
+  },
 
   // Conversations
   listConversations: () => typedInvoke('conversation:list'),
+  listConversationPage: (request: ConversationPageRequest) => typedInvoke('conversation:list-page', request),
   createConversation: (agentId?: string, projectId?: string) =>
     typedInvoke('conversation:create', agentId, projectId),
   getConversationCompressionPreview: (id: string) => typedInvoke('conversation:compression-preview', id),
@@ -620,6 +636,7 @@ const api = {
   listProjects: () => typedInvoke('project:list'),
   createProject: (name: string, color: string) => typedInvoke('project:create', name, color),
   renameProject: (id: string, name: string) => typedInvoke('project:rename', id, name),
+  updateProjectColor: (id: string, name: string, color: string) => typedInvoke('project:rename', id, name, color),
   deleteProject: (id: string) => typedInvoke('project:delete', id),
   setConversationProject: (conversationId: string, projectId: string | null) =>
     typedInvoke('project:set-conversation', conversationId, projectId),
@@ -1102,6 +1119,12 @@ const api = {
   setViewedActivityConversation: (conversationId: string | null) =>
     typedInvoke('activity-badge:set-viewed-conversation', conversationId),
   getUnseenActivityCount: () => typedInvoke('activity-badge:get-count'),
+  getUnseenActivityConversationIds: () => typedInvoke('activity-badge:get-unseen-conversations'),
+  onUnseenActivityConversationsChanged: (callback: (conversationIds: string[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, conversationIds: string[]) => callback(conversationIds)
+    typedOn('activity-badge:changed', handler)
+    return () => typedOff('activity-badge:changed', handler)
+  },
 
   // Artifacts (live updates)
   onArtifactUpdated: (callback: (data: { artifactId: string; projectId: string | null }) => void) => {
