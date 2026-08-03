@@ -12,6 +12,10 @@ asarUnpack:
   - "node_modules/tesseract.js-core/**/*"
   - "node_modules/@nut-tree-fork/**/*"
   - "node_modules/node-pty/**/*"
+  - "node_modules/sherpa-onnx-node/**/*"
+  - "node_modules/sherpa-onnx-win-*/**/*"
+  - "node_modules/sherpa-onnx-linux-*/**/*"
+  - "node_modules/sherpa-onnx-darwin-*/**/*"
 win:
   target:
     - target: nsis
