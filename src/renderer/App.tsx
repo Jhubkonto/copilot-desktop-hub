@@ -47,6 +47,7 @@ const ArtifactPanel = lazy(() =>
 )
 export default function App() {
   const theme = useAppStore((s) => s.theme)
+  const uiStyle = useAppStore((s) => s.uiStyle)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
   const showAgentGenerator = useAppStore((s) => s.showAgentGenerator)
   const setShowAgentGenerator = useAppStore((s) => s.setShowAgentGenerator)
@@ -82,6 +83,8 @@ export default function App() {
   const androidDebugLog = useAppStore((s) => s.androidDebugLog)
   const viewingArtifactId = useAppStore((s) => s.viewingArtifactId)
   const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const markConversationRead = useAppStore((s) => s.markConversationRead)
+  const syncUnreadConversationIds = useAppStore((s) => s.syncUnreadConversationIds)
 
   const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
   const markConversationDoneGenerating = useAppStore((s) => s.markConversationDoneGenerating)
@@ -107,8 +110,18 @@ export default function App() {
   }, [hydrate])
 
   useEffect(() => {
-    void window.api.setViewedActivityConversation(currentConversationId)
-  }, [currentConversationId])
+    void window.api.setViewedActivityConversation(currentConversationId).then(() => {
+      if (currentConversationId) markConversationRead(currentConversationId)
+    })
+  }, [currentConversationId, markConversationRead])
+
+  useEffect(() => {
+    const unsubscribe = window.api.onUnseenActivityConversationsChanged(syncUnreadConversationIds)
+    void window.api.getUnseenActivityConversationIds()
+      .then(syncUnreadConversationIds)
+      .catch(() => {})
+    return unsubscribe
+  }, [syncUnreadConversationIds])
 
   // Listen for tool approval requests
   useEffect(() => {
@@ -243,7 +256,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
+    <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} data-ui-style={uiStyle} role="application">
       {/* Custom frameless titlebar */}
       <TitleBar />
 
