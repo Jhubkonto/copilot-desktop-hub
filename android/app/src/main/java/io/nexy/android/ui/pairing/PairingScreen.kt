@@ -15,11 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -52,6 +51,8 @@ import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.DiscoveredNexyService
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,7 +117,7 @@ fun PairingScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(300.dp)
-                            .clip(RoundedCornerShape(12.dp)),
+                            .clip(RectangleShape),
                         factory = { ctx ->
                             DecoratedBarcodeView(ctx).also { view ->
                                 barcodeView = view
@@ -220,10 +221,11 @@ fun PairingScreen(
 
             if (connectionState == ConnectionState.CONNECTING) {
                 Spacer(Modifier.height(4.dp))
-                CircularProgressIndicator(
+                NexyIcon(
+                    name = NexyIconName.Busy,
                     modifier = Modifier.size(28.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.5.dp,
+                    tint = MaterialTheme.colorScheme.primary,
+                    contentDescription = "Connecting",
                 )
                 Text(
                     "Connecting…",

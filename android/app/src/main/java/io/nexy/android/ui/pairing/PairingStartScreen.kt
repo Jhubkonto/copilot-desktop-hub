@@ -7,15 +7,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -33,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +82,7 @@ fun PairingStartScreen(
                 shape = MaterialTheme.shapes.small,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             ) {
-                Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                NexyIcon(NexyIconName.Scan, contentDescription = null, modifier = Modifier.size(20.dp))
                 Text("Scan QR code", modifier = Modifier.padding(start = 8.dp))
             }
 
@@ -93,7 +91,7 @@ fun PairingStartScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
             ) {
-                Icon(Icons.Default.Link, contentDescription = null)
+                NexyIcon(NexyIconName.Import, contentDescription = null, modifier = Modifier.size(20.dp))
                 Text("Enter URL manually", modifier = Modifier.padding(start = 8.dp))
             }
 
@@ -139,10 +137,11 @@ fun PairingStartScreen(
                                 Text("Connect")
                             }
                             IconButton(onClick = { vm.deleteProfile(profile.id) }) {
-                                Icon(
-                                    Icons.Default.Delete,
+                                NexyIcon(
+                                    NexyIconName.Delete,
                                     contentDescription = "Remove server",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                         }
@@ -151,11 +150,14 @@ fun PairingStartScreen(
             }
 
             if (connectionState == ConnectionState.CONNECTING) {
-                Text(
-                    "Connecting...",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Connecting...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             error?.let {
