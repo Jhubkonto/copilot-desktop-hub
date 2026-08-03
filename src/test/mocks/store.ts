@@ -156,6 +156,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     loadProjects: vi.fn(),
     createProject: vi.fn(),
     renameProject: vi.fn(),
+    updateProjectColor: vi.fn().mockResolvedValue(undefined),
     deleteProject: vi.fn(),
     setActiveProject: vi.fn(),
     moveConversationToProject: vi.fn(),

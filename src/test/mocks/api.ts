@@ -170,11 +170,17 @@ export function createMockApi() {
     onThinkingEnd: vi.fn().mockReturnValue(() => {}),
     onChatTurnEvent: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
+    getEmergencyStop: vi.fn().mockResolvedValue({ active: false, activatedAt: null }),
+    activateEmergencyStop: vi.fn().mockResolvedValue({ active: true, activatedAt: Date.now() }),
+    resumeConversations: vi.fn().mockResolvedValue({ active: false, activatedAt: null }),
+    onEmergencyStopChanged: vi.fn().mockReturnValue(() => {}),
     onAutoClipboardFocus: vi.fn().mockReturnValue(() => {}),
     onToolAutoApproved: vi.fn().mockReturnValue(() => {}),
 
     // Conversations
     listConversations: vi.fn().mockResolvedValue([]),
+    // Keep paged panes on their cached bootstrap rows unless a test supplies a page explicitly.
+    listConversationPage: vi.fn().mockReturnValue(new Promise(() => {})),
     createConversation: vi.fn().mockResolvedValue({ id: 'conv-1' }),
     getConversationCompressionPreview: vi.fn().mockResolvedValue({
       conversation_id: 'conv-1',
@@ -346,6 +352,10 @@ export function createMockApi() {
 
     // Voice
     getVoiceStatus: vi.fn().mockResolvedValue({ ready: false }),
+  getSupertonicStatus: vi.fn().mockResolvedValue({ supported: true, installed: false, ready: false, installing: false }),
+  installSupertonic: vi.fn().mockResolvedValue({ supported: true, installed: true, ready: true, installing: false }),
+  removeSupertonic: vi.fn().mockResolvedValue({ supported: true, installed: false, ready: false, installing: false }),
+  synthesizeSupertonic: vi.fn().mockResolvedValue({ audio: new Uint8Array(), sampleRate: 24_000, durationSeconds: 0 }),
   transcribeVoice: vi.fn().mockResolvedValue({ text: '' }),
   saveSpokenOutput: vi.fn().mockResolvedValue(null),
   generateAiRecap: vi.fn().mockResolvedValue(null),
@@ -433,6 +443,7 @@ export function createMockApi() {
     listProjects: vi.fn().mockResolvedValue([]),
     createProject: vi.fn().mockResolvedValue({ id: 'proj-1' }),
     renameProject: vi.fn().mockResolvedValue(true),
+    updateProjectColor: vi.fn().mockResolvedValue(true),
     deleteProject: vi.fn().mockResolvedValue(true),
     duplicateProject: vi.fn().mockResolvedValue({ id: 'proj-2' }),
     exportProject: vi.fn().mockResolvedValue(true),
