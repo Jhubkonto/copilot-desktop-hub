@@ -42,6 +42,7 @@ import { debugLog } from './debug-mode'
 import { ChatTurnEmitter } from './chat-turn-emitter'
 import { endActivity } from './activity-tracker'
 import { clearActiveChatTurn } from './active-chat-turns'
+import { assertConversationStartsAllowed } from './emergency-stop'
 import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 import { estimateInputTokens, formatEstimatedTokens } from '../shared/token-estimate'
 import { saveFinalizedPlanArtifact } from './artifacts'
@@ -336,11 +337,22 @@ async function requestClaudeCliToolPermission(
   conversationId: string,
   onPlanFinalized?: (plan: string) => void,
 ): Promise<boolean> {
+  // The process-level flag is fixed at launch, but Nexy's HTTP permission hook remains live.
+  // Re-read this conversation's mode so escalating a running turn to Bypass affects subsequent
+  // tool calls instead of continuing with the mode captured when Claude started.
+  const liveModeRow = getDatabase()
+    .prepare('SELECT cli_mode_override FROM conversations WHERE id = ?')
+    .get(conversationId) as { cli_mode_override: string | null } | undefined
+  const livePermissionMode = liveModeRow
+    ? liveModeRow.cli_mode_override ?? undefined
+    : permissionMode
+  if (livePermissionMode === 'bypassPermissions') return true
+
   // An explicit Claude Code Mode override (Plan / Accept edits / Bypass) governs this turn's
   // permission behavior. Auto-approve is a separate, coarser toggle meant for when no mode is
   // selected — letting it short-circuit here would silently defeat Plan's read-only guarantee
   // and Accept edits' scoping, so it only applies when the user hasn't picked an explicit mode.
-  const autoApproveActive = autoApprove && !permissionMode
+  const autoApproveActive = autoApprove && !livePermissionMode
 
   // Claude Code owns the native ExitPlanMode tool, but Nexy owns the persisted
   // per-conversation mode override. Approving the native tool must clear that override or
@@ -467,6 +479,7 @@ export async function dispatchChatSend(
   content: string,
   options?: ChatSendOptions,
 ): Promise<{ assistantMsgId: string } | null> {
+  assertConversationStartsAllowed()
   const db = getDatabase()
 
   const turnEmitter = new ChatTurnEmitter(conversationId, {
@@ -1233,6 +1246,7 @@ export async function dispatchChatSend(
           abortActiveStream(conversationId)
           denyPendingApprovalsForConversation(conversationId)
         }
+        assertConversationStartsAllowed()
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
         const cliResponseContent = await adapter.send(

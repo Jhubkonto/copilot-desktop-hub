@@ -165,6 +165,20 @@ function generateThumbnail(dataUrl: string): string | undefined {
   }
 }
 
+function generateImagePreview(dataUrl: string): string | undefined {
+  try {
+    const ni = nativeImage.createFromDataURL(dataUrl)
+    if (ni.isEmpty()) return undefined
+    const { width } = ni.getSize()
+    const preview = width > 1600
+      ? ni.resize({ width: 1600, quality: 'best' })
+      : ni
+    return `data:image/jpeg;base64,${preview.toJPEG(90).toString('base64')}`
+  } catch {
+    return undefined
+  }
+}
+
 function estimateDataUrlBytes(dataUrl: string): number {
   const payload = dataUrl.split(',', 2)[1] ?? ''
   const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
@@ -179,6 +193,7 @@ export type StoredAttachment = {
   type?: 'file' | 'image'
   source?: 'desktop' | 'mobile' | 'pasted'
   thumbnailDataUrl?: string
+  previewDataUrl?: string
 }
 
 function broadcastConversationMode(db: Database, conversationId: string): void {
@@ -222,6 +237,7 @@ export function buildStoredAttachments(
     })),
     ...(images ?? []).map((image) => {
       const thumbnailDataUrl = generateThumbnail(image.dataUrl)
+      const previewDataUrl = generateImagePreview(image.dataUrl)
       return {
         id: image.id,
         name: image.name,
@@ -229,6 +245,7 @@ export function buildStoredAttachments(
         type: 'image' as const,
         source: 'mobile' as const,
         ...(thumbnailDataUrl !== undefined ? { thumbnailDataUrl } : {}),
+        ...(previewDataUrl !== undefined ? { previewDataUrl } : {}),
       }
     }),
   ]

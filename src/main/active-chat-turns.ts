@@ -93,6 +93,10 @@ export function clearActiveChatTurn(conversationId: string, turnId?: string): vo
   if (current && (!turnId || current.turnId === turnId)) turns.delete(conversationId)
 }
 
+export function clearAllActiveChatTurns(): void {
+  turns.clear()
+}
+
 export function pruneActiveChatTurns(now = Date.now()): void {
   for (const [conversationId, turn] of turns) {
     if (turn.terminalAt && now - turn.terminalAt >= TERMINAL_TTL_MS) turns.delete(conversationId)
