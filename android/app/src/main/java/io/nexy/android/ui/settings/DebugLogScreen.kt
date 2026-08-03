@@ -12,12 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -29,13 +25,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.theme.GeneratedNexyColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -72,10 +70,10 @@ fun DebugLogScreen(onBack: () -> Unit) {
                             context.startActivity(Intent.createChooser(intent, "Export redacted diagnostics"))
                         },
                     ) {
-                        Icon(Icons.Outlined.Share, contentDescription = "Export redacted diagnostics")
+                        NexyIcon(NexyIconName.Share, contentDescription = "Export redacted diagnostics")
                     }
                     IconButton(onClick = { WsRepository.clearDebugLog() }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Clear log")
+                        NexyIcon(NexyIconName.Delete, contentDescription = "Clear log")
                     }
                 },
             )
@@ -123,7 +121,7 @@ private fun LogRow(entry: WsRepository.DebugLogEntry) {
                     text = "[${entry.tag}]",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = Color(0xFFE6AC00),
+                    color = GeneratedNexyColors.SemanticWarningMain,
                 )
             }
             Text(

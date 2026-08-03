@@ -19,20 +19,14 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -54,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +60,8 @@ import io.nexy.android.data.model.PreflightCheck
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -247,7 +244,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 subtitle = "Settings › Developer",
                 actions = {
                     IconButton(onClick = { WsRepository.getBuildRecords() }, enabled = !disconnected) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        NexyIcon(NexyIconName.Refresh, contentDescription = "Refresh")
                     }
                 },
             )
@@ -260,7 +257,12 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (updateFlowActive) {
-                    CircularProgressIndicator(strokeWidth = 3.dp)
+                    NexyIcon(
+                        NexyIconName.Busy,
+                        contentDescription = "Installing update",
+                        modifier = Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                     Spacer(Modifier.height(16.dp))
                     Text(
                         "Desktop is installing the update and restarting…",
@@ -337,7 +339,12 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                 }
                                 stage?.let {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 2.dp))
+                                        NexyIcon(
+                                            NexyIconName.Busy,
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(end = 2.dp),
+                                            tint = MaterialTheme.colorScheme.tertiary,
+                                        )
                                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                                     }
                                 }
@@ -375,7 +382,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                 enabled = !isRunningPreflight,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                if (isRunningPreflight) CircularProgressIndicator(modifier = Modifier.padding(end = 6.dp), strokeWidth = 2.dp)
+                                if (isRunningPreflight) NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                                 Text("Run preflight")
                             }
                             preflightChecks?.let { checks -> CheckList(checks) }
@@ -434,7 +441,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(RectangleShape)
                                         .background(MaterialTheme.colorScheme.tertiaryContainer)
                                         .padding(12.dp),
                                 ) {
@@ -583,7 +590,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                     enabled = !isValidatingSigning,
                                     modifier = Modifier.weight(1f),
                                 ) {
-                                    if (isValidatingSigning) CircularProgressIndicator(modifier = Modifier.padding(end = 6.dp), strokeWidth = 2.dp)
+                                    if (isValidatingSigning) NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                                     Text("Validate signing")
                                 }
                                 Button(
@@ -599,7 +606,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                                     enabled = !isPublishing && buildStatus != "running",
                                     modifier = Modifier.weight(1f),
                                 ) {
-                                    if (isPublishing) CircularProgressIndicator(modifier = Modifier.padding(end = 6.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                    if (isPublishing) NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.padding(end = 6.dp), tint = MaterialTheme.colorScheme.onPrimary)
                                     Text("Publish APK")
                                 }
                             }
@@ -676,7 +683,7 @@ private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, log
             else -> MaterialTheme.colorScheme.error
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (isRunning) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+            if (isRunning) NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(14.dp), tint = statusColor)
             Text(status.uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor)
         }
     }
@@ -689,7 +696,7 @@ private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, log
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RectangleShape)
                 .background(MaterialTheme.colorScheme.surface),
         ) {
             Row(
@@ -779,7 +786,7 @@ private fun BuildRecordsPanel(
                 onValueChange = onFilterChange,
                 label = { Text("Filter records") },
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                leadingIcon = { NexyIcon(NexyIconName.Search, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
@@ -790,7 +797,7 @@ private fun BuildRecordsPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 300.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RectangleShape)
                         .background(MaterialTheme.colorScheme.surface),
                 ) {
                     LazyColumn {

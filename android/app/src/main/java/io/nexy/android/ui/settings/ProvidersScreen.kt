@@ -14,18 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -57,6 +51,8 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -197,7 +193,12 @@ fun ProvidersScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             if (providers.isEmpty() && isLoading) {
-                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+                NexyIcon(
+                    name = NexyIconName.Busy,
+                    contentDescription = "Loading providers",
+                    modifier = Modifier.padding(16.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             } else if (providers.isEmpty()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -296,25 +297,25 @@ private fun ProviderRow(
         trailing = {
             Box {
                 IconButton(onClick = { showMenu = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Provider options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    NexyIcon(NexyIconName.More, contentDescription = "Provider options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     if (provider.configuredOnDesktopOnly) {
                         DropdownMenuItem(
                             text = { Text("Request key from desktop") },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            leadingIcon = { NexyIcon(NexyIconName.Edit, contentDescription = null) },
                             onClick = { showMenu = false; onRequestFromDesktop() },
                         )
                     }
                     DropdownMenuItem(
                         text = { Text(if (provider.configured) "Update key on this device" else "Add key on this device") },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        leadingIcon = { NexyIcon(NexyIconName.Edit, contentDescription = null) },
                         onClick = { showMenu = false; onSetKey() },
                     )
                     if (provider.configured && onTestKey != null) {
                         DropdownMenuItem(
                             text = { Text(if (isTesting) "Testing…" else "Test key") },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            leadingIcon = { NexyIcon(NexyIconName.Edit, contentDescription = null) },
                             enabled = !isTesting,
                             onClick = { showMenu = false; showTestDialog = true },
                         )
@@ -322,7 +323,7 @@ private fun ProviderRow(
                     if (provider.configured) {
                         DropdownMenuItem(
                             text = { Text("Remove key", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                            leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                             onClick = { showMenu = false; onRemoveKey() },
                         )
                     }
@@ -386,7 +387,7 @@ private fun AzureEndpointRow(endpoint: String, onEdit: () -> Unit) {
                 )
             }
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit endpoint", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyIcon(NexyIconName.Edit, contentDescription = "Edit endpoint", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

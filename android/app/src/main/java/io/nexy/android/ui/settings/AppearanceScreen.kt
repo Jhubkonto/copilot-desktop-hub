@@ -24,6 +24,7 @@ fun AppearanceScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val themePreference by vm.themePreference.collectAsStateWithLifecycle()
+    val uiStylePreference by vm.uiStylePreference.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -43,6 +44,8 @@ fun AppearanceScreen(
             AppearanceSection(
                 themePreference = themePreference,
                 onSetTheme = { vm.setThemePreference(it) },
+                uiStylePreference = uiStylePreference,
+                onSetUiStyle = { vm.setUiStylePreference(it) },
             )
         }
     }

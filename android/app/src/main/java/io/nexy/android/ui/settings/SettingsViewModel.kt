@@ -17,6 +17,7 @@ import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
+import io.nexy.android.ui.theme.UiStylePreference
 import io.nexy.android.service.SpokenOutputSettings
 import io.nexy.android.service.SpokenVoiceOption
 import kotlinx.coroutines.flow.Flow
@@ -53,6 +54,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val serverVersion: StateFlow<String?> = WsRepository.serverVersion
     val androidUpdateManifest: StateFlow<AndroidUpdateManifest?> = WsRepository.androidUpdateManifest
     val themePreference: StateFlow<ThemePreference> = ThemePreferenceStore.themePreference
+    val uiStylePreference: StateFlow<UiStylePreference> = ThemePreferenceStore.uiStylePreference
     private val preferencesFlow: Flow<Boolean> = PreferenceStore.getInstance(app).getReadAloudEnabled()
     val readAloudEnabled: StateFlow<Boolean> = preferencesFlow.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, false)
     val voiceDockEnabled: StateFlow<Boolean> = PreferenceStore.getInstance(app)
@@ -186,6 +188,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setThemePreference(preference: ThemePreference) {
         ThemePreferenceStore.setThemePreference(preference)
+    }
+
+    fun setUiStylePreference(preference: UiStylePreference) {
+        ThemePreferenceStore.setUiStylePreference(preference)
     }
 
     fun switchProfile(profileId: String) {

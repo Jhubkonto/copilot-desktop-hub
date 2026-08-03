@@ -14,14 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,7 +22,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -49,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
@@ -61,6 +54,8 @@ import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyFormSheet
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,7 +137,7 @@ fun McpAndCliScreen(onBack: () -> Unit) {
         floatingActionButton = {
             if (!disconnected) {
                 FloatingActionButton(onClick = { showAddSheet = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add MCP server")
+                    NexyIcon(NexyIconName.Add, contentDescription = "Add MCP server")
                 }
             }
         },
@@ -264,9 +259,9 @@ private fun McpServerCard(
                 if (status != null) Text(status, style = MaterialTheme.typography.labelSmall, color = statusColor)
             }
             Row {
-                IconButton(onClick = onRestart) { Icon(Icons.Default.Refresh, contentDescription = "Restart", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
-                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
+                IconButton(onClick = onRestart) { NexyIcon(NexyIconName.Refresh, contentDescription = "Restart", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onEdit) { NexyIcon(NexyIconName.Edit, contentDescription = "Edit") }
+                IconButton(onClick = onDelete) { NexyIcon(NexyIconName.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
             }
         }
     }
@@ -401,7 +396,7 @@ private fun McpServerWizard(
                             colors = CardDefaults.cardColors(
                                 containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                             ),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RectangleShape,
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -413,7 +408,7 @@ private fun McpServerWizard(
                                     Text(type.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 if (selected) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    NexyIcon(NexyIconName.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -536,7 +531,7 @@ private fun McpServerWizard(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RectangleShape,
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(12.dp),

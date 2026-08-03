@@ -10,21 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
@@ -55,11 +45,15 @@ import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexySecondaryButton
+import io.nexy.android.ui.components.NexyStaticProgressRecord
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.model.partitionModelsByAvailability
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.modelSourceTitle
 import io.nexy.android.ui.theme.ThemePreference
+import io.nexy.android.ui.theme.UiStylePreference
 import io.nexy.android.service.SpokenOutputSettings
 import io.nexy.android.service.SpokenVoiceOption
 import java.util.Locale
@@ -184,7 +178,15 @@ fun ConnectionSection(
         ) {
             Text("Status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val presentation = io.nexy.android.ui.connection.getConnectionStatePresentation(connectionState)
-            Text("● ${presentation.label}", color = presentation.color, style = MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                NexyIcon(
+                    name = if (connectionState == ConnectionState.CONNECTED) NexyIconName.Check else NexyIconName.Error,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = presentation.color,
+                )
+                Text(presentation.label, color = presentation.color, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 
@@ -197,7 +199,7 @@ fun ConnectionSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            leadingIcon = Icons.Default.QrCodeScanner,
+            leadingNexyIcon = NexyIconName.Scan,
         )
     }
 
@@ -251,7 +253,7 @@ fun ModelsSection(
                     Text(modelSourceTitle(modelSource), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                     Text(modelSourceDetail(modelSource, models.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, contentDescription = "Refresh models") }
+                IconButton(onClick = onRefresh) { NexyIcon(NexyIconName.Refresh, contentDescription = "Refresh models") }
             }
 
             if (models.isEmpty()) {
@@ -312,7 +314,7 @@ fun NotificationsSection(
                 approvalNotificationStatusLabel(notificationDiagnostics),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                color = if (notificationDiagnostics.approvalNotificationsEnabled) MaterialTheme.colorScheme.onSurface else Color(0xFFEF4444),
+                color = if (notificationDiagnostics.approvalNotificationsEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
             )
             Text(approvalNotificationStatusDetail(notificationDiagnostics), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -339,7 +341,7 @@ fun NotificationsSection(
             Spacer(Modifier.weight(1f))
         }
         FilledTonalButton(onClick = onRefresh) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            NexyIcon(NexyIconName.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text("Refresh")
         }
@@ -352,6 +354,8 @@ fun NotificationsSection(
 fun AppearanceSection(
     themePreference: ThemePreference,
     onSetTheme: (ThemePreference) -> Unit,
+    uiStylePreference: UiStylePreference,
+    onSetUiStyle: (UiStylePreference) -> Unit,
 ) {
     SettingsSectionHeader("Appearance")
 
@@ -371,6 +375,21 @@ fun AppearanceSection(
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = if (themePreference == preference) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                             contentColor = if (themePreference == preference) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        ),
+                    ) { Text(preference.label) }
+                }
+            }
+            Text("UI style", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+            Text("Choose the visual language independently from light and dark mode.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                UiStylePreference.entries.forEach { preference ->
+                    OutlinedButton(
+                        onClick = { onSetUiStyle(preference) },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.small,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (uiStylePreference == preference) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            contentColor = if (uiStylePreference == preference) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                         ),
                     ) { Text(preference.label) }
                 }
@@ -403,7 +422,7 @@ fun UpdatesSection(
         ) {
             // Status hero card
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RectangleShape,
                 color = if (updateCanInstall) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
@@ -420,11 +439,11 @@ fun UpdatesSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(
-                            when {
-                                androidUpdateManifest == null -> Icons.Default.CloudOff
-                                updateCanInstall -> Icons.Default.SystemUpdate
-                                else -> Icons.Default.CheckCircle
+                        NexyIcon(
+                            name = when {
+                                androidUpdateManifest == null -> NexyIconName.Error
+                                updateCanInstall -> NexyIconName.Download
+                                else -> NexyIconName.Check
                             },
                             contentDescription = null,
                             modifier = Modifier.size(28.dp),
@@ -452,8 +471,8 @@ fun UpdatesSection(
                             )
                         }
                         IconButton(onClick = onRefresh) {
-                            Icon(
-                                Icons.Default.Refresh,
+                            NexyIcon(
+                                name = NexyIconName.Refresh,
                                 contentDescription = "Refresh update manifest",
                                 tint = if (updateCanInstall) {
                                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -470,7 +489,7 @@ fun UpdatesSection(
                             enabled = !updateInstallState.installing,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            NexyIcon(NexyIconName.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 if (updateInstallState.installing) "Preparing update…"
@@ -487,14 +506,14 @@ fun UpdatesSection(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            NexyStaticProgressRecord(modifier = Modifier.fillMaxWidth())
                         }
                     }
                     updateInstallState.message?.let { message ->
                         Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
                     updateInstallState.error?.let { error ->
-                        Text(error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                     Text(
                         "Running ${runningBuild.versionName} · build ${runningBuild.versionCode} · ${runningBuild.shortBuildId}",
@@ -508,7 +527,7 @@ fun UpdatesSection(
                             color = if (result.startsWith("Verified")) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                Color(0xFFEF4444)
+                                MaterialTheme.colorScheme.error
                             },
                         )
                     }
@@ -530,8 +549,8 @@ fun UpdatesSection(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Icon(
-                        if (detailsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    NexyIcon(
+                        name = if (detailsExpanded) NexyIconName.ChevronUp else NexyIconName.ChevronDown,
                         contentDescription = if (detailsExpanded) "Collapse release details" else "Expand release details",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -603,8 +622,8 @@ fun DiagnosticsSection(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Icon(
-                    if (techExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                NexyIcon(
+                    name = if (techExpanded) NexyIconName.ChevronUp else NexyIconName.ChevronDown,
                     contentDescription = if (techExpanded) "Collapse technical details" else "Expand technical details",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -665,7 +684,7 @@ fun ActionsSection(
                 onClick = onWakeDesktop,
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF59E0B)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.tertiary),
             ) { Text("Wake Desktop") }
         }
 
@@ -724,8 +743,8 @@ internal fun SettingsNavRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            NexyIcon(
+                name = NexyIconName.ChevronRight,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.35f),
@@ -767,8 +786,8 @@ fun RemoteDesktopHelpSection() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Icon(
-                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            NexyIcon(
+                name = if (expanded) NexyIconName.ChevronUp else NexyIconName.ChevronDown,
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -867,7 +886,7 @@ fun SpokenOutputSettingsSection(
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
                 Text("Spoken responses", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 Text(
-                    "Read speech-safe responses and local Quick Recaps using an installed Android voice.",
+                    "Read speech-safe responses and short local versions using an installed Android voice.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

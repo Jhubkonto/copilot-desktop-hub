@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +28,7 @@ import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,7 +92,7 @@ fun CliModelsScreen(onBack: () -> Unit) {
                     text = "Refresh",
                     onClick = { WsRepository.getCliStatus() },
                     enabled = !disconnected,
-                    leadingIcon = Icons.Default.Refresh,
+                    leadingNexyIcon = NexyIconName.Refresh,
                 )
             }
         }

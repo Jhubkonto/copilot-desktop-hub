@@ -17,15 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -33,7 +25,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -53,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.nexy.android.ui.theme.NexySurfaceShape as RectangleShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,6 +62,8 @@ import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.icons.NexyIcon
+import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,7 +145,7 @@ fun McpServersScreen(onBack: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add MCP server")
+                    NexyIcon(NexyIconName.Add, contentDescription = "Add MCP server")
                 }
             }
         },
@@ -206,7 +200,7 @@ fun McpServersScreen(onBack: () -> Unit) {
                     NexySecondaryButton(
                         text = "Refresh",
                         onClick = { WsRepository.getMcpServers() },
-                        leadingIcon = Icons.Default.Refresh,
+                        leadingNexyIcon = NexyIconName.Refresh,
                     )
                 }
 
@@ -289,22 +283,22 @@ internal fun McpServerRow(
         trailing = {
             Box {
                 IconButton(onClick = { showMenu = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Server options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    NexyIcon(NexyIconName.More, contentDescription = "Server options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
                         text = { Text("Edit") },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        leadingIcon = { NexyIcon(NexyIconName.Edit, contentDescription = null) },
                         onClick = { showMenu = false; onEdit() },
                     )
                     DropdownMenuItem(
                         text = { Text("Restart") },
-                        leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                        leadingIcon = { NexyIcon(NexyIconName.Refresh, contentDescription = null) },
                         onClick = { showMenu = false; onRestart() },
                     )
                     DropdownMenuItem(
                         text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                         onClick = { showMenu = false; onDelete() },
                     )
                 }
@@ -429,7 +423,7 @@ private fun McpAddWizard(
                             colors = CardDefaults.cardColors(
                                 containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                             ),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RectangleShape,
                         ) {
                             Row(
                                 modifier = Modifier
@@ -442,7 +436,7 @@ private fun McpAddWizard(
                                     Text(type.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                     Text(type.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                if (selected) Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                if (selected) NexyIcon(NexyIconName.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -489,7 +483,7 @@ private fun McpAddWizard(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RectangleShape,
                     ) {
                         Column(
                             modifier = Modifier
