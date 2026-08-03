@@ -21,6 +21,8 @@ import {
 } from "./conversation-compression";
 import { broadcastConversationMessages } from "./chat-handlers";
 import { parseConversationExport } from "./conversation-serialization";
+import { approvePendingApprovalsForConversation } from "./tools";
+import { listConversationPage } from "./conversation-pagination";
 
 export {
   buildConversationExport,
@@ -89,6 +91,10 @@ export function registerConversationHandlers(): void {
          ORDER BY c.updated_at DESC`,
       )
       .all();
+  });
+
+  safeHandle("conversation:list-page", (_event, request) => {
+    return listConversationPage(db, request);
   });
 
   safeHandle(
@@ -249,6 +255,9 @@ export function registerConversationHandlers(): void {
       db.prepare(
         "UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, agentic_mode_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?",
       ).run(thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), id);
+      if (cliModeOverride === "bypassPermissions") {
+        approvePendingApprovalsForConversation(id);
+      }
       return true;
     },
   );
@@ -309,6 +318,7 @@ export function registerMessageHandlers(): void {
       db.prepare(
         "DELETE FROM messages WHERE conversation_id = ? AND timestamp >= ?",
       ).run(conversationId, timestamp);
+      broadcastConversationMessages(conversationId);
       return true;
     },
   );

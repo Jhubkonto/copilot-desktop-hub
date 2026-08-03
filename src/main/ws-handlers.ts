@@ -1,4 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
+import { listConversationPage } from './conversation-pagination'
+import type { ConversationPageRequest } from '../shared/types'
 import { createHash, randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
@@ -9,6 +11,7 @@ import {
 } from './spoken-output'
 import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
 import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
+import { activateEmergencyStop, getEmergencyStopStatus, resumeConversations } from './emergency-stop'
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
@@ -134,7 +137,7 @@ import { buildConversationExportPack, forkConversation, importConversationExport
 import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
 import { CLAUDE_CLI_MODES, CODEX_CLI_MODES } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
-import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-handlers'
+import { parseProjectConfig, detectProjectWorkspaceMetadata, PROJECT_COLORS } from './project-handlers'
 import { listDirectoryEntriesForRemote, getFsStartRoots } from './file-handlers'
 import {
   createSkillConfig,
@@ -168,8 +171,12 @@ import {
 
 // Filled in by tools.ts after registration to avoid a circular import
 let resolveApprovalFn: ((requestId: string, approved: boolean) => boolean) | null = null
+let approveConversationApprovalsFn: ((conversationId: string) => void) | null = null
 export function registerApprovalResolver(fn: (requestId: string, approved: boolean) => boolean): void {
   resolveApprovalFn = fn
+}
+export function registerConversationApprovalEscalator(fn: (conversationId: string) => void): void {
+  approveConversationApprovalsFn = fn
 }
 
 /** Defensively parses a QuizSpec from an untrusted WS payload (Android companion). */
@@ -1488,6 +1495,39 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'chat:get-emergency-stop') {
+      reply({ event: 'chat:emergency-stop-changed', data: getEmergencyStopStatus() })
+      return
+    }
+
+    if (command === 'chat:activate-emergency-stop') {
+      reply({ event: 'chat:emergency-stop-changed', data: activateEmergencyStop() })
+      return
+    }
+
+    if (command === 'chat:resume-conversations') {
+      reply({ event: 'chat:emergency-stop-changed', data: resumeConversations() })
+      return
+    }
+
+    if (command === 'conversation:list-page') {
+      const page = listConversationPage(
+        db,
+        data as ConversationPageRequest,
+        `c.id, c.title, c.created_at, c.updated_at,
+          c.agent_id, c.model, c.pinned, c.archived, c.completed_at,
+          c.thinking_effort_override, c.full_auto_approve_override,
+          c.agentic_mode_override, c.terminal_sandbox_override,
+          c.cli_mode_override, c.codex_execution_mode_override, c.kind,
+          json_extract(a.config_json, '$.name') AS agent_name,
+          json_extract(a.config_json, '$.icon') AS agent_icon,
+          c.project_id, p.name AS project_name, cr.rating AS rating,
+          (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY timestamp DESC LIMIT 1) AS last_message`,
+      )
+      reply({ event: 'conversation:list-page', data: page })
+      return
+    }
+
     if (command === 'conversation:set-model') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       const model = typeof data.model === 'string' && data.model !== 'default' ? data.model : null
@@ -1530,6 +1570,7 @@ export function registerWsHandlers(): void {
       db.prepare(
         'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, agentic_mode_override = ?, terminal_sandbox_override = ?, cli_mode_override = ?, codex_execution_mode_override = ?, updated_at = ? WHERE id = ?'
       ).run(thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride, Date.now(), conversationId)
+      if (cliModeOverride === 'bypassPermissions') approveConversationApprovalsFn?.(conversationId)
       broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride, agenticModeOverride, terminalSandboxOverride, cliModeOverride, codexExecutionModeOverride } })
       return
     }
@@ -1537,7 +1578,8 @@ export function registerWsHandlers(): void {
     if (command === 'project:list') {
       const rows = db.prepare(`
           SELECT p.id, p.name, p.color, p.default_model,
-            (SELECT COUNT(*) FROM conversations WHERE project_id = p.id) AS chat_count,
+            (SELECT COUNT(*) FROM conversations
+             WHERE project_id = p.id AND archived = 0 AND kind != 'project-conversation-mode') AS chat_count,
             (SELECT GROUP_CONCAT(NULLIF(json_extract(a.config_json, '$.icon'), ''), ',')
              FROM project_agents pa JOIN agents a ON pa.agent_id = a.id
              WHERE pa.project_id = p.id
@@ -1754,9 +1796,14 @@ export function registerWsHandlers(): void {
     if (command === 'project:rename') {
       const id = typeof data.id === 'string' ? data.id : ''
       const name = typeof data.name === 'string' ? data.name.trim() : ''
+      const color = typeof data.color === 'string' && PROJECT_COLORS.has(data.color) ? data.color : null
       if (!id || !name) return
-      db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, Date.now(), id)
-      broadcastToMobile({ event: 'project:renamed', data: { id, name } })
+      if (color) {
+        db.prepare('UPDATE projects SET name = ?, color = ?, updated_at = ? WHERE id = ?').run(name, color, Date.now(), id)
+      } else {
+        db.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(name, Date.now(), id)
+      }
+      broadcastToMobile({ event: 'project:renamed', data: { id, name, ...(color ? { color } : {}) } })
       return
     }
 
@@ -2864,6 +2911,7 @@ export function registerWsHandlers(): void {
       if (!conversationId || !timestamp) return
       db.prepare('DELETE FROM messages WHERE conversation_id = ? AND timestamp >= ?').run(conversationId, timestamp)
       reply({ event: 'message:deleted-after', data: { conversationId, timestamp } })
+      broadcastConversationMessages(conversationId)
       return
     }
 
