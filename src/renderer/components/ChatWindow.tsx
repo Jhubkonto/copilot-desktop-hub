@@ -26,6 +26,8 @@ import { DropdownPanel } from './DropdownPanel'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
 import { WikiExtractionModal } from './WikiExtractionModal'
+import { ConfirmDialog } from './ui/ConfirmDialog'
+import type { ChatMessage } from '../hooks/chat-types'
 
 const FALLBACK_CLAUDE_MODELS = [
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
@@ -109,6 +111,11 @@ export function ChatWindow() {
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
   const saveAgent = useAppStore((state) => state.saveAgent)
   const [isPinning, setIsPinning] = useState(false)
+  const [deleteAfterTarget, setDeleteAfterTarget] = useState<{
+    conversationId: string
+    message: ChatMessage
+  } | null>(null)
+  const [isDeletingAfter, setIsDeletingAfter] = useState(false)
 
   const availableGroups = useAppStore((state) => state.availableModelGroups)
   const availableModelsLoaded = useAppStore((state) => state.availableModelsLoaded)
@@ -123,6 +130,9 @@ export function ChatWindow() {
   const [pendingTerminalSandboxOverride, setPendingTerminalSandboxOverride] = useState<boolean | null>(null)
   const [pendingCliModeOverride, setPendingCliModeOverride] = useState<CliModeOverride | null>(null)
   const [pendingCodexExecutionModeOverride, setPendingCodexExecutionModeOverride] = useState<CodexExecutionModeOverride | null>(null)
+  const [pendingModelDirty, setPendingModelDirty] = useState(false)
+  const [pendingModeFields, setPendingModeFields] = useState<Set<string>>(() => new Set())
+  const previousModeConversationIdRef = useRef<string | null>(conversationId)
   const [input, setInput] = useState('')
   const inputValueRef = useRef(input)
   inputValueRef.current = input
@@ -273,21 +283,27 @@ export function ChatWindow() {
   const lockModelToAgentBackend =
     chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
   const conversationCliModelForAgentBackend =
-    lockModelToAgentBackend && nonDefault(conversationModel) && availableGroups.some((group) =>
+    lockModelToAgentBackend && !pendingModelDirty && nonDefault(conversationModel) && availableGroups.some((group) =>
       group.sourceKey === chatAgentBackend &&
       group.models.some((model) => model.id === nonDefault(conversationModel)),
     )
       ? nonDefault(conversationModel)
+      : null
+  const pendingCliModelForAgentBackend =
+    lockModelToAgentBackend && pendingModelDirty && nonDefault(pendingModel) && availableGroups.some((group) =>
+      group.sourceKey === chatAgentBackend && group.models.some((model) => model.id === pendingModel),
+    )
+      ? pendingModel
       : null
 
   let effectiveModel: string
   let modelSourceLabel: string | undefined
   if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli') {
     // Forced CLI agents only honor per-conversation model choices within that backend.
-    effectiveModel = conversationCliModelForAgentBackend ?? chatAgentCliModel ?? 'default'
+    effectiveModel = pendingCliModelForAgentBackend ?? conversationCliModelForAgentBackend ?? chatAgentCliModel ?? 'default'
   } else if (nonDefault(pendingModel)) {
     effectiveModel = pendingModel!
-  } else if (isAvailableModel(conversationModel)) {
+  } else if (!pendingModelDirty && isAvailableModel(conversationModel)) {
     effectiveModel = conversationModel!
     // Recover provenance: check which source originally provided this model
     if (isAvailableModel(projectDefaultModel) && projectDefaultModel === conversationModel) {
@@ -700,14 +716,59 @@ export function ChatWindow() {
   }, [chatProjectId])
 
   useEffect(() => {
-    setPendingModel(null)
-    setPendingThinkingEffortOverride(null)
-    setPendingFullAutoApproveOverride(null)
-    setPendingAgenticModeOverride(null)
-    setPendingTerminalSandboxOverride(null)
-    setPendingCliModeOverride(null)
-    setPendingCodexExecutionModeOverride(null)
+    const previousConversationId = previousModeConversationIdRef.current
+    previousModeConversationIdRef.current = conversationId
+
+    // Preserve optimistic settings during the new-chat null -> generated-id transition. The
+    // first list refresh can race ahead of chat:send-message creating its row, which previously
+    // made the picker flash back to Default for the in-flight turn. Real navigation still clears.
+    if (previousConversationId !== null || conversationId === null) {
+      setPendingModel(null)
+      setPendingThinkingEffortOverride(null)
+      setPendingFullAutoApproveOverride(null)
+      setPendingAgenticModeOverride(null)
+      setPendingTerminalSandboxOverride(null)
+      setPendingCliModeOverride(null)
+      setPendingCodexExecutionModeOverride(null)
+      setPendingModelDirty(false)
+      setPendingModeFields(new Set())
+    }
   }, [conversationId])
+
+  // Keep the optimistic picker value until the refreshed conversation row confirms that exact
+  // write. A stale list refresh (including the one triggered by Send) must not roll controls back.
+  useEffect(() => {
+    if (!currentConversation) return
+    if (pendingModelDirty && (currentConversation.model ?? null) === pendingModel) {
+      setPendingModelDirty(false)
+      setPendingModel(null)
+    }
+    if (pendingModeFields.size === 0) return
+    const confirmed = new Set<string>()
+    if (pendingModeFields.has('thinkingEffortOverride') && (currentConversation.thinking_effort_override ?? null) === pendingThinkingEffortOverride) confirmed.add('thinkingEffortOverride')
+    const storedAutoApprove = currentConversation.full_auto_approve_override === 1 ? true : currentConversation.full_auto_approve_override === 0 ? false : null
+    if (pendingModeFields.has('fullAutoApproveOverride') && storedAutoApprove === pendingFullAutoApproveOverride) confirmed.add('fullAutoApproveOverride')
+    const storedAgentic = currentConversation.agentic_mode_override === 1 ? true : currentConversation.agentic_mode_override === 0 ? false : null
+    if (pendingModeFields.has('agenticModeOverride') && storedAgentic === pendingAgenticModeOverride) confirmed.add('agenticModeOverride')
+    const storedSandbox = currentConversation.terminal_sandbox_override === 1 ? true : currentConversation.terminal_sandbox_override === 0 ? false : null
+    if (pendingModeFields.has('terminalSandboxOverride') && storedSandbox === pendingTerminalSandboxOverride) confirmed.add('terminalSandboxOverride')
+    if (pendingModeFields.has('cliModeOverride') && (currentConversation.cli_mode_override ?? null) === pendingCliModeOverride) confirmed.add('cliModeOverride')
+    if (pendingModeFields.has('codexExecutionModeOverride') && (currentConversation.codex_execution_mode_override ?? null) === pendingCodexExecutionModeOverride) confirmed.add('codexExecutionModeOverride')
+    if (confirmed.size > 0) {
+      setPendingModeFields((current) => new Set([...current].filter((key) => !confirmed.has(key))))
+    }
+  }, [
+    currentConversation,
+    pendingModel,
+    pendingModelDirty,
+    pendingModeFields,
+    pendingThinkingEffortOverride,
+    pendingFullAutoApproveOverride,
+    pendingAgenticModeOverride,
+    pendingTerminalSandboxOverride,
+    pendingCliModeOverride,
+    pendingCodexExecutionModeOverride,
+  ])
 
   // `cli_mode_override` is one shared DB column for both Claude Code mode and Codex sandbox
   // level — a value set for one backend (e.g. "bypassPermissions") is meaningless for the
@@ -847,6 +908,7 @@ export function ChatWindow() {
     isGenerating: chat.isGenerating,
     contentSignal: `${chat.messages.length}:${chat.streamingContent.length}:${chat.liveTeamActivity.length}`,
     resetKey: conversationId,
+    isContentInitializing: chat.isLoadingMessages,
     onNewContentWhileScrolledUp: () => {
       if (conversationId) markConversationUnread(conversationId)
     },
@@ -1027,37 +1089,6 @@ export function ChatWindow() {
     }
   }, [continueAgent?.cliModel, continueBackend, continueModel, continueModelOptions, menuContinueOpen])
 
-  const handleCaptureScreen = useCallback(async () => {
-    const permission = await window.api.checkScreenPermission()
-    if (isApiError(permission)) {
-      addToast('Failed to check screen permission', 'error')
-      return
-    }
-    if (permission === 'denied') {
-      addToast(
-        'Screen recording permission denied. Enable in System Settings → Privacy & Security → Screen Recording.',
-        'error',
-      )
-      return
-    }
-    const result = await window.api.captureScreen()
-    if (isApiError(result)) {
-      if (!result.error.includes('cancelled')) {
-        addToast(result.error, 'error')
-      }
-      return
-    }
-    fileInput.setPendingImages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        name: 'Screen capture',
-        dataUrl: result.dataUrl,
-        ...(result.windowLabel ? { label: result.windowLabel } : {}),
-      },
-    ])
-  }, [addToast, fileInput])
-
   const handlePasteClipboard = useCallback(async () => {
     const result = await window.api.readClipboardContent()
     if (!result) {
@@ -1146,6 +1177,8 @@ export function ChatWindow() {
 
   const handleSelectAvailableModel = useCallback(
     (group: AvailableModelGroup, model: AvailableModelEntry) => {
+      setPendingModel(model.id)
+      setPendingModelDirty(true)
       if (lockModelToAgentBackend) {
         // For CLI-backed agents, only allow picking within the same backend.
         // Store as a per-conversation override — does not mutate the agent config.
@@ -1159,14 +1192,9 @@ export function ChatWindow() {
         void actions.handleSetCliBackendAndModel(group.sourceKey as 'claude-cli' | 'codex-cli', model.id)
         // Also update the UI immediately when there is no conversation yet;
         // the backend is staged for the first send inside useChatWindowActions.
-        if (!conversationId) {
-          setPendingModel(model.id)
-        }
       } else {
         if (conversationId) {
           void actions.handleSetConversationModel(model.id)
-        } else {
-          setPendingModel(model.id === 'default' ? null : model.id)
         }
       }
     },
@@ -1294,6 +1322,11 @@ export function ChatWindow() {
   )
 
   const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; agenticModeOverride?: boolean | null; terminalSandboxOverride?: boolean | null; cliModeOverride?: CliModeOverride | null; codexExecutionModeOverride?: CodexExecutionModeOverride | null }) => {
+    setPendingModeFields((current) => {
+      const next = new Set(current)
+      Object.keys(mode).forEach((key) => next.add(key))
+      return next
+    })
     if (mode.thinkingEffortOverride !== undefined) setPendingThinkingEffortOverride(mode.thinkingEffortOverride)
     if (mode.fullAutoApproveOverride !== undefined) setPendingFullAutoApproveOverride(mode.fullAutoApproveOverride)
     if (mode.agenticModeOverride !== undefined) setPendingAgenticModeOverride(mode.agenticModeOverride)
@@ -1335,7 +1368,6 @@ export function ChatWindow() {
       onPaste={fileInput.handlePaste}
       onAttachFiles={fileInput.handleFilePick}
       onAttachFolder={fileInput.handleFolderPick}
-      onCaptureScreen={handleCaptureScreen}
       onPasteClipboardImage={handlePasteClipboard}
       onOpenPromptLibrary={() => {
         setPromptLibraryDraftOverride(null)
@@ -1366,41 +1398,56 @@ export function ChatWindow() {
       onCloseSlashMenu={slashMenu.closeSlashMenu}
       onCloseAtMenu={atMenu.closeAtMenu}
       onSetConversationModel={actions.handleSetConversationModel}
-      onSetPendingModel={setPendingModel}
+      onSetPendingModel={(model) => {
+        setPendingModel(model)
+        setPendingModelDirty(true)
+      }}
       conversationThinkingEffortOverride={
-        currentConversation ? (currentConversation.thinking_effort_override ?? null) : pendingThinkingEffortOverride
+        pendingModeFields.has('thinkingEffortOverride') || !currentConversation
+          ? pendingThinkingEffortOverride
+          : (currentConversation.thinking_effort_override ?? null)
       }
       conversationFullAutoApproveOverride={
-        currentConversation
+        pendingModeFields.has('fullAutoApproveOverride') || !currentConversation
+          ? pendingFullAutoApproveOverride
+          : currentConversation
           ? currentConversation.full_auto_approve_override === 1 ? true
             : currentConversation.full_auto_approve_override === 0 ? false
             : null
-          : pendingFullAutoApproveOverride
+          : null
       }
       conversationAgenticModeOverride={
-        currentConversation
+        pendingModeFields.has('agenticModeOverride') || !currentConversation
+          ? pendingAgenticModeOverride
+          : currentConversation
           ? currentConversation.agentic_mode_override === 1 ? true
             : currentConversation.agentic_mode_override === 0 ? false
             : null
-          : pendingAgenticModeOverride
+          : null
       }
       conversationTerminalSandboxOverride={
-        currentConversation
+        pendingModeFields.has('terminalSandboxOverride') || !currentConversation
+          ? pendingTerminalSandboxOverride
+          : currentConversation
           ? currentConversation.terminal_sandbox_override === 1 ? true
             : currentConversation.terminal_sandbox_override === 0 ? false
             : null
-          : pendingTerminalSandboxOverride
+          : null
       }
       activeCliBackend={activeCliBackend}
       conversationCliModeOverride={
-        currentConversation
+        pendingModeFields.has('cliModeOverride') || !currentConversation
+          ? pendingCliModeOverride
+          : currentConversation
           ? ((currentConversation.cli_mode_override as CliModeOverride | null | undefined) ?? null)
-          : pendingCliModeOverride
+          : null
       }
       conversationCodexExecutionModeOverride={
-        currentConversation
+        pendingModeFields.has('codexExecutionModeOverride') || !currentConversation
+          ? pendingCodexExecutionModeOverride
+          : currentConversation
           ? ((currentConversation.codex_execution_mode_override as CodexExecutionModeOverride | null | undefined) ?? null)
-          : pendingCodexExecutionModeOverride
+          : null
       }
       onSetConversationMode={handleSetConversationMode}
       availableGroups={availableGroups}
@@ -1416,7 +1463,11 @@ export function ChatWindow() {
       }
       onSelectCliModel={
         lockModelToAgentBackend
-          ? (modelId) => { if (conversationId) void actions.handleSetConversationModel(modelId) }
+          ? (modelId) => {
+              setPendingModel(modelId)
+              setPendingModelDirty(true)
+              if (conversationId) void actions.handleSetConversationModel(modelId)
+            }
           : undefined
       }
       lockModelToAgentBackend={lockModelToAgentBackend}
@@ -1897,6 +1948,7 @@ export function ChatWindow() {
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}
+          onDeleteAfter={conversationId ? (message) => setDeleteAfterTarget({ conversationId, message }) : undefined}
           onRetry={actions.handleRetry}
           onSignIn={() => addToast('No provider configured. Add an API key in Settings.', 'info')}
           onPickModel={handlePickModel}
@@ -1918,6 +1970,7 @@ export function ChatWindow() {
             aiRecapErrorMessageId: spokenOutput.aiRecapErrorMessageId,
             voices: spokenOutput.voices,
             settings: spokenOutput.settings,
+            supertonicReady: Boolean(spokenOutput.supertonicStatus?.ready),
             onRead: spokenOutput.speakResponse,
             onQuickRecap: spokenOutput.speakQuickRecap,
             onAiRecap: spokenOutput.speakAiRecap,
@@ -1942,6 +1995,31 @@ export function ChatWindow() {
               <ChevronDown className="w-4 h-4" />
             </button>
           </div>
+        )}
+        {deleteAfterTarget && (
+          <ConfirmDialog
+            title="Delete from here?"
+            confirmLabel="Delete"
+            busy={isDeletingAfter}
+            onCancel={() => setDeleteAfterTarget(null)}
+            onConfirm={() => {
+              const { conversationId: targetConversationId, message } = deleteAfterTarget
+              const cutoff = message.timestamp
+              setIsDeletingAfter(true)
+              void window.api.deleteMessagesAfter(targetConversationId, cutoff)
+                .then((result) => {
+                  if (isApiError(result)) throw new Error(result.error)
+                  if (conversationId === targetConversationId) {
+                    chat.setMessages((current) => current.filter((currentMessage) => currentMessage.timestamp < cutoff))
+                  }
+                  setDeleteAfterTarget(null)
+                })
+                .catch(() => addToast('Failed to delete messages', 'error'))
+                .finally(() => setIsDeletingAfter(false))
+            }}
+          >
+            This message and all messages after it will be removed from the conversation.
+          </ConfirmDialog>
         )}
         {wikiModalMessage && conversationId && chatProjectId && chatProjectId !== '__none__' && (
           <SaveToWikiModal

@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock, Star, Zap, Workflow } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
 import { PROJECT_COLOR_MAP } from './section-pane/shared'
+import { NexyIcon } from './ui/icons'
+import { useEmergencyStop } from '../hooks/useEmergencyStop'
 
 function NavButton({
   icon,
@@ -34,7 +35,7 @@ function NavButton({
       {icon}
       <span className="flex-1 text-left">{label}</span>
       {running && (
-        <span title="Working…"><Loader2 className="w-3 h-3 text-blue-500 animate-spin shrink-0" /></span>
+        <span title="Working…"><NexyIcon name="busy" size={12} className="text-blue-500" /></span>
       )}
       {!!badgeCount && badgeCount > 0 && (
         <span className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
@@ -42,7 +43,7 @@ function NavButton({
         </span>
       )}
       {modal && (
-        <SquareArrowOutUpRight className="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
+        <NexyIcon name="external" size={12} className="text-gray-300 dark:text-gray-600" />
       )}
     </Button>
   )
@@ -52,6 +53,7 @@ const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 
 export function Sidebar() {
+  const emergencyStop = useEmergencyStop()
   const sidebarRef = useRef<HTMLElement>(null)
   const [width, setWidth] = useState(256)
 
@@ -135,14 +137,20 @@ export function Sidebar() {
         <Button
           variant="primary"
           onClick={() => newChat()}
+          disabled={emergencyStop.active}
           className="w-full justify-start px-3 py-2 text-sm"
         >
-          <Plus className="w-4 h-4" />
+          <NexyIcon name="add" />
           <span>New Chat</span>
         </Button>
+        {emergencyStop.active && (
+          <p className="px-2 text-[11px] font-medium text-red-600 dark:text-red-400" role="status">
+            Conversation starts are frozen
+          </p>
+        )}
         {backgroundActivities.length > 0 && (
           <NavButton
-            icon={<Zap className="w-3.5 h-3.5" />}
+            icon={<NexyIcon name="spark" size={14} />}
             label="Activity"
             onClick={() => setShowActivityFeed(true)}
             badgeCount={backgroundActivities.length}
@@ -153,42 +161,42 @@ export function Sidebar() {
         )}
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
-          icon={<MessageSquare className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="chat" size={14} />}
           label="Chats"
           onClick={() => openSectionPane('chats')}
           active={activeSectionPane === 'chats'}
           ariaLabel="Open chat history"
         />
         <NavButton
-          icon={<FolderOpen className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="project" size={14} />}
           label="Projects"
           onClick={() => { setHistoryProjectId(null); openSectionPane('projects') }}
           active={activeSectionPane === 'projects'}
           ariaLabel="Open projects"
         />
         <NavButton
-          icon={<Bot className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="agent" size={14} />}
           label="Agents"
           onClick={() => { setHistoryAgentId(null); openSectionPane('agents') }}
           active={activeSectionPane === 'agents'}
           ariaLabel="Open agents"
         />
         <NavButton
-          icon={<Wrench className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="skill" size={14} />}
           label="Skills"
           onClick={() => openSectionPane('skills')}
           active={activeSectionPane === 'skills'}
           ariaLabel="Open skills"
         />
         <NavButton
-          icon={<Clock className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="scheduled" size={14} />}
           label="Scheduled"
           onClick={() => openSectionPane('scheduled')}
           active={activeSectionPane === 'scheduled'}
           ariaLabel="Open scheduled tasks"
         />
         <NavButton
-          icon={<Workflow className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="workflow" size={14} />}
           label="Workflows"
           onClick={() => openSectionPane('workflows')}
           active={activeSectionPane === 'workflows'}
@@ -196,7 +204,7 @@ export function Sidebar() {
         />
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
-          icon={<Package className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="artifact" size={14} />}
           label="Artifacts"
           onClick={() => { artifactLastOpenedRef.current = Date.now(); setNewArtifactCount(0); openSectionPane('artifacts') }}
           badgeCount={newArtifactCount}
@@ -204,7 +212,7 @@ export function Sidebar() {
           ariaLabel={`Open Artifacts${newArtifactCount > 0 ? ` (${newArtifactCount} new)` : ''}`}
         />
         <NavButton
-          icon={<Star className="w-3.5 h-3.5" />}
+          icon={<NexyIcon name="rating" size={14} />}
           label="Ratings"
           onClick={() => openSectionPane('ratings')}
           active={activeSectionPane === 'ratings'}
@@ -215,7 +223,7 @@ export function Sidebar() {
       <div className="flex-1 min-h-0 overflow-y-auto mr-1.5 px-3 pb-2">
         {(recentConvs.length > 0 || pendingNew.length > 0) && (
           <div className="mt-2">
-            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-1">
+            <p className="nexy-panel-title text-[10px] text-gray-400 dark:text-gray-500 uppercase px-1 mb-1">
               Recent
             </p>
             <div className="space-y-0.5">
@@ -225,7 +233,7 @@ export function Sidebar() {
                   onClick={() => selectConversation(id)}
                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
-                  <span title="Sending…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
+                  <span title="Sending…"><NexyIcon name="busy" size={12} className="text-purple-500" /></span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">New chat</span>
                   </span>
@@ -254,9 +262,9 @@ export function Sidebar() {
                     }
                     <span className="flex items-center gap-2 px-2 py-1 flex-1 min-w-0">
                       {isGenerating ? (
-                        <span title="Generating…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
+                        <span title="Generating…"><NexyIcon name="busy" size={12} className="text-purple-500" /></span>
                       ) : isUnread ? (
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                        <span className="nexy-notification-dot w-1.5 h-1.5 bg-blue-500 animate-pulse shrink-0" />
                       ) : (
                         <span className="w-1.5 h-1.5 shrink-0" />
                       )}

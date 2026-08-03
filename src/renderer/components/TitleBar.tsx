@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil, Settings, KeyRound } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { DirectoryPicker } from './DirectoryPicker'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 import { useClickOutside } from '../hooks/useClickOutside'
+import { PROJECT_BADGE_COLOR_MAP } from './section-pane/shared'
+import { NexyIcon } from './ui/icons'
+import { ConfirmDialog } from './ui/ConfirmDialog'
+import { useEmergencyStop } from '../hooks/useEmergencyStop'
 
 // TypeScript doesn't include WebkitAppRegion in CSSProperties
 type DragStyle = React.CSSProperties & { WebkitAppRegion: 'drag' | 'no-drag' }
@@ -18,6 +21,31 @@ type SectionDef = {
   id: string
   label: string
   items: MenuItemDef[]
+}
+
+type WindowCaptionIconKind = 'minimize' | 'maximize' | 'restore'
+
+/** Windows 10 caption glyphs, kept separate from content-level expand/minimize icons. */
+function WindowCaptionIcon({ kind }: { kind: WindowCaptionIconKind }) {
+  return (
+    <svg
+      viewBox="0 0 12 12"
+      width="12"
+      height="12"
+      fill="currentColor"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+      data-window-caption-icon={kind}
+    >
+      {kind === 'minimize' && <path d="M1 9h10v1H1z" />}
+      {kind === 'maximize' && (
+        <path fillRule="evenodd" d="M1 1h10v10H1V1zm1 1v8h8V2H2z" />
+      )}
+      {kind === 'restore' && (
+        <path fillRule="evenodd" d="M3 1h8v8h-1V2H3V1zM1 3h8v8H1V3zm1 1v6h6V4H2z" />
+      )}
+    </svg>
+  )
 }
 
 function SubMenuItem({ def }: { def: MenuItemDef }) {
@@ -64,7 +92,7 @@ function SectionItem({
         }`}
       >
         <span>{section.label}</span>
-        <ChevronRight className="w-3.5 h-3.5 ml-4 text-gray-400 dark:text-gray-500" />
+        <NexyIcon name="chevron-right" size={14} className="ml-4 text-gray-400 dark:text-gray-500" />
       </button>
 
       {isActive && (
@@ -79,6 +107,7 @@ function SectionItem({
 }
 
 export function TitleBar() {
+  const emergencyStop = useEmergencyStop()
   const theme = useAppStore((s) => s.theme)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
   const showSidebar = useAppStore((s) => s.showSidebar)
@@ -104,6 +133,7 @@ export function TitleBar() {
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
   const [showDirPicker, setShowDirPicker] = useState(false)
+  const [showEmergencyStopConfirmation, setShowEmergencyStopConfirmation] = useState(false)
   const [showProjectSettings, setShowProjectSettings] = useState(false)
   const [projectSettingsInitialTab, setProjectSettingsInitialTab] = useState<'general' | 'scope' | 'milestones'>('general')
   const [mobileClientCount, setMobileClientCount] = useState(0)
@@ -125,17 +155,7 @@ export function TitleBar() {
   const showProjectBadge = activeProject != null && projCfg?.instructionsEnabled === true && projCfg.instructions?.trim().length > 0
   const activeMilestone = projCfg?.milestones?.find((m) => m.status === 'active') ?? null
 
-  const PROJECT_BADGE_COLORS: Record<string, { bg: string; text: string; border: string; hover: string }> = {
-    blue:   { bg: 'bg-blue-50 dark:bg-blue-900/30',     text: 'text-blue-600 dark:text-blue-400',     border: 'border-blue-200 dark:border-blue-700',     hover: 'hover:bg-blue-100 dark:hover:bg-blue-900/50' },
-    green:  { bg: 'bg-green-50 dark:bg-green-900/30',   text: 'text-green-600 dark:text-green-400',   border: 'border-green-200 dark:border-green-700',   hover: 'hover:bg-green-100 dark:hover:bg-green-900/50' },
-    red:    { bg: 'bg-red-50 dark:bg-red-900/30',       text: 'text-red-600 dark:text-red-400',       border: 'border-red-200 dark:border-red-700',       hover: 'hover:bg-red-100 dark:hover:bg-red-900/50' },
-    purple: { bg: 'bg-purple-50 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-700', hover: 'hover:bg-purple-100 dark:hover:bg-purple-900/50' },
-    orange: { bg: 'bg-orange-50 dark:bg-orange-900/30', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-700', hover: 'hover:bg-orange-100 dark:hover:bg-orange-900/50' },
-    pink:   { bg: 'bg-pink-50 dark:bg-pink-900/30',     text: 'text-pink-600 dark:text-pink-400',     border: 'border-pink-200 dark:border-pink-700',     hover: 'hover:bg-pink-100 dark:hover:bg-pink-900/50' },
-    yellow: { bg: 'bg-yellow-50 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', border: 'border-yellow-200 dark:border-yellow-500', hover: 'hover:bg-yellow-100 dark:hover:bg-yellow-900/50' },
-    gray:   { bg: 'bg-gray-100 dark:bg-gray-800',       text: 'text-gray-600 dark:text-gray-400',     border: 'border-gray-200 dark:border-gray-700',     hover: 'hover:bg-gray-200 dark:hover:bg-gray-700' },
-  }
-  const badgeColors = PROJECT_BADGE_COLORS[activeProject?.color ?? 'blue'] ?? PROJECT_BADGE_COLORS.blue
+  const badgeColors = PROJECT_BADGE_COLOR_MAP[activeProject?.color ?? 'blue'] ?? PROJECT_BADGE_COLOR_MAP.blue
 
   useEffect(() => {
     window.api.isWindowMaximized().then(setIsMaximized)
@@ -258,7 +278,7 @@ export function TitleBar() {
           aria-label="Open menu"
           aria-expanded={menuOpen}
         >
-          <Menu className="w-4 h-4" />
+          <NexyIcon name="menu" />
         </button>
 
         {menuOpen && (
@@ -284,7 +304,27 @@ export function TitleBar() {
         aria-label="Open settings"
         title="Settings"
       >
-        <Settings className="w-4 h-4" />
+        <NexyIcon name="settings" />
+      </button>
+
+      {/* Emergency stop / resume — compact, but always available beside Settings. */}
+      <button
+        onClick={() => {
+          if (emergencyStop.active) void emergencyStop.resume()
+          else setShowEmergencyStopConfirmation(true)
+        }}
+        disabled={emergencyStop.busy}
+        className={`h-7 w-7 inline-flex items-center justify-center rounded transition-colors disabled:cursor-wait disabled:opacity-60 ${
+          emergencyStop.active
+            ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-900/50'
+            : 'text-gray-500 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-950/40 dark:hover:text-red-400'
+        }`}
+        style={NO_DRAG}
+        aria-label={emergencyStop.active ? 'Resume conversations' : 'Emergency stop all conversations'}
+        aria-pressed={emergencyStop.active}
+        title={emergencyStop.active ? 'Resume conversations' : 'Emergency stop'}
+      >
+        <NexyIcon name={emergencyStop.active ? 'play' : 'stop'} />
       </button>
 
       {/* Key-handoff request indicator — clickable, opens Providers so the user can approve/reject */}
@@ -299,9 +339,26 @@ export function TitleBar() {
           aria-label={`Android is requesting the ${pendingKeyHandoffProvider} API key — review request`}
           title={`Android is requesting the ${pendingKeyHandoffProvider} API key — click to review`}
         >
-          <KeyRound className="w-4 h-4" />
+          <NexyIcon name="key" />
           <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
         </button>
+      )}
+
+      {showEmergencyStopConfirmation && (
+        <ConfirmDialog
+          title="Emergency stop all conversations?"
+          ariaLabel="Confirm emergency stop"
+          confirmLabel="Emergency stop"
+          irreversible={false}
+          busy={emergencyStop.busy}
+          icon={<NexyIcon name="stop" size={20} />}
+          onCancel={() => setShowEmergencyStopConfirmation(false)}
+          onConfirm={() => {
+            void emergencyStop.activate().then(() => setShowEmergencyStopConfirmation(false))
+          }}
+        >
+          This immediately cancels every active response and blocks new messages until you explicitly resume.
+        </ConfirmDialog>
       )}
 
       {/* Active agent badge — also no-drag */}
@@ -322,7 +379,7 @@ export function TitleBar() {
           style={NO_DRAG}
           aria-label="Edit agent"
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <NexyIcon name="edit" size={14} />
         </button>
       )}
 
@@ -336,7 +393,7 @@ export function TitleBar() {
             aria-label="Change directory"
             data-directory-breadcrumb="true"
           >
-            <FolderOpen className="h-3.5 w-3.5" />
+            <NexyIcon name="project" size={14} />
             <span>{crumb}</span>
           </button>
           {showDirPicker && (
@@ -359,7 +416,7 @@ export function TitleBar() {
                 className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
                 aria-label="Project settings"
               >
-                <span>📁</span>
+                <NexyIcon name="project" size={14} />
                 <span className="max-w-[120px] truncate">{activeProject.name}</span>
               </button>
             )}
@@ -372,7 +429,7 @@ export function TitleBar() {
                 className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
                 aria-label={`Active milestone: ${activeMilestone.title}`}
               >
-                <span>🎯</span>
+                <NexyIcon name="milestone" size={14} />
                 <span className="max-w-[100px] truncate">{activeMilestone.title}</span>
               </button>
             )}
@@ -393,7 +450,7 @@ export function TitleBar() {
         {/* Android connected indicator badge */}
         {mobileClientCount > 0 && (
           <div className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 border-green-200 dark:border-green-700" title={`${mobileClientCount} Android client${mobileClientCount === 1 ? '' : 's'} connected`} aria-label={`${mobileClientCount} Android client${mobileClientCount === 1 ? '' : 's'} connected`}>
-            <span>📱</span>
+            <NexyIcon name="mobile" size={14} />
             <span>{mobileClientCount}</span>
           </div>
         )}
@@ -409,21 +466,21 @@ export function TitleBar() {
           className="h-full w-11 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           aria-label="Minimize"
         >
-          <Minus className="w-3.5 h-3.5" />
+          <WindowCaptionIcon kind="minimize" />
         </button>
         <button
           onClick={() => window.api.maximizeWindow()}
           className="h-full w-11 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           aria-label={isMaximized ? 'Restore' : 'Maximize'}
         >
-          {isMaximized ? <Maximize2 className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+          <WindowCaptionIcon kind={isMaximized ? 'restore' : 'maximize'} />
         </button>
         <button
           onClick={() => window.api.closeWindow()}
           className="h-full w-11 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-red-500 hover:text-white transition-colors"
           aria-label="Close"
         >
-          <X className="w-3.5 h-3.5" />
+          <NexyIcon name="close" size={14} />
         </button>
       </div>
     </div>

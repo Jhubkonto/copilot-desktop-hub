@@ -50,6 +50,7 @@ export function ProjectSettingsPanel(props: Props) {
   const projects = useAppStore((s) => s.projects)
   const projectConfigs = useAppStore((s) => s.projectConfigs)
   const renameProject = useAppStore((s) => s.renameProject)
+  const updateProjectColor = useAppStore((s) => s.updateProjectColor)
   const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
   const projectAgents = useAppStore((s) => s.projectAgents)
   const loadProjectAgents = useAppStore((s) => s.loadProjectAgents)
@@ -198,6 +199,18 @@ export function ProjectSettingsPanel(props: Props) {
     const trimmed = name.trim()
     if (trimmed && trimmed !== project?.name) {
       await renameProject(projectId, trimmed)
+    }
+  }
+
+  const handleColorChange = (nextColor: string) => {
+    setColor(nextColor)
+    if (!isDraft && projectId && project) {
+      if (saveStateResetTimer.current) clearTimeout(saveStateResetTimer.current)
+      setSaveState('saving')
+      void updateProjectColor(projectId, project.name, nextColor).finally(() => {
+        setSaveState('saved')
+        saveStateResetTimer.current = setTimeout(() => setSaveState('idle'), 2000)
+      })
     }
   }
 
@@ -418,10 +431,10 @@ export function ProjectSettingsPanel(props: Props) {
   const projectConfig = (projectId ? projectConfigs[projectId] : null) ?? DEFAULT_PROJECT_CONFIG
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800/50 rounded-b-xl border-t border-gray-200 dark:border-gray-700">
+    <div className="h-full flex flex-col bg-nexy-surface rounded-none border-t-2 border-nexy-border">
 
       {/* Tab bar */}
-      <div className="flex items-center gap-4 px-3 pt-2 pb-0 flex-wrap border-b border-gray-200 dark:border-gray-700" role="tablist">
+      <div className="flex items-center gap-1 px-3 pt-2 pb-0 flex-wrap border-b-2 border-nexy-border bg-nexy-raised" role="tablist">
         {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'verify', 'changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -429,12 +442,12 @@ export function ProjectSettingsPanel(props: Props) {
             role="tab"
             aria-selected={activeTab === tab}
             onClick={() => setActiveTab(tab)}
-            className={`text-[11px] pb-2 border-b-2 font-medium transition-colors ${
+            className={`nexy-status-label text-[10px] px-2 pb-2 border-b-4 font-medium transition-colors ${
               activeTab === tab
-                ? 'border-blue-500 text-gray-800 dark:text-gray-100'
+                ? 'border-nexy-accent text-nexy-text bg-nexy-recessed'
                 : tab === 'team' && teamFlashOn
-                  ? 'border-transparent text-blue-500'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+                  ? 'border-nexy-accent text-nexy-accent'
+                  : 'border-transparent text-nexy-muted hover:text-nexy-text hover:border-nexy-border'
             }`}
           >
             {tab === 'general'
@@ -485,7 +498,7 @@ export function ProjectSettingsPanel(props: Props) {
             catalogModels={catalogModels}
             globalDefaultModel={globalDefaultModel ?? null}
             onSetName={setName}
-            onSetColor={setColor}
+            onSetColor={handleColorChange}
             onNameBlur={handleNameBlur}
             onConfirm={isDraft ? handleConfirm : undefined}
             onInstructionsChange={handleInstructionsChange}
@@ -588,11 +601,11 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Draft mode: Create / Cancel buttons */}
       {isDraft && (
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t-2 border-nexy-border bg-nexy-raised">
           <button
             type="button"
             onClick={onClose}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="text-xs px-3 py-1.5 rounded-nexy-sm border-2 border-nexy-border text-nexy-text hover:bg-nexy-recessed transition-colors shadow-nexy"
           >
             Cancel
           </button>
@@ -600,7 +613,7 @@ export function ProjectSettingsPanel(props: Props) {
             type="button"
             onClick={handleConfirm}
             disabled={!name.trim() || hasVarErrors || isSubmitting}
-            className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="text-xs px-4 py-1.5 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent text-nexy-on-accent hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-nexy"
             aria-label="Create project"
           >
             {isSubmitting ? 'Creating…' : 'Create project'}

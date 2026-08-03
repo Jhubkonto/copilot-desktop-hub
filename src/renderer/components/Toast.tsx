@@ -34,10 +34,15 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     error: X,
     info: Info
   }[toast.type]
+  const toneClass = {
+    success: 'border-green-900 bg-nexy-success text-white',
+    error: 'border-red-900 bg-nexy-error text-white',
+    info: 'border-cyan-950 bg-nexy-info text-white',
+  }[toast.type]
 
   return (
     <div
-      className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 animate-slide-in"
+      className={`pointer-events-auto flex items-center gap-2 rounded-nexy-sm border-2 px-4 py-2.5 text-sm font-medium shadow-nexy ${toneClass}`}
       role="alert"
     >
       <IconComponent className="w-4 h-4 shrink-0" />
@@ -45,14 +50,14 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       {toast.action && (
         <button
           onClick={() => { toast.action!.onClick(); onDismiss(toast.id) }}
-          className="ml-1 font-medium underline text-white dark:text-gray-900 hover:no-underline"
+          className="ml-1 border border-transparent font-bold underline hover:border-current hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         >
           {toast.action.label}
         </button>
       )}
       <button
         onClick={() => onDismiss(toast.id)}
-        className="ml-2 text-white/70 dark:text-gray-900/50 hover:text-white dark:hover:text-gray-900"
+        className="ml-2 border border-transparent text-white/70 hover:border-white hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         aria-label="Dismiss"
       >
         <X className="w-3.5 h-3.5" />

@@ -105,8 +105,8 @@ export function ResizeHandle({ direction, containerRef, onSetSize, align = 'end'
       data-testid="resize-handle"
       className={`absolute z-10 transition-colors ${
         isHorizontal
-          ? `${align === 'start' ? 'left-0' : 'right-0'} top-0 bottom-0 w-1 ${hCursor} hover:bg-blue-400/50 active:bg-blue-500/60`
-          : `${align === 'start' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 cursor-row-resize hover:bg-blue-400/50 active:bg-blue-500/60`
+          ? `${align === 'start' ? 'left-0' : 'right-0'} top-0 bottom-0 w-1 ${hCursor} hover:bg-nexy-accent active:bg-nexy-accent`
+          : `${align === 'start' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 cursor-row-resize hover:bg-nexy-accent active:bg-nexy-accent`
       }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

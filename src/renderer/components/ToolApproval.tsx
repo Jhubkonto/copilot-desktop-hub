@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FileText, FilePen, Terminal, Globe, ListChecks, Wrench } from 'lucide-react'
+import type { NexyIconName } from './ui/icons'
+import { NexyIcon } from './ui/icons'
 import { useAppStore } from '../store/app-store'
 import { Button } from './ui/primitives'
 
-const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  fileRead: FileText,
-  fileWrite: FilePen,
-  shellExec: Terminal,
-  webFetch: Globe
+const TOOL_ICONS: Record<string, NexyIconName> = {
+  fileRead: 'artifact',
+  fileWrite: 'edit',
+  shellExec: 'prompt',
+  webFetch: 'external'
 }
 
 const AUTO_DENY_SECONDS = 60
@@ -52,13 +53,13 @@ function CountdownBar({
 
   return (
     <div className="mt-2">
-      <div className="flex justify-between text-xs text-gray-400 mb-1">
+      <div className="mb-1 flex justify-between text-xs text-nexy-muted">
         <span>{planDecision ? 'Auto-cancel' : 'Auto-deny'} in {remaining}s</span>
         <span>{remaining}s</span>
       </div>
-      <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-1 overflow-hidden border border-nexy-border bg-nexy-recessed">
         <div
-          className="h-full rounded-full transition-all duration-1000 ease-linear bg-gray-400 dark:bg-gray-500"
+          className="h-full bg-gray-400 transition-[width] duration-1000 ease-linear dark:bg-gray-500"
           style={{ width: `${pct}%` }}
           role="progressbar"
           aria-valuenow={remaining}
@@ -88,19 +89,19 @@ export function ToolApproval() {
     <div className="fixed bottom-4 right-4 z-40 space-y-2 max-w-sm">
       {requests.map((req) => {
         const isPlanDecision = req.tool === 'exit_plan_mode'
-        const IconComponent = isPlanDecision ? ListChecks : TOOL_ICONS[req.tool] || Wrench
+        const iconName: NexyIconName = isPlanDecision ? 'milestone' : TOOL_ICONS[req.tool] || 'tool'
         return (
           <div
             key={req.requestId}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 animate-in slide-in-from-right"
+            className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-4 text-nexy-text shadow-nexy"
           >
             <div className="flex items-center gap-2 mb-2">
-              <IconComponent className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <NexyIcon name={iconName} className="h-4 w-4 text-nexy-accent" />
               <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                <p className="nexy-font-panel text-sm text-nexy-text">
                   {isPlanDecision ? 'Plan ready' : 'Tool Request'}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-nexy-muted">
                   {isPlanDecision
                     ? 'Choose whether Codex should implement this plan or continue planning.'
                     : req.description}
@@ -108,7 +109,7 @@ export function ToolApproval() {
               </div>
             </div>
 
-            <pre className="text-xs bg-gray-50 dark:bg-gray-900 rounded-lg p-2 mb-3 text-gray-700 dark:text-gray-300 overflow-x-auto max-h-32 overflow-y-auto whitespace-pre-wrap">
+            <pre className="mb-3 max-h-32 overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-nexy-sm border border-nexy-border bg-nexy-recessed p-2 text-xs text-nexy-text">
               {formatArgs(req.args)}
             </pre>
 

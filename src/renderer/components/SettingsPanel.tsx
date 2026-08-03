@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Settings, Shield, Terminal, BookOpen, Smartphone, Wrench } from 'lucide-react'
+import { NexyIcon, type NexyIconName } from './ui/icons/NexyIcon'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds } from '../../shared/models'
 import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
@@ -14,16 +14,17 @@ import { MobileTab } from './settings/MobileTab'
 import { DeveloperTab } from './settings/DeveloperTab'
 import type { ProviderInfo } from './settings/types'
 import { useClickOutside } from '../hooks/useClickOutside'
+import type { SupertonicStatus } from '../../shared/neural-tts'
 
 type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts' | 'developer'
 
-const NAV_ITEMS: { id: SettingsCategory; label: string; icon: React.ReactNode }[] = [
-  { id: 'general',   label: 'General',       icon: <Settings className="w-3.5 h-3.5" /> },
-  { id: 'providers', label: 'API Providers', icon: <Shield className="w-3.5 h-3.5" /> },
-  { id: 'cli',       label: 'CLI Tools',     icon: <Terminal className="w-3.5 h-3.5" /> },
-  { id: 'prompts',   label: 'Prompts',       icon: <BookOpen className="w-3.5 h-3.5" /> },
-  { id: 'mobile',    label: 'Mobile',        icon: <Smartphone className="w-3.5 h-3.5" /> },
-  { id: 'developer', label: 'Developer',     icon: <Wrench className="w-3.5 h-3.5" /> },
+const NAV_ITEMS: { id: SettingsCategory; label: string; icon: NexyIconName }[] = [
+  { id: 'general',   label: 'General',       icon: 'settings' },
+  { id: 'providers', label: 'API Providers', icon: 'key' },
+  { id: 'cli',       label: 'CLI Tools',     icon: 'prompt' },
+  { id: 'prompts',   label: 'Prompts',       icon: 'clipboard' },
+  { id: 'mobile',    label: 'Mobile',        icon: 'mobile' },
+  { id: 'developer', label: 'Developer',     icon: 'tool' },
 ]
 
 const EMPTY_PROMPT_DRAFT: PromptLibraryInput = {
@@ -85,11 +86,13 @@ function formatBuildFailureReport(record: BuildRecord): { title: string; descrip
 export function SettingsPanel() {
   const visible = useAppStore((s) => s.showSettings)
   const theme = useAppStore((s) => s.theme)
+  const uiStyle = useAppStore((s) => s.uiStyle)
   const conversations = useAppStore((s) => s.conversations)
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const agents = useAppStore((s) => s.agents)
   const activeAgentId = useAppStore((s) => s.activeAgentId)
   const toggleTheme = useAppStore((s) => s.toggleTheme)
+  const setUiStyle = useAppStore((s) => s.setUiStyle)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const addToast = useAppStore((s) => s.addToast)
@@ -144,6 +147,8 @@ export function SettingsPanel() {
   const [whisperModelPath, setWhisperModelPath] = useState('')
   const [whisperInstalling, setWhisperInstalling] = useState(false)
   const [whisperReady, setWhisperReady] = useState(false)
+  const [supertonicStatus, setSupertonicStatus] = useState<SupertonicStatus | null>(null)
+  const [supertonicInstalling, setSupertonicInstalling] = useState(false)
 
   // Mobile companion state
   const [mobileEnabled, setMobileEnabled] = useState(false)
@@ -246,6 +251,7 @@ export function SettingsPanel() {
     })
     window.api.listProviders().then(setProviders)
     window.api.getVoiceStatus().then((status) => setWhisperReady(!('error' in status) && status.ready)).catch(() => setWhisperReady(false))
+    window.api.getSupertonicStatus().then(setSupertonicStatus).catch(() => setSupertonicStatus(null))
     window.api.getAzureEndpoint().then((ep: string | null) => {
       if (ep) setAzureEndpoint(ep)
     })
@@ -889,6 +895,62 @@ export function SettingsPanel() {
     }
   }
 
+  const handleInstallSupertonic = async () => {
+    setSupertonicInstalling(true)
+    try {
+      const result = await window.api.installSupertonic()
+      if (isApiError(result)) {
+        addToast(result.error, 'error')
+        return
+      }
+      setSupertonicStatus(result)
+      window.dispatchEvent(new Event('nexy:supertonic-status-changed'))
+      addToast('Supertonic installed and ready', 'success')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Supertonic installation failed', 'error')
+    } finally {
+      setSupertonicInstalling(false)
+    }
+  }
+
+  const handleRemoveSupertonic = async () => {
+    try {
+      const result = await window.api.removeSupertonic()
+      if (isApiError(result)) {
+        addToast(result.error, 'error')
+        return
+      }
+      setSupertonicStatus(result)
+      window.dispatchEvent(new Event('nexy:supertonic-status-changed'))
+      addToast('Supertonic model removed', 'success')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Unable to remove Supertonic', 'error')
+    }
+  }
+
+  const handlePreviewSupertonic = async () => {
+    try {
+      const result = await window.api.synthesizeSupertonic({
+        text: 'Hello from Nexy. This voice is generated privately on your computer.',
+        speakerId: 0,
+        language: 'en',
+        speed: 1,
+      })
+      if (isApiError(result)) {
+        addToast(result.error, 'error')
+        return
+      }
+      const bytes = new Uint8Array(result.audio)
+      const url = URL.createObjectURL(new Blob([bytes.buffer], { type: 'audio/wav' }))
+      const audio = new Audio(url)
+      audio.onended = () => URL.revokeObjectURL(url)
+      audio.onerror = () => URL.revokeObjectURL(url)
+      await audio.play()
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Supertonic preview failed', 'error')
+    }
+  }
+
   // suppress unused variable warning — activeAgent is computed for potential future use
   void activeAgent
 
@@ -903,30 +965,32 @@ export function SettingsPanel() {
       onClose={onClose}
     >
       {/* Left navigation */}
-      <nav className="w-44 shrink-0 border-r border-gray-200 dark:border-gray-700 py-2 flex flex-col gap-0.5 px-2" aria-label="Settings navigation">
+      <nav className="w-44 shrink-0 border-r-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 py-2 flex flex-col gap-0.5 px-2" aria-label="Settings navigation">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
             onClick={() => setCategory(item.id)}
-            className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-none border text-xs font-medium transition-colors ${
               category === item.id
-                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ? 'border-nexy-accent bg-nexy-accent/10 text-nexy-accent shadow-nexy'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
             aria-current={category === item.id ? 'page' : undefined}
           >
-            {item.icon}
+            <NexyIcon name={item.icon} size={14} />
             {item.label}
           </button>
         ))}
       </nav>
 
       {/* Right content */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      <div className="nexy-settings-shell flex-1 overflow-y-auto p-5 space-y-4">
         {category === 'general' && (
           <GeneralTab
             theme={theme}
             toggleTheme={toggleTheme}
+            uiStyle={uiStyle}
+            onSetUiStyle={setUiStyle}
             effectiveModel={effectiveModel}
             effectiveProvider={effectiveProvider}
             autoStart={autoStart}
@@ -943,6 +1007,8 @@ export function SettingsPanel() {
             whisperModelPath={whisperModelPath}
             whisperInstalling={whisperInstalling}
             whisperReady={whisperReady}
+            supertonicStatus={supertonicStatus}
+            supertonicInstalling={supertonicInstalling}
             catalogModels={catalogModels}
             onToggleAutoStart={() => void handleAutoStartToggle()}
             onToggleAutoClipboard={() => void handleAutoClipboardToggle()}
@@ -956,6 +1022,9 @@ export function SettingsPanel() {
             onSetWhisperModelPath={setWhisperModelPath}
             onSaveWhisper={() => void handleSaveWhisper()}
             onInstallWhisper={() => void handleInstallWhisper()}
+            onInstallSupertonic={() => void handleInstallSupertonic()}
+            onRemoveSupertonic={() => void handleRemoveSupertonic()}
+            onPreviewSupertonic={() => void handlePreviewSupertonic()}
             onSaveAdvanced={() => void handleSaveAdvanced()}
             onOpenMcp={onOpenMcp}
             defaultModelMenuRef={defaultModelMenuRef}

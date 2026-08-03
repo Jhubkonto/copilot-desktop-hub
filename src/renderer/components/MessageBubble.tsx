@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench, BookmarkPlus, AudioLines, Volume2, Sparkles, MoreHorizontal } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench, BookmarkPlus, Volume2, Sparkles, MoreHorizontal, Trash2 } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -8,6 +8,7 @@ import { SpokenOutputControls } from './chat/SpokenOutputControls'
 import type { SpokenPlaybackState } from '../hooks/useSpokenOutput'
 import type { SpokenOutputSettings } from '../lib/spoken-output'
 import { DropdownPanel } from './DropdownPanel'
+import { ImagePreview } from './ImagePreview'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -72,6 +73,7 @@ interface Attachment {
   size: number
   type?: 'file' | 'image' | 'folder'
   thumbnailDataUrl?: string
+  previewDataUrl?: string
 }
 
 interface PastedImage {
@@ -109,6 +111,7 @@ interface MessageBubbleProps {
   onSaveAsPrompt?: (content: string) => void
   onRegenerate?: () => void
   onEdit?: (index: number) => void
+  onDeleteAfter?: () => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onSaveAsArtifact?: (messageId: string, content: string) => void
   onCreateCodeChange?: (messageId: string, content: string) => void
@@ -129,6 +132,7 @@ interface MessageBubbleProps {
     aiRecapError: string | null
     voices: SpeechSynthesisVoice[]
     settings: SpokenOutputSettings
+    supertonicReady: boolean
     onRead: () => void
     onQuickRecap: () => void
     onAiRecap: () => void
@@ -163,6 +167,7 @@ export function MessageBubbleBase({
   onSaveAsPrompt,
   onRegenerate,
   onEdit,
+  onDeleteAfter,
   onSaveToWiki,
   onSaveAsArtifact,
   onCreateCodeChange,
@@ -177,6 +182,7 @@ export function MessageBubbleBase({
   const [showActions, setShowActions] = useState(false)
   const [copied, setCopied] = useState(false)
   const [assistantMenuOpen, setAssistantMenuOpen] = useState(false)
+  const [listenMenuOpen, setListenMenuOpen] = useState(false)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -207,8 +213,8 @@ export function MessageBubbleBase({
     || onSaveToWiki
     || onSaveAsArtifact
     || onCreateCodeChange
+    || onDeleteAfter
     || (isLastAssistant && onRegenerate)
-    || (spokenOutput?.supported && spokenOutput.onAiRecap)
   )
 
   return (
@@ -268,20 +274,52 @@ export function MessageBubbleBase({
                 tone={copied ? 'success' : 'default'}
               />
               {spokenOutput?.supported && (
-                <>
-                  <IconActionButton
-                    icon={Volume2}
-                    label="Read response"
-                    title="Read a speech-safe version of this response"
-                    onClick={spokenOutput.onRead}
-                  />
-                  <IconActionButton
-                    icon={AudioLines}
-                    label="Quick Recap"
-                    title="Create and read a local quick recap"
-                    onClick={spokenOutput.onQuickRecap}
-                  />
-                </>
+                <DropdownPanel
+                  open={listenMenuOpen}
+                  onClose={() => setListenMenuOpen(false)}
+                  align="left"
+                  width="w-64"
+                  trigger={
+                    <IconActionButton
+                      icon={Volume2}
+                      label="Listen"
+                      title="Listen to this response"
+                      onClick={() => setListenMenuOpen((open) => !open)}
+                      menuOpen={listenMenuOpen}
+                    />
+                  }
+                >
+                  <div className="p-1" role="menu" aria-label="Listen options">
+                    <MessageMenuItem
+                      icon={Volume2}
+                      label="Full response"
+                      title="Listen to a speech-safe version of the full response"
+                      onClick={() => {
+                        setListenMenuOpen(false)
+                        spokenOutput.onRead()
+                      }}
+                    />
+                    <MessageMenuItem
+                      icon={Sparkles}
+                      label="Short version"
+                      title="Create and listen to a short local version"
+                      onClick={() => {
+                        setListenMenuOpen(false)
+                        spokenOutput.onQuickRecap()
+                      }}
+                    />
+                    <MessageMenuItem
+                      icon={spokenOutput.aiRecapLoading ? RefreshCw : Sparkles}
+                      label={spokenOutput.aiRecapLoading ? 'Creating AI summary…' : 'AI summary'}
+                      title="Generate a summary with the current provider or CLI, then listen"
+                      onClick={() => {
+                        setListenMenuOpen(false)
+                        spokenOutput.onAiRecap()
+                      }}
+                      disabled={spokenOutput.aiRecapLoading}
+                    />
+                  </div>
+                </DropdownPanel>
               )}
               {hasAssistantOverflowActions && (
                 <DropdownPanel
@@ -341,17 +379,11 @@ export function MessageBubbleBase({
                         disabled={!canCreateCodeChange}
                       />
                     )}
-                    {spokenOutput?.supported && (
-                      <MessageMenuItem
-                        icon={spokenOutput.aiRecapLoading ? RefreshCw : Sparkles}
-                        label={spokenOutput.aiRecapLoading ? 'Creating AI Recap…' : 'AI Recap'}
-                        title="Create and persist a provider or CLI generated recap"
-                        onClick={() => {
-                          setAssistantMenuOpen(false)
-                          spokenOutput.onAiRecap()
-                        }}
-                        disabled={spokenOutput.aiRecapLoading}
-                      />
+                    {onDeleteAfter && (
+                      <MessageMenuItem icon={Trash2} label="Delete from here" onClick={() => {
+                        setAssistantMenuOpen(false)
+                        onDeleteAfter()
+                      }} tone="danger" />
                     )}
                   </div>
                 </DropdownPanel>
@@ -370,6 +402,7 @@ export function MessageBubbleBase({
               model={spokenOutput.model}
               voices={spokenOutput.voices}
               settings={spokenOutput.settings}
+              supertonicReady={spokenOutput.supertonicReady}
               onSettingsChange={spokenOutput.onSettingsChange}
               onPause={spokenOutput.onPause}
               onResume={spokenOutput.onResume}
@@ -383,7 +416,7 @@ export function MessageBubbleBase({
       {/* Error assistant: keep a subtle error card */}
       {isAssistant && isError && (
         <div className="relative w-full">
-          <div className="rounded-lg px-4 py-3 text-sm bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-200">
+          <div className="rounded-nexy-sm px-4 py-3 text-sm bg-red-50 dark:bg-red-900/20 border-2 border-nexy-error text-red-800 dark:text-red-200 shadow-nexy">
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500 dark:text-red-400" />
               <div className="flex-1">
@@ -393,7 +426,7 @@ export function MessageBubbleBase({
                     <Button
                       variant="danger"
                       onClick={onRetry}
-                      className="gap-1.5 rounded-full border border-red-200 dark:border-red-800/60 bg-red-100/80 dark:bg-red-900/40 text-red-700 dark:text-red-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-red-200 dark:hover:bg-red-900/60 active:scale-95"
+                      className="gap-1.5 rounded-nexy-sm border border-nexy-error bg-red-100/80 dark:bg-red-900/40 text-red-700 dark:text-red-300"
                     >
                       <RefreshCw className="w-3 h-3" />Retry
                     </Button>
@@ -402,7 +435,7 @@ export function MessageBubbleBase({
                     <Button
                       variant="primary"
                       onClick={onSignIn}
-                      className="gap-1.5 rounded-full border border-blue-200 dark:border-blue-800/60 bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-blue-200 dark:hover:bg-blue-900/60 active:scale-95"
+                      className="gap-1.5 rounded-nexy-sm border border-nexy-info bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
                     >
                       <LogIn className="w-3 h-3" />Sign in again
                     </Button>
@@ -411,7 +444,7 @@ export function MessageBubbleBase({
                     <Button
                       variant="secondary"
                       onClick={onPickModel}
-                      className="rounded-full border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-95"
+                      className="rounded-nexy-sm border border-nexy-border bg-nexy-raised text-nexy-text"
                     >
                       Choose model
                     </Button>
@@ -427,14 +460,14 @@ export function MessageBubbleBase({
       {!isAssistant && (
       <div className="relative max-w-[80%]">
         <div
-          className={`rounded-lg px-4 py-3 text-sm ${
+          className={`rounded-nexy-sm border-2 px-4 py-3 text-sm shadow-nexy ${
             isError
-              ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-200'
+              ? 'bg-red-50 dark:bg-red-900/20 border-nexy-error text-red-800 dark:text-red-200'
               : isSystem
-                ? 'bg-gray-50 dark:bg-gray-800/60 border border-dashed border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 italic'
+                ? 'bg-nexy-recessed border-dashed border-nexy-border text-nexy-muted italic'
               : isUser
-                ? 'bg-blue-100 dark:bg-blue-900/60 text-gray-900 dark:text-gray-100'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                ? 'bg-blue-100 dark:bg-blue-900/60 border-nexy-project-blue text-nexy-text'
+                : 'bg-nexy-recessed border-nexy-border text-nexy-text'
           } transition-shadow ${isHighlighted ? 'ring-2 ring-blue-400/70 dark:ring-blue-300/70 shadow-md' : ''}`}
         >
           {/* User image attachments */}
@@ -443,8 +476,8 @@ export function MessageBubbleBase({
               {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).map(att => (
-                    <img key={att.id} src={att.thumbnailDataUrl} alt={att.name}
-                      className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
+                    <ImagePreview key={att.id} src={att.thumbnailDataUrl!} previewSrc={att.previewDataUrl} alt={att.name}
+                      thumbnailClassName="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
                   ))}
                 </div>
               )}
@@ -462,8 +495,8 @@ export function MessageBubbleBase({
           {images && images.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {images.map((img) => (
-                <img key={img.id} src={img.dataUrl} alt={img.name}
-                  className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
+                <ImagePreview key={img.id} src={img.dataUrl} alt={img.name}
+                  thumbnailClassName="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
               ))}
             </div>
           )}
@@ -521,6 +554,9 @@ export function MessageBubbleBase({
                 onClick={() => onSaveAsPrompt(stripInjectedBlocks(content))}
               />
             )}
+            {onDeleteAfter && (
+              <ActionButton icon={Trash2} label="Delete from here" onClick={onDeleteAfter} tone="danger" />
+            )}
           </div>
         )}
       </div>
@@ -538,6 +574,7 @@ function ActionButton({
   highlight = false,
   disabled = false,
   title,
+  tone = 'default',
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -545,15 +582,18 @@ function ActionButton({
   highlight?: boolean
   disabled?: boolean
   title?: string
+  tone?: 'default' | 'danger'
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border whitespace-nowrap backdrop-blur-sm transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-sm disabled:active:scale-100 ${
+      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-nexy-sm border-2 whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
         highlight
-          ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800/60 text-green-600 dark:text-green-400 shadow-sm'
-          : 'bg-white/90 dark:bg-gray-800/90 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/80 hover:text-gray-800 dark:hover:text-gray-100'
+          ? 'bg-green-50 dark:bg-green-900/30 border-nexy-success text-green-600 dark:text-green-400 shadow-nexy'
+          : tone === 'danger'
+            ? 'bg-red-50 dark:bg-red-950/30 border-nexy-error text-nexy-error shadow-nexy hover:bg-red-100 dark:hover:bg-red-950/50'
+          : 'bg-nexy-raised border-nexy-border text-nexy-muted shadow-nexy hover:bg-nexy-recessed hover:text-nexy-text'
       }`}
       title={title ?? label}
       aria-label={label}
@@ -598,7 +638,7 @@ function IconActionButton({
       aria-haspopup={menuOpen === undefined ? undefined : 'menu'}
       aria-expanded={menuOpen}
       title={title ?? label}
-      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border shadow-sm backdrop-blur-sm transition-all duration-150 active:scale-95 ${toneClass} ${disabled ? 'cursor-not-allowed opacity-50 hover:shadow-sm active:scale-100' : 'hover:shadow-md'}`}
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-nexy-sm border-2 shadow-nexy transition-colors ${toneClass} ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
     >
       <Icon className="h-3.5 w-3.5" />
     </button>
@@ -618,7 +658,7 @@ function MessageMenuItem({
   onClick: () => void
   disabled?: boolean
   title?: string
-  tone?: 'default' | 'info'
+  tone?: 'default' | 'info' | 'danger'
 }) {
   return (
     <button
@@ -630,6 +670,8 @@ function MessageMenuItem({
       className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         tone === 'info'
           ? 'text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-900/30'
+          : tone === 'danger'
+            ? 'text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30'
           : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
       }`}
     >
