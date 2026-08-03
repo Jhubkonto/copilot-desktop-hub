@@ -109,7 +109,7 @@ export function ModalShell({
         aria-modal="true"
         aria-label={ariaLabel ?? title}
         className={cx(
-          'relative w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 flex flex-col',
+          'relative flex w-full flex-col overflow-hidden rounded-nexy-lg border-2 border-nexy-border bg-nexy-raised shadow-nexy',
           maxWidth,
           height,
           panelClassName,
@@ -120,26 +120,26 @@ export function ModalShell({
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-3 top-3 z-10 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:hover:bg-gray-700 dark:hover:text-gray-100 dark:focus-visible:ring-offset-gray-800"
+            className="absolute right-3 top-3 z-10 rounded-nexy-sm border border-transparent p-2 text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nexy-accent"
             aria-label={`Close ${ariaLabel ?? title}`}
           >
             <X className="h-4 w-4" />
           </button>
         ) : (
-          <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b-2 border-nexy-border bg-nexy-surface px-5 py-3">
             <div className="min-w-0">
-              <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-bold tracking-wide text-nexy-text">
                 {icon}
                 {title}
               </h2>
-              {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+              {description && <p className="mt-0.5 text-xs text-nexy-muted">{description}</p>}
             </div>
             <div className="flex items-center gap-2">
               {headerActions}
               <button
                 type="button"
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="rounded-nexy-sm border border-transparent p-1 text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nexy-accent"
                 aria-label={`Close ${ariaLabel ?? title}`}
               >
                 <X className="w-4 h-4" />
@@ -150,7 +150,7 @@ export function ModalShell({
         <div className={bodyClassName}>{children}</div>
         {footer && (
           <div className={cx(
-            'flex flex-wrap justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0',
+            'flex shrink-0 flex-wrap justify-end gap-2 border-t-2 border-nexy-border bg-nexy-surface px-5 py-3',
             footerClassName,
           )}>
             {footer}
@@ -173,18 +173,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref,
 ) {
   const variantClass = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700',
-    secondary: 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700',
-    ghost: 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
-    danger: 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30',
-    dangerSolid: 'bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 dark:text-white',
+    primary: 'border-2 border-nexy-border bg-nexy-accent text-nexy-on-accent hover:brightness-110 active:translate-x-px active:translate-y-px',
+    secondary: 'border-2 border-nexy-border bg-nexy-raised text-nexy-text hover:bg-nexy-recessed active:translate-x-px active:translate-y-px',
+    ghost: 'border-2 border-transparent text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text',
+    danger: 'border-2 border-transparent text-nexy-error hover:border-nexy-error hover:bg-red-50 dark:hover:bg-red-950/40',
+    dangerSolid: 'border-2 border-red-900 bg-nexy-error text-white hover:brightness-110 active:translate-x-px active:translate-y-px',
   }[variant]
 
   return (
     <button
       type="button"
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800 disabled:opacity-60 disabled:cursor-not-allowed',
+        'inline-flex items-center justify-center gap-1.5 rounded-nexy-sm px-3 py-1.5 text-xs font-bold shadow-[2px_2px_0_rgb(var(--nexy-shadow))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nexy-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none',
         variantClass,
         className,
       )}
@@ -198,7 +198,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 px-3 py-2">
+    <div className="rounded-nexy-md border-2 border-nexy-border bg-nexy-raised px-3 py-2 shadow-[2px_2px_0_rgb(var(--nexy-shadow))]">
       <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</p>
       <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-100">{value}</p>
     </div>
@@ -217,7 +217,7 @@ export function InfoRow({
   children?: ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 p-3">
+    <div className="rounded-nexy-md border-2 border-nexy-border bg-nexy-raised p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{label}</p>
@@ -249,7 +249,7 @@ function FieldFrame({ label, help, error, children }: FieldFrameProps) {
 }
 
 const fieldClass =
-  'w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed'
+  'w-full rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed px-3 py-2 text-sm text-nexy-text placeholder:text-nexy-muted focus:bg-nexy-raised focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-nexy-accent disabled:cursor-not-allowed disabled:opacity-60'
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -326,14 +326,14 @@ export function ToggleSwitch({ checked, onChange, disabled, size = 'md', ariaLab
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cx(
-        'relative inline-flex shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+        'relative inline-flex shrink-0 items-center rounded-nexy-sm border-2 border-nexy-border disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nexy-accent',
         track,
         checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600',
       )}
     >
       <span
         className={cx(
-          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+          'inline-block h-4 w-4 transform rounded-nexy-sm border border-nexy-border bg-nexy-raised',
           checked ? thumb : thumbOff,
         )}
       />
@@ -364,7 +364,7 @@ export function SegmentedTabs<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div role="tablist" className="flex gap-1 p-2 border-b border-gray-100 dark:border-gray-700">
+    <div role="tablist" className="flex gap-1 border-b-2 border-nexy-border p-2">
       {items.map((item) => (
         <button
           key={item.id}
@@ -374,15 +374,15 @@ export function SegmentedTabs<T extends string>({
           aria-selected={value === item.id}
           onClick={() => onChange(item.id)}
           className={cx(
-            'flex-1 inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+            'inline-flex flex-1 items-center justify-center gap-1 rounded-nexy-sm border-2 px-2 py-1.5 text-xs font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nexy-accent',
             value === item.id
-              ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
+              ? 'border-nexy-border bg-nexy-accent text-nexy-on-accent'
+              : 'border-transparent text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text',
           )}
         >
           {item.label}
           {item.badge ? (
-            <span className="min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
+            <span className="flex h-4 min-w-[16px] items-center justify-center rounded-nexy-sm border border-red-900 bg-nexy-error px-1 text-[9px] font-bold text-white">
               {item.badge > 99 ? '99+' : item.badge}
             </span>
           ) : null}
