@@ -3,8 +3,40 @@ package io.nexy.android.ui.theme
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import io.nexy.android.R
+
+val NexyPixelFontFamily = FontFamily(
+    Font(R.font.silkscreen_regular, weight = FontWeight.Normal),
+)
+
+object NexyTextStyles {
+    val Brand = TextStyle(
+        fontFamily = NexyPixelFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.2.sp,
+    )
+
+    val PanelTitle = TextStyle(
+        fontFamily = NexyPixelFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.3.sp,
+    )
+
+    val StatusLabel = TextStyle(
+        fontFamily = NexyPixelFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 10.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.3.sp,
+    )
+}
 
 val Typography = Typography(
     titleLarge = TextStyle(
