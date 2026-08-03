@@ -22,6 +22,7 @@ export interface Attachment {
   type?: 'file' | 'image' | 'folder'
   source?: 'desktop' | 'mobile' | 'pasted'
   thumbnailDataUrl?: string
+  previewDataUrl?: string
 }
 
 export interface LocalAttachment extends Attachment {

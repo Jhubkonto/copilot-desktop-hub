@@ -23,6 +23,9 @@ export interface UseAutoScrollOptions {
   contentSignal: unknown
   /** Remounts scroll state when this changes (e.g. switching conversations). */
   resetKey?: unknown
+  /** True while the initial content for the current resetKey is being restored. Changes during
+   *  this phase are an initial snapshot, not newly-arrived content. */
+  isContentInitializing?: boolean
   /** Fired when new content arrives while the user is scrolled away from the bottom. */
   onNewContentWhileScrolledUp?: () => void
   /** Fired whenever the user reaches (true) or leaves (false) the bottom. */
@@ -54,6 +57,7 @@ export function useAutoScroll({
   isGenerating,
   contentSignal,
   resetKey,
+  isContentInitializing = false,
   onNewContentWhileScrolledUp,
   onAtBottomChange,
 }: UseAutoScrollOptions): UseAutoScrollResult {
@@ -71,6 +75,7 @@ export function useAutoScroll({
   const isProgrammaticScrollRef = useRef(false)
   const suppressAutoFollowUntilRef = useRef(0)
   const prevContentSignalRef = useRef(contentSignal)
+  const wasContentInitializingRef = useRef(isContentInitializing)
   const activeResetKeyRef = useRef(resetKey)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -145,13 +150,26 @@ export function useAutoScroll({
 
   // Track new content arriving while user is scrolled up → mark unread.
   useEffect(() => {
-    if (contentSignal !== prevContentSignalRef.current && isUserScrolledUpRef.current) {
+    // A conversation switch first renders with the previous conversation's scroll state, and its
+    // cached/database messages can arrive over the next few renders. Neither transition represents
+    // new content. Baseline the signal throughout that restore (including the render that ends it)
+    // so reopening a chat halfway down does not turn the jump-to-bottom affordance blue or mark the
+    // conversation unread.
+    const resetChanged = resetKey !== activeResetKeyRef.current
+    const isInitializationBoundary = isContentInitializing || wasContentInitializingRef.current
+    if (
+      !resetChanged
+      && !isInitializationBoundary
+      && contentSignal !== prevContentSignalRef.current
+      && isUserScrolledUpRef.current
+    ) {
       setHasUnreadBelow(true)
       onNewContentWhileScrolledUp?.()
     }
     prevContentSignalRef.current = contentSignal
+    wasContentInitializingRef.current = isContentInitializing
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentSignal])
+  }, [contentSignal, isContentInitializing, resetKey])
 
   // Follow to bottom when generation begins — but only if the user is already there.
   // Unconditional here (no isUserScrolledUpRef check) used to mean *any* turn starting —

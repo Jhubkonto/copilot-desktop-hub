@@ -170,6 +170,9 @@ export function useChatWindowActions({
   // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
   const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
+  // Model/backend picker writes are asynchronous too. Send and Retry must not overtake them,
+  // otherwise an existing conversation can launch with the model/backend from the preceding row.
+  const pendingModelWriteRef = useRef<Promise<void>>(Promise.resolve())
   // Same idea for the per-chat thinking effort / auto-approve overrides picked before the
   // conversation row exists — applied when the first message creates it.
   const pendingThinkingEffortRef = useRef<'low' | 'medium' | 'high' | 'max' | 'disabled' | null>(null)
@@ -894,7 +897,7 @@ export function useChatWindowActions({
     markConversationGenerating(conversation)
 
     try {
-      await pendingModeWriteRef.current
+      await Promise.all([pendingModeWriteRef.current, pendingModelWriteRef.current])
       if (editCutoffTimestamp != null) {
         await window.api.deleteMessagesAfter(conversation, editCutoffTimestamp).catch(() => {
           addToast('Failed to delete messages from edited point', 'error')
@@ -1029,7 +1032,7 @@ export function useChatWindowActions({
     streamingContentRef.current = ''
 
     try {
-      await pendingModeWriteRef.current
+      await Promise.all([pendingModeWriteRef.current, pendingModelWriteRef.current])
       await window.api.sendMessage(conversation, lastUser.content, {
         regenerate: true,
         model: effectiveModel === 'default' ? undefined : effectiveModel,
@@ -1076,14 +1079,16 @@ export function useChatWindowActions({
     async (model: string) => {
       if (!conversationId) return
       const value = model === 'default' ? null : model
-      try {
+      const write = pendingModelWriteRef.current.then(async () => {
         const result = await window.api.setConversationModel(conversationId, value)
         if (isApiError(result)) throw new Error(result.error)
         await loadConversations()
         addToast(`Model set to ${getModelLabel(model, catalogModels, globalDefaultModel ?? undefined)}`, 'success')
-      } catch {
+      }).catch(() => {
         addToast('Failed to set conversation model', 'error')
-      }
+      })
+      pendingModelWriteRef.current = write
+      await write
     },
     [conversationId, loadConversations, catalogModels, globalDefaultModel, addToast],
   )
@@ -1119,13 +1124,15 @@ export function useChatWindowActions({
   const handleSetCliBackendAndModel = useCallback(
     async (backend: 'claude-cli' | 'codex-cli', modelId: string) => {
       if (conversationId) {
-        try {
+        const write = pendingModelWriteRef.current.then(async () => {
           const result = await window.api.setConversationModel(conversationId, modelId, backend)
           if (isApiError(result)) throw new Error(result.error)
           await loadConversations()
-        } catch {
+        }).catch(() => {
           addToast('Failed to set model', 'error')
-        }
+        })
+        pendingModelWriteRef.current = write
+        await write
         return
       }
       pendingCliModelRef.current = modelId

@@ -7,9 +7,10 @@ import {
   type SpokenOutputSettings,
 } from '../lib/spoken-output'
 import type { MessageSpokenOutput, SpokenOutputKind } from '../../shared/spoken-output'
+import type { SupertonicStatus } from '../../shared/neural-tts'
 import { isApiError } from '../../shared/types'
 
-export type SpokenPlaybackState = 'idle' | 'speaking' | 'paused'
+export type SpokenPlaybackState = 'idle' | 'preparing' | 'speaking' | 'paused'
 export type PlaybackSpokenOutputKind = Extract<SpokenOutputKind, 'response' | 'quick-recap' | 'ai-recap'>
 
 interface ActiveSpokenOutput {
@@ -20,59 +21,84 @@ interface ActiveSpokenOutput {
 }
 
 export function useSpokenOutput() {
-  const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
+  const systemSupported = typeof window !== 'undefined' && 'speechSynthesis' in window
+  const supported = systemSupported || (typeof window !== 'undefined' && typeof window.api?.synthesizeSupertonic === 'function')
   const [state, setState] = useState<SpokenPlaybackState>('idle')
   const [active, setActive] = useState<ActiveSpokenOutput | null>(null)
   const [aiRecapMessageId, setAiRecapMessageId] = useState<string | null>(null)
   const [aiRecapError, setAiRecapError] = useState<string | null>(null)
   const [aiRecapErrorMessageId, setAiRecapErrorMessageId] = useState<string | null>(null)
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [supertonicStatus, setSupertonicStatus] = useState<SupertonicStatus | null>(null)
   const [settings, setSettingsState] = useState<SpokenOutputSettings>(
     () => readSpokenOutputSettings(localStorage),
   )
   const activeRef = useRef<ActiveSpokenOutput | null>(null)
   const playbackSequenceRef = useRef(0)
   const aiRecapPendingRef = useRef<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioUrlRef = useRef<string | null>(null)
   activeRef.current = active
 
   const refreshVoices = useCallback(() => {
-    if (!supported) return
+    if (!systemSupported) return
     setVoices(window.speechSynthesis.getVoices())
-  }, [supported])
+  }, [systemSupported])
 
   useEffect(() => {
-    if (!supported) return
+    if (!systemSupported) return
     refreshVoices()
     window.speechSynthesis.addEventListener('voiceschanged', refreshVoices)
     return () => {
       window.speechSynthesis.removeEventListener('voiceschanged', refreshVoices)
       window.speechSynthesis.cancel()
     }
-  }, [refreshVoices, supported])
+  }, [refreshVoices, systemSupported])
+
+  useEffect(() => {
+    const refreshSupertonic = () => {
+      void window.api?.getSupertonicStatus?.().then(setSupertonicStatus).catch(() => setSupertonicStatus(null))
+    }
+    refreshSupertonic()
+    window.addEventListener('nexy:supertonic-status-changed', refreshSupertonic)
+    return () => {
+      window.removeEventListener('nexy:supertonic-status-changed', refreshSupertonic)
+      audioRef.current?.pause()
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
+    }
+  }, [])
 
   const setSettings = useCallback((next: SpokenOutputSettings) => {
     setSettingsState(next)
     writeSpokenOutputSettings(localStorage, next)
+    window.dispatchEvent(new Event('nexy:spoken-output-settings-changed'))
+  }, [])
+
+  useEffect(() => {
+    const syncSettings = () => setSettingsState(readSpokenOutputSettings(localStorage))
+    window.addEventListener('nexy:spoken-output-settings-changed', syncSettings)
+    return () => window.removeEventListener('nexy:spoken-output-settings-changed', syncSettings)
   }, [])
 
   const stop = useCallback(() => {
     playbackSequenceRef.current += 1
-    if (supported) window.speechSynthesis.cancel()
+    if (systemSupported) window.speechSynthesis.cancel()
+    audioRef.current?.pause()
+    audioRef.current = null
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
+    audioUrlRef.current = null
     setState('idle')
     setActive(null)
-  }, [supported])
+  }, [systemSupported])
 
-  const speakText = useCallback((
+  const speakWithSystem = useCallback((
     messageId: string,
-    input: string,
+    text: string,
     kind: PlaybackSpokenOutputKind = 'response',
     model: string | null = null,
+    playbackSequence = playbackSequenceRef.current + 1,
   ) => {
-    if (!supported) return
-    const text = kind === 'quick-recap' ? createQuickRecap(input) : sanitizeForSpeech(input)
-    if (!text) return
-
-    const playbackSequence = playbackSequenceRef.current + 1
+    if (!systemSupported) return
     playbackSequenceRef.current = playbackSequence
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
@@ -101,19 +127,78 @@ export function useSpokenOutput() {
     setActive(nextActive)
     setState('speaking')
     window.speechSynthesis.speak(utterance)
-  }, [settings, supported])
+  }, [settings, systemSupported])
+
+  const speakText = useCallback((
+    messageId: string,
+    input: string,
+    kind: PlaybackSpokenOutputKind = 'response',
+    model: string | null = null,
+  ) => {
+    const text = kind === 'quick-recap' ? createQuickRecap(input) : sanitizeForSpeech(input)
+    if (!text) return
+
+    const playbackSequence = playbackSequenceRef.current + 1
+    playbackSequenceRef.current = playbackSequence
+    if (settings.engine !== 'supertonic' || !supertonicStatus?.ready) {
+      speakWithSystem(messageId, text, kind, model, playbackSequence)
+      return
+    }
+
+    if (systemSupported) window.speechSynthesis.cancel()
+    audioRef.current?.pause()
+    const nextActive = { messageId, text, kind, model }
+    setActive(nextActive)
+    setState('preparing')
+    void window.api.synthesizeSupertonic({
+      text,
+      speakerId: settings.supertonicSpeakerId,
+      language: settings.supertonicLanguage,
+      speed: settings.rate,
+    }).then((result) => {
+      if (playbackSequenceRef.current !== playbackSequence) return
+      if (isApiError(result)) throw new Error(result.error)
+      const bytes = new Uint8Array(result.audio)
+      const url = URL.createObjectURL(new Blob([bytes.buffer], { type: 'audio/wav' }))
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
+      audioUrlRef.current = url
+      const audio = new Audio(url)
+      audioRef.current = audio
+      audio.onplay = () => setState('speaking')
+      audio.onended = () => {
+        if (playbackSequenceRef.current === playbackSequence) {
+          setActive(null)
+          setState('idle')
+        }
+      }
+      audio.onerror = () => audio.onended?.(new Event('ended'))
+      return audio.play()
+    }).catch(() => {
+      if (playbackSequenceRef.current !== playbackSequence) return
+      if (systemSupported) speakWithSystem(messageId, text, kind, model, playbackSequence)
+      else {
+        setActive(null)
+        setState('idle')
+      }
+    })
+  }, [settings, speakWithSystem, supertonicStatus?.ready, systemSupported])
 
   const pause = useCallback(() => {
-    if (!supported || state !== 'speaking') return
-    window.speechSynthesis.pause()
+    if (state !== 'speaking') return
+    if (settings.engine === 'supertonic' && audioRef.current) audioRef.current.pause()
+    else if (systemSupported) window.speechSynthesis.pause()
     setState('paused')
-  }, [state, supported])
+  }, [settings.engine, state, systemSupported])
 
   const resume = useCallback(() => {
-    if (!supported || state !== 'paused') return
-    window.speechSynthesis.resume()
-    setState('speaking')
-  }, [state, supported])
+    if (state !== 'paused') return
+    if (settings.engine === 'supertonic' && audioRef.current) {
+      void audioRef.current.play()
+    } else if (systemSupported) {
+      window.speechSynthesis.resume()
+      setState('speaking')
+    }
+  }, [settings.engine, state, systemSupported])
 
   const replay = useCallback(() => {
     if (!active) return
@@ -162,13 +247,13 @@ export function useSpokenOutput() {
       }
       const output = result as MessageSpokenOutput | null
       if (!output) {
-        setAiRecapError('No provider or Claude CLI is available for an AI recap.')
+        setAiRecapError('No provider or Claude CLI is available for an AI summary.')
         setAiRecapErrorMessageId(messageId)
         return
       }
       speakText(messageId, output.spokenText, 'ai-recap', output.model)
     } catch (error) {
-      setAiRecapError(error instanceof Error ? error.message : 'AI recap failed.')
+      setAiRecapError(error instanceof Error ? error.message : 'AI summary failed.')
       setAiRecapErrorMessageId(messageId)
     } finally {
       aiRecapPendingRef.current = null
@@ -181,6 +266,7 @@ export function useSpokenOutput() {
     state,
     active,
     voices: settings.offlineOnly ? voices.filter((voice) => voice.localService) : voices,
+    supertonicStatus,
     settings,
     setSettings,
     speakResponse,
