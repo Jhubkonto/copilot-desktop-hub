@@ -1,6 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks intentionally retain the run-start configuration. */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, BookOpen, ClipboardPaste } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { StreamingFadeText } from './chat/StreamingFadeText'
@@ -10,6 +9,7 @@ import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
 import { Button } from './ui/primitives'
 import { ResizableChatInput } from './chat/ResizableChatInput'
+import { NexyIcon } from './ui/icons/NexyIcon'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -22,8 +22,8 @@ const COLOR_DOT: Record<string, string> = {
 function DraftPreview({ spec }: { spec: ProjectGeneratorSpec | null }) {
   if (!spec) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 dark:text-gray-500 select-none">
-        <Sparkles className="w-8 h-8 opacity-40" />
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-nexy-muted select-none nexy-dither">
+        <NexyIcon name="project" size={32} className="opacity-60" />
         <p className="text-xs text-center max-w-[160px]">
           Your project preview will appear here as the conversation progresses.
         </p>
@@ -37,33 +37,33 @@ function DraftPreview({ spec }: { spec: ProjectGeneratorSpec | null }) {
     <div className="p-4 space-y-4 overflow-y-auto h-full text-sm">
       {/* Name + color */}
       <div className="flex items-center gap-2">
-        <span className={`w-3 h-3 rounded-full shrink-0 ${dot}`} />
-        <span className="font-semibold text-gray-900 dark:text-gray-100 truncate">{spec.name}</span>
+        <span className={`w-3 h-3 rounded-none border border-nexy-border shrink-0 ${dot}`} />
+        <span className="font-semibold text-nexy-text truncate">{spec.name}</span>
       </div>
 
       {/* Instructions excerpt */}
       {spec.instructions && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instructions</p>
-          <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-4 whitespace-pre-wrap">{spec.instructions}</p>
+          <p className="nexy-status-label text-[10px] uppercase tracking-wide text-nexy-muted mb-1">Instructions</p>
+          <p className="text-xs text-nexy-text line-clamp-4 whitespace-pre-wrap">{spec.instructions}</p>
         </div>
       )}
 
       {/* Scope */}
       {(spec.inScope.length > 0 || spec.outOfScope.length > 0) && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Scope</p>
+          <p className="nexy-status-label text-[10px] uppercase tracking-wide text-nexy-muted mb-1">Scope</p>
           <div className="space-y-0.5">
             {spec.inScope.map((s, i) => (
               <div key={i} className="flex items-start gap-1.5">
                 <span className="text-green-500 text-[10px] mt-0.5 shrink-0">✓</span>
-                <span className="text-xs text-gray-600 dark:text-gray-300">{s.description}</span>
+                <span className="text-xs text-nexy-text">{s.description}</span>
               </div>
             ))}
             {spec.outOfScope.map((s, i) => (
               <div key={i} className="flex items-start gap-1.5">
                 <span className="text-red-400 text-[10px] mt-0.5 shrink-0">✕</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{s.description}</span>
+                <span className="text-xs text-nexy-muted">{s.description}</span>
               </div>
             ))}
           </div>
@@ -73,14 +73,14 @@ function DraftPreview({ spec }: { spec: ProjectGeneratorSpec | null }) {
       {/* Milestones */}
       {spec.milestones.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+          <p className="nexy-status-label text-[10px] uppercase tracking-wide text-nexy-muted mb-1">
             Milestones ({spec.milestones.length})
           </p>
           <div className="space-y-0.5">
             {spec.milestones.map((m, i) => (
               <div key={i} className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'active' ? 'bg-blue-500' : 'bg-gray-300'}`} />
-                <span className="text-xs text-gray-600 dark:text-gray-300 truncate">{m.title}</span>
+                <span className={`w-1.5 h-1.5 rounded-none border border-nexy-border shrink-0 ${m.status === 'active' ? 'bg-nexy-accent' : 'bg-nexy-recessed'}`} />
+                <span className="text-xs text-nexy-text truncate">{m.title}</span>
               </div>
             ))}
           </div>
@@ -90,30 +90,30 @@ function DraftPreview({ spec }: { spec: ProjectGeneratorSpec | null }) {
       {/* Agents */}
       {spec.agents.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+          <p className="nexy-status-label text-[10px] uppercase tracking-wide text-nexy-muted mb-1">
             Agent team ({spec.agents.length})
           </p>
           <div className="space-y-1.5">
             {spec.agents.map((agent, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-gray-800/60 px-2.5 py-2">
+              <div key={i} className="flex items-start gap-2 rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-2.5 py-2">
                 <span className="text-base leading-none mt-0.5">
                   {agent.newAgent?.icon ?? '🤖'}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">
+                    <span className="text-xs font-medium text-nexy-text truncate">
                       {agent.newAgent?.name ?? agent.role}
                     </span>
                     {agent.isLeader && (
-                      <Crown className="w-3 h-3 text-yellow-500 shrink-0" />
+                      <NexyIcon name="rating" size={12} className="text-nexy-warning" />
                     )}
                     {!agent.existingAgentId && (
-                      <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 font-medium shrink-0">
+                      <span className="nexy-status-label text-[9px] px-1 py-0.5 rounded-nexy-sm border border-nexy-border bg-nexy-recessed text-nexy-accent font-medium shrink-0">
                         New
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{agent.role}</p>
+                  <p className="text-[10px] text-nexy-muted truncate">{agent.role}</p>
                 </div>
               </div>
             ))}
@@ -137,29 +137,29 @@ const CREATION_STEPS = [
 
 function CreationOverlay({ step, error, onRetry }: { step: number; error: string | null; onRetry: () => void }) {
   return (
-    <div className="absolute inset-0 z-10 bg-white/90 dark:bg-gray-900/90 flex flex-col items-center justify-center gap-4">
+    <div className="absolute inset-0 z-10 bg-nexy-raised/95 flex flex-col items-center justify-center gap-4 nexy-dither">
       {error ? (
         <>
           <p className="text-sm text-red-600 dark:text-red-400 font-medium">Creation failed</p>
-          <p className="text-xs text-gray-500 max-w-sm text-center">{error}</p>
+          <p className="text-xs text-nexy-muted max-w-sm text-center">{error}</p>
           <Button variant="primary" onClick={onRetry} className="text-sm">
             Try again
           </Button>
         </>
       ) : (
         <>
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+          <NexyIcon name="busy" size={24} className="text-nexy-accent" />
           <div className="space-y-1.5 text-left min-w-[200px]">
             {CREATION_STEPS.map((label, i) => (
               <div key={i} className="flex items-center gap-2">
                 {i < step ? (
-                  <span className="w-3.5 h-3.5 rounded-full bg-green-500 flex items-center justify-center text-white text-[8px]">✓</span>
+                  <span className="w-3.5 h-3.5 rounded-none border border-nexy-border bg-nexy-success flex items-center justify-center text-nexy-on-accent text-[8px]">✓</span>
                 ) : i === step ? (
-                  <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />
+                  <NexyIcon name="busy" size={14} className="text-nexy-accent" />
                 ) : (
-                  <span className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600" />
+                  <span className="w-3.5 h-3.5 rounded-none border-2 border-nexy-border" />
                 )}
-                <span className={`text-xs ${i === step ? 'text-gray-900 dark:text-gray-100 font-medium' : i < step ? 'text-gray-400 line-through' : 'text-gray-400'}`}>
+                <span className={`text-xs ${i === step ? 'text-nexy-text font-medium' : i < step ? 'text-nexy-muted line-through' : 'text-nexy-muted'}`}>
                   {label}
                 </span>
               </div>
@@ -180,7 +180,7 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
   if (role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-blue-500 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-sm whitespace-pre-wrap">
+        <div className="max-w-[80%] bg-nexy-accent text-nexy-on-accent rounded-nexy-sm border-2 border-nexy-border px-3 py-2 text-sm whitespace-pre-wrap shadow-nexy">
           {displayContent}
         </div>
       </div>
@@ -188,10 +188,10 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
   }
   return (
     <div className="flex items-start gap-2">
-      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
-        <Sparkles className="w-3 h-3 text-white" />
+      <div className="w-6 h-6 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent flex items-center justify-center shrink-0 mt-0.5">
+        <NexyIcon name="spark" size={12} className="text-nexy-on-accent" />
       </div>
-      <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
+      <div className="max-w-[85%] bg-nexy-recessed rounded-nexy-sm border border-nexy-border px-3 py-2 text-sm text-nexy-text whitespace-pre-wrap">
         <StreamingFadeText text={displayContent} />
       </div>
     </div>
@@ -485,14 +485,14 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       aria-modal="true"
       aria-label="Generate new project"
     >
-      <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+      <div className="relative bg-nexy-raised rounded-nexy-lg border-2 border-nexy-border shadow-nexy flex flex-col overflow-hidden"
         style={{ width: 'min(920px, 96vw)', height: 'min(680px, 90vh)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b-2 border-nexy-border bg-nexy-surface shrink-0">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-500" />
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">New Project</h2>
+            <NexyIcon name="project" size={16} className="text-nexy-accent" />
+            <h2 className="nexy-panel-title text-sm font-semibold text-nexy-text">New Project</h2>
           </div>
           <div className="flex items-center gap-2">
             {!isCreating && (
@@ -508,7 +508,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                       setPendingImages([])
                       setGenModel(null)
                     }}
-                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    className="text-xs text-nexy-muted hover:text-nexy-text px-2 py-1 rounded-nexy-sm border border-transparent hover:border-nexy-border hover:bg-nexy-recessed transition-colors"
                   >
                     Start over
                   </button>
@@ -518,7 +518,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     onClose()
                     setShowNewProjectForm(true)
                   }}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  className="text-xs text-nexy-muted hover:text-nexy-text px-2 py-1 rounded-nexy-sm border border-transparent hover:border-nexy-border hover:bg-nexy-recessed transition-colors"
                 >
                   Set up manually
                 </button>
@@ -527,10 +527,10 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={onClose}
               disabled={isCreating && !creationError}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
+              className="text-nexy-muted hover:text-nexy-text p-1 rounded-nexy-sm border border-transparent hover:border-nexy-border hover:bg-nexy-recessed disabled:opacity-40"
               aria-label="Close"
             >
-              <X className="w-4 h-4" />
+              <NexyIcon name="close" size={16} />
             </button>
           </div>
         </div>
@@ -540,8 +540,8 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
           {/* Left: draft preview (40%) */}
           <div className="relative" style={{ width: '38%' }}>
             <div className="absolute inset-0 overflow-hidden">
-              <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 shrink-0">
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Draft preview</p>
+              <div className="px-3 py-2 border-b-2 border-nexy-border bg-nexy-surface shrink-0">
+                <p className="nexy-status-label text-[10px] uppercase tracking-wider text-nexy-muted font-medium">Draft preview</p>
               </div>
               <div className="h-[calc(100%-33px)] overflow-hidden">
                 <DraftPreview spec={spec} />
@@ -562,12 +562,12 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     )}
                     {isStreaming && !streamingText && (
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                          <Sparkles className="w-3 h-3 text-white" />
+                        <div className="w-6 h-6 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent flex items-center justify-center shrink-0">
+                          <NexyIcon name="spark" size={12} className="text-nexy-on-accent" />
                         </div>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                          <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
-                          <span className="text-xs text-gray-500 dark:text-gray-400">Generating project spec…</span>
+                        <div className="flex items-center gap-2 px-3 py-2 bg-nexy-recessed rounded-nexy-sm border border-nexy-border">
+                          <NexyIcon name="busy" size={12} className="text-nexy-accent" />
+                          <span className="text-xs text-nexy-muted">Generating project spec…</span>
                         </div>
                       </div>
                     )}
@@ -575,27 +575,27 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                 </div>
 
                 {/* Input / spec footer */}
-                <div className="border-t border-gray-100 dark:border-gray-800">
+                <div className="border-t-2 border-nexy-border bg-nexy-surface">
                   {spec && !isStreaming && (
                     <div className="px-4 pt-3 pb-2 flex items-center gap-2">
-                      <div className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">
+                      <div className="flex-1 text-xs text-nexy-muted truncate">
                         <span className="text-green-600 dark:text-green-400 font-medium">Spec ready</span>
                         {' — '}{spec.agents.length} agent{spec.agents.length !== 1 ? 's' : ''}, {spec.milestones.length} milestone{spec.milestones.length !== 1 ? 's' : ''}
                       </div>
                       <button
                         onClick={() => handleCreate(spec, true)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-nexy-sm border-2 border-nexy-border text-xs text-nexy-text hover:bg-nexy-recessed transition-colors shadow-nexy"
                       >
-                        <Pencil className="w-3 h-3" />
+                        <NexyIcon name="edit" size={12} />
                         Edit
                       </button>
                       <button
                         onClick={() => handleCreate(spec)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent hover:brightness-110 text-nexy-on-accent text-xs font-medium transition-colors shadow-nexy"
                       >
-                        <UserPlus className="w-3.5 h-3.5" />
+                        <NexyIcon name="add" size={14} />
                         Create project
-                        <ChevronRight className="w-3 h-3" />
+                        <NexyIcon name="chevron-right" size={12} />
                       </button>
                     </div>
                   )}
@@ -607,14 +607,14 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                             <img
                               src={img.dataUrl}
                               alt={img.name}
-                              className="w-14 h-14 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
+                              className="w-14 h-14 object-cover rounded-nexy-sm border-2 border-nexy-border nexy-pixel-art"
                             />
                             <button
                               onClick={() => setPendingImages((prev) => prev.filter((i) => i.id !== img.id))}
-                              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-none border border-nexy-border bg-nexy-text text-nexy-surface flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                               aria-label="Remove image"
                             >
-                              <X className="w-2.5 h-2.5" />
+                              <NexyIcon name="close" size={10} />
                             </button>
                           </div>
                         ))}
@@ -635,21 +635,21 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                             type="button"
                             onClick={() => void handlePasteClipboard()}
                             disabled={isStreaming}
-                            className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="p-1.5 rounded-nexy-sm border border-transparent text-nexy-muted hover:text-nexy-text hover:border-nexy-border hover:bg-nexy-recessed disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             title="Paste image from clipboard"
                             aria-label="Paste image from clipboard"
                           >
-                            <ClipboardPaste className="w-4 h-4" />
+                            <NexyIcon name="clipboard" size={16} />
                           </button>
                           <button
                             type="button"
                             onClick={() => setShowPromptLibrary(true)}
                             disabled={isStreaming}
-                            className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="p-1.5 rounded-nexy-sm border border-transparent text-nexy-muted hover:text-nexy-text hover:border-nexy-border hover:bg-nexy-recessed disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             title="Insert prompt from library"
                             aria-label="Insert prompt from library"
                           >
-                            <BookOpen className="w-4 h-4" />
+                            <NexyIcon name="prompt" size={16} />
                           </button>
                         </>
                       }
@@ -678,12 +678,12 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                             disabled={isStreaming || !inputText.trim()}
                             className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
                               inputText.trim() && !isStreaming
-                                ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
-                                : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                                ? 'border-nexy-border bg-nexy-text text-nexy-surface hover:brightness-110 shadow-nexy'
+                                : 'border-transparent bg-transparent text-nexy-muted cursor-not-allowed'
                             }`}
                             aria-label="Send message"
                           >
-                            <Send className="w-4 h-4" />
+                            <NexyIcon name="send" size={16} />
                           </button>
                         </>
                       }
@@ -691,7 +691,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     {missedSpec && (
                       <p className="text-[10px] text-amber-500 mt-1.5 text-center">No spec was generated — try asking me to set up the project.</p>
                     )}
-                    {!spec && !missedSpec && <p className="text-[10px] text-gray-400 mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>}
+                    {!spec && !missedSpec && <p className="text-[10px] text-nexy-muted mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>}
                   </div>
                 </div>
           </div>

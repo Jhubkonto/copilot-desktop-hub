@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, Loader2, Pencil, Send, Sparkles, X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { StreamingFadeText } from './chat/StreamingFadeText'
@@ -8,6 +7,7 @@ import { ModelPicker } from './chat/ModelPicker'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { VoiceInputButton } from './chat/VoiceInputButton'
 import { Button } from './ui/primitives'
+import { NexyIcon } from './ui/icons/NexyIcon'
 
 function specToSkill(spec: SkillGeneratorSpec): SkillConfig {
   const approval = spec.approval ?? {}
@@ -56,7 +56,7 @@ function DraftPreview({ spec }: { spec: SkillGeneratorSpec | null }) {
   if (!spec) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 dark:text-gray-500 select-none">
-        <Sparkles className="w-8 h-8 opacity-40" />
+        <NexyIcon name="skill" className="w-8 h-8 opacity-40" />
         <p className="text-xs text-center max-w-[160px]">Your skill preview will appear here as the conversation progresses.</p>
       </div>
     )
@@ -103,7 +103,7 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
   if (role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-blue-500 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-sm whitespace-pre-wrap">
+        <div className="max-w-[80%] bg-nexy-accent text-nexy-on-accent rounded-nexy-sm border-2 border-nexy-border shadow-nexy px-3 py-2 text-sm whitespace-pre-wrap">
           {displayContent}
         </div>
       </div>
@@ -111,10 +111,10 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
   }
   return (
     <div className="flex items-start gap-2">
-      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
-        <Sparkles className="w-3 h-3 text-white" />
+      <div className="w-6 h-6 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent flex items-center justify-center shrink-0 mt-0.5">
+        <NexyIcon name="skill" className="w-3 h-3 text-white" />
       </div>
-      <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
+      <div className="max-w-[85%] bg-nexy-recessed rounded-nexy-sm border border-nexy-border px-3 py-2 text-sm text-nexy-text whitespace-pre-wrap">
         <StreamingFadeText text={displayContent} />
       </div>
     </div>
@@ -180,7 +180,7 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: {
           disabled={!spec.name.trim()}
           className="gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 transition-colors ml-auto"
         >
-          <Sparkles className="w-3.5 h-3.5" />
+          <NexyIcon name="spark" className="w-3.5 h-3.5" />
           Create skill
         </Button>
       </div>
@@ -288,10 +288,10 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Generate new skill">
-      <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden" style={{ width: 'min(860px, 96vw)', height: 'min(640px, 90vh)' }}>
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-700 shrink-0">
+      <div className="nexy-generator-shell relative bg-nexy-raised border-2 border-nexy-border rounded-nexy-lg shadow-nexy flex flex-col overflow-hidden" style={{ width: 'min(860px, 96vw)', height: 'min(640px, 90vh)' }}>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b-2 border-nexy-border bg-nexy-surface shrink-0">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-500" />
+            <NexyIcon name="skill" className="w-4 h-4 text-nexy-accent" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">New Skill</h2>
           </div>
           <div className="flex items-center gap-2">
@@ -316,7 +316,7 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
               </>
             )}
             <button onClick={onClose} disabled={isCreating} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" aria-label="Close">
-              <X className="w-4 h-4" />
+              <NexyIcon name="close" className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -334,7 +334,7 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col flex-1 min-w-0 relative">
             {isCreating && (
               <div className="absolute inset-0 z-10 bg-white/90 dark:bg-gray-900/90 flex flex-col items-center justify-center gap-3">
-                <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                <NexyIcon name="busy" className="w-6 h-6 text-nexy-accent" />
                 <p className="text-xs text-gray-500 dark:text-gray-400">Creating skill...</p>
               </div>
             )}
@@ -348,11 +348,11 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
                     {isStreaming && streamingText && <ChatBubble role="assistant" content={streamingText} />}
                     {isStreaming && !streamingText && (
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                          <Sparkles className="w-3 h-3 text-white" />
+                        <div className="w-6 h-6 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent flex items-center justify-center shrink-0">
+                          <NexyIcon name="skill" className="w-3 h-3 text-white" />
                         </div>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                          <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
+                        <div className="flex items-center gap-2 px-3 py-2 bg-nexy-recessed rounded-nexy-sm border border-nexy-border">
+                          <NexyIcon name="busy" className="w-3 h-3 text-nexy-accent shrink-0" />
                           <span className="text-xs text-gray-500 dark:text-gray-400">Generating skill spec...</span>
                         </div>
                       </div>
@@ -371,7 +371,7 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
                         onClick={() => { setEditSpec({ ...spec }); setIsEditing(true) }}
                         className="gap-1 px-2.5 py-1.5 rounded-lg transition-colors"
                       >
-                        <Pencil className="w-3 h-3" />
+                        <NexyIcon name="edit" className="w-3 h-3" />
                         Edit
                       </Button>
                       <Button
@@ -379,23 +379,23 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
                         onClick={() => void handleCreate(spec)}
                         className="gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 transition-colors"
                       >
-                        <Sparkles className="w-3.5 h-3.5" />
+                        <NexyIcon name="spark" className="w-3.5 h-3.5" />
                         Create skill
                       </Button>
                     </div>
                   )}
                   <div className="px-4 pb-4 pt-2">
-                    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
+                    <div className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed focus-within:ring-2 focus-within:ring-nexy-accent transition-colors shadow-nexy">
                       <textarea ref={inputRef} value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={handleKeyDown} placeholder={spec ? 'Refine or ask for changes...' : 'Describe your skill...'} rows={1} disabled={isStreaming} className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto" />
                       <div className="flex items-center justify-between px-2 pb-2">
                         <button type="button" onClick={() => setShowPromptLibrary(true)} disabled={isStreaming} className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" title="Insert prompt from library" aria-label="Insert prompt from library">
-                          <BookOpen className="w-4 h-4" />
+                          <NexyIcon name="prompt" className="w-4 h-4" />
                         </button>
                         <div className="flex items-center gap-1">
                           <ModelPicker value={genModel ?? 'default'} availableGroups={availableGroups} catalogModels={catalogModels} globalDefaultModel={globalDefaultModel ?? undefined} includeDefault={true} buttonRef={modelPickerRef} onSelectDefault={() => setGenModel(null)} onSelectAvailableModel={(group: AvailableModelGroup, model: AvailableModelEntry) => setGenModel(group.sourceType === 'cli' ? `${group.sourceKey}:${model.id}` : model.id)} />
                           <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
                           <button type="button" onClick={() => void sendMessage(inputText)} disabled={isStreaming || !inputText.trim()} className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${inputText.trim() && !isStreaming ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300' : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'}`} aria-label="Send message">
-                            <Send className="w-4 h-4" />
+                            <NexyIcon name="send" className="w-4 h-4" />
                           </button>
                         </div>
                       </div>

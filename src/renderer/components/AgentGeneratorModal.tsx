@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Pencil, BookOpen, ImageIcon } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { StreamingFadeText } from './chat/StreamingFadeText'
@@ -8,6 +7,7 @@ import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
 import { Button } from './ui/primitives'
+import { NexyIcon } from './ui/icons/NexyIcon'
 
 interface PastedImage {
   id: string
@@ -39,7 +39,7 @@ function DraftPreview({ spec }: { spec: AgentGeneratorSpec | null }) {
   if (!spec) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 dark:text-gray-500 select-none">
-        <Sparkles className="w-8 h-8 opacity-40" />
+        <NexyIcon name="agent" className="w-8 h-8 opacity-40" />
         <p className="text-xs text-center max-w-[160px]">
           Your agent preview will appear here as the conversation progresses.
         </p>
@@ -132,14 +132,14 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
         </>
       ) : (
         <>
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <NexyIcon name="busy" className="w-6 h-6 text-nexy-accent" />
           <div className="space-y-1.5 text-left min-w-[200px]">
             {CREATION_STEPS.map((label, i) => (
               <div key={i} className="flex items-center gap-2">
                 {i < step ? (
                   <span className="w-3.5 h-3.5 rounded-full bg-green-500 flex items-center justify-center text-white text-[8px]">✓</span>
                 ) : i === step ? (
-                  <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin shrink-0" />
+                  <NexyIcon name="busy" className="w-3.5 h-3.5 text-nexy-accent shrink-0" />
                 ) : (
                   <span className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600" />
                 )}
@@ -164,7 +164,7 @@ function ChatBubble({ role, content, images }: { role: 'user' | 'assistant'; con
   if (role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-blue-500 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-sm space-y-1.5">
+        <div className="max-w-[80%] bg-nexy-accent text-nexy-on-accent rounded-nexy-sm border-2 border-nexy-border shadow-nexy px-3 py-2 text-sm space-y-1.5">
           {images && images.length > 0 && (
             <div className="flex gap-1.5 flex-wrap">
               {images.map((img, i) => (
@@ -179,10 +179,10 @@ function ChatBubble({ role, content, images }: { role: 'user' | 'assistant'; con
   }
   return (
     <div className="flex items-start gap-2">
-      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
-        <Sparkles className="w-3 h-3 text-white" />
+      <div className="w-6 h-6 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent flex items-center justify-center shrink-0 mt-0.5">
+        <NexyIcon name="agent" className="w-3 h-3 text-white" />
       </div>
-      <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
+      <div className="max-w-[85%] bg-nexy-recessed rounded-nexy-sm border border-nexy-border px-3 py-2 text-sm text-nexy-text whitespace-pre-wrap">
         <StreamingFadeText text={displayContent} />
       </div>
     </div>
@@ -246,7 +246,7 @@ function DoneOverlay({ agentName, agentId, projects, activeProjectId, onAddToPro
             >
               <span className="truncate">{activeProject.name}</span>
               {addingToProject === activeProject.id ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                <NexyIcon name="busy" className="w-3.5 h-3.5 shrink-0" />
               ) : addedToProject === activeProject.id ? (
                 <span className="text-xs shrink-0">Added ✓</span>
               ) : (
@@ -491,13 +491,13 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
       aria-label="Generate new agent"
     >
       <div
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="nexy-generator-shell relative bg-nexy-raised border-2 border-nexy-border rounded-nexy-lg shadow-nexy flex flex-col overflow-hidden"
         style={{ width: 'min(860px, 96vw)', height: 'min(640px, 90vh)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b-2 border-nexy-border bg-nexy-surface shrink-0">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-500" />
+            <NexyIcon name="agent" className="w-4 h-4 text-nexy-accent" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">New Agent</h2>
           </div>
           <div className="flex items-center gap-2">
@@ -535,7 +535,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
               aria-label="Close"
             >
-              <X className="w-4 h-4" />
+              <NexyIcon name="close" className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -567,11 +567,11 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                     )}
                     {isStreaming && !streamingText && (
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                          <Sparkles className="w-3 h-3 text-white" />
+                        <div className="w-6 h-6 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent flex items-center justify-center shrink-0">
+                          <NexyIcon name="agent" className="w-3 h-3 text-white" />
                         </div>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                          <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
+                        <div className="flex items-center gap-2 px-3 py-2 bg-nexy-recessed rounded-nexy-sm border border-nexy-border">
+                          <NexyIcon name="busy" className="w-3 h-3 text-nexy-accent shrink-0" />
                           <span className="text-xs text-gray-500 dark:text-gray-400">Generating agent spec…</span>
                         </div>
                       </div>
@@ -591,20 +591,20 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                         onClick={() => void handleCreate(spec, true)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                       >
-                        <Pencil className="w-3 h-3" />
+                        <NexyIcon name="edit" className="w-3 h-3" />
                         Edit
                       </button>
                       <button
                         onClick={() => void handleCreate(spec)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
                       >
-                        <Sparkles className="w-3.5 h-3.5" />
+                        <NexyIcon name="spark" className="w-3.5 h-3.5" />
                         Create agent
                       </button>
                     </div>
                   )}
                   <div className="px-4 pb-4 pt-2">
-                    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
+                    <div className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed focus-within:ring-2 focus-within:ring-nexy-accent transition-colors shadow-nexy">
                       {pendingImages.length > 0 && (
                         <div className="flex gap-2 flex-wrap px-3 pt-2">
                           {pendingImages.map((img) => (
@@ -646,7 +646,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                             title="Insert prompt from library"
                             aria-label="Insert prompt from library"
                           >
-                            <BookOpen className="w-4 h-4" />
+                            <NexyIcon name="prompt" className="w-4 h-4" />
                           </button>
                           <button
                             type="button"
@@ -661,7 +661,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                             title="Paste image (Ctrl+V)"
                             aria-label="Paste image from clipboard"
                           >
-                            <ImageIcon className="w-4 h-4" />
+                            <NexyIcon name="camera" className="w-4 h-4" />
                           </button>
                         </div>
                         <div className="flex items-center gap-1">
@@ -690,7 +690,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                             }`}
                             aria-label="Send message"
                           >
-                            <Send className="w-4 h-4" />
+                            <NexyIcon name="send" className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
