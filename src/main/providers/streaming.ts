@@ -2,6 +2,7 @@ import https from 'https'
 import http from 'http'
 import type { IncomingMessage } from 'http'
 import { activeStreamingRequests, incrementFallbackCounter } from '../provider-stream-state'
+import { assertConversationStartsAllowed } from '../emergency-stop'
 
 export interface StreamFinish {
   resolve: (content: string) => void
@@ -23,6 +24,7 @@ export function runStreamingRequest(
   handleResponse: (res: IncomingMessage, finish: StreamFinish) => void,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    assertConversationStartsAllowed()
     const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
     const cleanupActiveRequest = (req: http.ClientRequest) => {
       if (activeStreamingRequests.get(requestId) === req) {
