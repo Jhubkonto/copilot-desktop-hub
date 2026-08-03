@@ -22,18 +22,18 @@ export function parseAffectedFiles(report: ErrorReportEntry): string[] {
 // Legacy reports persisted a qualitative high/medium/low confidence before the model was asked
 // for a 0-100 score — kept so older reports still render with a sensible color.
 const LEGACY_CONFIDENCE_STYLES: Record<string, string> = {
-  high: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  medium: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-  low: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+  high: 'border-nexy-success text-nexy-success',
+  medium: 'border-nexy-warning text-nexy-warning',
+  low: 'border-nexy-error text-nexy-error',
 }
 
 // Pastel red -> amber -> green, keyed by the lower bound of each 20-point band.
 const CONFIDENCE_SCORE_STYLES: [number, string][] = [
-  [80, 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'],
-  [60, 'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-300'],
-  [40, 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'],
-  [20, 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300'],
-  [0, 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'],
+  [80, 'border-nexy-success text-nexy-success'],
+  [60, 'border-nexy-success text-nexy-success'],
+  [40, 'border-nexy-warning text-nexy-warning'],
+  [20, 'border-nexy-warning text-nexy-warning'],
+  [0, 'border-nexy-error text-nexy-error'],
 ]
 
 function confidenceBadge(rawConfidence: string): { label: string; className: string } | null {
@@ -51,7 +51,7 @@ function confidenceBadge(rawConfidence: string): { label: string; className: str
   if (legacy in LEGACY_CONFIDENCE_STYLES) {
     return { label: `${legacy} confidence`, className: LEGACY_CONFIDENCE_STYLES[legacy] }
   }
-  return { label: `${trimmed} confidence`, className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' }
+  return { label: `${trimmed} confidence`, className: 'border-nexy-border text-nexy-muted' }
 }
 
 /**
@@ -86,22 +86,22 @@ export function PlanCard({
   const hasSummary = showSummary && (Boolean(badge) || hasRootCause || affectedFiles.length > 0)
 
   return (
-    <div className={className ?? 'relative rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900'}>
+    <div className={className ?? 'relative rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-3 shadow-nexy'}>
       {actions && <div className="absolute right-2 top-2">{actions}</div>}
       {hasSummary && (
-        <div className={`mb-3 space-y-2 border-b border-gray-100 pb-3 dark:border-gray-800 ${actions ? 'pr-8' : ''}`}>
+        <div className={`mb-3 space-y-2 border-b-2 border-nexy-border pb-3 ${actions ? 'pr-8' : ''}`}>
           {badge && (
-            <span className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
+            <span className={`nexy-font-status inline-block shrink-0 rounded-nexy-sm border bg-nexy-recessed px-2 py-0.5 ${badge.className}`}>
               {badge.label}
             </span>
           )}
           {hasRootCause && (
-            <p className="text-sm text-gray-700 dark:text-gray-300">{rootCause}</p>
+            <p className="text-sm text-nexy-text">{rootCause}</p>
           )}
           {affectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {affectedFiles.map((file) => (
-                <span key={file} className="rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] text-gray-600 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-400">
+                <span key={file} className="rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-1.5 py-0.5 font-mono text-[10px] text-nexy-muted">
                   {file}
                 </span>
               ))}
@@ -110,9 +110,9 @@ export function PlanCard({
         </div>
       )}
       {revisionNotes && (
-        <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2 dark:border-blue-900/50 dark:bg-blue-950/20">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">Revised with</p>
-          <p className="mt-0.5 text-xs text-blue-900 dark:text-blue-200">{revisionNotes}</p>
+        <div className="mb-3 rounded-nexy-sm border-2 border-nexy-info bg-nexy-recessed px-2.5 py-2">
+          <p className="nexy-font-status text-nexy-info">Revised with</p>
+          <p className="mt-0.5 text-xs text-nexy-text">{revisionNotes}</p>
         </div>
       )}
       <div className={bodyClassName}>

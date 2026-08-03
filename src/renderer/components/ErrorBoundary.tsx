@@ -1,4 +1,5 @@
 import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react'
+import { NexyIcon } from './ui/icons'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -50,26 +51,26 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const description = [this.state.error.stack, this.state.stack].filter(Boolean).join('\n\n')
 
     return (
-      <div className="h-full w-full bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100 flex items-center justify-center p-6">
-        <div className="w-full max-w-2xl rounded-lg border border-red-200 bg-red-50 p-5 dark:border-red-900/60 dark:bg-red-950/30">
-          <h1 className="text-base font-semibold">Something went wrong</h1>
-          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300 break-words">{title}</p>
+      <div className="h-full w-full bg-nexy-background text-nexy-text flex items-center justify-center p-6">
+        <div className="w-full max-w-2xl border-2 border-nexy-error bg-nexy-error/10 p-5 shadow-nexy">
+          <h1 className="nexy-font-title flex items-center gap-2 text-base font-semibold"><NexyIcon name="error" />Something went wrong</h1>
+          <p className="mt-2 text-sm text-nexy-muted break-words">{title}</p>
           {description && (
-            <pre className="mt-4 max-h-64 overflow-auto rounded-lg bg-white/70 p-3 text-xs text-gray-700 dark:bg-gray-950/50 dark:text-gray-300">
+            <pre className="mt-4 max-h-64 overflow-auto border-2 border-nexy-border bg-nexy-recessed p-3 text-xs text-nexy-muted">
               {description}
             </pre>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+              className="flex items-center gap-1.5 border-2 border-nexy-border bg-nexy-raised px-3 py-1.5 text-xs font-medium text-nexy-text shadow-nexy hover:bg-nexy-recessed"
               onClick={() => this.setState((state) => ({
                 error: null,
                 stack: '',
                 retryKey: state.retryKey + 1,
               }))}
             >
-              Try again
+              <NexyIcon name="refresh" size={12} />Try again
             </button>
           </div>
         </div>

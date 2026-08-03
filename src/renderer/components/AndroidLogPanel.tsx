@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { NexyIcon } from './ui/icons'
 
 interface LogEntry {
   tag: string
@@ -36,33 +36,33 @@ export function AndroidLogPanel({ enabled }: { enabled: boolean }) {
   if (!enabled || !visible) return null
 
   return (
-    <div className={`fixed bottom-4 right-4 z-50 w-[520px] flex flex-col rounded-xl border border-gray-300 bg-gray-950 shadow-2xl dark:border-gray-700 ${minimized ? '' : 'max-h-[380px]'}`}>
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 shrink-0">
-        <span className="text-xs font-semibold text-green-400 font-mono">Android Debug Log</span>
+    <div className={`fixed bottom-4 right-4 z-50 flex w-[520px] flex-col rounded-nexy-sm border-2 border-nexy-border bg-nexy-frame shadow-nexy ${minimized ? '' : 'max-h-[380px]'}`}>
+      <div className="flex shrink-0 items-center justify-between border-b-2 border-nexy-border bg-nexy-surface px-3 py-2">
+        <span className="nexy-font-status text-nexy-success">Android Debug Log</span>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => setEntries([])}
-            className="p-1 rounded hover:bg-gray-800 text-gray-500 hover:text-gray-300"
+            className="rounded-nexy-sm border border-transparent p-1 text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text"
             title="Clear"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <NexyIcon name="delete" className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={() => setMinimized((v) => !v)}
-            className="p-1 rounded hover:bg-gray-800 text-gray-500 hover:text-gray-300"
+            className="rounded-nexy-sm border border-transparent p-1 text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text"
             title={minimized ? 'Expand' : 'Minimize'}
           >
-            {minimized ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <NexyIcon name={minimized ? 'expand' : 'minimize'} className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={() => setVisible(false)}
-            className="p-1 rounded hover:bg-gray-800 text-gray-500 hover:text-gray-300"
+            className="rounded-nexy-sm border border-transparent p-1 text-nexy-muted hover:border-nexy-border hover:bg-nexy-recessed hover:text-nexy-text"
             title="Dismiss"
           >
-            <X className="w-3.5 h-3.5" />
+            <NexyIcon name="close" className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -70,9 +70,9 @@ export function AndroidLogPanel({ enabled }: { enabled: boolean }) {
         <div className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[11px] space-y-0.5">
           {entries.map((e) => (
             <div key={e.id} className="flex gap-2 leading-snug">
-              <span className="shrink-0 text-gray-600">{new Date(e.ts).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-              <span className="shrink-0 text-yellow-400">[{e.tag}]</span>
-              <span className="text-green-300 break-all">{e.message}</span>
+              <span className="shrink-0 text-nexy-muted">{new Date(e.ts).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="shrink-0 text-nexy-warning">[{e.tag}]</span>
+              <span className="break-all text-nexy-highlight">{e.message}</span>
             </div>
           ))}
           <div ref={bottomRef} />

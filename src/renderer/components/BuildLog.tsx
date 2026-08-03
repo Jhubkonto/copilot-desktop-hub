@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Clipboard, XCircle } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
+import { NexyIcon } from './ui/icons'
 
 const ANSI_RE = new RegExp(String.raw`\x1b\[[0-9;]*m`, 'g')
 type CopyState = 'idle' | 'copied' | 'failed'
@@ -68,27 +68,27 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
   const styleHeight = maxHeightPx === 0 ? undefined : height
 
   return (
-    <div ref={containerRef} className={`relative rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden ${className}`} style={styleHeight ? { height: styleHeight } : undefined}>
+    <div ref={containerRef} className={`relative overflow-hidden rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised shadow-nexy ${className}`} style={styleHeight ? { height: styleHeight } : undefined}>
       {/* Header bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 shrink-0">
-        <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+      <div className="flex items-center justify-between border-b-2 border-nexy-border bg-nexy-surface px-3 py-1.5 shrink-0">
+        <span className="nexy-font-status flex items-center gap-1.5 text-nexy-muted">
           Output
-          {running && <span className="text-blue-500 animate-pulse text-[10px]">● running</span>}
+          {running && <span className="inline-flex items-center gap-1 text-[10px] text-nexy-activity"><NexyIcon name="busy" motion="pulse" className="h-3 w-3" /> running</span>}
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-gray-400">{lines.length} lines</span>
+          <span className="text-[10px] text-nexy-muted">{lines.length} lines</span>
           <button
             onClick={() => void handleCopy()}
             disabled={lines.length === 0}
-            className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
+            className={`inline-flex items-center gap-1 rounded-nexy-sm border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40 ${
               copyState === 'copied'
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                ? 'border-nexy-success bg-nexy-recessed text-nexy-success'
                 : copyState === 'failed'
-                  ? 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-300'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  ? 'border-nexy-error bg-nexy-recessed text-nexy-error'
+                  : 'border-nexy-border bg-nexy-raised text-nexy-muted hover:bg-nexy-recessed hover:text-nexy-text'
             }`}
           >
-            {copyState === 'copied' ? <Check className="h-3 w-3" /> : copyState === 'failed' ? <XCircle className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
+            <NexyIcon name={copyState === 'copied' ? 'check' : copyState === 'failed' ? 'error' : 'clipboard'} className="h-3 w-3" />
             {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Failed' : 'Copy'}
           </button>
         </div>
@@ -98,11 +98,11 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
       <pre
         ref={scrollRef}
         onScroll={handleScroll}
-        className="code-scrollbar overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-gray-100 bg-gray-950 p-2.5 selection:bg-blue-500/30"
+        className="code-scrollbar overflow-y-auto whitespace-pre-wrap break-words bg-nexy-frame p-2.5 font-mono text-[10px] leading-relaxed text-nexy-highlight selection:bg-nexy-accent/30"
         style={styleHeight ? { height: styleHeight - 34 } : { maxHeight: 'none' }}
       >
         {lines.length === 0 ? (
-          <span className="text-gray-500">No output yet.</span>
+          <span className="text-nexy-muted">No output yet.</span>
         ) : (
           lines.map((line, i) => (
             <span key={i} className="block">{stripAnsi(line)}</span>
@@ -114,7 +114,7 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
       {!autoScroll && (
         <button
           onClick={jumpToBottom}
-          className="absolute bottom-8 right-3 z-10 px-2 py-1 rounded-md bg-blue-600 text-white text-[10px] shadow-md hover:bg-blue-700"
+          className="absolute bottom-8 right-3 z-10 rounded-nexy-sm border-2 border-nexy-border bg-nexy-accent px-2 py-1 text-[10px] text-nexy-on-accent shadow-nexy hover:brightness-110"
         >
           ↓ Bottom
         </button>
