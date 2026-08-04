@@ -66,6 +66,8 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProjectSettingsConfig
+import io.nexy.android.data.model.ProjectSource
+import io.nexy.android.data.model.ProjectRepositoryBinding
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NewChatItem
 import io.nexy.android.ui.components.NexyConfirmDialog
@@ -127,6 +129,8 @@ fun ProjectConfigScreen(
     var color by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
     var instructions by remember { mutableStateOf("") }
     var rootDirectory by remember { mutableStateOf("") }
+    var projectSources by remember { mutableStateOf<List<ProjectSource>>(emptyList()) }
+    var projectRepositories by remember { mutableStateOf<List<ProjectRepositoryBinding>>(emptyList()) }
     var instructionMode by remember { mutableStateOf("prepend") }
     var instructionsEnabled by remember { mutableStateOf(true) }
     var workflowMode by remember { mutableStateOf("single-agent") }
@@ -196,6 +200,8 @@ fun ProjectConfigScreen(
                     color = project?.color ?: color
                     instructions = event.config.instructions
                     rootDirectory = event.config.rootDirectory.orEmpty()
+                    projectSources = event.config.sources
+                    projectRepositories = event.config.repositories
                     instructionMode = event.config.instructionMode
                     instructionsEnabled = event.config.instructionsEnabled
                     workflowMode = event.config.workflowMode
@@ -573,20 +579,21 @@ fun ProjectConfigScreen(
 
             // — Paths —
             NexyExpandableSection(
-                title = "Paths",
+                title = "Sources & repositories",
                 expanded = pathsExpanded,
                 onToggle = { pathsExpanded = !pathsExpanded },
+                badge = projectRepositories.size.takeIf { it > 0 }?.toString(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                     Text(
-                        "The working directory the desktop CLI/tools use when acting on this project's files. Leave blank to use the global default directory instead.",
+                        "A project can use multiple desktop folders and Git repositories. The field below remains the primary-source compatibility path; add or remove sources in Nexy Desktop.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedTextField(
                         value = rootDirectory,
                         onValueChange = { rootDirectory = it },
-                        label = { Text("Root directory (optional)") },
+                        label = { Text("Primary desktop source (optional)") },
                         placeholder = { Text("e.g. /home/user/my-project") },
                         singleLine = true,
                         enabled = !saving && !disconnected,
@@ -596,6 +603,28 @@ fun ProjectConfigScreen(
                     if (!desktopDisconnected) {
                         TextButton(onClick = { onOpenFileExplorer(rootDirectory) }, enabled = !saving) {
                             Text("Browse desktop files…")
+                        }
+                    }
+                    projectSources.forEach { source ->
+                        val repositories = projectRepositories.filter { it.sourceId == source.id }
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(
+                                    source.label + if (source.isPrimary) " · primary" else "",
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                Text(source.localPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (repositories.isEmpty()) {
+                                    Text("No Git repositories discovered", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                } else repositories.forEach { repository ->
+                                    val state = if (!repository.available) "unavailable" else repository.branch ?: "Git"
+                                    Text("• ${repository.label} · $state${if (repository.dirty == true) " · changes" else ""}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
                         }
                     }
                 }

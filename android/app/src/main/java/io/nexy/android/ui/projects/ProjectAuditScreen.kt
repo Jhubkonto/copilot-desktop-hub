@@ -6,6 +6,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +72,10 @@ fun ProjectAuditScreen(
 
     val expandedSessions = remember { mutableStateMapOf<String, Boolean>() }
     val expandedFiles = remember { mutableStateMapOf<String, Boolean>() }
+    val selectedRepository = remember(projectId) { mutableStateOf("all") }
+    val repositoryOptions = filesBySession.values.flatten()
+        .distinctBy(::auditRepositoryKey)
+        .map { auditRepositoryKey(it) to auditRepositoryLabel(it) }
 
     LaunchedEffect(projectId) {
         vm.load(projectId)
@@ -111,6 +118,26 @@ fun ProjectAuditScreen(
                     modifier = Modifier.padding(top = 32.dp),
                 )
                 return@Column
+            }
+
+            if (repositoryOptions.size > 1) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = selectedRepository.value == "all",
+                        onClick = { selectedRepository.value = "all" },
+                        label = { Text("All repositories") },
+                    )
+                    repositoryOptions.forEach { (key, label) ->
+                        FilterChip(
+                            selected = selectedRepository.value == key,
+                            onClick = { selectedRepository.value = key },
+                            label = { Text(label) },
+                        )
+                    }
+                }
             }
 
             sessions.forEach { session ->
@@ -169,18 +196,25 @@ fun ProjectAuditScreen(
                                         )
                                     }
                                     else -> {
-                                        sessionFiles.forEach { file ->
+                                        val visibleFiles = sessionFiles.filter {
+                                            selectedRepository.value == "all" || auditRepositoryKey(it) == selectedRepository.value
+                                        }
+                                        visibleFiles.forEachIndexed { index, file ->
+                                            val previous = visibleFiles.getOrNull(index - 1)
+                                            if (previous == null || auditRepositoryKey(previous) != auditRepositoryKey(file)) {
+                                                AuditRepositoryHeader(file)
+                                            }
                                             ProjectAuditFileCard(
                                                 file = file,
-                                                expanded = expandedFiles[vm.diffKey(session.id, file.relativePath)] == true,
-                                                diffText = diffsByKey[vm.diffKey(session.id, file.relativePath)]?.hunksJson?.let(::renderDiffHunks),
-                                                diffLoading = loadingDiffs.contains(vm.diffKey(session.id, file.relativePath)),
+                                                expanded = expandedFiles[vm.diffKey(file.id)] == true,
+                                                diffText = diffsByKey[vm.diffKey(file.id)]?.hunksJson?.let(::renderDiffHunks),
+                                                diffLoading = loadingDiffs.contains(vm.diffKey(file.id)),
                                                 onToggle = {
-                                                    val key = vm.diffKey(session.id, file.relativePath)
+                                                    val key = vm.diffKey(file.id)
                                                     val next = expandedFiles[key] != true
                                                     expandedFiles[key] = next
                                                     if (next && file.diffAvailable) {
-                                                        vm.ensureDiffLoaded(session.id, file.relativePath)
+                                                        vm.ensureDiffLoaded(file)
                                                     }
                                                 },
                                             )
@@ -192,6 +226,24 @@ fun ProjectAuditScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AuditRepositoryHeader(file: ProjectAuditFile) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = auditRepositoryLabel(file),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        val context = listOfNotNull(
+            file.branch?.takeIf { it.isNotBlank() }?.let { "branch $it" },
+            if (file.repositoryAvailable == false) "repository unavailable" else null,
+        ).joinToString(" · ")
+        if (context.isNotBlank()) {
+            Text(context, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -272,6 +324,18 @@ private fun ProjectAuditFileCard(
             }
         }
     }
+}
+
+private fun auditRepositoryKey(file: ProjectAuditFile): String = when {
+    !file.repositoryId.isNullOrBlank() -> file.repositoryId
+    !file.sourceId.isNullOrBlank() -> "source:${file.sourceId}"
+    else -> "legacy-unknown"
+}
+
+private fun auditRepositoryLabel(file: ProjectAuditFile): String = when {
+    !file.repositoryLabel.isNullOrBlank() -> file.repositoryLabel
+    !file.sourceLabel.isNullOrBlank() -> "${file.sourceLabel} · outside repository"
+    else -> "Legacy / repository unknown"
 }
 
 @Composable

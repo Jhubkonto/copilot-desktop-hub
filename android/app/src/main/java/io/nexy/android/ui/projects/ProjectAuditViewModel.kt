@@ -49,10 +49,10 @@ class ProjectAuditViewModel(app: Application) : AndroidViewModel(app) {
                         _loadingFiles.value = _loadingFiles.value - event.sessionId
                     }
                     is WsEvent.ProjectAuditDiffLoaded -> {
-                        val path = event.diff?.relativePath
-                        if (!path.isNullOrBlank()) {
-                            _diffsByKey.value = _diffsByKey.value + (diffKey(event.sessionId, path) to event.diff)
-                            _loadingDiffs.value = _loadingDiffs.value - diffKey(event.sessionId, path)
+                        val fileId = event.fileId ?: event.diff?.fileId
+                        if (!fileId.isNullOrBlank()) {
+                            _diffsByKey.value = _diffsByKey.value + (diffKey(fileId) to event.diff)
+                            _loadingDiffs.value = _loadingDiffs.value - diffKey(fileId)
                         }
                     }
                     else -> {}
@@ -78,12 +78,12 @@ class ProjectAuditViewModel(app: Application) : AndroidViewModel(app) {
         WsRepository.listProjectAuditFiles(sessionId)
     }
 
-    fun ensureDiffLoaded(sessionId: String, relativePath: String) {
-        val key = diffKey(sessionId, relativePath)
+    fun ensureDiffLoaded(file: ProjectAuditFile) {
+        val key = diffKey(file.id)
         if (_diffsByKey.value.containsKey(key) || _loadingDiffs.value.contains(key)) return
         _loadingDiffs.value = _loadingDiffs.value + key
-        WsRepository.getProjectAuditDiff(sessionId, relativePath)
+        WsRepository.getProjectAuditDiff(file.sessionId, file.relativePath, file.id)
     }
 
-    fun diffKey(sessionId: String, relativePath: String): String = "$sessionId::$relativePath"
+    fun diffKey(fileId: String): String = fileId
 }
