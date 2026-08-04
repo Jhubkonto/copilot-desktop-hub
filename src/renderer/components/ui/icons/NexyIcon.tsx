@@ -1,6 +1,6 @@
 import type { SVGProps } from 'react'
 import {
-  AlertTriangle, ArrowLeft, Bot, Box, Camera, Check, ChevronRight, Clipboard,
+  AlertTriangle, ArrowLeft, Bot, Box, Camera, Check, CheckSquare, ChevronRight, Clipboard,
   Copy, Download, ExternalLink, File, Folder, Info, KeyRound, Maximize2, Menu,
   MessageSquare, Mic, Milestone, Minimize2, Paperclip, Pause, Pencil,
   Pin, Play, Plus, RefreshCw, Search, Send, Settings, Smartphone,
@@ -9,7 +9,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 export type NexyIconName =
-  | 'add' | 'agent' | 'artifact' | 'attach' | 'busy' | 'camera' | 'chat' | 'check'
+  | 'add' | 'agent' | 'artifact' | 'attach' | 'busy' | 'camera' | 'chat' | 'check' | 'checked-box'
   | 'back' | 'chevron-right' | 'clipboard' | 'close' | 'delete' | 'download' | 'duplicate' | 'edit' | 'error' | 'expand' | 'external'
   | 'folder'
   | 'info' | 'inspect' | 'key' | 'maximize' | 'menu' | 'microphone'
@@ -27,6 +27,7 @@ const paths: Record<NexyIconName, string> = {
   camera: 'M5 2h6l1 2h3v10H1V4h3zm-2 4v6h10V6h-2l-1-2H6L5 6zm3 1h4v4H6z',
   chat: 'M2 2h12v9H8l-3 3v-3H2zm2 2v5h2v2l2-2h4V4z',
   check: 'M1 8h3l2 2 6-7 3 2-9 10z',
+  'checked-box': 'M1 1h14v2H1zM1 13h14v2H1zM1 3h2v10H1zM13 3h2v10h-2zM4 8h2l2 2 4-5 2 2-6 7z',
   'chevron-right': 'M5 2h3v2h2v2h2v4h-2v2H8v2H5v-2h2v-2h2V6H7V4H5z',
   clipboard: 'M5 1h6v2h3v12H2V3h3zm2 2v1h2V3zM4 5v8h8V5h-1v1H5V5z',
   close: 'M2 2h3v2h2v2h2V4h2V2h3v3h-2v2h-2v2h2v2h2v3h-3v-2H9v-2H7v2H5v2H2v-3h2V9h2V7H4V5H2z',
@@ -70,7 +71,7 @@ const paths: Record<NexyIconName, string> = {
 
 const classicIcons: Record<NexyIconName, LucideIcon> = {
   add: Plus, agent: Bot, artifact: Box, attach: Paperclip, back: ArrowLeft,
-  busy: RefreshCw, camera: Camera, chat: MessageSquare, check: Check,
+  busy: RefreshCw, camera: Camera, chat: MessageSquare, check: Check, 'checked-box': CheckSquare,
   'chevron-right': ChevronRight, clipboard: Clipboard, close: X, delete: Trash2,
   download: Download, duplicate: Copy, edit: Pencil, error: AlertTriangle,
   expand: ZoomIn, external: ExternalLink, folder: Folder, info: Info,
