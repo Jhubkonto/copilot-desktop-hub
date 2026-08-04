@@ -8,6 +8,7 @@ import { isPinned, groupByDate } from './shared'
 import { PaneEmptyState } from './pane-primitives'
 import { PaginationFooter } from '../ui/PaginationFooter'
 import { useConversationPagination } from '../../hooks/useConversationPagination'
+import { useDebouncedSearchQuery } from '../../hooks/useDebouncedSearchQuery'
 
 export function AgentHistoryPane() {
   const cachedConversations = useAppStore((s) => s.conversations)
@@ -23,11 +24,12 @@ export function AgentHistoryPane() {
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
   const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
   const [query, setQuery] = useState('')
+  const debouncedQuery = useDebouncedSearchQuery(query)
   const pagination = useConversationPagination(
     { type: 'agent', id: historyAgentId ?? '' },
-    query,
+    debouncedQuery,
   )
-  const conversations = pagination.hasLoaded || query
+  const conversations = pagination.hasLoaded || debouncedQuery
     ? pagination.items
     : cachedConversations.filter((conversation) => conversation.agent_id === historyAgentId)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
@@ -55,7 +57,7 @@ export function AgentHistoryPane() {
       >
         {isPinned(conv) && <NexyIcon name="pin" className="w-3 h-3 text-nexy-muted shrink-0 mt-0.5" />}
         {isCompleted ? (
-          <span title="Complete"><NexyIcon name="check" className="w-3.5 h-3.5 text-nexy-success shrink-0 mt-0.5" /></span>
+          <span title="Complete"><NexyIcon name="checked-box" className="w-4 h-4 text-nexy-success shrink-0" /></span>
         ) : isUnread ? (
           <span className="nexy-notification-dot w-2 h-2 bg-blue-500 animate-pulse shrink-0 mt-1.5" />
         ) : null}

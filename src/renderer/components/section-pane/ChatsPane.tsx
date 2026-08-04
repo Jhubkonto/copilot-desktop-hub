@@ -1,4 +1,4 @@
-import { useState, useMemo, useDeferredValue } from 'react'
+import { useState, useMemo } from 'react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
@@ -8,6 +8,7 @@ import { PaneEmptyState } from './pane-primitives'
 import { NexyIcon } from '../ui/icons/NexyIcon'
 import { PaginationFooter } from '../ui/PaginationFooter'
 import { useConversationPagination } from '../../hooks/useConversationPagination'
+import { useDebouncedSearchQuery } from '../../hooks/useDebouncedSearchQuery'
 
 export function ChatsPane() {
   const cachedConversations = useAppStore((s) => s.conversations)
@@ -24,9 +25,9 @@ export function ChatsPane() {
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
   const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
   const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
-  const pagination = useConversationPagination({ type: 'all' }, deferredQuery)
-  const conversations = !pagination.hasLoaded && !deferredQuery
+  const debouncedQuery = useDebouncedSearchQuery(query)
+  const pagination = useConversationPagination({ type: 'all' }, debouncedQuery)
+  const conversations = !pagination.hasLoaded && !debouncedQuery
     ? cachedConversations.slice(0, 30)
     : pagination.items
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
@@ -67,7 +68,7 @@ export function ChatsPane() {
           ) : isUnread ? (
             <span className="nexy-notification-dot w-2 h-2 bg-nexy-info shrink-0 mt-1.5" />
           ) : isCompleted ? (
-            <span title="Complete"><NexyIcon name="check" className="w-3.5 h-3.5 text-nexy-success shrink-0 mt-0.5" /></span>
+            <span title="Complete"><NexyIcon name="checked-box" className="w-4 h-4 text-nexy-success shrink-0" /></span>
           ) : null}
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-nexy-text truncate">{conv.title}</p>
@@ -141,11 +142,11 @@ export function ChatsPane() {
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
         {filtered.length === 0 && pendingConversationIds.length === 0 && (
           <PaneEmptyState>
-            {deferredQuery ? 'No matching conversations' : 'No conversations yet'}
+            {debouncedQuery ? 'No matching conversations' : 'No conversations yet'}
           </PaneEmptyState>
         )}
 
-        {pendingConversationIds.length > 0 && !deferredQuery && (
+        {pendingConversationIds.length > 0 && !debouncedQuery && (
           <div>
             {pendingConversationIds
               .filter((id) => !conversations.some((c) => c.id === id))

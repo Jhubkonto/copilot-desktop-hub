@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { NexyIcon } from '../ui/icons/NexyIcon'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
@@ -8,6 +9,7 @@ import { isPinned, groupByDate } from './shared'
 import { PaneEmptyState } from './pane-primitives'
 import { PaginationFooter } from '../ui/PaginationFooter'
 import { useConversationPagination } from '../../hooks/useConversationPagination'
+import { useDebouncedSearchQuery } from '../../hooks/useDebouncedSearchQuery'
 
 export function ProjectHistoryPane() {
   const cachedConversations = useAppStore((s) => s.conversations)
@@ -23,11 +25,12 @@ export function ProjectHistoryPane() {
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
   const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
   const [query, setQuery] = useState('')
+  const debouncedQuery = useDebouncedSearchQuery(query)
   const pagination = useConversationPagination(
     { type: 'project', id: historyProjectId === '__none__' ? null : historyProjectId },
-    query,
+    debouncedQuery,
   )
-  const conversations = pagination.hasLoaded || query
+  const conversations = pagination.hasLoaded || debouncedQuery
     ? pagination.items
     : cachedConversations.filter((conversation) =>
         historyProjectId === '__none__' ? !conversation.project_id : conversation.project_id === historyProjectId
@@ -59,9 +62,9 @@ export function ProjectHistoryPane() {
           <span title="Code change"><NexyIcon name="workflow" className="w-3 h-3 text-nexy-accent shrink-0 mt-0.5" /></span>
         )}
         {isGenerating ? (
-          <span title="Generating…"><NexyIcon name="busy" className="w-3.5 h-3.5 text-nexy-activity shrink-0 mt-0.5" /></span>
+          <span title="Generating…"><Loader2 className="w-4 h-4 mt-0.5 text-blue-500 animate-spin shrink-0" /></span>
         ) : isCompleted ? (
-          <span title="Complete"><NexyIcon name="check" className="w-3.5 h-3.5 text-nexy-success shrink-0 mt-0.5" /></span>
+          <span title="Complete"><NexyIcon name="checked-box" className="w-4 h-4 text-nexy-success shrink-0" /></span>
         ) : isUnread ? (
           <span className="nexy-notification-dot w-2 h-2 bg-blue-500 animate-pulse shrink-0 mt-1.5" />
         ) : null}
