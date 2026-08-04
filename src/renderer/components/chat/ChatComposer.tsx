@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
-import { UnfoldVertical } from 'lucide-react'
+import { Loader2, UnfoldVertical } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
@@ -347,10 +347,12 @@ export function ChatComposer({
                       disabled={isGenerating || voiceState === 'transcribing'}
                       className={`p-1.5 rounded-nexy-sm border transition-colors disabled:opacity-50 ${voiceState === 'recording' ? 'border-nexy-error text-nexy-error bg-nexy-recessed' : 'border-transparent text-nexy-muted hover:border-nexy-border hover:text-nexy-text hover:bg-nexy-recessed'}`}
                       title={voiceState === 'recording' ? 'Stop recording' : voiceState === 'transcribing' ? 'Transcribing locally…' : 'Voice input'}
-                      aria-label={voiceState === 'recording' ? 'Stop voice recording' : 'Start voice input'}
+                      aria-label={voiceState === 'recording' ? 'Stop voice recording' : voiceState === 'transcribing' ? 'Transcribing voice input' : 'Start voice input'}
                       aria-pressed={voiceState === 'recording'}
                     >
-                      <NexyIcon name={voiceState === 'transcribing' ? 'busy' : 'microphone'} className="w-4 h-4" />
+                      {voiceState === 'transcribing'
+                        ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                        : <NexyIcon name="microphone" className="w-4 h-4" />}
                     </button>
                     {onFloatVoice && voiceState === 'idle' && (
                       <button
