@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type {
   ProjectEditSession,
+  ProjectRepository,
   ProjectWorkspaceMetadata,
   ProjectTouchedFile,
   RemoteEditStagedFileDiff,
@@ -9,15 +10,29 @@ import type {
 interface AuditTabProps {
   projectId: string
   workspaceInfo?: ProjectWorkspaceMetadata | null
+  repositories?: ProjectRepository[]
 }
 
-export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
+function repositoryGroup(file: ProjectTouchedFile): string {
+  if (file.repositoryId) return file.repositoryId
+  if (file.sourceId) return `source:${file.sourceId}`
+  return 'legacy-unknown'
+}
+
+function repositoryLabel(file: ProjectTouchedFile): string {
+  if (file.repositoryLabel) return file.repositoryLabel
+  if (file.sourceLabel) return `${file.sourceLabel} · outside repository`
+  return 'Legacy / repository unknown'
+}
+
+export function AuditTab({ projectId, workspaceInfo, repositories = [] }: AuditTabProps) {
   const [sessions, setSessions] = useState<ProjectEditSession[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [filesBySession, setFilesBySession] = useState<Record<string, ProjectTouchedFile[]>>({})
   const [diffs, setDiffs] = useState<Record<string, RemoteEditStagedFileDiff | null>>({})
   const [expandedDiffKey, setExpandedDiffKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [repositoryFilter, setRepositoryFilter] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -26,6 +41,7 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
     setFilesBySession({})
     setDiffs({})
     setExpandedDiffKey(null)
+    setRepositoryFilter('all')
     void window.api.listProjectAuditSessions(projectId)
       .then((rows) => {
         if (cancelled) return
@@ -50,11 +66,13 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
 
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null
   const files = selectedSessionId ? (filesBySession[selectedSessionId] ?? []) : []
+  const repositoryOptions = Array.from(new Map(files.map((file) => [repositoryGroup(file), repositoryLabel(file)])).entries())
+  const visibleFiles = repositoryFilter === 'all' ? files : files.filter((file) => repositoryGroup(file) === repositoryFilter)
 
-  const loadDiff = async (sessionId: string, relativePath: string) => {
-    const key = `${sessionId}:${relativePath}`
+  const loadDiff = async (file: ProjectTouchedFile) => {
+    const key = file.id
     if (!(key in diffs)) {
-      const diff = await window.api.getProjectAuditDiff(sessionId, relativePath)
+      const diff = await window.api.getProjectAuditDiff(file.sessionId, file.relativePath, file.id)
       setDiffs((prev) => ({ ...prev, [key]: diff }))
     }
     setExpandedDiffKey((current) => current === key ? null : key)
@@ -75,7 +93,10 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
             <button
               key={session.id}
               type="button"
-              onClick={() => setSelectedSessionId(session.id)}
+              onClick={() => {
+                setSelectedSessionId(session.id)
+                setRepositoryFilter('all')
+              }}
               className={`block w-full border-b border-gray-100 px-3 py-2 text-left last:border-b-0 dark:border-gray-800 ${
                 selectedSessionId === session.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40'
               }`}
@@ -91,11 +112,11 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
       </div>
 
       <div className="min-w-0 space-y-3">
-        {workspaceInfo && !workspaceInfo.isGitRepo && (
+        {workspaceInfo && !workspaceInfo.isGitRepo && repositories.length === 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/20">
             <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Best-effort file audit</p>
             <p className="mt-0.5 text-[10px] text-amber-700/80 dark:text-amber-300/80">
-              Full git-aware diffs and branch context are limited until this project root is inside a git repository.
+              Full git-aware diffs and branch context are limited until this project has a registered Git repository.
             </p>
           </div>
         )}
@@ -111,25 +132,50 @@ export function AuditTab({ projectId, workspaceInfo }: AuditTabProps) {
           </div>
         )}
 
+        {repositoryOptions.length > 1 && (
+          <label className="flex items-center gap-2 text-[11px] text-gray-500">
+            Repository
+            <select
+              value={repositoryFilter}
+              onChange={(event) => setRepositoryFilter(event.target.value)}
+              className="min-w-0 rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            >
+              <option value="all">All repositories</option>
+              {repositoryOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+        )}
+
         {sessions.length > 0 && (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           {files.length === 0 ? (
             <p className="p-3 text-xs text-gray-400">No files recorded for this session.</p>
+          ) : visibleFiles.length === 0 ? (
+            <p className="p-3 text-xs text-gray-400">No files from this repository were recorded in this session.</p>
           ) : (
-            files.map((file) => {
-              const key = `${file.sessionId}:${file.relativePath}`
+            visibleFiles.map((file, index) => {
+              const key = file.id
               const diff = diffs[key]
               const expanded = expandedDiffKey === key
+              const previous = visibleFiles[index - 1]
+              const showRepositoryHeader = !previous || repositoryGroup(previous) !== repositoryGroup(file)
               return (
                 <div key={key} className="border-b border-gray-200 last:border-b-0 dark:border-gray-700">
+                  {showRepositoryHeader && (
+                    <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:bg-gray-800/70 dark:text-gray-400">
+                      <span>{repositoryLabel(file)}</span>
+                      {file.branch && <span className="font-normal normal-case">branch {file.branch}</span>}
+                      {file.repositoryAvailable === false && <span className="font-normal normal-case text-amber-600">unavailable</span>}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 dark:bg-gray-900/40">
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">{file.relativePath}</span>
+                    <span title={file.displayPath} className="min-w-0 flex-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">{file.relativePath}</span>
                     <span className="text-[10px] text-gray-500">{file.status}</span>
                     <span className="text-[10px] text-gray-400">{file.lastOperation}</span>
                     {file.diffAvailable && (
                       <button
                         type="button"
-                        onClick={() => void loadDiff(file.sessionId, file.relativePath)}
+                        onClick={() => void loadDiff(file)}
                         className="rounded border border-blue-300 px-2 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
                       >
                         {expanded ? 'Hide diff' : 'View diff'}

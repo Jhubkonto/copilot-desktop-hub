@@ -42,6 +42,8 @@ interface Props {
   name: string
   color: string
   rootDirectory: string
+  sources: ProjectConfig['sources']
+  repositories: ProjectConfig['repositories']
   codingWorkspace: boolean
   strategyRetrievalEnabled: boolean
   terminalSandboxBypass: boolean
@@ -66,6 +68,10 @@ interface Props {
   onModeChange: (mode: ProjectConfig['instructionMode']) => void
   onEnabledToggle: () => void
   onBrowseDir: () => void
+  onAddSource: () => void
+  onRemoveSource: (sourceId: string) => void
+  onRemoveRepository: (repositoryId: string) => void
+  onRescanSources: () => void
   onCodingWorkspaceToggle: () => void
   onStrategyRetrievalToggle: () => void
   onTerminalSandboxBypassToggle: () => void
@@ -77,12 +83,12 @@ interface Props {
 }
 
 export function GeneralTab({
-  isDraft, name, color, rootDirectory, codingWorkspace, strategyRetrievalEnabled, terminalSandboxBypass, workspaceInfo,
+  isDraft, name, color, rootDirectory, sources, repositories, codingWorkspace, strategyRetrievalEnabled, terminalSandboxBypass, workspaceInfo,
   instructions, instructionMode, instructionsEnabled,
   variables, varErrors, showModeDropdown, hasVarErrors,
   defaultModel, availableModelGroups, catalogModels, globalDefaultModel,
   onSetName, onSetColor, onNameBlur, onConfirm,
-  onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onCodingWorkspaceToggle,
+  onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onAddSource, onRemoveSource, onRemoveRepository, onRescanSources, onCodingWorkspaceToggle,
   onStrategyRetrievalToggle, onTerminalSandboxBypassToggle, onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
   onDefaultModelChange,
 }: Props) {
@@ -147,16 +153,24 @@ export function GeneralTab({
         </div>
       )}
 
-      {/* Root directory */}
+      {/* Sources */}
       <div>
-        <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Root Directory</label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{isDraft ? 'Primary source' : 'Sources & repositories'}</label>
+          {!isDraft && (
+            <div className="flex gap-1">
+              <button type="button" onClick={onRescanSources} className="text-[10px] text-nexy-accent hover:underline">Rescan</button>
+              <button type="button" onClick={onAddSource} className="text-[10px] text-nexy-accent hover:underline">+ Add folder</button>
+            </div>
+          )}
+        </div>
         <div className="mt-1 flex gap-1">
           <input
             value={rootDirectory}
             onChange={(e) => onRootDirChange(e.target.value)}
             placeholder="e.g. /home/user/my-project"
             className="flex-1 text-sm bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-400 truncate"
-            aria-label="Root directory"
+            aria-label="Primary source directory"
           />
           <button
             type="button"
@@ -168,6 +182,42 @@ export function GeneralTab({
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
         </div>
+        {!isDraft && sources.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {sources.map((source) => {
+              const sourceRepos = repositories.filter((repo) => repo.sourceId === source.id)
+              return (
+                <div key={source.id} className="rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-3 py-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-nexy-text">{source.label}{source.isPrimary ? ' · primary' : ''}</p>
+                      <p className="truncate font-mono text-[10px] text-nexy-muted">{source.localPath}</p>
+                    </div>
+                    {sources.length > 1 && <button type="button" onClick={() => onRemoveSource(source.id)} aria-label={`Remove ${source.label}`} className="text-nexy-muted hover:text-red-500"><X className="h-3.5 w-3.5" /></button>}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {sourceRepos.length === 0 ? (
+                      <span className="text-[10px] text-nexy-muted">No Git repositories discovered</span>
+                    ) : sourceRepos.map((repo) => (
+                      <span key={repo.id} className="inline-flex items-center gap-1 rounded-nexy-sm border border-nexy-border bg-nexy-raised py-0.5 pl-1.5 pr-1 text-[10px] text-nexy-text">
+                        <span>{repo.label} · {repo.available ? (repo.branch ?? 'Git') : 'unavailable'}{repo.dirty ? ' · changes' : ''}</span>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveRepository(repo.id)}
+                          aria-label={`Remove ${repo.label} repository from project`}
+                          title="Remove from Nexy (files stay on disk)"
+                          className="rounded-sm text-nexy-muted hover:text-red-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-nexy-accent"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
         {workspaceInfo && (
           <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] dark:border-gray-700 dark:bg-gray-900/30">
             <p className="font-medium text-gray-700 dark:text-gray-200">
