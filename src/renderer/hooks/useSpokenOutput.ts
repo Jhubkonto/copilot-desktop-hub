@@ -40,6 +40,15 @@ export function useSpokenOutput() {
   const audioUrlRef = useRef<string | null>(null)
   activeRef.current = active
 
+  const showPlaybackError = useCallback((messageId: string, message: string) => {
+    setAiRecapError(message)
+    setAiRecapErrorMessageId(messageId)
+    void window.api?.recordRendererError?.({
+      level: 'warn',
+      message: `Spoken output: ${message}`,
+    }).catch(() => {})
+  }, [])
+
   const refreshVoices = useCallback(() => {
     if (!systemSupported) return
     setVoices(window.speechSynthesis.getVoices())
@@ -98,36 +107,53 @@ export function useSpokenOutput() {
     model: string | null = null,
     playbackSequence = playbackSequenceRef.current + 1,
   ) => {
-    if (!systemSupported) return
-    playbackSequenceRef.current = playbackSequence
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(text)
-    const availableVoices = window.speechSynthesis.getVoices()
-    const eligibleVoices = settings.offlineOnly
-      ? availableVoices.filter((voice) => voice.localService)
-      : availableVoices
-    const selectedVoice = eligibleVoices.find((voice) => voice.voiceURI === settings.voiceUri)
-      ?? eligibleVoices[0]
-    if (selectedVoice) utterance.voice = selectedVoice
-    utterance.rate = settings.rate
-    utterance.pitch = settings.pitch
+    if (!systemSupported) {
+      showPlaybackError(messageId, 'Speech is unavailable on this device.')
+      return
+    }
+    try {
+      playbackSequenceRef.current = playbackSequence
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(text)
+      const availableVoices = window.speechSynthesis.getVoices()
+      const eligibleVoices = settings.offlineOnly
+        ? availableVoices.filter((voice) => voice.localService)
+        : availableVoices
+      const selectedVoice = eligibleVoices.find((voice) => voice.voiceURI === settings.voiceUri)
+        ?? eligibleVoices[0]
+      if (selectedVoice) utterance.voice = selectedVoice
+      utterance.rate = settings.rate
+      utterance.pitch = settings.pitch
 
-    const nextActive = { messageId, text, kind, model }
-    utterance.onstart = () => {
+      const nextActive = { messageId, text, kind, model }
+      utterance.onstart = () => {
+        setActive(nextActive)
+        setState('speaking')
+      }
+      utterance.onend = () => {
+        if (playbackSequenceRef.current === playbackSequence) {
+          setActive(null)
+          setState('idle')
+        }
+      }
+      utterance.onerror = (event) => {
+        if (playbackSequenceRef.current === playbackSequence && event.error !== 'canceled') {
+          showPlaybackError(messageId, 'System speech could not play this response.')
+        }
+        utterance.onend?.(event)
+      }
       setActive(nextActive)
       setState('speaking')
+      window.speechSynthesis.speak(utterance)
+    } catch (error) {
+      setActive(null)
+      setState('idle')
+      showPlaybackError(
+        messageId,
+        error instanceof Error ? `System speech failed: ${error.message}` : 'System speech failed.',
+      )
     }
-    utterance.onend = () => {
-      if (playbackSequenceRef.current === playbackSequence) {
-        setActive(null)
-        setState('idle')
-      }
-    }
-    utterance.onerror = utterance.onend
-    setActive(nextActive)
-    setState('speaking')
-    window.speechSynthesis.speak(utterance)
-  }, [settings, systemSupported])
+  }, [settings, showPlaybackError, systemSupported])
 
   const speakText = useCallback((
     messageId: string,
@@ -137,6 +163,8 @@ export function useSpokenOutput() {
   ) => {
     const text = kind === 'quick-recap' ? createQuickRecap(input) : sanitizeForSpeech(input)
     if (!text) return
+    setAiRecapError(null)
+    setAiRecapErrorMessageId(null)
 
     const playbackSequence = playbackSequenceRef.current + 1
     playbackSequenceRef.current = playbackSequence
@@ -171,17 +199,27 @@ export function useSpokenOutput() {
           setState('idle')
         }
       }
-      audio.onerror = () => audio.onended?.(new Event('ended'))
+      audio.onerror = () => {
+        showPlaybackError(messageId, systemSupported
+          ? 'Neural speech playback failed. Try the system voice.'
+          : 'Neural speech playback failed.')
+        audio.onended?.(new Event('ended'))
+      }
       return audio.play()
-    }).catch(() => {
+    }).catch((error) => {
       if (playbackSequenceRef.current !== playbackSequence) return
-      if (systemSupported) speakWithSystem(messageId, text, kind, model, playbackSequence)
+      const detail = error instanceof Error && error.message ? ` (${error.message})` : ''
+      if (systemSupported) {
+        showPlaybackError(messageId, `Neural voice failed${detail}. Using the system voice instead.`)
+        speakWithSystem(messageId, text, kind, model, playbackSequence)
+      }
       else {
+        showPlaybackError(messageId, `Neural voice failed${detail}.`)
         setActive(null)
         setState('idle')
       }
     })
-  }, [settings, speakWithSystem, supertonicStatus?.ready, systemSupported])
+  }, [settings, showPlaybackError, speakWithSystem, supertonicStatus?.ready, systemSupported])
 
   const pause = useCallback(() => {
     if (state !== 'speaking') return
@@ -193,12 +231,18 @@ export function useSpokenOutput() {
   const resume = useCallback(() => {
     if (state !== 'paused') return
     if (settings.engine === 'supertonic' && audioRef.current) {
-      void audioRef.current.play()
+      void audioRef.current.play().catch((error) => {
+        showPlaybackError(
+          activeRef.current?.messageId ?? '',
+          error instanceof Error ? `Speech could not resume: ${error.message}` : 'Speech could not resume.',
+        )
+        setState('paused')
+      })
     } else if (systemSupported) {
       window.speechSynthesis.resume()
       setState('speaking')
     }
-  }, [settings.engine, state, systemSupported])
+  }, [settings.engine, showPlaybackError, state, systemSupported])
 
   const replay = useCallback(() => {
     if (!active) return

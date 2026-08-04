@@ -51,10 +51,6 @@ export function useCursorPagination<T extends { id: string }>(options: {
 
   const refresh = useCallback(() => {
     generation.current += 1
-    setItems([])
-    setTotalCount(0)
-    setNextCursor(null)
-    setHasMore(false)
     setIsLoading(false)
     setError(null)
     setHasLoaded(false)
