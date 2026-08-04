@@ -10,6 +10,16 @@ import {
   type ProjectConfig,
   type ProjectWorkspaceMetadata,
 } from "../shared/types";
+import {
+  addProjectSource,
+  ensureLegacyProjectSource,
+  listProjectSources,
+  primarySourcePath,
+  removeProjectRepository,
+  removeProjectSource,
+  rescanProjectSources,
+  setPrimarySourcePath,
+} from './project-sources'
 
 export { DEFAULT_PROJECT_CONFIG };
 
@@ -161,6 +171,8 @@ export function parseProjectConfig(
     raw.workflowMode = workflowMode
     raw.orchestrationEnabled = workflowMode === 'orchestrated'
     raw.codingWorkspace = raw.codingWorkspace === true
+    raw.sources = Array.isArray(raw.sources) ? raw.sources : []
+    raw.repositories = Array.isArray(raw.repositories) ? raw.repositories : []
     if (typeof raw.workspaceInfo !== 'object' || raw.workspaceInfo === null) {
       raw.workspaceInfo = null
     }
@@ -174,8 +186,16 @@ export function getProjectRootDirectory(projectId: string): string | undefined {
   const db = getDatabase();
   const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined;
   if (!row) return undefined;
-  const rootDirectory = parseProjectConfig(row.config_json).rootDirectory;
+  const parsed = parseProjectConfig(row.config_json)
+  ensureLegacyProjectSource(db, projectId, parsed.rootDirectory)
+  const rootDirectory = primarySourcePath(listProjectSources(db, projectId)) || parsed.rootDirectory;
   return rootDirectory && rootDirectory.trim() ? rootDirectory.trim() : undefined;
+}
+
+function hydrateProjectHierarchy(db: ReturnType<typeof getDatabase>, projectId: string, config: ProjectConfig): ProjectConfig {
+  ensureLegacyProjectSource(db, projectId, config.rootDirectory)
+  const hierarchy = listProjectSources(db, projectId)
+  return { ...config, ...hierarchy, rootDirectory: primarySourcePath(hierarchy) || config.rootDirectory }
 }
 
 function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<string, unknown> {
@@ -221,7 +241,7 @@ export function registerProjectHandlers(): void {
     }>;
     return rows.map((r) => ({
       ...r,
-      config: parseProjectConfig(r.config_json),
+      config: hydrateProjectHierarchy(db, r.id, parseProjectConfig(r.config_json)),
       config_json: undefined,
     }));
   });
@@ -376,14 +396,18 @@ export function registerProjectHandlers(): void {
       const merged = { ...currentConfig, ...normalizedPatch } as ProjectConfig
       if ('rootDirectory' in normalizedPatch) {
         merged.workspaceInfo = detectProjectWorkspaceMetadata(merged.rootDirectory)
+        if (merged.rootDirectory.trim()) {
+          setPrimarySourcePath(db, id, merged.rootDirectory)
+        }
       }
+      const hydrated = hydrateProjectHierarchy(db, id, merged)
       db.prepare(
         "UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?",
-      ).run(JSON.stringify(merged), Date.now(), id);
+      ).run(JSON.stringify(hydrated), Date.now(), id);
       // Distinct from the WS-originated "project:config-updated" ack (which Android
       // treats as "my own save finished, close this screen"). This event just tells
       // Android something changed remotely so it can silently refresh if safe to do so.
-      broadcastToMobile({ event: "project:config-changed", data: { id, config: merged } });
+      broadcastToMobile({ event: "project:config-changed", data: { id, config: hydrated } });
       return true;
     },
   );
@@ -392,12 +416,50 @@ export function registerProjectHandlers(): void {
     const row = db
       .prepare("SELECT config_json FROM projects WHERE id = ?")
       .get(id) as { config_json: string | null } | undefined;
-    return parseProjectConfig(row?.config_json ?? null);
+    return hydrateProjectHierarchy(db, id, parseProjectConfig(row?.config_json ?? null));
   });
 
   safeHandle("project:inspect-workspace", (_event, rootDirectory: string) => {
     return detectProjectWorkspaceMetadata(String(rootDirectory ?? ''))
   })
+
+  safeHandle('project:list-sources', (_event, projectId: string) => {
+    const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
+    if (!row) throw new Error('Project not found')
+    ensureLegacyProjectSource(db, projectId, parseProjectConfig(row.config_json).rootDirectory)
+    return listProjectSources(db, projectId)
+  })
+
+  safeHandle('project:add-source', async (_event, projectId: string, input: { label?: string; localPath: string }) => {
+    const hierarchy = await addProjectSource(db, projectId, input)
+    persistHierarchy(projectId, hierarchy)
+    return hierarchy
+  })
+
+  safeHandle('project:remove-source', (_event, projectId: string, sourceId: string) => {
+    const hierarchy = removeProjectSource(db, projectId, sourceId)
+    persistHierarchy(projectId, hierarchy)
+    return hierarchy
+  })
+
+  safeHandle('project:remove-repository', (_event, projectId: string, repositoryId: string) => {
+    const hierarchy = removeProjectRepository(db, projectId, repositoryId)
+    persistHierarchy(projectId, hierarchy)
+    return hierarchy
+  })
+
+  safeHandle('project:rescan-sources', async (_event, projectId: string) => {
+    const hierarchy = await rescanProjectSources(db, projectId)
+    persistHierarchy(projectId, hierarchy)
+    return hierarchy
+  })
+
+  function persistHierarchy(projectId: string, hierarchy: ReturnType<typeof listProjectSources>): void {
+    const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
+    const config = { ...parseProjectConfig(row?.config_json ?? null), ...hierarchy, rootDirectory: primarySourcePath(hierarchy) }
+    db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(config), Date.now(), projectId)
+    broadcastToMobile({ event: 'project:config-changed', data: { id: projectId, config } })
+  }
 }
 
 export function registerProjectAgentHandlers(): void {
