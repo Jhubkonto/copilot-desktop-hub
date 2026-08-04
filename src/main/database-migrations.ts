@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomUUID } from "crypto";
 
 export interface Migration {
   version: number;
@@ -1600,6 +1601,135 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       CREATE INDEX IF NOT EXISTS idx_conversation_mode_sources_turn
         ON conversation_mode_sources(turn_id, rank, id);
     `,
+  },
+  {
+    // A project is a logical umbrella. Local source bindings and Git repositories are separate,
+    // stable entities; config_json.rootDirectory remains as a compatibility alias.
+    version: 86,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_sources (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('workspace-root', 'folder')),
+        local_path TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(project_id, local_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_sources_project
+        ON project_sources(project_id, is_primary DESC, created_at);
+
+      CREATE TABLE IF NOT EXISTS project_repositories (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES project_sources(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        relative_path TEXT NOT NULL DEFAULT '',
+        remote_url TEXT,
+        branch TEXT,
+        dirty INTEGER,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        available INTEGER NOT NULL DEFAULT 1,
+        verify_commands_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(source_id, relative_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_repositories_project
+        ON project_repositories(project_id, enabled DESC, label);
+    `,
+  },
+  {
+    // Makes audit file identity repository-aware. Snapshot labels keep history readable if a
+    // source is later removed; nullable branch/commit fields capture Git context when known.
+    version: 87,
+    run: (db) => {
+      db.exec(`
+        CREATE TABLE project_touched_files_v87 (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES project_edit_sessions(id) ON DELETE CASCADE,
+          source_id TEXT REFERENCES project_sources(id) ON DELETE SET NULL,
+          source_label TEXT,
+          repository_id TEXT REFERENCES project_repositories(id) ON DELETE SET NULL,
+          repository_label TEXT,
+          relative_path TEXT NOT NULL,
+          display_path TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('modified', 'created', 'deleted')),
+          last_operation TEXT NOT NULL CHECK (last_operation IN ('write', 'create', 'delete', 'apply')),
+          branch TEXT,
+          commit_hash TEXT,
+          legacy_repository_unknown INTEGER NOT NULL DEFAULT 0,
+          first_touched_at INTEGER NOT NULL,
+          last_touched_at INTEGER NOT NULL,
+          diff_json TEXT
+        );
+      `)
+
+      type LegacyFile = {
+        session_id: string; relative_path: string; status: string; last_operation: string
+        first_touched_at: number; last_touched_at: number; diff_json: string | null
+        project_id: string | null
+      }
+      type Source = { id: string; project_id: string; label: string; is_primary: number }
+      type Repo = { id: string; project_id: string; source_id: string; label: string; relative_path: string; branch: string | null }
+      const files = db.prepare(`SELECT f.*, s.project_id FROM project_touched_files f
+        JOIN project_edit_sessions s ON s.id = f.session_id`).all() as LegacyFile[]
+      const sources = db.prepare('SELECT id, project_id, label, is_primary FROM project_sources').all() as Source[]
+      const repositories = db.prepare(`SELECT id, project_id, source_id, label, relative_path, branch
+        FROM project_repositories`).all() as Repo[]
+      const reportRepo = db.prepare('SELECT project_id, repo_relative_path FROM error_reports WHERE id = ?')
+      const insert = db.prepare(`INSERT INTO project_touched_files_v87
+        (id, session_id, source_id, source_label, repository_id, repository_label, relative_path,
+         display_path, status, last_operation, branch, commit_hash, legacy_repository_unknown,
+         first_touched_at, last_touched_at, diff_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`)
+
+      for (const file of files) {
+        const source = sources.find((candidate) => candidate.project_id === file.project_id && candidate.is_primary === 1)
+          ?? sources.find((candidate) => candidate.project_id === file.project_id)
+        const normalizedLegacyPath = file.relative_path.replace(/\\/g, '/').replace(/^\.\//, '')
+        let repo: Repo | undefined
+        if (source) {
+          const reportId = file.session_id.startsWith('remote-edit:') ? file.session_id.slice('remote-edit:'.length) : null
+          const report = reportId ? reportRepo.get(reportId) as { project_id: string | null; repo_relative_path: string | null } | undefined : undefined
+          const requestedPrefix = report?.project_id === file.project_id ? (report.repo_relative_path ?? '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '') : null
+          const candidates = repositories.filter((candidate) => candidate.source_id === source.id)
+          repo = requestedPrefix !== null
+            ? candidates.find((candidate) => candidate.relative_path.replace(/\\/g, '/').replace(/\/$/, '') === requestedPrefix)
+            : undefined
+          repo ??= candidates
+            .filter((candidate) => {
+              const prefix = candidate.relative_path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')
+              return prefix === '' || normalizedLegacyPath === prefix || normalizedLegacyPath.startsWith(`${prefix}/`)
+            })
+            .sort((a, b) => b.relative_path.length - a.relative_path.length)[0]
+        }
+        const repoPrefix = repo?.relative_path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '') ?? ''
+        const relativePath = repo && repoPrefix && (normalizedLegacyPath === repoPrefix || normalizedLegacyPath.startsWith(`${repoPrefix}/`))
+          ? normalizedLegacyPath.slice(repoPrefix.length).replace(/^\//, '')
+          : normalizedLegacyPath
+        insert.run(
+          randomUUID(), file.session_id, source?.id ?? null, source?.label ?? null,
+          repo?.id ?? null, repo?.label ?? null, relativePath, normalizedLegacyPath,
+          file.status, file.last_operation, repo?.branch ?? null, repo ? 0 : 1,
+          file.first_touched_at, file.last_touched_at, file.diff_json,
+        )
+      }
+
+      db.exec(`
+        DROP TABLE project_touched_files;
+        ALTER TABLE project_touched_files_v87 RENAME TO project_touched_files;
+        CREATE INDEX idx_project_touched_files_session
+          ON project_touched_files(session_id, last_touched_at DESC);
+        CREATE UNIQUE INDEX idx_project_touched_files_identity
+          ON project_touched_files(session_id, IFNULL(source_id, ''), IFNULL(repository_id, ''), relative_path);
+        CREATE INDEX idx_project_touched_files_repository
+          ON project_touched_files(repository_id, last_touched_at DESC);
+      `)
+    },
   },
 ];
 
