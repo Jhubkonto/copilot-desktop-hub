@@ -12,6 +12,10 @@ function copyWorkers(): import('vite').Plugin {
       const outDir = resolve(__dirname, 'dist/main')
       mkdirSync(outDir, { recursive: true })
       copyFileSync(src, resolve(outDir, 'desktop-navigator-bridge-worker.cjs'))
+      copyFileSync(
+        resolve(__dirname, 'src/main/supertonic-worker.cjs'),
+        resolve(outDir, 'supertonic-worker.cjs'),
+      )
     },
   }
 }
@@ -56,6 +60,8 @@ export default defineConfig({
     root: resolve(__dirname, 'src/renderer'),
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
+      // AudioWorklet modules must remain self-hosted files under the production CSP.
+      assetsInlineLimit: 0,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
