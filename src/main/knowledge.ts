@@ -66,11 +66,10 @@ export function registerKnowledgeHandlers(): void {
       const auditTarget = inferProjectAuditTarget(filePath)
       if (auditTarget) {
         recordProjectAuditChange({
-          projectId: auditTarget.projectId,
+          ...auditTarget,
           agentId,
           title: 'Knowledge file update',
           source: 'manual-apply',
-          relativePath: auditTarget.relativePath,
           status: existed ? 'modified' : 'created',
           lastOperation: existed ? 'write' : 'create',
         })
