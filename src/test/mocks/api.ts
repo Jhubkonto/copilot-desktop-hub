@@ -430,6 +430,7 @@ export function createMockApi() {
 
     // System events
     onNewChat: vi.fn().mockReturnValue(() => {}),
+    onOpenChatDeepLink: vi.fn().mockReturnValue(() => {}),
 
     // Skill generator
     skillGeneratorChat: vi.fn().mockResolvedValue({ started: true }),
@@ -459,6 +460,11 @@ export function createMockApi() {
     updateProjectConfig: vi.fn().mockResolvedValue(true),
     getProjectConfig: vi.fn().mockResolvedValue({}),
     inspectProjectWorkspace: vi.fn().mockResolvedValue(null),
+    listProjectSources: vi.fn().mockResolvedValue({ sources: [], repositories: [] }),
+    addProjectSource: vi.fn().mockResolvedValue({ sources: [], repositories: [] }),
+    removeProjectSource: vi.fn().mockResolvedValue({ sources: [], repositories: [] }),
+    removeProjectRepository: vi.fn().mockResolvedValue({ sources: [], repositories: [] }),
+    rescanProjectSources: vi.fn().mockResolvedValue({ sources: [], repositories: [] }),
     listProjectAuditSessions: vi.fn().mockResolvedValue([]),
     listProjectAuditFiles: vi.fn().mockResolvedValue([]),
     getProjectAuditDiff: vi.fn().mockResolvedValue(null),
@@ -663,6 +669,8 @@ export function createMockApi() {
     dismissActivity: vi.fn().mockResolvedValue(true),
     setViewedActivityConversation: vi.fn().mockResolvedValue(0),
     getUnseenActivityCount: vi.fn().mockResolvedValue(0),
+    getNewContentConversations: vi.fn().mockResolvedValue([]),
+    markAllNewContentRead: vi.fn().mockResolvedValue(0),
 
     // Artifacts
     onArtifactUpdated: vi.fn().mockReturnValue(() => {}),

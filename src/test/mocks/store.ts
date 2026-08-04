@@ -68,6 +68,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     // Tool Approval
     toolApprovalRequests: [],
     unreadConversationIds: [],
+    syncedUnreadConversationIds: [],
     generatingConversationIds: [],
     generatingStartTimes: {} as Record<string, number>,
     pendingConversationIds: [],
