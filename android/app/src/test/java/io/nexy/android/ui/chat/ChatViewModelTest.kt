@@ -780,6 +780,52 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun duplicateImagePayloadIsOnlyAttachedOnce() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        val dataUrl = "data:image/png;base64,abc123"
+        vm.addAttachment("photo.png", "image/png", dataUrl, null)
+        vm.addAttachment("photo.png", "image/png", dataUrl, null)
+
+        assertEquals(1, vm.attachments.value.size)
+
+        vm.sendMessage("Review this")
+
+        assertEquals(1, vm.messages.value.single().attachments.size)
+        @Suppress("UNCHECKED_CAST")
+        val images = fakeWs.sentCommands.last().data["images"] as List<Map<String, String>>
+        assertEquals(1, images.size)
+        assertEquals(dataUrl, images.single()["dataUrl"])
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun sendMessageRetainsBinaryFilesAsFirstClassAttachments() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        vm.addAttachment("brief.pdf", "application/pdf", "data:application/pdf;base64,JVBERg==", null)
+        vm.sendMessage("Summarize this")
+
+        val optimistic = vm.messages.value.single()
+        assertEquals("Summarize this", optimistic.text)
+        assertEquals("file", optimistic.attachments.single().type)
+        assertEquals("brief.pdf", optimistic.attachments.single().name)
+
+        @Suppress("UNCHECKED_CAST")
+        val sent = fakeWs.sentCommands.last().data["attachments"] as List<Map<String, Any>>
+        assertEquals("application/pdf", sent.single()["mimeType"])
+        assertEquals("data:application/pdf;base64,JVBERg==", sent.single()["dataUrl"])
+        assertEquals(4L, sent.single()["size"])
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun sendMessageIncludesDraftAgentAndProjectIds() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("draft-conv", fakeWs, agentId = "agent-1", projectId = "project-1")

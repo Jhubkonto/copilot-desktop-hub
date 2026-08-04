@@ -187,6 +187,45 @@ class HomeViewModelTest {
         vm.viewModelScope.cancel()
     }
 
+    @Test
+    fun rapidSearchTypingSendsOnlyTheSettledQuery() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = HomeViewModel(Application(), fakeWs, FakeApprovalEffects())
+
+        vm.setSearchQuery("n")
+        vm.setSearchQuery("ne")
+        vm.setSearchQuery("nexy")
+
+        dispatcher.scheduler.advanceTimeBy(249)
+        assertEquals(1, fakeWs.sentCommands.size)
+
+        dispatcher.scheduler.advanceTimeBy(1)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(2, fakeWs.sentCommands.size)
+        assertEquals("nexy", fakeWs.sentCommands.last().data["query"])
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun clearingSearchRequestsTheUnfilteredPageImmediately() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = HomeViewModel(Application(), fakeWs, FakeApprovalEffects())
+
+        vm.setSearchQuery("nexy")
+        vm.setSearchQuery("")
+
+        assertEquals(2, fakeWs.sentCommands.size)
+        assertEquals("", fakeWs.sentCommands.last().data["query"])
+        assertNull(vm.searchResults.value)
+
+        dispatcher.scheduler.advanceTimeBy(250)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(2, fakeWs.sentCommands.size)
+
+        vm.viewModelScope.cancel()
+    }
+
     private data class SentCommand(val command: String, val data: Map<String, Any>)
 
     private class FakeWsClient : WsClient {
