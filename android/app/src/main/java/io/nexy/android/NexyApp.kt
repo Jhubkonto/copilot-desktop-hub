@@ -7,6 +7,12 @@ import android.app.NotificationManager
 import android.os.Bundle
 import com.google.firebase.messaging.FirebaseMessaging
 import io.nexy.android.notification.NexyFcmService
+import io.nexy.android.share.ShareTargetPublisher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class NexyApp : Application() {
     private var resumedActivityCount = 0
@@ -38,6 +44,12 @@ class NexyApp : Application() {
         })
         io.nexy.android.ui.theme.ThemePreferenceStore.init(this)
         io.nexy.android.data.WsRepository.init(this)
+        CoroutineScope(Dispatchers.Default).launch {
+            io.nexy.android.data.WsRepository.conversations
+                .map { rows -> rows.map { Triple(it.id, it.title, it.updated_at) } }
+                .distinctUntilChanged()
+                .collect { ShareTargetPublisher.publish(this@NexyApp, io.nexy.android.data.WsRepository.conversations.value) }
+        }
         val runningBuild = io.nexy.android.ui.settings.UpdateInstallVerification.runningBuild(this)
         android.util.Log.i(
             "NexyBuild",

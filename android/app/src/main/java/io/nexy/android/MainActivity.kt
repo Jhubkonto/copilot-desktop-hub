@@ -14,14 +14,17 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.navigation.AppShell
+import io.nexy.android.share.ShareIntentRepository
 import io.nexy.android.ui.theme.NexyTheme
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
 import io.nexy.android.ui.theme.UiStylePreference
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -35,6 +38,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         io.nexy.android.notification.ActivityBadgeManager.markIntentSeen(this, intent)
         pendingDeeplink.value = intent?.getStringExtra("deeplink")
+        handleSharedContent(intent)
         enableEdgeToEdge()
         setContent {
             val themePreference by ThemePreferenceStore.themePreference.collectAsStateWithLifecycle()
@@ -64,6 +68,7 @@ class MainActivity : ComponentActivity() {
         if (deeplink != null) {
             pendingDeeplink.value = deeplink
         }
+        handleSharedContent(intent)
     }
 
     override fun onResume() {
@@ -81,5 +86,15 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) return
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun handleSharedContent(intent: Intent?) {
+        intent ?: return
+        lifecycleScope.launch {
+            val result = ShareIntentRepository.import(this@MainActivity, intent) ?: return@launch
+            pendingDeeplink.value = result.conversationId?.let { conversationId ->
+                "chat/${android.net.Uri.encode(conversationId)}?shareId=${android.net.Uri.encode(result.batch.id)}"
+            } ?: "share/${android.net.Uri.encode(result.batch.id)}"
+        }
     }
 }
