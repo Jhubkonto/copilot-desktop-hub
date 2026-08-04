@@ -438,10 +438,25 @@ private fun SpecReviewPhase(
             OutlinedTextField(
                 value = spec.rootDirectory.orEmpty(),
                 onValueChange = { onSpecChange(spec.copy(rootDirectory = it.ifBlank { null })) },
-                label = { Text("Root directory") },
+                label = { Text("Primary desktop source (optional)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
+            Text(
+                if (spec.sources.isEmpty() && spec.rootDirectory.isNullOrBlank())
+                    "You can create an unbound project now and attach repository folders from Nexy Desktop later."
+                else "Source paths are resolved and validated by Nexy Desktop.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (spec.sources.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Sources", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                spec.sources.forEach { source ->
+                    val location = source.localPath ?: source.remoteUrl ?: "Desktop setup required"
+                    Text("• ${source.label}: $location", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = spec.instructions,
@@ -494,7 +509,7 @@ private fun SpecReviewPhase(
             Spacer(Modifier.height(8.dp))
             Text("Creating project…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            val canCreate = spec?.let { it.name.isNotBlank() && !it.rootDirectory.isNullOrBlank() } ?: false
+            val canCreate = spec?.name?.isNotBlank() == true
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 NexySecondaryButton(text = "Back", onClick = onBack)
                 NexyPrimaryButton(text = "Create project", onClick = onConfirm, enabled = canCreate)

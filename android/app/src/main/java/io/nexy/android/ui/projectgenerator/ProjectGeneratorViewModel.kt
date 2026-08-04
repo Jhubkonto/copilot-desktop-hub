@@ -123,6 +123,19 @@ class ProjectGeneratorViewModel(
             "agents" to agentsList,
         )
         rootDirectory?.let { payload["rootDirectory"] = it }
+        if (sources.isNotEmpty()) {
+            payload["version"] = 2
+            payload["sources"] = sources.map { source ->
+                buildMap<String, Any> {
+                    put("key", source.key)
+                    put("label", source.label)
+                    put("mode", source.mode)
+                    put("discovery", source.discovery)
+                    source.localPath?.let { put("localPath", it) }
+                    source.remoteUrl?.let { put("remoteUrl", it) }
+                }
+            }
+        }
         instructionMode?.let { payload["instructionMode"] = it }
         defaultModel?.let { payload["defaultModel"] = it }
         payload
