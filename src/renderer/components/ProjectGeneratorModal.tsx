@@ -41,6 +41,20 @@ function DraftPreview({ spec }: { spec: ProjectGeneratorSpec | null }) {
         <span className="font-semibold text-nexy-text truncate">{spec.name}</span>
       </div>
 
+      {(spec.sources?.length ?? 0) > 0 && (
+        <div>
+          <p className="nexy-status-label text-[10px] uppercase tracking-wide text-nexy-muted mb-1">Sources</p>
+          <div className="space-y-1">
+            {spec.sources!.map((source) => (
+              <div key={source.key} className="rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-2 py-1.5">
+                <p className="text-xs font-medium text-nexy-text">{source.label}</p>
+                <p className="text-[10px] font-mono text-nexy-muted truncate">{source.localPath ?? source.remoteUrl ?? 'Desktop setup required'}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Instructions excerpt */}
       {spec.instructions && (
         <div>
@@ -387,9 +401,11 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
 
       // Step 1: update config
       setCreationStep(1)
+      const attachableSources = specToCreate.sources?.filter((source) => source.mode === 'attach-existing' && source.localPath?.trim()) ?? []
+      const compatibilityRoot = specToCreate.rootDirectory ?? attachableSources[0]?.localPath ?? ''
       await updateProjectConfig(projectId, {
         instructions: specToCreate.instructions,
-        rootDirectory: specToCreate.rootDirectory ?? '',
+        rootDirectory: compatibilityRoot,
         instructionMode: (specToCreate.instructionMode ?? 'prepend') as 'prepend' | 'append' | 'replace' | 'standalone',
         variables: specToCreate.variables,
         inScope: specToCreate.inScope.map((s, i) => ({ id: String(i), ...s })),
@@ -399,6 +415,9 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
         workflowMode: specToCreate.orchestrationEnabled ? 'orchestrated' : 'single-agent',
         orchestrationEnabled: specToCreate.orchestrationEnabled,
       })
+      for (const source of attachableSources) {
+        await window.api.addProjectSource(projectId, { label: source.label, localPath: source.localPath! })
+      }
 
       // Step 2: create new agents
       setCreationStep(2)
