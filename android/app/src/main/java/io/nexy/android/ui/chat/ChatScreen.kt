@@ -45,7 +45,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -79,6 +78,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import io.nexy.android.ui.theme.Blue500
+import io.nexy.android.ui.theme.Green500
 import io.nexy.android.ui.theme.Gray400
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -145,6 +145,7 @@ import io.nexy.android.service.SpokenOutputKind
 import io.nexy.android.service.createQuickRecap
 import io.nexy.android.service.sanitizeForSpeech
 import io.nexy.android.service.SpokenPlaybackStatus
+import io.nexy.android.share.ShareIntentRepository
 
 /**
  * Snapshot key for the auto-follow re-pin effect. Value-equality across all fields is what makes
@@ -160,23 +161,31 @@ private data class ScrollPinSignal(
     val canScrollForward: Boolean,
 )
 
+private fun decodeUtf8Text(bytes: ByteArray): String? = runCatching {
+    Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        .decode(java.nio.ByteBuffer.wrap(bytes))
+        .toString()
+}.getOrNull()
+
 /** Small "Completed" indicator shown in the chat header's title area when the open
  * conversation is marked complete — the in-chat counterpart to the checkmark already shown
  * for completed conversations in list screens (e.g. ScopedChatHistoryScreen). */
 @Composable
 fun ChatCompletedBadge() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        Icon(
-            Icons.Default.CheckCircle,
+        NexyIcon(
+            NexyIconName.CheckedBox,
             contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = Color(0xFF34D399),
+            modifier = Modifier.size(14.dp),
+            tint = Green500,
         )
         Text(
             "Completed",
             maxLines = 1,
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF34D399),
+            color = Green500,
         )
     }
 }
@@ -222,6 +231,7 @@ fun ChatScreen(
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
     onOpenDesktopPathPicker: (() -> Unit)? = null,
     initialMessageId: String? = null,
+    sharedBatchId: String? = null,
     onNewChat: ((String?, String?) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
         factory = remember(conversationId, agentId, projectId) {
@@ -365,6 +375,38 @@ fun ChatScreen(
     val inspectorSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(sharedBatchId) {
+        val batchId = sharedBatchId ?: return@LaunchedEffect
+        val batch = withContext(Dispatchers.IO) { ShareIntentRepository.load(context, batchId) }
+        if (batch == null) {
+            snackbarHostState.showSnackbar("The shared files are no longer available.")
+            return@LaunchedEffect
+        }
+        batch.text?.let { sharedText ->
+            input = if (input.isBlank()) sharedText else "$input\n$sharedText"
+            vm.setDraft(input)
+        }
+        var imported = 0
+        for (attachment in batch.attachments) {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { java.io.File(attachment.localPath).readBytes() }.getOrNull()
+            } ?: continue
+            val dataUrl = "data:${attachment.mimeType};base64," +
+                android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            vm.addAttachment(
+                name = attachment.name,
+                mimeType = attachment.mimeType,
+                dataUrl = dataUrl,
+                textContent = decodeUtf8Text(bytes),
+            )
+            imported++
+        }
+        ShareIntentRepository.discard(context, batchId)
+        if (batch.rejectedCount > 0) {
+            snackbarHostState.showSnackbar("$imported attached · ${batch.rejectedCount} skipped because of size or access limits.")
+        }
+    }
     val preferenceStore = remember(context) { PreferenceStore.getInstance(context) }
     val voiceDockEnabled by preferenceStore.getVoiceDockV1().collectAsState(initial = true)
     val spokenOutputEnabled by preferenceStore.getSpokenOutputV1().collectAsState(initial = true)
@@ -505,7 +547,9 @@ fun ChatScreen(
     var relaunchFilePicker by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        for (uri in uris) {
+        // A few document providers repeat the same content URI in this result even when the
+        // user selected it once. Avoid reading and enqueueing that duplicate in the first place.
+        for (uri in uris.distinct()) {
             val cursor = context.contentResolver.query(uri, null, null, null, null) ?: continue
             val name = cursor.use { c ->
                 val idx = c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
@@ -535,17 +579,8 @@ fun ChatScreen(
                 val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                 vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
             } else {
-                val text = try {
-                    bytes.toString(Charsets.UTF_8).also {
-                        Charsets.UTF_8.newDecoder()
-                            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-                            .decode(java.nio.ByteBuffer.wrap(bytes))
-                    }
-                } catch (e: java.nio.charset.CharacterCodingException) {
-                    scope.launch { snackbarHostState.showSnackbar("$name is a binary file and cannot be attached as text.") }
-                    continue
-                }
-                vm.addAttachment(name, mimeType, null, text)
+                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", decodeUtf8Text(bytes))
             }
         }
     }
@@ -1440,6 +1475,22 @@ fun ChatScreen(
                             contentDescription = if (emergencyStopActive) "Resume conversations" else "Emergency stop all conversations",
                             tint = if (emergencyStopActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    if (conversation != null) {
+                        IconButton(
+                            onClick = {
+                                WsRepository.setPinnedConversation(conversationId, !conversation.pinned)
+                            },
+                        ) {
+                            NexyIcon(
+                                NexyIconName.Pin,
+                                contentDescription = if (conversation.pinned) "Unpin conversation" else "Pin conversation",
+                                tint = if (conversation.pinned)
+                                    MaterialTheme.colorScheme.secondary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     IconButton(onClick = { showActionsSheet = true }) {
                         NexyIcon(NexyIconName.More, contentDescription = "More actions")

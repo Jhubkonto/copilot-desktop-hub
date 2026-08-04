@@ -1208,6 +1208,10 @@ class ChatViewModel(
     }
 
     fun addAttachment(name: String, mimeType: String, dataUrl: String?, textContent: String?) {
+        // Some Android document providers return the selected item more than once from
+        // GetMultipleContents. Treat identical payloads as one pending attachment so the
+        // optimistic message and the persisted attachment metadata cannot render duplicates.
+        if (dataUrl != null && _attachments.value.any { it.dataUrl == dataUrl }) return
         _attachments.value = _attachments.value + PendingAttachment(
             id = UUID.randomUUID().toString(),
             name = name,
@@ -1613,22 +1617,21 @@ class ChatViewModel(
         if (text.isBlank() && atts.isEmpty()) return
         _attachments.value = emptyList()
 
-        val textAtts = atts.filter { !it.isImage && it.desktopPath == null }
         val imageAtts = atts.filter { it.isImage }
+        val mobileFileAtts = atts.filter { !it.isImage && it.desktopPath == null }
         val desktopPathAtts = atts.filter { it.desktopPath != null }
 
-        var augmented = text
-        if (textAtts.isNotEmpty()) {
-            val fileContext = textAtts.joinToString("\n") { "File: ${it.name}\n```\n${it.textContent.orEmpty()}\n```\n" }
-            augmented = if (text.isBlank()) fileContext.trimEnd() else "$fileContext$text"
-        }
-
         val optimisticMessage = ChatMessage(
-            text = if (augmented.isBlank() && imageAtts.isNotEmpty()) "" else augmented,
+            text = text,
             isUser = true,
             isStreaming = false,
-            attachments = imageAtts.map {
-                AttachmentMeta(id = it.id, name = it.name, type = "image", thumbnailDataUrl = it.dataUrl)
+            attachments = (imageAtts + mobileFileAtts).map {
+                AttachmentMeta(
+                    id = it.id,
+                    name = it.name,
+                    type = if (it.isImage) "image" else "file",
+                    thumbnailDataUrl = it.dataUrl.takeIf { _ -> it.isImage },
+                )
             },
         )
         if (retryMessageId == null) {
@@ -1646,7 +1649,7 @@ class ChatViewModel(
 
         val data = buildMap<String, Any> {
             put("conversationId", conversationId)
-            put("content", augmented)
+            put("content", text)
             retryMessageId?.let { put("retryMessageId", it) }
             if (agentId != null) put("agentId", agentId)
             if (projectId != null) put("projectId", projectId)
@@ -1654,9 +1657,17 @@ class ChatViewModel(
             if (imageAtts.isNotEmpty()) {
                 put("images", imageAtts.map { mapOf("id" to it.id, "name" to it.name, "dataUrl" to it.dataUrl.orEmpty()) })
             }
-            if (desktopPathAtts.isNotEmpty()) {
+            if (desktopPathAtts.isNotEmpty() || mobileFileAtts.isNotEmpty()) {
                 put("attachments", desktopPathAtts.map {
                     mapOf("id" to it.id, "name" to it.name, "path" to it.desktopPath.orEmpty(), "size" to 0)
+                } + mobileFileAtts.map {
+                    mapOf(
+                        "id" to it.id,
+                        "name" to it.name,
+                        "mimeType" to it.mimeType,
+                        "dataUrl" to it.dataUrl.orEmpty(),
+                        "size" to estimateDataUrlBytes(it.dataUrl),
+                    )
                 })
             }
             // Any mode override set while this was still a draft conversation (no server row yet,
@@ -1669,6 +1680,16 @@ class ChatViewModel(
         }
         if (wsClient === WsRepository) WsRepository.markConversationPending(conversationId)
         wsClient.send("chat:send-message", data)
+    }
+
+    private fun estimateDataUrlBytes(dataUrl: String?): Long {
+        val payload = dataUrl?.substringAfter(',', "").orEmpty()
+        val padding = when {
+            payload.endsWith("==") -> 2
+            payload.endsWith('=') -> 1
+            else -> 0
+        }
+        return ((payload.length * 3L) / 4L - padding).coerceAtLeast(0L)
     }
 
     fun stopStream() {
