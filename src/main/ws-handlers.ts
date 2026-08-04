@@ -126,6 +126,7 @@ import {
   getRatingStats,
 } from './rating-handlers'
 import { getActivitySnapshot, endActivity } from './activity-tracker'
+import { clearUnseenDestination, getNewContentConversations, markAllConversationsRead } from './activity-badge'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
   insertPromptLibraryEntry,
@@ -137,6 +138,7 @@ import { buildConversationExportPack, forkConversation, importConversationExport
 import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
 import { CLAUDE_CLI_MODES, CODEX_CLI_MODES } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
+import { ensureLegacyProjectSource, listProjectSources, primarySourcePath, setPrimarySourcePath } from './project-sources'
 import { parseProjectConfig, detectProjectWorkspaceMetadata, PROJECT_COLORS } from './project-handlers'
 import { listDirectoryEntriesForRemote, getFsStartRoots } from './file-handlers'
 import {
@@ -151,7 +153,7 @@ import {
   setSkillAgentAttachment,
   updateSkillConfig,
 } from './skills'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import { app } from 'electron'
 import { handleStandaloneSyncCommand } from './standalone-sync'
@@ -177,6 +179,39 @@ export function registerApprovalResolver(fn: (requestId: string, approved: boole
 }
 export function registerConversationApprovalEscalator(fn: (conversationId: string) => void): void {
   approveConversationApprovalsFn = fn
+}
+
+const MAX_MOBILE_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
+type MaterializedChatAttachment = { id: string; name: string; path: string; size: number }
+
+export function decodeMobileAttachmentDataUrl(dataUrl: unknown): { mimeType: string; bytes: Buffer } | null {
+  if (typeof dataUrl !== 'string') return null
+  const match = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/.exec(dataUrl)
+  if (!match) return null
+  const bytes = Buffer.from(match[2], 'base64')
+  if (bytes.length > MAX_MOBILE_ATTACHMENT_BYTES) return null
+  return { mimeType: match[1], bytes }
+}
+
+/** Converts a mobile data URL into an app-owned file before chat dispatch. The resulting path is
+ * durable across renderer/device disconnects and never trusts the sender's filename as a path. */
+export function materializeMobileAttachment(
+  conversationId: string,
+  value: Record<string, unknown>,
+): MaterializedChatAttachment | null {
+  const id = typeof value.id === 'string' ? value.id : ''
+  const name = typeof value.name === 'string' ? value.name : ''
+  const decoded = decodeMobileAttachmentDataUrl(value.dataUrl)
+  if (!id || !name || !decoded) return null
+  const safeConversation = conversationId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'chat'
+  const safeName = pathModule.basename(name).replace(/[\x00-\x1f<>:"/\\|?*]/g, '_').slice(0, 120) || 'attachment'
+  const extension = pathModule.extname(safeName).slice(0, 16)
+  const directory = pathModule.join(app.getPath('userData'), 'mobile-attachments', safeConversation)
+  mkdirSync(directory, { recursive: true })
+  const target = pathModule.join(directory, `${randomUUID()}${extension}`)
+  writeFileSync(target, decoded.bytes, { flag: 'wx' })
+  return { id, name: safeName, path: target, size: decoded.bytes.length }
 }
 
 /** Defensively parses a QuizSpec from an untrusted WS payload (Android companion). */
@@ -1340,7 +1375,7 @@ export function registerWsHandlers(): void {
       const projectId = typeof data.projectId === 'string' ? data.projectId : undefined
       const rawImages = Array.isArray(data.images) ? data.images : []
       const rawAttachments = Array.isArray(data.attachments) ? data.attachments : []
-      const attachments = rawAttachments.filter(
+      const pathAttachments = rawAttachments.filter(
         (attachment): attachment is { id: string; name: string; path: string; size: number } =>
           typeof attachment === 'object' && attachment !== null &&
           typeof (attachment as Record<string, unknown>).id === 'string' &&
@@ -1348,6 +1383,14 @@ export function registerWsHandlers(): void {
           typeof (attachment as Record<string, unknown>).path === 'string' &&
           typeof (attachment as Record<string, unknown>).size === 'number'
       )
+      const uploadedAttachments = rawAttachments
+        .filter((attachment): attachment is Record<string, unknown> =>
+          typeof attachment === 'object' && attachment !== null &&
+          typeof (attachment as Record<string, unknown>).dataUrl === 'string'
+        )
+        .map((attachment) => materializeMobileAttachment(conversationId, attachment))
+        .filter((attachment): attachment is MaterializedChatAttachment => attachment !== null)
+      const attachments = [...pathAttachments, ...uploadedAttachments]
       const images = rawImages.filter(
         (img): img is { id: string; name: string; dataUrl: string } =>
           typeof img === 'object' && img !== null &&
@@ -1848,7 +1891,10 @@ export function registerWsHandlers(): void {
       const merged = { ...current, ...patch }
       if (typeof patch.rootDirectory === 'string') {
         merged.workspaceInfo = detectProjectWorkspaceMetadata(patch.rootDirectory)
+        setPrimarySourcePath(db, id, patch.rootDirectory)
       }
+      const hierarchy = listProjectSources(db, id)
+      Object.assign(merged, hierarchy, { rootDirectory: primarySourcePath(hierarchy) || merged.rootDirectory })
       db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
       broadcastToMobile({ event: 'project:config-updated', data: { id, config: parseProjectConfig(JSON.stringify(merged)) } })
       return
@@ -1886,7 +1932,10 @@ export function registerWsHandlers(): void {
         { config_json: string | null } | undefined
       const defaultModelRow = db.prepare('SELECT default_model FROM projects WHERE id = ?').get(id) as
         { default_model: string | null } | undefined
-      const config = { ...parseProjectConfig(row?.config_json ?? null), defaultModel: defaultModelRow?.default_model ?? null }
+      const parsed = parseProjectConfig(row?.config_json ?? null)
+      ensureLegacyProjectSource(db, id, parsed.rootDirectory)
+      const hierarchy = listProjectSources(db, id)
+      const config = { ...parsed, ...hierarchy, rootDirectory: primarySourcePath(hierarchy) || parsed.rootDirectory, defaultModel: defaultModelRow?.default_model ?? null }
       reply({ event: 'project:config', data: { id, config } })
       return
     }
@@ -1911,8 +1960,9 @@ export function registerWsHandlers(): void {
     if (command === 'project-audit:get-diff') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
       const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      const fileId = typeof data.fileId === 'string' ? data.fileId : null
       if (!sessionId || !relativePath) return
-      reply({ event: 'project-audit:diff', data: { sessionId, diff: getProjectAuditDiff(sessionId, relativePath) } })
+      reply({ event: 'project-audit:diff', data: { sessionId, fileId, diff: getProjectAuditDiff(sessionId, relativePath, fileId) } })
       return
     }
 
@@ -3936,6 +3986,24 @@ export function registerWsHandlers(): void {
 
     if (command === 'activity:list') {
       reply({ event: 'activity:changed', data: { activities: getActivitySnapshot() } })
+      return
+    }
+
+    if (command === 'new-content:list') {
+      reply({ event: 'new-content:changed', data: { conversations: getNewContentConversations() } })
+      return
+    }
+
+    if (command === 'new-content:mark-read') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (conversationId) {
+        clearUnseenDestination(`chat:${conversationId}`)
+      }
+      return
+    }
+
+    if (command === 'new-content:mark-all-read') {
+      markAllConversationsRead()
       return
     }
 

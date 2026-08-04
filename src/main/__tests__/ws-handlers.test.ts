@@ -217,7 +217,12 @@ vi.mock('../rating-handlers', () => ({
   getRatingStats: state.getRatingStats,
 }))
 
-import { registerWsHandlers, registerApprovalResolver, registerConversationApprovalEscalator } from '../ws-handlers'
+import {
+  decodeMobileAttachmentDataUrl,
+  registerWsHandlers,
+  registerApprovalResolver,
+  registerConversationApprovalEscalator,
+} from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
 import { getAndroidUpdateManifest } from '../android-handlers'
 import { isProviderConfigured } from '../providers'
@@ -233,6 +238,14 @@ function sendCommand(command: string, data: Record<string, unknown> = {}) {
 }
 
 describe('ws handlers', () => {
+  it('validates mobile binary attachment data URLs before materializing them', () => {
+    const decoded = decodeMobileAttachmentDataUrl('data:application/pdf;base64,JVBERg==')
+    expect(decoded?.mimeType).toBe('application/pdf')
+    expect(decoded?.bytes.toString('utf8')).toBe('%PDF')
+    expect(decodeMobileAttachmentDataUrl('https://example.com/file.pdf')).toBeNull()
+    expect(decodeMobileAttachmentDataUrl('data:application/pdf,not-base64')).toBeNull()
+  })
+
   it('returns a compatibility tombstone for retired Conversation Mode commands', () => {
     const reply = sendCommand('conversation-mode:create', { projectId: 'project-1' })
 
@@ -587,10 +600,20 @@ describe('ws handlers', () => {
     ])
     state.listProjectAuditFiles.mockReturnValue([
       {
+        id: 'file-1',
         sessionId: 'session-1',
+        sourceId: 'source-1',
+        sourceLabel: 'Workspace',
+        repositoryId: 'repo-1',
+        repositoryLabel: 'desktop',
+        repositoryAvailable: true,
         relativePath: 'src/example.ts',
+        displayPath: 'desktop/src/example.ts',
         status: 'modified',
         lastOperation: 'apply',
+        branch: 'main',
+        commitHash: null,
+        legacyRepositoryUnknown: false,
         firstTouchedAt: 1,
         lastTouchedAt: 2,
         diffAvailable: true,
@@ -623,6 +646,7 @@ describe('ws handlers', () => {
       event: 'project-audit:diff',
       data: {
         sessionId: 'session-1',
+        fileId: null,
         diff: { relativePath: 'src/example.ts', hunks: [] },
       },
     })

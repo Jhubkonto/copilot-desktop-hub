@@ -20,7 +20,7 @@ vi.mock('../agents', () => ({ getAgentConfig: vi.fn(() => null) }))
 vi.mock('../file-handlers', () => ({ listDirectoryEntries: vi.fn(() => []) }))
 function baseProjectConfig() {
   return {
-    instructions: '', instructionsEnabled: true, rootDirectory: '', variables: [],
+    instructions: '', instructionsEnabled: true, rootDirectory: '', sources: [], repositories: [], variables: [],
     instructionMode: 'prepend', workflowMode: 'single-agent', orchestrationEnabled: false,
     maxDelegationDepth: 5, showTeamActivity: true, inScope: [], outOfScope: [], milestones: [],
     strategyRetrievalEnabled: false, codingWorkspace: false, workspaceInfo: null, verifyCommands: null,
