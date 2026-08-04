@@ -6,6 +6,8 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 internal const val ACTIVITY_FEED_ROUTE = "activity-feed"
+internal const val PINNED_CHATS_ROUTE = "pinned-chats"
+internal const val NEW_CONTENT_ROUTE = "new-content"
 
 /**
  * Opens the activity feed as a single branch in the navigation tree.
@@ -22,6 +24,21 @@ internal fun NavHostController.openActivityFeed() {
     }
 }
 
+internal fun NavHostController.openPinnedChats() {
+    if (currentDestination?.route == PINNED_CHATS_ROUTE) return
+    if (popBackStack(PINNED_CHATS_ROUTE, inclusive = false)) return
+
+    navigate(PINNED_CHATS_ROUTE) {
+        launchSingleTop = true
+    }
+}
+
+internal fun NavHostController.openNewContent() {
+    if (currentDestination?.route == NEW_CONTENT_ROUTE) return
+    if (popBackStack(NEW_CONTENT_ROUTE, inclusive = false)) return
+    navigate(NEW_CONTENT_ROUTE) { launchSingleTop = true }
+}
+
 /**
  * Opens an item from the activity feed without creating a feed -> screen -> feed -> screen loop.
  *
@@ -33,6 +50,22 @@ internal fun NavHostController.openActivityRoute(route: String) {
     val underlyingEntry = previousBackStackEntry
     if (
         currentDestination?.route == ACTIVITY_FEED_ROUTE &&
+        underlyingEntry?.matchesConcreteRoute(route) == true
+    ) {
+        popBackStack()
+        return
+    }
+
+    navigate(route) {
+        launchSingleTop = true
+    }
+}
+
+/** Opens a chat from the pinned shelf while keeping one reusable shelf entry in the stack. */
+internal fun NavHostController.openPinnedChat(route: String) {
+    val underlyingEntry = previousBackStackEntry
+    if (
+        currentDestination?.route == PINNED_CHATS_ROUTE &&
         underlyingEntry?.matchesConcreteRoute(route) == true
     ) {
         popBackStack()

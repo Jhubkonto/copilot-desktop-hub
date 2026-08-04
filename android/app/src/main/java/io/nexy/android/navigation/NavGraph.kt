@@ -38,6 +38,8 @@ import io.nexy.android.ui.projects.AutomatedWorkflowListScreen
 import io.nexy.android.ui.ratings.RatingsScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowScreen
 import io.nexy.android.ui.home.ActivityFeedScreen
+import io.nexy.android.ui.home.PinnedChatsScreen
+import io.nexy.android.ui.home.NewContentScreen
 import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
@@ -71,8 +73,12 @@ import io.nexy.android.ui.splash.SplashScreen
 import io.nexy.android.ui.debrief.DebriefScreen
 import io.nexy.android.ui.quiz.QuizScreen
 import io.nexy.android.ui.teachback.TeachbackScreen
+import io.nexy.android.ui.share.ShareToChatScreen
 
-internal const val CHAT_ROUTE = "chat/{conversationId}?agentId={agentId}&projectId={projectId}&messageId={messageId}"
+internal const val CHAT_ROUTE = "chat/{conversationId}?agentId={agentId}&projectId={projectId}&messageId={messageId}&shareId={shareId}"
+
+internal fun shouldDeferNotificationDeeplink(currentRoute: String?): Boolean =
+    currentRoute == null || currentRoute == "splash"
 
 @Composable
 fun NavGraph(
@@ -120,9 +126,7 @@ fun NavGraph(
         pendingDeeplink.filterNotNull().collect { deeplink ->
             pendingDeeplink.value = null
             val currentRoute = navController.currentBackStackEntry?.destination?.route
-            if (currentRoute == "home") {
-                navController.navigate(deeplink)
-            } else {
+            if (shouldDeferNotificationDeeplink(currentRoute)) {
                 navController.addOnDestinationChangedListener(object :
                     NavController.OnDestinationChangedListener {
                     override fun onDestinationChanged(
@@ -136,6 +140,10 @@ fun NavGraph(
                         }
                     }
                 })
+            } else {
+                navController.navigate(deeplink) {
+                    launchSingleTop = true
+                }
             }
         }
     }
@@ -234,6 +242,7 @@ fun NavGraph(
                 onOpenSettings = {
                     navController.navigate("settings")
                 },
+                onOpenNewContent = { navController.openNewContent() },
                 onOpenPairingScan = {
                     navController.navigate("home/add-server")
                 },
@@ -254,6 +263,45 @@ fun NavGraph(
             ActivityFeedScreen(
                 onBack = { navController.popBackStack() },
                 onOpenActivity = { activity -> navController.openActivityRoute(activity.route) },
+            )
+        }
+
+        composable(PINNED_CHATS_ROUTE) {
+            PinnedChatsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenChat = { conversationId ->
+                    navController.openPinnedChat("chat/${Uri.encode(conversationId)}")
+                },
+            )
+        }
+
+        composable(NEW_CONTENT_ROUTE) {
+            NewContentScreen(
+                onBack = { navController.popBackStack() },
+                onOpenChat = { conversationId ->
+                    navController.navigate("chat/${Uri.encode(conversationId)}") { launchSingleTop = true }
+                },
+            )
+        }
+
+        composable(
+            route = "share/{batchId}",
+            arguments = listOf(navArgument("batchId") { type = NavType.StringType }),
+        ) { backStack ->
+            val batchId = backStack.arguments?.getString("batchId") ?: return@composable
+            ShareToChatScreen(
+                batchId = batchId,
+                onBack = { navController.popBackStack() },
+                onSelectConversation = { conversationId ->
+                    navController.navigate("chat/${Uri.encode(conversationId)}?shareId=${Uri.encode(batchId)}") {
+                        popUpTo("share/{batchId}") { inclusive = true }
+                    }
+                },
+                onNewChat = {
+                    navController.navigate("chat/${java.util.UUID.randomUUID()}?shareId=${Uri.encode(batchId)}") {
+                        popUpTo("share/{batchId}") { inclusive = true }
+                    }
+                },
             )
         }
 
@@ -301,6 +349,10 @@ fun NavGraph(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument("shareId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
             enterTransition = { androidx.compose.animation.EnterTransition.None },
             exitTransition = { androidx.compose.animation.ExitTransition.None },
@@ -309,6 +361,7 @@ fun NavGraph(
             val agentId = backStack.arguments?.getString("agentId")?.takeIf { it.isNotBlank() }
             val projectId = backStack.arguments?.getString("projectId")?.takeIf { it.isNotBlank() }
             val messageId = backStack.arguments?.getString("messageId")?.takeIf { it.isNotBlank() }
+            val shareId = backStack.arguments?.getString("shareId")?.takeIf { it.isNotBlank() }
             ChatScreen(
                 conversationId = conversationId,
                 agentId = agentId,
@@ -335,6 +388,7 @@ fun NavGraph(
                     navController.navigate("file-explorer?projectId=&startPath=&selectionMode=attachment")
                 },
                 initialMessageId = messageId,
+                sharedBatchId = shareId,
                 onNewChat = { newAgentId, newProjectId ->
                     val newConversationId = java.util.UUID.randomUUID().toString()
                     val agentParam = Uri.encode(newAgentId.orEmpty())
