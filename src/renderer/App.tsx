@@ -9,6 +9,7 @@ import { DeleteAgentDialog } from './components/DeleteAgentDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AndroidLogPanel } from './components/AndroidLogPanel'
 import { BackgroundActivityBridges } from './components/BackgroundActivityBridges'
+import { DesktopDeepLinkBridge } from './components/DesktopDeepLinkBridge'
 import { ActivityFeedModal } from './components/ActivityFeedModal'
 import { useAppStore } from './store/app-store'
 
@@ -357,6 +358,7 @@ export default function App() {
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <AndroidLogPanel enabled={androidDebugLog} />
+      <DesktopDeepLinkBridge />
       <BackgroundActivityBridges />
       {showActivityFeed && <ActivityFeedModal />}
     </div>
