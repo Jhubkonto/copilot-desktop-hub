@@ -975,6 +975,12 @@ class LocalDataRepository private constructor(
         lastSuccessfulSyncAt.value = System.currentTimeMillis()
     }
 
+    /** Persists arbitrary mobile data-URL attachments in the same content-addressed store used by
+     * images, so PDFs, archives, and office files remain first-class message attachments. */
+    suspend fun persistDataUrlAttachments(messageId: String, attachments: List<Map<*, *>>) {
+        persistImageAttachments(messageId, attachments)
+    }
+
     suspend fun applySyncSnapshot(snapshotJson: String, priorityConversationId: String? = null) {
         applySyncSnapshot(JSONObject(snapshotJson), priorityConversationId)
     }
@@ -1260,6 +1266,7 @@ class LocalDataRepository private constructor(
     suspend fun applyRemoteEvent(event: WsEvent) {
         when (event) {
             is WsEvent.ConversationList -> event.conversations.forEach { mergeRemoteConversation(it) }
+            is WsEvent.ConversationPage -> event.conversations.forEach { mergeRemoteConversation(it) }
             is WsEvent.ConversationMessages -> {
                 val incoming = event.messages.map { it.toEntity(event.conversationId) }
                 // An unpaged response is the complete, authoritative conversation snapshot.
@@ -1357,6 +1364,11 @@ class LocalDataRepository private constructor(
             }
             is WsEvent.DebriefConversationIncompleted -> database.conversations().get(event.conversationId)?.let {
                 database.conversations().upsert(it.copy(completedAt = null, remoteVersion = it.remoteVersion + 1))
+            }
+            is WsEvent.ConversationPinned -> database.conversations().get(event.id)?.let {
+                database.conversations().upsert(
+                    it.copy(pinned = event.pinned, remoteVersion = it.remoteVersion + 1),
+                )
             }
             else -> Unit
         }
