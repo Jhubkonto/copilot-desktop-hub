@@ -33,16 +33,7 @@ export interface PcmVoiceRecorderOptions {
   environment?: RecorderEnvironment
 }
 
-const WORKLET_SOURCE = `
-class NexyPcmCaptureProcessor extends AudioWorkletProcessor {
-  process(inputs) {
-    const channel = inputs[0] && inputs[0][0]
-    if (channel && channel.length) this.port.postMessage(channel.slice())
-    return true
-  }
-}
-registerProcessor('nexy-pcm-capture', NexyPcmCaptureProcessor)
-`
+const WORKLET_URL = new URL('../assets/nexy-pcm-capture.worklet.js', import.meta.url).href
 
 function defaultEnvironment(): RecorderEnvironment {
   return {
@@ -188,16 +179,13 @@ export class PcmVoiceRecorder {
 
   private async createCaptureNode(context: AudioContext): Promise<AudioNode> {
     if (context.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
-      const blobUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'text/javascript' }))
       try {
-        await context.audioWorklet.addModule(blobUrl)
+        await context.audioWorklet.addModule(WORKLET_URL)
         const node = new AudioWorkletNode(context, 'nexy-pcm-capture')
         node.port.onmessage = (event: MessageEvent<Float32Array>) => this.receiveChunk(event.data)
         return node
       } catch {
         // Older Electron/audio devices can reject worklet setup. Keep a tested fallback.
-      } finally {
-        URL.revokeObjectURL(blobUrl)
       }
     }
 

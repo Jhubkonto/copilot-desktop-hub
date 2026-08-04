@@ -24,7 +24,7 @@ export const DEFAULT_SPOKEN_OUTPUT_SETTINGS: SpokenOutputSettings = {
   engine: 'system',
   voiceUri: null,
   supertonicSpeakerId: 0,
-  supertonicLanguage: 'auto',
+  supertonicLanguage: 'en',
   rate: 1,
   pitch: 1,
   offlineOnly: true,
