@@ -1223,12 +1223,11 @@ export async function dispatchChatSend(
             const auditTarget = inferProjectAuditTarget(absPath)
             if (!auditTarget) return
             recordProjectAuditChange({
+              ...auditTarget,
               sessionId: cliAuditSessionId,
-              projectId: auditTarget.projectId,
               conversationId,
               title: `${effectiveBackend === 'claude-cli' ? 'Claude CLI' : effectiveBackend === 'codex-cli' ? 'Codex CLI' : 'Hermes Agent'} edits`,
               source: 'cli-tool',
-              relativePath: auditTarget.relativePath,
               status: before === null ? 'created' : 'modified',
               lastOperation: before === null ? 'create' : 'write',
               diff: { hunks: computeLineDiff(before ?? '', after) },

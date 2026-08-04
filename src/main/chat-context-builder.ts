@@ -911,10 +911,9 @@ export async function buildChatContext(
         const auditTarget = inferProjectAuditTarget(resolvedPath)
         if (auditTarget) {
           recordProjectAuditChange({
-            projectId: auditTarget.projectId,
+            ...auditTarget,
             title: 'Tool file write',
             source: 'chat-tool',
-            relativePath: auditTarget.relativePath,
             status: existed ? 'modified' : 'created',
             lastOperation: existed ? 'write' : 'create',
             diff: { hunks: computeLineDiff(beforeContent, fileContent) },
