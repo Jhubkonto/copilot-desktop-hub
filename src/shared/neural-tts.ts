@@ -1,7 +1,6 @@
 export type SpeechEngine = 'system' | 'supertonic'
 
 export const SUPERTONIC_LANGUAGES = [
-  ['auto', 'Automatic'],
   ['ar', 'Arabic'],
   ['bg', 'Bulgarian'],
   ['hr', 'Croatian'],

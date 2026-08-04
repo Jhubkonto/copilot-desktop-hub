@@ -440,7 +440,38 @@ export interface ProjectOrchestrationConfig {
 export interface ScopeRule {
   id: string
   description: string
+  repositoryId?: string
   pathGlob?: string
+}
+
+export type ProjectSourceKind = 'workspace-root' | 'folder'
+
+export interface ProjectSource {
+  id: string
+  projectId: string
+  label: string
+  kind: ProjectSourceKind
+  localPath: string
+  enabled: boolean
+  isPrimary: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ProjectRepository {
+  id: string
+  projectId: string
+  sourceId: string
+  label: string
+  relativePath: string
+  remoteUrl?: string | null
+  branch?: string | null
+  dirty?: boolean | null
+  enabled: boolean
+  available: boolean
+  verifyCommands?: RemoteEditVerifyCommandConfig[] | null
+  createdAt: number
+  updatedAt: number
 }
 
 export interface Milestone {
@@ -511,10 +542,20 @@ export interface ProjectEditSession {
 }
 
 export interface ProjectTouchedFile {
+  id: string
   sessionId: string
+  sourceId: string | null
+  sourceLabel: string | null
+  repositoryId: string | null
+  repositoryLabel: string | null
+  repositoryAvailable: boolean | null
   relativePath: string
+  displayPath: string
   status: ProjectTouchedFileStatus
   lastOperation: 'write' | 'create' | 'delete' | 'apply'
+  branch: string | null
+  commitHash: string | null
+  legacyRepositoryUnknown: boolean
   firstTouchedAt: number
   lastTouchedAt: number
   diffAvailable: boolean
@@ -523,6 +564,9 @@ export interface ProjectTouchedFile {
 export interface ProjectConfig extends ProjectOrchestrationConfig {
   instructions: string
   rootDirectory: string
+  /** Stable multi-location model. rootDirectory remains the primary source compatibility alias. */
+  sources: ProjectSource[]
+  repositories: ProjectRepository[]
   codingWorkspace: boolean
   workspaceInfo: ProjectWorkspaceMetadata | null
   variables: ProjectVariable[]
@@ -546,6 +590,8 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   instructions: '',
   rootDirectory: '',
+  sources: [],
+  repositories: [],
   codingWorkspace: false,
   workspaceInfo: null,
   variables: [],
@@ -952,10 +998,25 @@ export interface ProjectGeneratorAgentSpec {
 }
 
 export interface ProjectGeneratorSpec {
+  version?: 1 | 2
   name: string
   color: string
   instructions: string
   rootDirectory?: string
+  sources?: Array<{
+    key: string
+    label: string
+    mode: 'attach-existing' | 'create-folder' | 'clone'
+    localPath?: string
+    remoteUrl?: string
+    discovery: 'source-is-repository' | 'scan-children' | 'manual'
+    repositories?: Array<{
+      key: string
+      label: string
+      relativePath: string
+      initializeGit?: boolean
+    }>
+  }>
   instructionMode?: 'prepend' | 'append' | 'replace' | 'standalone'
   variables: { key: string; value: string }[]
   inScope: { description: string; pathGlob?: string }[]
@@ -1447,6 +1508,23 @@ export interface ConversationForkResult {
   rewritten_message_count: number
   compressed_message_count: number
   omitted_message_count: number
+}
+
+export interface RendererErrorInput {
+  message: string
+  stack?: string | null
+  level?: Extract<ErrorLogLevel, 'error' | 'warn'>
+}
+
+export interface NewContentConversation {
+  conversationId: string
+  title: string
+  projectId: string | null
+  projectName: string | null
+  agentId: string | null
+  agentName: string | null
+  preview: string | null
+  newContentAt: number
 }
 
 export type ConversationPageScope =
@@ -2144,6 +2222,8 @@ export type IpcReturnMap = {
   'activity-badge:set-viewed-conversation': number
   'activity-badge:get-count': number
   'activity-badge:get-unseen-conversations': string[]
+  'activity-badge:get-new-content': NewContentConversation[]
+  'activity-badge:mark-all-read': number
   'activity-badge:changed': void
   // Debug
   'debug:set-enabled': boolean
@@ -2153,6 +2233,7 @@ export type IpcReturnMap = {
   'errors:get-log-path': string | null
   'errors:get-recent': ErrorLogEntry[]
   'errors:get-renderer-console': ErrorLogEntry[]
+  'errors:record-renderer': ErrorLogEntry
   'errors:new': void
   // Error reports
   'error-report:capture': ErrorReportCaptureResult
@@ -2298,6 +2379,11 @@ export type IpcReturnMap = {
   'project:export': boolean
   'project:get-config': ProjectConfig
   'project:inspect-workspace': ProjectWorkspaceMetadata | null
+  'project:list-sources': { sources: ProjectSource[]; repositories: ProjectRepository[] }
+  'project:add-source': { sources: ProjectSource[]; repositories: ProjectRepository[] }
+  'project:remove-source': { sources: ProjectSource[]; repositories: ProjectRepository[] }
+  'project:remove-repository': { sources: ProjectSource[]; repositories: ProjectRepository[] }
+  'project:rescan-sources': { sources: ProjectSource[]; repositories: ProjectRepository[] }
   'project:list': ProjectRow[]
   'project:list-agents': ProjectAgent[]
   'project:remove-agent': boolean
@@ -2649,6 +2735,8 @@ export type IpcChannels =
   | 'activity-badge:set-viewed-conversation'
   | 'activity-badge:get-count'
   | 'activity-badge:get-unseen-conversations'
+  | 'activity-badge:get-new-content'
+  | 'activity-badge:mark-all-read'
   | 'activity-badge:changed'
   | 'artifact:updated'
   | 'debug:set-enabled'
@@ -2657,6 +2745,7 @@ export type IpcChannels =
   | 'errors:get-log-path'
   | 'errors:get-recent'
   | 'errors:get-renderer-console'
+  | 'errors:record-renderer'
   | 'errors:new'
   | 'error-report:capture'
   | 'error-report:delete'
@@ -2752,6 +2841,11 @@ export type IpcChannels =
   | 'project:export'
   | 'project:get-config'
   | 'project:inspect-workspace'
+  | 'project:list-sources'
+  | 'project:add-source'
+  | 'project:remove-source'
+  | 'project:remove-repository'
+  | 'project:rescan-sources'
   | 'project:list'
   | 'project:list-agents'
   | 'project:remove-agent'
