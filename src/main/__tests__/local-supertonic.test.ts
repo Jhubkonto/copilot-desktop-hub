@@ -8,6 +8,7 @@ vi.mock('electron', () => ({
 }))
 
 import {
+  createSupertonicWorkerRequest,
   encodeMonoPcm16Wave,
   getSupertonicStatus,
   isCompleteSupertonicModel,
@@ -31,6 +32,28 @@ afterEach(async () => {
 })
 
 describe('local Supertonic', () => {
+  it('keeps native audio buffers internal to the isolated speech process', () => {
+    const request = createSupertonicWorkerRequest({
+      text: 'Hello',
+      speakerId: 2,
+      speed: 1,
+      language: 'en',
+    })
+
+    expect(request.generation.enableExternalBuffer).toBe(false)
+  })
+
+  it('falls back to a supported language before invoking the native runtime', () => {
+    const request = createSupertonicWorkerRequest({
+      text: 'Hello',
+      speakerId: 0,
+      speed: 1,
+      language: 'auto' as never,
+    })
+
+    expect(request.generation.language).toBe('en')
+  })
+
   it('only marks a model ready when every required file exists and is non-empty', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nexy-supertonic-test-'))
     roots.push(root)

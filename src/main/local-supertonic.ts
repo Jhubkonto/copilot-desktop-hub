@@ -2,8 +2,7 @@ import { createHash, randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { mkdir, open, readdir, rename, rm, stat } from 'fs/promises'
-import { app } from 'electron'
-import { createRequire } from 'module'
+import { app, utilityProcess } from 'electron'
 import path from 'path'
 import { promisify } from 'util'
 import type {
@@ -11,9 +10,10 @@ import type {
   SupertonicSynthesisInput,
   SupertonicSynthesisResult,
 } from '../shared/neural-tts'
+import { SUPERTONIC_LANGUAGES } from '../shared/neural-tts'
 
 const execFileAsync = promisify(execFile)
-const require = createRequire(import.meta.url)
+const SYNTHESIS_TIMEOUT_MS = 2 * 60_000
 
 export const SUPERTONIC_MODEL_VERSION = 'supertonic-3-tts-int8-2026-05-11'
 export const SUPERTONIC_ARCHIVE_NAME = `sherpa-onnx-${SUPERTONIC_MODEL_VERSION}.tar.bz2`
@@ -34,15 +34,16 @@ const REQUIRED_MODEL_FILES = [
 ] as const
 
 let installInProgress = false
-let runtimePromise: Promise<SupertonicRuntime> | null = null
-
 interface SherpaAudio {
   samples: Float32Array
   sampleRate: number
 }
 
-interface SupertonicRuntime {
-  generate(input: SupertonicSynthesisInput): Promise<SherpaAudio>
+interface SupertonicWorkerResult {
+  ok: boolean
+  samples?: Float32Array
+  sampleRate?: number
+  error?: string
 }
 
 function platformSupported(): boolean {
@@ -157,7 +158,6 @@ export async function installSupertonicModel(): Promise<SupertonicStatus> {
     await mkdir(parent, { recursive: true })
     await rm(target, { recursive: true, force: true })
     await rename(extractedRoot, target)
-    runtimePromise = null
     return getSupertonicStatus(target)
   } finally {
     installInProgress = false
@@ -168,19 +168,16 @@ export async function installSupertonicModel(): Promise<SupertonicStatus> {
 
 export async function removeSupertonicModel(): Promise<SupertonicStatus> {
   if (installInProgress) throw new Error('Wait for the Supertonic installation to finish before removing it.')
-  runtimePromise = null
   await rm(getSupertonicModelDirectory(), { recursive: true, force: true })
   return getSupertonicStatus()
 }
 
-async function createRuntime(): Promise<SupertonicRuntime> {
+export function createSupertonicWorkerRequest(input: SupertonicSynthesisInput) {
   const directory = getSupertonicModelDirectory()
-  if (!(await isCompleteSupertonicModel(directory))) {
-    throw new Error('Supertonic is not installed. Install it in Settings → General first.')
-  }
-
-  const sherpa = require('sherpa-onnx-node') as typeof import('sherpa-onnx-node')
-  const tts = await sherpa.OfflineTts.createAsync({
+  const language = SUPERTONIC_LANGUAGES.some(([code]) => code === input.language)
+    ? input.language
+    : 'en'
+  return {
     model: {
       supertonic: modelFilePaths(directory),
       debug: false,
@@ -188,32 +185,69 @@ async function createRuntime(): Promise<SupertonicRuntime> {
       provider: 'cpu',
     },
     maxNumSentences: 1,
-  })
-
-  return {
-    async generate(input) {
-      const generationConfig = new sherpa.GenerationConfig({
-        sid: input.speakerId,
-        speed: input.speed,
-        numSteps: 8,
-        extra: { lang: input.language === 'auto' ? 'na' : input.language },
-      })
-      return tts.generateAsync({
-        text: input.text,
-        enableExternalBuffer: true,
-        generationConfig,
-        onProgress: () => 1,
-      })
+    generation: {
+      text: input.text,
+      // External native buffers are forbidden by Electron's sandbox and previously
+      // raised an uncaught exception instead of rejecting generateAsync().
+      enableExternalBuffer: false,
+      speakerId: input.speakerId,
+      speed: input.speed,
+      language,
     },
   }
 }
 
-function getRuntime(): Promise<SupertonicRuntime> {
-  runtimePromise ??= createRuntime().catch((error) => {
-    runtimePromise = null
-    throw error
+async function generateInUtilityProcess(input: SupertonicSynthesisInput): Promise<SherpaAudio> {
+  const directory = getSupertonicModelDirectory()
+  if (!(await isCompleteSupertonicModel(directory))) {
+    throw new Error('Supertonic is not installed. Install it in Settings → General first.')
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(path.join(__dirname, 'supertonic-worker.cjs'), [], {
+      serviceName: 'Nexy Supertonic speech',
+      stdio: 'pipe',
+    })
+    let settled = false
+    let stderr = ''
+    const finish = (error?: Error, audio?: SherpaAudio) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (error) {
+        child.kill()
+        reject(error)
+      }
+      else resolve(audio!)
+    }
+    child.stderr?.on('data', (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-2_000)
+    })
+    child.once('spawn', () => child.postMessage(createSupertonicWorkerRequest(input)))
+    child.once('message', (message: SupertonicWorkerResult) => {
+      if (!message?.ok || !message.samples || !message.sampleRate) {
+        finish(new Error(message?.error || 'Supertonic synthesis failed.'))
+        return
+      }
+      finish(undefined, {
+        samples: message.samples instanceof Float32Array
+          ? message.samples
+          : new Float32Array(message.samples),
+        sampleRate: message.sampleRate,
+      })
+    })
+    child.once('error', (_type, location) => {
+      finish(new Error(`The isolated Supertonic process failed${location ? ` at ${location}` : ''}.`))
+    })
+    child.once('exit', (code) => {
+      if (!settled) finish(new Error(
+        `The isolated Supertonic process exited unexpectedly (${code}).${stderr ? ` ${stderr.trim()}` : ''}`,
+      ))
+    })
+    const timeout = setTimeout(() => {
+      finish(new Error('Supertonic synthesis timed out.'))
+    }, SYNTHESIS_TIMEOUT_MS)
   })
-  return runtimePromise
 }
 
 export function encodeMonoPcm16Wave(samples: Float32Array, sampleRate: number): Uint8Array {
@@ -246,7 +280,7 @@ export async function synthesizeSupertonic(
   if (text.length > 20_000) throw new Error('Spoken output is limited to 20,000 characters at a time.')
   const speakerId = Number.isInteger(input.speakerId) ? Math.min(9, Math.max(0, input.speakerId)) : 0
   const speed = Number.isFinite(input.speed) ? Math.min(2, Math.max(0.5, input.speed)) : 1
-  const audio = await (await getRuntime()).generate({ ...input, text, speakerId, speed })
+  const audio = await generateInUtilityProcess({ ...input, text, speakerId, speed })
   return {
     audio: encodeMonoPcm16Wave(audio.samples, audio.sampleRate),
     sampleRate: audio.sampleRate,

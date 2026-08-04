@@ -23,7 +23,7 @@ import {
 import { getHistoryEntryForReport, getOrCreateHistoryEntry, listHistory, updateHistoryEntry } from './remote-edit/history'
 import { sendRemoteEditNotification } from './fcm-sender'
 import { getDatabase } from './database'
-import { getRemoteEditAuditDiff, inferProjectIdForWorkspace, recordProjectAuditChange } from './project-audit'
+import { getRemoteEditAuditDiff, inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { broadcastToMobile } from './ws-server'
 import type {
   ErrorReportEntry,
@@ -97,10 +97,9 @@ export function applyStagedPatchToWorkspace(
   if (staged.length === 0) return null
 
   const workspacePath = getWorkspacePathForReport(reportId)
-  const projectId = inferProjectIdForWorkspace(workspacePath)
   const reportMeta = db.prepare(
-    'SELECT title FROM error_reports WHERE id = ?'
-  ).get(reportId) as { title: string } | undefined
+    'SELECT title, project_id FROM error_reports WHERE id = ?'
+  ).get(reportId) as { title: string; project_id: string | null } | undefined
   const backupDir = getBackupDir(reportId)
   mkdirSync(backupDir, { recursive: true })
 
@@ -164,15 +163,15 @@ export function applyStagedPatchToWorkspace(
   }
 
   for (const { relativePath, hadExistingFile } of pendingAudit) {
+    const auditTarget = inferProjectAuditTarget(path.join(workspacePath, relativePath), reportMeta?.project_id)
     const diffRow = db
       .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
       .get(reportId, relativePath) as { diff_json: string } | undefined
     recordProjectAuditChange({
       sessionId: `remote-edit:${reportId}`,
-      projectId,
+      ...(auditTarget ?? { projectId: reportMeta?.project_id ?? null, relativePath }),
       title: reportMeta?.title?.trim() || `Remote edit ${reportId}`,
       source: 'remote-edit',
-      relativePath,
       status: hadExistingFile ? 'modified' : 'created',
       lastOperation: 'apply',
       diff: diffRow?.diff_json ? (JSON.parse(diffRow.diff_json) as { hunks: unknown[] }) : null,
