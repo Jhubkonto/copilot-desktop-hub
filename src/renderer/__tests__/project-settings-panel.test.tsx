@@ -12,6 +12,8 @@ vi.mock('../store/app-store', () => ({ useAppStore }))
 const BASE_CONFIG: ProjectConfig = {
   instructions: 'Do stuff',
   rootDirectory: '/tmp/project',
+  sources: [],
+  repositories: [],
   codingWorkspace: false,
   workspaceInfo: null,
   variables: [],
@@ -164,10 +166,20 @@ describe('ProjectSettingsPanel — changes audit', () => {
     ])
     api.listProjectAuditFiles.mockResolvedValue([
       {
+        id: 'file-1',
         sessionId: 'session-1',
+        sourceId: 'source-1',
+        sourceLabel: 'Workspace',
+        repositoryId: 'repo-1',
+        repositoryLabel: 'desktop',
+        repositoryAvailable: true,
         relativePath: 'src/example.ts',
+        displayPath: 'desktop/src/example.ts',
         status: 'modified',
         lastOperation: 'apply',
+        branch: 'main',
+        commitHash: null,
+        legacyRepositoryUnknown: false,
         firstTouchedAt: 1000,
         lastTouchedAt: 1000,
         diffAvailable: false,
@@ -217,6 +229,34 @@ describe('ProjectSettingsPanel — changes audit', () => {
 })
 
 describe('ProjectSettingsPanel — coding workspace metadata', () => {
+  it('removes a discovered repository from Nexy and refreshes the project config', async () => {
+    const api = setupMockApi()
+    mockStore = createMockAppStore({
+      projects: [PROJECT],
+      projectConfigs: {
+        'proj-1': {
+          ...BASE_CONFIG,
+          sources: [{
+            id: 'source-1', projectId: 'proj-1', label: 'Workspace', kind: 'workspace-root',
+            localPath: '/tmp/project', enabled: true, isPrimary: true, createdAt: 1, updatedAt: 1,
+          }],
+          repositories: [{
+            id: 'repo-old', projectId: 'proj-1', sourceId: 'source-1', label: 'old-repo',
+            relativePath: 'old-repo', branch: null, dirty: null, enabled: true, available: false,
+            createdAt: 1, updatedAt: 1,
+          }],
+        },
+      },
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="general" onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Remove old-repo repository from project' }))
+
+    expect(api.removeProjectRepository).toHaveBeenCalledWith('proj-1', 'repo-old')
+    expect(mockStore.loadProjectConfig).toHaveBeenCalledWith('proj-1')
+  })
+
   it('shows repo metadata and coding workspace toggle when a codebase is detected', async () => {
     mockStore = createMockAppStore({
       projects: [PROJECT],

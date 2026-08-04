@@ -69,4 +69,55 @@ describe('Sidebar', () => {
 
     expect(mockStore.openSectionPane).toHaveBeenCalledWith('ratings')
   })
+
+  it('shows the unread chat count and opens New content', async () => {
+    mockStore = createMockAppStore({ syncedUnreadConversationIds: ['chat-1', 'chat-2'] })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<Sidebar />)
+    const entry = screen.getByLabelText('Open new content')
+    expect(entry).toHaveTextContent('2')
+    await user.click(entry)
+
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('new-content')
+  })
+
+  it('shows pinned chats as quick access and allows unpinning', async () => {
+    mockStore = createMockAppStore({
+      conversations: [{
+        id: 'pinned-1',
+        title: 'API migration',
+        pinned: 1,
+        project_id: null,
+        agent_id: null,
+      }],
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<Sidebar />)
+    await user.click(screen.getByLabelText('Open pinned chat API migration'))
+    expect(mockStore.selectConversation).toHaveBeenCalledWith('pinned-1')
+
+    await user.click(screen.getByLabelText('Unpin API migration'))
+    expect(mockApi.setConversationPinned).toHaveBeenCalledWith('pinned-1', false)
+    expect(mockStore.loadConversations).toHaveBeenCalled()
+  })
+
+  it('links an overflowing pinned shelf to the full chat history', async () => {
+    mockStore = createMockAppStore({
+      conversations: Array.from({ length: 6 }, (_, index) => ({
+        id: `pinned-${index}`,
+        title: `Pinned ${index}`,
+        pinned: 1,
+        project_id: null,
+        agent_id: null,
+      })),
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<Sidebar />)
+    await user.click(screen.getByText('View all 6…'))
+
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('chats')
+  })
 })

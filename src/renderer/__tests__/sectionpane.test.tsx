@@ -57,6 +57,70 @@ beforeEach(() => {
 });
 
 describe("SectionPane", () => {
+  it("closes New Content after opening its final unread chat", async () => {
+    const api = setupMockApi();
+    api.getNewContentConversations.mockResolvedValue([
+      {
+        conversationId: "new-chat",
+        title: "New reply",
+        projectId: null,
+        projectName: null,
+        agentId: null,
+        agentName: null,
+        preview: "The assistant replied",
+        newContentAt: 1,
+      },
+    ]);
+    mockStore = createMockAppStore({
+      activeSectionPane: "new-content" as const,
+      syncedUnreadConversationIds: ["new-chat"],
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<SectionPane section="new-content" />);
+    await userEvent.click(await screen.findByRole("button", { name: /new reply/i }));
+
+    expect(mockStore.selectConversation).toHaveBeenCalledWith("new-chat");
+    expect(mockStore.setSectionPane).toHaveBeenCalledWith("new-content");
+  });
+
+  it("keeps New Content open when another unread chat remains", async () => {
+    const api = setupMockApi();
+    api.getNewContentConversations.mockResolvedValue([
+      {
+        conversationId: "first-chat",
+        title: "First reply",
+        projectId: null,
+        projectName: null,
+        agentId: null,
+        agentName: null,
+        preview: null,
+        newContentAt: 2,
+      },
+      {
+        conversationId: "second-chat",
+        title: "Second reply",
+        projectId: null,
+        projectName: null,
+        agentId: null,
+        agentName: null,
+        preview: null,
+        newContentAt: 1,
+      },
+    ]);
+    mockStore = createMockAppStore({
+      activeSectionPane: "new-content" as const,
+      syncedUnreadConversationIds: ["first-chat", "second-chat"],
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<SectionPane section="new-content" />);
+    await userEvent.click(await screen.findByRole("button", { name: /first reply/i }));
+
+    expect(mockStore.selectConversation).toHaveBeenCalledWith("first-chat");
+    expect(mockStore.setSectionPane).not.toHaveBeenCalled();
+  });
+
   it("renders the projects header when section is projects", () => {
     render(<SectionPane section="projects" />);
     expect(
@@ -715,7 +779,9 @@ describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
     });
     setupStoreMock(useAppStore, mockStore);
     render(<SectionPane section="projects" />);
-    expect(screen.getByTitle("Generating…")).toBeInTheDocument();
+    const indicator = screen.getByTitle("Generating…");
+    expect(indicator).toBeInTheDocument();
+    expect(indicator.querySelector("svg")).toHaveClass("lucide-loader-circle", "animate-spin");
   });
 
   it("q2-7: completed conversation action uses a static incomplete indicator", () => {

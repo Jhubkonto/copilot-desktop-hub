@@ -268,7 +268,7 @@ describe('MessageBubble', () => {
         aiRecapLoading: false,
         aiRecapError: null,
           voices: [],
-          settings: { engine: 'system', voiceUri: null, supertonicSpeakerId: 0, supertonicLanguage: 'auto', rate: 1, pitch: 1, offlineOnly: true, autoPlay: false },
+          settings: { engine: 'system', voiceUri: null, supertonicSpeakerId: 0, supertonicLanguage: 'en', rate: 1, pitch: 1, offlineOnly: true, autoPlay: false },
           supertonicReady: false,
           onRead,
         onQuickRecap,

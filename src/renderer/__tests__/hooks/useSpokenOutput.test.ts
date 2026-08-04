@@ -133,6 +133,27 @@ describe('useSpokenOutput', () => {
     expect(play).toHaveBeenCalledOnce()
   })
 
+  it('shows a neural speech error and falls back to system speech', async () => {
+    const synthesizeSupertonic = vi.fn().mockRejectedValue(new Error('Speech worker exited'))
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSupertonicStatus: vi.fn().mockResolvedValue({ supported: true, installed: true, ready: true }),
+        synthesizeSupertonic,
+        saveSpokenOutput: vi.fn().mockResolvedValue(null),
+      },
+    })
+    const { result } = renderHook(() => useSpokenOutput())
+    await waitFor(() => expect(result.current.supertonicStatus?.ready).toBe(true))
+
+    act(() => result.current.setSettings({ ...result.current.settings, engine: 'supertonic' }))
+    act(() => result.current.speakResponse('message-fallback', 'Keep the app running.'))
+
+    await waitFor(() => expect(speech.speak).toHaveBeenCalledOnce())
+    expect(result.current.aiRecapErrorMessageId).toBe('message-fallback')
+    expect(result.current.aiRecapError).toContain('Using the system voice instead')
+  })
+
   it('speaks a persisted provider recap and exposes its model label', async () => {
     const generateAiRecap = vi.fn().mockResolvedValue({
       messageId: 'message-3',

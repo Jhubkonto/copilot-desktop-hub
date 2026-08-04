@@ -44,7 +44,7 @@ describe('spoken output', () => {
       engine: 'system',
       voiceUri: 'voice-1',
       supertonicSpeakerId: 0,
-      supertonicLanguage: 'auto',
+      supertonicLanguage: 'en',
       rate: 2,
       pitch: 0.5,
       offlineOnly: false,
@@ -55,5 +55,13 @@ describe('spoken output', () => {
   it('uses safe defaults when persisted settings are malformed', () => {
     expect(readSpokenOutputSettings({ getItem: () => '{bad json' }))
       .toEqual(DEFAULT_SPOKEN_OUTPUT_SETTINGS)
+  })
+
+  it('migrates the former unsupported automatic Supertonic language to English', () => {
+    const storage = {
+      getItem: () => JSON.stringify({ engine: 'supertonic', supertonicLanguage: 'auto' }),
+    }
+
+    expect(readSpokenOutputSettings(storage).supertonicLanguage).toBe('en')
   })
 })

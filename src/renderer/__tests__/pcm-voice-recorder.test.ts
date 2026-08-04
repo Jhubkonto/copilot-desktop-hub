@@ -90,8 +90,6 @@ describe('PcmVoiceRecorder', () => {
       disconnect = workletNode.disconnect
     }
     vi.stubGlobal('AudioWorkletNode', FakeAudioWorkletNode)
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:nexy-recorder')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const harness = createRecorderHarness({ audioWorklet: true })
 
     try {
@@ -102,6 +100,7 @@ describe('PcmVoiceRecorder', () => {
       const recording = await harness.recorder.stop()
 
       expect(harness.addModule).toHaveBeenCalledOnce()
+      expect(String(harness.addModule.mock.calls[0][0])).not.toMatch(/^blob:/)
       expect(harness.processor.onaudioprocess).toBeNull()
       expect(recording?.bytes).toBe(8)
     } finally {
