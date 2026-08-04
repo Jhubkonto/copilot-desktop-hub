@@ -22,6 +22,7 @@ import io.nexy.android.data.model.codeChangeRequestTypeWireValue
 import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
+import io.nexy.android.data.model.NewContentConversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.McpServerInfo
@@ -301,7 +302,20 @@ object WsRepository : WsClient {
 
     private val _completedWhileAwayIds = MutableStateFlow<Set<String>>(emptySet())
     val completedWhileAwayIds: StateFlow<Set<String>> = _completedWhileAwayIds
-    fun clearCompletedAway(id: String) { _completedWhileAwayIds.value = _completedWhileAwayIds.value - id }
+    private val _newContentConversations = MutableStateFlow<List<NewContentConversation>>(emptyList())
+    val newContentConversations: StateFlow<List<NewContentConversation>> = _newContentConversations
+    fun clearCompletedAway(id: String) {
+        _completedWhileAwayIds.value = _completedWhileAwayIds.value - id
+        _newContentConversations.value = _newContentConversations.value.filterNot { it.conversationId == id }
+        send("new-content:mark-read", mapOf("conversationId" to id))
+    }
+
+    fun markAllNewContentRead() {
+        _completedWhileAwayIds.value = emptySet()
+        _newContentConversations.value = emptyList()
+        app?.let { io.nexy.android.notification.ActivityBadgeManager.markSeenWithPrefix(it, "chat:") }
+        send("new-content:mark-all-read", emptyMap())
+    }
 
     private var ws: WebSocket? = null
     private var currentUrl: String? = null
@@ -642,6 +656,14 @@ object WsRepository : WsClient {
                     // updated on reconnect or a manual pull-to-refresh, leaving finished chats
                     // stuck showing "in progress" until one of those happened to fire.
                     is WsEvent.ActivityChanged -> BackgroundActivityTracker.applySnapshot(event.activities)
+                    is WsEvent.NewContentChanged -> {
+                        val viewedId = activelyViewedConversationId.value
+                        _newContentConversations.value = event.conversations.filterNot { it.conversationId == viewedId }
+                        _completedWhileAwayIds.value = _newContentConversations.value.map { it.conversationId }.toSet()
+                        if (viewedId != null && event.conversations.any { it.conversationId == viewedId }) {
+                            send("new-content:mark-read", mapOf("conversationId" to viewedId))
+                        }
+                    }
                     is WsEvent.ChatActivity -> {
                         val activeStates = setOf("active", "thinking", "tool")
                         val doneStates = setOf("complete", "error")
@@ -765,6 +787,7 @@ object WsRepository : WsClient {
                         appendDebugLog("sync-timing", "connected-event elapsedMs=$connectedElapsed")
                         beginStandaloneSync()
                         getActivityFeed()
+                        getNewContent()
                     }
                     is WsEvent.SyncProbeAck -> {
                         if (event.probeId == pendingForegroundProbeId) {
@@ -2674,8 +2697,8 @@ object WsRepository : WsClient {
     }
     fun listProjectAuditSessions(projectId: String) { send("project-audit:list-sessions", mapOf("projectId" to projectId)) }
     fun listProjectAuditFiles(sessionId: String) { send("project-audit:list-files", mapOf("sessionId" to sessionId)) }
-    fun getProjectAuditDiff(sessionId: String, relativePath: String) {
-        send("project-audit:get-diff", mapOf("sessionId" to sessionId, "relativePath" to relativePath))
+    fun getProjectAuditDiff(sessionId: String, relativePath: String, fileId: String) {
+        send("project-audit:get-diff", mapOf("sessionId" to sessionId, "relativePath" to relativePath, "fileId" to fileId))
     }
 
     fun listWikiEntries(projectId: String) { send("wiki:list", mapOf("projectId" to projectId)) }
@@ -3029,6 +3052,7 @@ object WsRepository : WsClient {
 
     // ─── Activity feed ──────────────────────────────────────────────────────────
     fun getActivityFeed() { send("activity:list", emptyMap()) }
+    fun getNewContent() { send("new-content:list", emptyMap()) }
     fun dismissActivity(id: String) {
         BackgroundActivityTracker.unregister(id)
         send("activity:dismiss", mapOf("id" to id))

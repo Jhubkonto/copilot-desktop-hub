@@ -36,6 +36,17 @@ data class ModelOption(
     val backend: String? = null,
 )
 
+data class NewContentConversation(
+    val conversationId: String,
+    val title: String,
+    val projectId: String? = null,
+    val projectName: String? = null,
+    val agentId: String? = null,
+    val agentName: String? = null,
+    val preview: String? = null,
+    val newContentAt: Long,
+)
+
 data class ModelListSource(
     val type: String,
     val label: String,

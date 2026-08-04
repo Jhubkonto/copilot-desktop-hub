@@ -484,7 +484,7 @@ sealed class WsEvent {
     data class ProjectAgents(val id: String, val agents: List<ProjectAgentEntry>) : WsEvent()
     data class ProjectAuditSessions(val projectId: String?, val sessions: List<ProjectAuditSession>) : WsEvent()
     data class ProjectAuditFiles(val sessionId: String, val files: List<ProjectAuditFile>) : WsEvent()
-    data class ProjectAuditDiffLoaded(val sessionId: String, val diff: ProjectAuditDiff?) : WsEvent()
+    data class ProjectAuditDiffLoaded(val sessionId: String, val fileId: String?, val diff: ProjectAuditDiff?) : WsEvent()
     data class ProjectGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()
     data class SkillGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()
     data class ArtifactGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()
@@ -583,6 +583,7 @@ sealed class WsEvent {
     data class TeachbackError(val message: String) : WsEvent()
 
     data class ActivityChanged(val activities: List<io.nexy.android.data.BackgroundActivity>) : WsEvent()
+    data class NewContentChanged(val conversations: List<NewContentConversation>) : WsEvent()
     // Provider Key Handoff (opt-in, consent-gated exception)
     data class ProviderKeyHandoffRequest(
         val providerId: String,
@@ -1092,6 +1093,7 @@ data class ProjectGeneratorSpec(
     val color: String,
     val instructions: String,
     val rootDirectory: String?,
+    val sources: List<ProjectGeneratorSourceSpec> = emptyList(),
     val instructionMode: String?,
     val variables: List<Map<String, String>>,
     val inScope: List<Map<String, String>>,
@@ -1100,6 +1102,37 @@ data class ProjectGeneratorSpec(
     val orchestrationEnabled: Boolean,
     val defaultModel: String?,
     val agents: List<ProjectGeneratorAgentSpec>,
+)
+
+data class ProjectGeneratorSourceSpec(
+    val key: String,
+    val label: String,
+    val mode: String = "attach-existing",
+    val localPath: String? = null,
+    val remoteUrl: String? = null,
+    val discovery: String = "scan-children",
+)
+
+data class ProjectSource(
+    val id: String,
+    val projectId: String,
+    val label: String,
+    val kind: String,
+    val localPath: String,
+    val enabled: Boolean,
+    val isPrimary: Boolean,
+)
+
+data class ProjectRepositoryBinding(
+    val id: String,
+    val projectId: String,
+    val sourceId: String,
+    val label: String,
+    val relativePath: String,
+    val branch: String?,
+    val dirty: Boolean?,
+    val enabled: Boolean,
+    val available: Boolean,
 )
 
 data class ProjectGeneratorAgentSpec(
@@ -1136,6 +1169,8 @@ data class ConversationExportPackData(
 data class ProjectSettingsConfig(
     val instructions: String,
     val rootDirectory: String?,
+    val sources: List<ProjectSource> = emptyList(),
+    val repositories: List<ProjectRepositoryBinding> = emptyList(),
     val variables: List<Map<String, String>> = emptyList(),
     val instructionMode: String,
     val instructionsEnabled: Boolean = true,

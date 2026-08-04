@@ -46,6 +46,7 @@ import io.nexy.android.data.model.ContextInspectorAttachmentSnapshot
 import io.nexy.android.data.model.ContextInspectorRefSnapshot
 import io.nexy.android.data.model.ContextInspectorSnapshot
 import io.nexy.android.data.model.Conversation
+import io.nexy.android.data.model.NewContentConversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.HistoryMessage
@@ -94,6 +95,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val MAX_SYNC_EVENT_CHARS = 8_000_000
+
+internal fun mergeConversationPage(
+    existing: List<Conversation>,
+    incoming: List<Conversation>,
+): List<Conversation> {
+    if (incoming.isEmpty()) return existing
+    val incomingById = incoming.associateBy { it.id }
+    val existingIds = existing.mapTo(mutableSetOf()) { it.id }
+    return existing.map { incomingById[it.id] ?: it } + incoming.filterNot { it.id in existingIds }
+}
 
 internal fun isOversizedSyncEvent(text: String, maxChars: Int = MAX_SYNC_EVENT_CHARS): Boolean {
     if (text.length <= maxChars) return false
@@ -361,9 +372,15 @@ fun parseWsEvent(
 
             "conversation:list-page" -> {
                 val rows = data?.optJSONArray("items") ?: JSONArray()
+                val page = parseConversationArray(rows)
+                // The home screen consumes paginated results from its own ViewModel, while
+                // cross-screen features (pinned chats, chat headers, notifications) observe the
+                // repository-level list. Keep both views coherent without discarding rows from
+                // pages that are not part of this response.
+                conversations.value = mergeConversationPage(conversations.value, page)
                 WsEvent.ConversationPage(
                     requestId = data?.optString("requestId") ?: "",
-                    conversations = parseConversationArray(rows),
+                    conversations = page,
                     totalCount = data?.optInt("totalCount", 0) ?: 0,
                     nextCursor = data?.nullableString("nextCursor"),
                     hasMore = data?.optBoolean("hasMore", false) ?: false,
@@ -1849,10 +1866,20 @@ fun parseWsEvent(
                 val files = (0 until arr.length()).map { i ->
                     val item = arr.optJSONObject(i) ?: JSONObject()
                     ProjectAuditFile(
+                        id = item.optString("id"),
                         sessionId = item.optString("sessionId"),
+                        sourceId = item.nullableString("sourceId"),
+                        sourceLabel = item.nullableString("sourceLabel"),
+                        repositoryId = item.nullableString("repositoryId"),
+                        repositoryLabel = item.nullableString("repositoryLabel"),
+                        repositoryAvailable = if (item.isNull("repositoryAvailable")) null else item.optBoolean("repositoryAvailable"),
                         relativePath = item.optString("relativePath"),
+                        displayPath = item.optString("displayPath", item.optString("relativePath")),
                         status = item.optString("status"),
                         lastOperation = item.optString("lastOperation"),
+                        branch = item.nullableString("branch"),
+                        commitHash = item.nullableString("commitHash"),
+                        legacyRepositoryUnknown = item.optBoolean("legacyRepositoryUnknown", false),
                         firstTouchedAt = item.optLong("firstTouchedAt", 0L),
                         lastTouchedAt = item.optLong("lastTouchedAt", 0L),
                         diffAvailable = item.optBoolean("diffAvailable", false),
@@ -1866,8 +1893,10 @@ fun parseWsEvent(
                 val diffObj = data?.optJSONObject("diff")
                 WsEvent.ProjectAuditDiffLoaded(
                     sessionId = sessionId,
+                    fileId = data?.nullableString("fileId"),
                     diff = diffObj?.let {
                         ProjectAuditDiff(
+                            fileId = data?.nullableString("fileId"),
                             relativePath = it.optString("relativePath"),
                             hunksJson = it.optJSONArray("hunks")?.toString(),
                         )
@@ -2454,6 +2483,28 @@ fun parseWsEvent(
                 WsEvent.ActivityChanged(list)
             }
 
+            "new-content:changed" -> {
+                val arr = data?.optJSONArray("conversations")
+                val conversations = arr?.let { array ->
+                    (0 until array.length()).mapNotNull { i ->
+                        val obj = array.optJSONObject(i) ?: return@mapNotNull null
+                        val conversationId = obj.optString("conversationId")
+                        if (conversationId.isBlank()) return@mapNotNull null
+                        NewContentConversation(
+                            conversationId = conversationId,
+                            title = obj.optString("title", "Chat"),
+                            projectId = obj.nullableString("projectId"),
+                            projectName = obj.nullableString("projectName"),
+                            agentId = obj.nullableString("agentId"),
+                            agentName = obj.nullableString("agentName"),
+                            preview = obj.nullableString("preview"),
+                            newContentAt = obj.optLong("newContentAt"),
+                        )
+                    }
+                } ?: emptyList()
+                WsEvent.NewContentChanged(conversations)
+            }
+
             "settings:value" -> {
                 val key = data?.optString("key") ?: return
                 val value = data.optString("value").takeIf { it.isNotEmpty() }
@@ -2779,6 +2830,19 @@ private fun parseProjectGeneratorSpec(data: org.json.JSONObject?): ProjectGenera
         return (0 until arr.length()).map { strMap(arr.optJSONObject(it) ?: JSONObject()) }
     }
     val agentsArr = d.optJSONArray("agents") ?: JSONArray()
+    val sourcesArr = d.optJSONArray("sources") ?: JSONArray()
+    val sources = (0 until sourcesArr.length()).mapNotNull { index ->
+        sourcesArr.optJSONObject(index)?.let { source ->
+            io.nexy.android.data.model.ProjectGeneratorSourceSpec(
+                key = source.optString("key", "source-$index"),
+                label = source.optString("label", "Source ${index + 1}"),
+                mode = source.optString("mode", "attach-existing"),
+                localPath = source.nullableString("localPath"),
+                remoteUrl = source.nullableString("remoteUrl"),
+                discovery = source.optString("discovery", "scan-children"),
+            )
+        }
+    }
     val agents = (0 until agentsArr.length()).map { i ->
         val a = agentsArr.getJSONObject(i)
         val na = a.optJSONObject("newAgent")
@@ -2809,6 +2873,7 @@ private fun parseProjectGeneratorSpec(data: org.json.JSONObject?): ProjectGenera
         color = d.optString("color", "blue"),
         instructions = d.optString("instructions", ""),
         rootDirectory = d.nullableString("rootDirectory"),
+        sources = sources,
         instructionMode = d.nullableString("instructionMode"),
         variables = objList("variables"),
         inScope = objList("inScope"),
@@ -2886,9 +2951,41 @@ internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConf
             else -> "single-agent"
         }
     }
+    val sourcesArray = config.optJSONArray("sources") ?: JSONArray()
+    val sources = (0 until sourcesArray.length()).mapNotNull { index ->
+        sourcesArray.optJSONObject(index)?.let { source ->
+            io.nexy.android.data.model.ProjectSource(
+                id = source.optString("id"),
+                projectId = source.optString("projectId"),
+                label = source.optString("label", "Source"),
+                kind = source.optString("kind", "workspace-root"),
+                localPath = source.optString("localPath"),
+                enabled = source.optBoolean("enabled", true),
+                isPrimary = source.optBoolean("isPrimary", false),
+            )
+        }
+    }
+    val repositoriesArray = config.optJSONArray("repositories") ?: JSONArray()
+    val repositories = (0 until repositoriesArray.length()).mapNotNull { index ->
+        repositoriesArray.optJSONObject(index)?.let { repository ->
+            io.nexy.android.data.model.ProjectRepositoryBinding(
+                id = repository.optString("id"),
+                projectId = repository.optString("projectId"),
+                sourceId = repository.optString("sourceId"),
+                label = repository.optString("label", "Repository"),
+                relativePath = repository.optString("relativePath"),
+                branch = repository.nullableString("branch"),
+                dirty = if (repository.has("dirty") && !repository.isNull("dirty")) repository.optBoolean("dirty") else null,
+                enabled = repository.optBoolean("enabled", true),
+                available = repository.optBoolean("available", true),
+            )
+        }
+    }
     return ProjectSettingsConfig(
         instructions = config.optString("instructions", ""),
         rootDirectory = config.nullableString("rootDirectory"),
+        sources = sources,
+        repositories = repositories,
         variables = objectList("variables"),
         instructionMode = config.optString("instructionMode", "prepend"),
         instructionsEnabled = config.optBoolean("instructionsEnabled", true),

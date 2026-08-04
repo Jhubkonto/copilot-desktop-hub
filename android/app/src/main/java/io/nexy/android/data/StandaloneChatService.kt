@@ -64,6 +64,9 @@ class StandaloneChatService(
         val modelOverride = data["model"] as? String
         val retryMessageId = data["retryMessageId"] as? String
         val images = (data["images"] as? List<*>).orEmpty().mapNotNull { it as? Map<*, *> }
+        val files = (data["attachments"] as? List<*>).orEmpty()
+            .mapNotNull { it as? Map<*, *> }
+            .filter { (it["dataUrl"] as? String).orEmpty().isNotBlank() }
         val turn = TurnEmitter(conversationId, emit)
         var assistantMessageId: String? = null
         try {
@@ -75,12 +78,13 @@ class StandaloneChatService(
             )
             turn.event("turn_started")
             validateImages(images)
-            val attachmentMetadata = images.map {
+            validateDataUrlAttachments(files)
+            val attachmentMetadata = (images + files).map {
                 AttachmentMeta(
                     id = it["id"] as? String ?: UUID.randomUUID().toString(),
-                    name = it["name"] as? String ?: "image",
-                    type = "image",
-                    thumbnailDataUrl = it["dataUrl"] as? String,
+                    name = it["name"] as? String ?: "attachment",
+                    type = if ((it["mimeType"] as? String)?.startsWith("image/") == true || it in images) "image" else "file",
+                    thumbnailDataUrl = (it["dataUrl"] as? String).takeIf { _ -> it in images },
                 )
             }
             val user = retryMessageId?.let { localData.getRetryableUserMessage(it, conversationId) }
@@ -91,7 +95,7 @@ class StandaloneChatService(
                     attachments = attachmentMetadata,
                 )
             localData.markMessageFailed(user.id, false)
-            if (retryMessageId == null) localData.persistImageAttachments(user.id, images)
+            if (retryMessageId == null) localData.persistDataUrlAttachments(user.id, images + files)
             turn.event("user_message_committed", JSONObject().put("messageId", user.id))
             val provider = providerStore.resolve(modelOverride)
             if (provider == null) {
@@ -112,7 +116,11 @@ class StandaloneChatService(
             emit(WsEvent.ChatActivity(conversationId, "thinking", "Assistant is thinking", null, null))
             emitHistory(conversationId)
 
-            val fullHistory = localData.listForProvider(conversationId, user.id)
+            val fullHistory = localData.listForProvider(conversationId, user.id).map { message ->
+                if (message.id == user.id && files.isNotEmpty()) {
+                    message.copy(content = inlineFileContext(files) + message.content)
+                } else message
+            }
             val agentConfig = agentId?.let { localData.getAgentFull(it) }
             val context = prepareContext(conversationId, fullHistory, provider)
             val history = context.messages
@@ -363,6 +371,44 @@ class StandaloneChatService(
             total += estimatedBytes
         }
         require(total <= 20L * 1024L * 1024L) { "Combined image attachments must be 20 MB or smaller." }
+    }
+
+    private fun validateDataUrlAttachments(files: List<Map<*, *>>) {
+        var total = 0L
+        require(files.size <= 20) { "At most 20 files can be attached at once." }
+        files.forEach { file ->
+            val value = file["dataUrl"] as? String ?: throw IllegalArgumentException("Attachment data is missing.")
+            val comma = value.indexOf(',')
+            require(comma > 5 && value.substring(0, comma).endsWith(";base64")) { "Unsupported attachment encoding." }
+            val estimatedBytes = ((value.length - comma - 1) * 3L) / 4L
+            require(estimatedBytes <= 20L * 1024L * 1024L) { "Each file must be 20 MB or smaller." }
+            total += estimatedBytes
+        }
+        require(total <= 50L * 1024L * 1024L) { "Combined file attachments must be 50 MB or smaller." }
+    }
+
+    private fun inlineFileContext(files: List<Map<*, *>>): String = buildString {
+        files.forEach { file ->
+            val name = file["name"] as? String ?: "attachment"
+            val dataUrl = file["dataUrl"] as? String
+            val decoded = dataUrl?.substringAfter(',', "")?.let { payload ->
+                runCatching { android.util.Base64.decode(payload, android.util.Base64.DEFAULT) }.getOrNull()
+            }
+            val text = decoded?.let { bytes ->
+                runCatching {
+                    Charsets.UTF_8.newDecoder()
+                        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                        .decode(java.nio.ByteBuffer.wrap(bytes))
+                        .toString()
+                }.getOrNull()
+            }
+            if (text != null) {
+                append("File: $name\n```\n$text\n```\n\n")
+            } else {
+                append("Attached binary file: $name (retained with this message; its contents are not directly readable by this provider).\n\n")
+            }
+        }
     }
 
     private fun openAiRequest(
