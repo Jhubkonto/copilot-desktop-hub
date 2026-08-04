@@ -1,6 +1,7 @@
 import { app, BrowserWindow, nativeImage } from 'electron'
 import { getDatabase } from './database'
-import type { BackgroundActivity } from '../shared/types'
+import { broadcastToMobile } from './ws-server'
+import type { BackgroundActivity, NewContentConversation } from '../shared/types'
 
 const SETTINGS_KEY = 'unseenActivityDestinations'
 
@@ -66,6 +67,7 @@ function applyNativeBadge(): void {
 
 function broadcastUnseenConversations(): void {
   const conversationIds = getUnseenConversationIds()
+  const conversations = getNewContentConversations()
   try {
     BrowserWindow.getAllWindows().forEach((win) => {
       if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -75,6 +77,7 @@ function broadcastUnseenConversations(): void {
   } catch {
     // Best-effort renderer synchronization; native badge state remains authoritative.
   }
+  broadcastToMobile({ event: 'new-content:changed', data: { conversations } })
 }
 
 export function initializeActivityBadge(): void {
@@ -158,6 +161,72 @@ export function getUnseenConversationIds(): string[] {
   return [...unseenDestinations]
     .filter((destination) => destination.startsWith('chat:'))
     .map((destination) => destination.slice('chat:'.length))
+}
+
+export function getNewContentConversations(): NewContentConversation[] {
+  const ids = getUnseenConversationIds()
+  if (ids.length === 0) return []
+  try {
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = getDatabase().prepare(`
+      SELECT
+        c.id AS conversation_id,
+        c.title,
+        c.project_id,
+        p.name AS project_name,
+        c.agent_id,
+        a.config_json AS agent_config_json,
+        (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY timestamp DESC LIMIT 1) AS preview,
+        c.updated_at AS new_content_at
+      FROM conversations c
+      LEFT JOIN projects p ON p.id = c.project_id
+      LEFT JOIN agents a ON a.id = c.agent_id
+      WHERE c.id IN (${placeholders})
+      ORDER BY c.updated_at DESC
+    `).all(...ids) as Array<{
+      conversation_id: string
+      title: string
+      project_id: string | null
+      project_name: string | null
+      agent_id: string | null
+      agent_config_json: string | null
+      preview: string | null
+      new_content_at: number
+    }>
+    return rows.map((row) => {
+      let agentName: string | null = null
+      try {
+        const parsed = row.agent_config_json ? JSON.parse(row.agent_config_json) as { name?: unknown } : null
+        agentName = typeof parsed?.name === 'string' ? parsed.name : null
+      } catch {
+        // A malformed legacy agent config should not hide the unread conversation.
+      }
+      return {
+        conversationId: row.conversation_id,
+        title: row.title,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        agentId: row.agent_id,
+        agentName,
+        preview: row.preview,
+        newContentAt: row.new_content_at,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+export function markAllConversationsRead(): number {
+  initializeActivityBadge()
+  const remaining = [...unseenDestinations].filter((destination) => !destination.startsWith('chat:'))
+  if (remaining.length !== unseenDestinations.size) {
+    unseenDestinations = new Set(remaining)
+    persist()
+    applyNativeBadge()
+    broadcastUnseenConversations()
+  }
+  return unseenDestinations.size
 }
 
 export function resetActivityBadgeForTests(): void {

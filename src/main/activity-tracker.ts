@@ -6,6 +6,8 @@ import type { BackgroundActivity, BackgroundActivityKind } from '../shared/types
 import {
   getUnseenActivityCount,
   getUnseenConversationIds,
+  getNewContentConversations,
+  markAllConversationsRead,
   recordUnseenActivity,
   setViewedConversation,
 } from './activity-badge'
@@ -205,4 +207,6 @@ export function registerActivityHandlers(): void {
   )
   safeHandle('activity-badge:get-count', (): number => getUnseenActivityCount())
   safeHandle('activity-badge:get-unseen-conversations', (): string[] => getUnseenConversationIds())
+  safeHandle('activity-badge:get-new-content', () => getNewContentConversations())
+  safeHandle('activity-badge:mark-all-read', () => markAllConversationsRead())
 }

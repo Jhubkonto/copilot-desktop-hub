@@ -14,6 +14,8 @@ vi.mock('../database', () => ({ getDatabase: getDatabaseMock }))
 import {
   getUnseenActivityCount,
   getUnseenConversationIds,
+  getNewContentConversations,
+  markAllConversationsRead,
   recordUnseenActivity,
   resetActivityBadgeForTests,
   setViewedConversation,
@@ -73,5 +75,34 @@ describe('desktop activity badges', () => {
     })
 
     expect(getUnseenConversationIds()).toEqual([])
+  })
+
+  it('returns unread summaries newest first and marks every chat read', () => {
+    db.prepare("INSERT INTO projects (id, name) VALUES ('project-1', 'Launch')").run()
+    db.prepare("INSERT INTO agents (id, config_json) VALUES ('agent-1', '{\"name\":\"Ada\"}')").run()
+    db.prepare(`INSERT INTO conversations
+      (id, agent_id, project_id, title, created_at, updated_at)
+      VALUES ('conversation-1', 'agent-1', 'project-1', 'Ship it', 100, 200)`).run()
+    db.prepare(`INSERT INTO messages (id, conversation_id, role, content, timestamp)
+      VALUES ('message-1', 'conversation-1', 'assistant', 'The release is ready.', 200)`).run()
+
+    recordUnseenActivity({
+      id: 'chat:conversation-1',
+      kind: 'chat',
+      label: 'Assistant is responding…',
+      conversationId: 'conversation-1',
+      startedAt: 100,
+    })
+
+    expect(getNewContentConversations()).toEqual([expect.objectContaining({
+      conversationId: 'conversation-1',
+      title: 'Ship it',
+      projectName: 'Launch',
+      agentName: 'Ada',
+      preview: 'The release is ready.',
+      newContentAt: 200,
+    })])
+    expect(markAllConversationsRead()).toBe(0)
+    expect(getNewContentConversations()).toEqual([])
   })
 })
