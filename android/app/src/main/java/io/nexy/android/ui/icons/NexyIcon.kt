@@ -39,6 +39,7 @@ enum class NexyIconName {
     Attach,
     Busy,
     Check,
+    CheckedBox,
     ChevronDown,
     ChevronRight,
     ChevronUp,
@@ -54,6 +55,7 @@ enum class NexyIconName {
     Expand,
     Image,
     Home,
+    Inbox,
     Import,
     Inspect,
     Microphone,
@@ -109,6 +111,10 @@ private val patterns: Map<NexyIconName, List<String>> = mapOf(
     NexyIconName.Check to listOf(
         "        ", "      ##", "     ## ", "##  ##  ",
         " ####   ", "  ##    ", "        ", "        ",
+    ),
+    NexyIconName.CheckedBox to listOf(
+        "########", "##    ##", "##   ###", "##  ####",
+        "##### ##", " #### ##", "##    ##", "########",
     ),
     NexyIconName.ChevronDown to listOf(
         "        ", "        ", " ##  ## ", " ##  ## ",
@@ -173,6 +179,10 @@ private val patterns: Map<NexyIconName, List<String>> = mapOf(
     NexyIconName.Import to listOf(
         "########", "#      #", "#  ##  #", "# #### #",
         "#  ##  #", "#  ##  #", "########", "        ",
+    ),
+    NexyIconName.Inbox to listOf(
+        "        ", " ##  ## ", " ##  ## ", " ##  ## ",
+        "###  ###", "## ## ##", " ###### ", "        ",
     ),
     NexyIconName.Inspect to listOf(
         "        ", "  ####  ", " ##  ## ", "## ## ##",
@@ -337,6 +347,7 @@ private fun classicIcon(name: NexyIconName): ImageVector = when (name) {
     NexyIconName.Attach -> Icons.Filled.AttachFile
     NexyIconName.Busy -> Icons.Filled.Refresh
     NexyIconName.Check -> Icons.Filled.Check
+    NexyIconName.CheckedBox -> Icons.Filled.CheckBox
     NexyIconName.ChevronDown -> Icons.Filled.KeyboardArrowDown
     NexyIconName.ChevronRight -> Icons.Filled.KeyboardArrowRight
     NexyIconName.ChevronUp -> Icons.Filled.KeyboardArrowUp
@@ -352,6 +363,7 @@ private fun classicIcon(name: NexyIconName): ImageVector = when (name) {
     NexyIconName.Expand -> Icons.Filled.OpenInFull
     NexyIconName.Image -> Icons.Filled.Image
     NexyIconName.Home -> Icons.Filled.Home
+    NexyIconName.Inbox -> Icons.Filled.Inbox
     NexyIconName.Import -> Icons.Filled.FileDownload
     NexyIconName.Inspect -> Icons.Filled.Search
     NexyIconName.Microphone -> Icons.Filled.Mic
