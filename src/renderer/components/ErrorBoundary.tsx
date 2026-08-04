@@ -30,6 +30,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     this.setState({ error, stack: info.componentStack ?? '' })
+    void window.api?.recordRendererError?.({
+      message: `React render error: ${error.message || 'Unknown error'}`,
+      stack: [error.stack, info.componentStack].filter(Boolean).join('\n\n'),
+    }).catch(() => {})
   }
 
   componentDidUpdate(previousProps: ErrorBoundaryProps): void {

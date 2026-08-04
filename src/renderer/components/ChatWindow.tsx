@@ -23,6 +23,7 @@ import { ChatMessages } from './chat/ChatMessages'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceDock } from './chat/VoiceDock'
 import { DropdownPanel } from './DropdownPanel'
+import { NexyIcon } from './ui/icons'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
 import { WikiExtractionModal } from './WikiExtractionModal'
@@ -1652,7 +1653,7 @@ export function ChatWindow() {
           <div className="absolute left-4 top-4 z-10 flex items-center gap-1.5">
             {completedConversationIds.includes(conversationId) && (
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50/95 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium shadow-sm">
-                <CheckCircle className="w-3 h-3" />
+                <NexyIcon name="checked-box" className="w-3.5 h-3.5" />
                 Completed
               </span>
             )}

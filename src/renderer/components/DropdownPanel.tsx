@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 interface DropdownPanelProps {
   open: boolean
@@ -11,6 +12,13 @@ interface DropdownPanelProps {
 }
 
 const VIEWPORT_MARGIN = 8
+const PANEL_GAP = 4
+
+interface PanelPosition {
+  top: number
+  left: number
+  placement: 'above' | 'below'
+}
 
 export function DropdownPanel({
   open,
@@ -23,30 +31,48 @@ export function DropdownPanel({
 }: DropdownPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const [above, setAbove] = useState(false)
-  const [horizontalOffset, setHorizontalOffset] = useState(0)
+  const [panelPosition, setPanelPosition] = useState<PanelPosition | null>(null)
 
-  // Measure the panel's real rendered size (not a guessed height) and clamp it back inside the
-  // viewport on both axes — runs before paint so no flash to the wrong position.
+  // The chat timeline is an overflow container, so the panel must live at the viewport level.
+  // Measure its real size, choose the side with room, and keep both axes inside the viewport.
   useLayoutEffect(() => {
-    if (!open) return
-    const container = containerRef.current
-    const panel = panelRef.current
-    if (container && panel) {
-      const containerRect = container.getBoundingClientRect()
-      const panelRect = panel.getBoundingClientRect()
-
-      setAbove(containerRect.bottom + panelRect.height > window.innerHeight - VIEWPORT_MARGIN)
-
-      let offset = 0
-      if (panelRect.right > window.innerWidth - VIEWPORT_MARGIN) {
-        offset -= panelRect.right - (window.innerWidth - VIEWPORT_MARGIN)
-      } else if (panelRect.left < VIEWPORT_MARGIN) {
-        offset += VIEWPORT_MARGIN - panelRect.left
-      }
-      setHorizontalOffset(offset)
+    if (!open) {
+      setPanelPosition(null)
+      return
     }
-  }, [open])
+
+    const computePosition = () => {
+      const container = containerRef.current
+      const panel = panelRef.current
+      if (!container || !panel) return
+
+      const triggerRect = container.getBoundingClientRect()
+      const panelRect = panel.getBoundingClientRect()
+      const spaceAbove = triggerRect.top - VIEWPORT_MARGIN - PANEL_GAP
+      const spaceBelow = window.innerHeight - triggerRect.bottom - VIEWPORT_MARGIN - PANEL_GAP
+      const placement = panelRect.height > spaceBelow && spaceAbove > spaceBelow ? 'above' : 'below'
+      const preferredTop = placement === 'above'
+        ? triggerRect.top - PANEL_GAP - panelRect.height
+        : triggerRect.bottom + PANEL_GAP
+      const maxTop = Math.max(VIEWPORT_MARGIN, window.innerHeight - VIEWPORT_MARGIN - panelRect.height)
+      const top = Math.max(VIEWPORT_MARGIN, Math.min(preferredTop, maxTop))
+      const preferredLeft = align === 'right'
+        ? triggerRect.right - panelRect.width
+        : triggerRect.left
+      const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - VIEWPORT_MARGIN - panelRect.width)
+      const left = Math.max(VIEWPORT_MARGIN, Math.min(preferredLeft, maxLeft))
+
+      setPanelPosition({ top, left, placement })
+    }
+
+    computePosition()
+    window.addEventListener('resize', computePosition)
+    window.addEventListener('scroll', computePosition, true)
+    return () => {
+      window.removeEventListener('resize', computePosition)
+      window.removeEventListener('scroll', computePosition, true)
+    }
+  }, [align, open])
 
   // Close on outside mousedown, but ignore clicks landing inside a ModelPicker menu:
   // that menu is portaled to document.body (outside this panel's DOM subtree), so a
@@ -61,6 +87,8 @@ export function DropdownPanel({
       if (!target) return
       const container = containerRef.current
       if (container && container.contains(target)) return
+      const panel = panelRef.current
+      if (panel && panel.contains(target)) return
       if (target instanceof Element && target.closest('[data-model-picker-menu]')) return
       onCloseRef.current()
     }
@@ -71,14 +99,22 @@ export function DropdownPanel({
   return (
     <div ref={containerRef} className="relative">
       {trigger}
-      {open && (
+      {open && createPortal(
         <div
           ref={panelRef}
-          style={horizontalOffset ? { transform: `translateX(${horizontalOffset}px)` } : undefined}
-          className={`absolute z-50 ${width} ${align === 'right' ? 'right-0' : 'left-0'} ${above ? 'bottom-full mb-1' : 'top-full mt-1'} rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg overflow-hidden ${className}`}
+          data-dropdown-panel
+          data-placement={panelPosition?.placement}
+          style={{
+            position: 'fixed',
+            top: panelPosition?.top ?? 0,
+            left: panelPosition?.left ?? 0,
+            visibility: panelPosition ? 'visible' : 'hidden',
+          }}
+          className={`z-50 ${width} rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg overflow-hidden ${className}`}
         >
           {children}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

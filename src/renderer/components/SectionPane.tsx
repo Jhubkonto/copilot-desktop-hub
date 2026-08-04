@@ -13,10 +13,12 @@ import { ScheduledPane } from './section-pane/ScheduledPane'
 import { AutomatedWorkflowsPane } from './section-pane/AutomatedWorkflowsPane'
 import { ArtifactsPane } from './section-pane/ArtifactsPane'
 import { RatingsPane } from './section-pane/RatingsPane'
+import { NewContentPane } from './section-pane/NewContentPane'
 
-type SectionType = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings'
+type SectionType = 'new-content' | 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings'
 
 const SECTION_LABELS: Record<SectionType, string> = {
+  'new-content': 'New Content',
   projects: 'Projects',
   agents: 'Agents',
   chats: 'All Chats',
@@ -104,6 +106,7 @@ export function SectionPane({ section }: SectionPaneProps) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
+        {section === 'new-content' && <NewContentPane />}
         {section === 'projects' && !showingProjectHistory && <ProjectsPane />}
         {section === 'projects' && showingProjectHistory && <ProjectHistoryPane />}
         {section === 'agents' && !showingAgentHistory && <AgentsPane />}

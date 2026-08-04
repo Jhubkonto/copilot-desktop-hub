@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
 import { PROJECT_COLOR_MAP } from './section-pane/shared'
 import { NexyIcon } from './ui/icons'
 import { useEmergencyStop } from '../hooks/useEmergencyStop'
+import { isApiError } from '../../shared/types'
 
 function NavButton({
   icon,
@@ -35,7 +37,7 @@ function NavButton({
       {icon}
       <span className="flex-1 text-left">{label}</span>
       {running && (
-        <span title="Working…"><NexyIcon name="busy" size={12} className="text-blue-500" /></span>
+        <span title="Working…"><Loader2 className="w-3 h-3 text-blue-500 animate-spin shrink-0" /></span>
       )}
       {!!badgeCount && badgeCount > 0 && (
         <span className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
@@ -79,16 +81,24 @@ export function Sidebar() {
   const projects = useAppStore((s) => s.projects)
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
+  const syncedUnreadConversationIds = useAppStore((s) => s.syncedUnreadConversationIds) ?? []
   const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
   const backgroundActivities = useAppStore((s) => s.backgroundActivities)
   const setShowActivityFeed = useAppStore((s) => s.setShowActivityFeed)
+  const loadConversations = useAppStore((s) => s.loadConversations)
+  const addToast = useAppStore((s) => s.addToast)
 
   const existingConvIds = new Set(conversations.map((c) => c.id))
   const pendingNew = pendingConversationIds.filter((id) => !existingConvIds.has(id))
-  const recentConvs = conversations.slice(0, Math.max(0, 5 - pendingNew.length))
+  const pinnedConvs = conversations.filter((c) => c.pinned === 1)
+  const visiblePinnedConvs = pinnedConvs.slice(0, 5)
+  const recentConvs = conversations
+    .filter((c) => c.pinned !== 1)
+    .slice(0, Math.max(0, 5 - pendingNew.length))
 
   const [newArtifactCount, setNewArtifactCount] = useState(0)
   const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
+  const [unpinningId, setUnpinningId] = useState<string | null>(null)
 
   const showSettings = useAppStore((s) => s.showSettings)
 
@@ -119,6 +129,20 @@ export function Sidebar() {
       })
       .catch(() => {})
   }, [showSettings])
+
+  const unpinConversation = useCallback(async (id: string) => {
+    if (unpinningId) return
+    setUnpinningId(id)
+    try {
+      const result = await window.api.setConversationPinned(id, false)
+      if (isApiError(result)) throw new Error(result.error)
+      await loadConversations()
+    } catch {
+      addToast('Failed to unpin conversation', 'error')
+    } finally {
+      setUnpinningId(null)
+    }
+  }, [addToast, loadConversations, unpinningId])
 
   return (
     <aside
@@ -158,6 +182,76 @@ export function Sidebar() {
             modal
             ariaLabel="Open activity feed"
           />
+        )}
+        <NavButton
+          icon={<NexyIcon name="chat" size={14} />}
+          label="New content"
+          ariaLabel="Open new content"
+          badgeCount={syncedUnreadConversationIds.length}
+          onClick={() => openSectionPane('new-content')}
+          active={activeSectionPane === 'new-content'}
+        />
+        {pinnedConvs.length > 0 && (
+          <section aria-labelledby="pinned-chats-heading" className="pt-1">
+            <div className="flex items-center justify-between gap-2 px-1 mb-1">
+              <p id="pinned-chats-heading" className="nexy-panel-title text-[10px] text-cyan-700 dark:text-cyan-300 uppercase">
+                Pinned
+              </p>
+              <span className="text-[10px] text-cyan-700/70 dark:text-cyan-300/70">{pinnedConvs.length}</span>
+            </div>
+            <div className="space-y-0.5">
+              {visiblePinnedConvs.map((conv) => {
+                const isActive = currentConversationId === conv.id
+                const isGenerating = generatingConversationIds.includes(conv.id)
+                const isUnread = unreadConversationIds.includes(conv.id)
+                const project = conv.project_id ? projects.find((p) => p.id === conv.project_id) : null
+                const colors = project ? (PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue) : null
+                return (
+                  <div
+                    key={conv.id}
+                    className={`group flex items-stretch rounded-md overflow-hidden transition-colors ${
+                      isActive
+                        ? 'bg-cyan-100 dark:bg-cyan-950/60'
+                        : 'hover:bg-cyan-50 dark:hover:bg-cyan-950/30'
+                    }`}
+                  >
+                    {colors ? <span className={`w-1 shrink-0 ${colors.dot}`} /> : <span className="w-1 shrink-0 bg-cyan-500/50" />}
+                    <button
+                      onClick={() => selectConversation(conv.id)}
+                      className="flex items-center gap-2 px-2 py-1.5 flex-1 min-w-0 text-left"
+                      aria-label={`Open pinned chat ${conv.title}`}
+                    >
+                      {isGenerating ? (
+                        <Loader2 className="w-3 h-3 text-cyan-600 dark:text-cyan-300 animate-spin shrink-0" />
+                      ) : isUnread ? (
+                        <span className="nexy-notification-dot w-1.5 h-1.5 bg-cyan-500 animate-pulse shrink-0" />
+                      ) : (
+                        <NexyIcon name="pin" size={11} className="text-cyan-700 dark:text-cyan-300 shrink-0" />
+                      )}
+                      <span className="text-xs text-gray-700 dark:text-gray-200 truncate">{conv.title}</span>
+                    </button>
+                    <button
+                      onClick={() => { void unpinConversation(conv.id) }}
+                      disabled={unpinningId !== null}
+                      className="w-7 flex items-center justify-center text-cyan-700 dark:text-cyan-300 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-40"
+                      aria-label={`Unpin ${conv.title}`}
+                      title="Unpin"
+                    >
+                      <NexyIcon name={unpinningId === conv.id ? 'busy' : 'close'} size={11} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            {pinnedConvs.length > visiblePinnedConvs.length && (
+              <button
+                onClick={() => openSectionPane('chats')}
+                className="w-full px-2 pt-1.5 text-left text-[10px] font-medium text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 dark:hover:text-cyan-100"
+              >
+                View all {pinnedConvs.length}…
+              </button>
+            )}
+          </section>
         )}
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
@@ -233,7 +327,7 @@ export function Sidebar() {
                   onClick={() => selectConversation(id)}
                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
-                  <span title="Sending…"><NexyIcon name="busy" size={12} className="text-purple-500" /></span>
+                  <span title="Sending…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">New chat</span>
                   </span>
@@ -262,7 +356,7 @@ export function Sidebar() {
                     }
                     <span className="flex items-center gap-2 px-2 py-1 flex-1 min-w-0">
                       {isGenerating ? (
-                        <span title="Generating…"><NexyIcon name="busy" size={12} className="text-purple-500" /></span>
+                        <span title="Generating…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
                       ) : isUnread ? (
                         <span className="nexy-notification-dot w-1.5 h-1.5 bg-blue-500 animate-pulse shrink-0" />
                       ) : (

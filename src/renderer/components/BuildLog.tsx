@@ -98,7 +98,7 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
       <pre
         ref={scrollRef}
         onScroll={handleScroll}
-        className="code-scrollbar overflow-y-auto whitespace-pre-wrap break-words bg-nexy-frame p-2.5 font-mono text-[10px] leading-relaxed text-nexy-highlight selection:bg-nexy-accent/30"
+        className="code-scrollbar overflow-y-auto whitespace-pre-wrap break-words bg-gray-950 p-2.5 font-mono text-[10px] leading-relaxed text-gray-100 selection:bg-blue-500/30"
         style={styleHeight ? { height: styleHeight - 34 } : { maxHeight: 'none' }}
       >
         {lines.length === 0 ? (

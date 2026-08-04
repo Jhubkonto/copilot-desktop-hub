@@ -244,6 +244,53 @@ export function ProjectSettingsPanel(props: Props) {
     }
   }
 
+  const handleAddSource = async () => {
+    if (!projectId) return
+    const result = await window.api.openDirectoryDialog()
+    if (!result?.[0]) return
+    setSaveState('saving')
+    try {
+      await window.api.addProjectSource(projectId, { localPath: result[0] })
+      await loadProjectConfig(projectId)
+      setSaveState('saved')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Could not add source', 'error')
+      setSaveState('idle')
+    }
+  }
+
+  const handleRemoveSource = async (sourceId: string) => {
+    if (!projectId) return
+    await window.api.removeProjectSource(projectId, sourceId)
+    await loadProjectConfig(projectId)
+  }
+
+  const handleRemoveRepository = async (repositoryId: string) => {
+    if (!projectId) return
+    setSaveState('saving')
+    try {
+      await window.api.removeProjectRepository(projectId, repositoryId)
+      await loadProjectConfig(projectId)
+      setSaveState('saved')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Could not remove repository', 'error')
+      setSaveState('idle')
+    }
+  }
+
+  const handleRescanSources = async () => {
+    if (!projectId) return
+    setSaveState('saving')
+    try {
+      await window.api.rescanProjectSources(projectId)
+      await loadProjectConfig(projectId)
+      setSaveState('saved')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Could not scan repositories', 'error')
+      setSaveState('idle')
+    }
+  }
+
   const handleCodingWorkspaceToggle = () => {
     const next = !codingWorkspace
     setCodingWorkspace(next)
@@ -482,6 +529,8 @@ export function ProjectSettingsPanel(props: Props) {
             name={name}
             color={color}
             rootDirectory={rootDirectory}
+            sources={projectConfig.sources}
+            repositories={projectConfig.repositories}
             codingWorkspace={codingWorkspace}
             strategyRetrievalEnabled={strategyRetrievalEnabled}
             terminalSandboxBypass={terminalSandboxBypass}
@@ -506,6 +555,10 @@ export function ProjectSettingsPanel(props: Props) {
             onModeChange={handleModeChange}
             onEnabledToggle={handleEnabledToggle}
             onBrowseDir={handleBrowseDir}
+            onAddSource={handleAddSource}
+            onRemoveSource={handleRemoveSource}
+            onRemoveRepository={handleRemoveRepository}
+            onRescanSources={handleRescanSources}
             onCodingWorkspaceToggle={handleCodingWorkspaceToggle}
             onStrategyRetrievalToggle={handleStrategyRetrievalToggle}
             onTerminalSandboxBypassToggle={handleTerminalSandboxBypassToggle}
@@ -551,7 +604,11 @@ export function ProjectSettingsPanel(props: Props) {
         )}
 
         {activeTab === 'changes' && !isDraft && projectId && (
-          <AuditTab projectId={projectId} workspaceInfo={projectConfig.workspaceInfo} />
+          <AuditTab
+            projectId={projectId}
+            workspaceInfo={projectConfig.workspaceInfo}
+            repositories={projectConfig.repositories}
+          />
         )}
 
         {activeTab === 'team' && isDraft && (
