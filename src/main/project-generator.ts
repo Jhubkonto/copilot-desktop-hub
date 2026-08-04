@@ -21,6 +21,7 @@ import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
 import { startActivity, endActivity } from './activity-tracker'
 import { PROJECT_COLORS } from './project-handlers'
+import { addProjectSource, listProjectSources, primarySourcePath } from './project-sources'
 
 const SPEC_OPEN_TAG = '<project-spec>'
 const SPEC_CLOSE_TAG = '</project-spec>'
@@ -31,8 +32,10 @@ Your job is to help the user set up a new project by having a brief, focused con
 
 ## Conversation style
 - Ask 2–3 targeted questions per turn — don't overwhelm with a wall of questions
-- Aim to understand: what the project is, what kind of work it involves, the root directory path on their computer, any scope constraints, desired milestones
-- Always ask for the root directory path (the folder on their computer where this project lives) — this is required for agents to access files
+- Aim to understand: what the project is, what kind of work it involves, where its repository folders live, any scope constraints, desired milestones
+- A project may contain one repository, several repositories under one parent, or repositories in unrelated folders. Ask for the relevant source locations; do not force one root when there are several
+- Treat the full conversation as authoritative. Never ask again for a detail the user already supplied and never replace it with details from another project
+- If the user asks you to create the project with the information already provided, emit the best complete spec immediately. Do not restart discovery or require optional details
 - Be concise and friendly
 - When you have enough information (usually 2–3 exchanges), emit the project spec
 
@@ -44,6 +47,14 @@ When you have enough context, emit a plain conversational summary followed by a 
   "color": "blue",      // one of: blue, green, red, purple, orange, pink, yellow, gray
   "instructions": "System-level instructions for agents in this project...",
   "rootDirectory": "/absolute/path/to/project",
+  "version": 2,
+  "sources": [{
+    "key": "main-workspace",
+    "label": "Main workspace",
+    "mode": "attach-existing",
+    "localPath": "/absolute/path/to/project",
+    "discovery": "scan-children"
+  }],
   "instructionMode": "prepend",   // one of: prepend, append, replace, standalone
   "variables": [{ "key": "VAR_NAME", "value": "value" }],
   "inScope": [{ "description": "What is in scope", "pathGlob": "src/**" }],
@@ -151,11 +162,20 @@ const VALID_COLORS = new Set(['blue', 'green', 'red', 'purple', 'orange', 'pink'
 const VALID_INSTRUCTION_MODES = new Set(['prepend', 'append', 'replace', 'standalone'])
 
 function normalizeSpec(raw: Record<string, unknown>): ProjectGeneratorSpec {
+  const sources = Array.isArray(raw.sources)
+    ? raw.sources.filter((value): value is NonNullable<ProjectGeneratorSpec['sources']>[number] => {
+        if (!value || typeof value !== 'object') return false
+        const source = value as Record<string, unknown>
+        return typeof source.key === 'string' && typeof source.label === 'string' && typeof source.discovery === 'string'
+      })
+    : undefined
   return {
+    version: sources?.length ? 2 : 1,
     name: String(raw.name || 'New Project').trim().slice(0, 100),
     color: VALID_COLORS.has(String(raw.color)) ? String(raw.color) : 'blue',
     instructions: String(raw.instructions || ''),
     rootDirectory: typeof raw.rootDirectory === 'string' && raw.rootDirectory.trim() ? raw.rootDirectory.trim() : undefined,
+    sources,
     instructionMode: VALID_INSTRUCTION_MODES.has(String(raw.instructionMode)) ? String(raw.instructionMode) as ProjectGeneratorSpec['instructionMode'] : 'prepend',
     variables: Array.isArray(raw.variables) ? raw.variables.filter(isKeyValue) : [],
     inScope: Array.isArray(raw.inScope) ? raw.inScope.filter(hasScopeDescription) : [],
@@ -237,9 +257,16 @@ async function runProjectGeneratorProviderChat(
       ? providerMessages[0].content
       : PROJECT_GENERATOR_SYSTEM_PROMPT
     const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
+    // `codex exec --ephemeral` consumes only the final adapter message. Preserve this
+    // generator's multi-turn discovery conversation by collapsing it into that message;
+    // otherwise a final instruction such as "create it with the info above" arrives with
+    // none of the previously supplied name, path, scope, or milestones.
+    const cliMessages = cliBackend === 'codex-cli'
+      ? [{ role: 'user' as const, content: formatProjectGeneratorTranscript(conversationMessages) }]
+      : conversationMessages
     return adapter.send(
       win,
-      { systemPrompt: systemMsg, messages: conversationMessages, cwd: app.getPath('temp'), model: cliModel, conversationId: sessionId },
+      { systemPrompt: systemMsg, messages: cliMessages, cwd: app.getPath('temp'), model: cliModel, conversationId: sessionId },
       sendChunk,
     )
   }
@@ -269,6 +296,16 @@ async function runProjectGeneratorProviderChat(
     sendActivity: () => {},
     systemPrompt,
   })
+}
+
+function formatProjectGeneratorTranscript(messages: ProviderMessage[]): string {
+  return messages.map((message) => {
+    const role = message.role === 'assistant' ? 'Assistant' : 'User'
+    const content = typeof message.content === 'string'
+      ? message.content
+      : JSON.stringify(message.content)
+    return `[${role}]: ${content}`
+  }).join('\n\n')
 }
 
 export async function runProjectGeneratorChat(
@@ -392,9 +429,11 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
     ).run(projectId, safeName, safeColor, JSON.stringify(DEFAULT_PROJECT_CONFIG), now, now)
 
     // Step 2: update project config
+    const sourceSpecs = spec.sources?.filter((source) => source.mode === 'attach-existing' && source.localPath?.trim()) ?? []
+    const compatibilityRoot = spec.rootDirectory ?? sourceSpecs[0]?.localPath ?? ''
     const configPatch = {
       instructions: spec.instructions,
-      rootDirectory: spec.rootDirectory ?? '',
+      rootDirectory: compatibilityRoot,
       instructionMode: spec.instructionMode ?? 'prepend',
       variables: spec.variables,
       inScope: spec.inScope.map((s, i) => ({ id: String(i), ...s })),
@@ -408,6 +447,21 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
     const current = existing?.config_json ? JSON.parse(existing.config_json) as Record<string, unknown> : {}
     db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(
       JSON.stringify({ ...current, ...configPatch }),
+      Date.now(),
+      projectId,
+    )
+
+    for (const source of sourceSpecs) {
+      await addProjectSource(db, projectId, { label: source.label, localPath: source.localPath!, scan: source.discovery !== 'manual' })
+    }
+    if (sourceSpecs.length === 0 && compatibilityRoot) {
+      await addProjectSource(db, projectId, { label: 'Primary source', localPath: compatibilityRoot })
+    }
+    const hierarchy = listProjectSources(db, projectId)
+    const hierarchyRow = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null }
+    const hierarchyConfig = JSON.parse(hierarchyRow.config_json ?? '{}') as Record<string, unknown>
+    db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify({ ...hierarchyConfig, ...hierarchy, rootDirectory: primarySourcePath(hierarchy) || compatibilityRoot }),
       Date.now(),
       projectId,
     )
