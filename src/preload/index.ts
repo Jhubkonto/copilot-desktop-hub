@@ -23,6 +23,7 @@ import type {
   RemoteEditFixEvent,
   RemoteEditFixDone,
   ErrorLogEntry,
+  RendererErrorInput,
   IpcChannels,
   IpcReturn,
   PromptLibraryInput,
@@ -108,6 +109,7 @@ const api = {
   getErrorLogPath: () => typedInvoke('errors:get-log-path'),
   getRecentErrors: (limit?: number) => typedInvoke('errors:get-recent', limit),
   getRendererConsoleErrors: () => typedInvoke('errors:get-renderer-console'),
+  recordRendererError: (input: RendererErrorInput) => typedInvoke('errors:record-renderer', input),
   clearErrors: () => typedInvoke('errors:clear'),
   captureErrorReport: (input: ErrorReportCaptureInput) => typedInvoke('error-report:capture', input),
   deleteErrorReport: (id: string) => typedInvoke('error-report:delete', id),
@@ -659,12 +661,20 @@ const api = {
     typedInvoke('project:get-config', projectId),
   inspectProjectWorkspace: (rootDirectory: string) =>
     typedInvoke('project:inspect-workspace', rootDirectory),
+  listProjectSources: (projectId: string) => typedInvoke('project:list-sources', projectId),
+  addProjectSource: (projectId: string, input: { label?: string; localPath: string }) =>
+    typedInvoke('project:add-source', projectId, input),
+  removeProjectSource: (projectId: string, sourceId: string) =>
+    typedInvoke('project:remove-source', projectId, sourceId),
+  removeProjectRepository: (projectId: string, repositoryId: string) =>
+    typedInvoke('project:remove-repository', projectId, repositoryId),
+  rescanProjectSources: (projectId: string) => typedInvoke('project:rescan-sources', projectId),
   listProjectAuditSessions: (projectId?: string | null) =>
     typedInvoke('project-audit:list-sessions', projectId),
   listProjectAuditFiles: (sessionId: string) =>
     typedInvoke('project-audit:list-files', sessionId),
-  getProjectAuditDiff: (sessionId: string, relativePath: string) =>
-    typedInvoke('project-audit:get-diff', sessionId, relativePath),
+  getProjectAuditDiff: (sessionId: string, relativePath: string, fileId?: string | null) =>
+    typedInvoke('project-audit:get-diff', sessionId, relativePath, fileId),
   automatedWorkflowGeneratorChat: (projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) =>
     typedInvoke('automated-workflow-generator:chat', projectId, messages, modelOverride),
   onAutomatedWorkflowGeneratorToken: (callback: (chunk: string) => void) => {
@@ -803,6 +813,11 @@ const api = {
   onNewChat: (callback: () => void) => {
     typedOn('chat:new', callback)
     return () => typedOff('chat:new', callback)
+  },
+  onOpenChatDeepLink: (callback: (conversationId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, conversationId: string) => callback(conversationId)
+    typedOn('deeplink:open-chat', handler)
+    return () => typedOff('deeplink:open-chat', handler)
   },
 
   // Build orchestrator
@@ -1120,6 +1135,8 @@ const api = {
     typedInvoke('activity-badge:set-viewed-conversation', conversationId),
   getUnseenActivityCount: () => typedInvoke('activity-badge:get-count'),
   getUnseenActivityConversationIds: () => typedInvoke('activity-badge:get-unseen-conversations'),
+  getNewContentConversations: () => typedInvoke('activity-badge:get-new-content'),
+  markAllNewContentRead: () => typedInvoke('activity-badge:mark-all-read'),
   onUnseenActivityConversationsChanged: (callback: (conversationIds: string[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, conversationIds: string[]) => callback(conversationIds)
     typedOn('activity-badge:changed', handler)
