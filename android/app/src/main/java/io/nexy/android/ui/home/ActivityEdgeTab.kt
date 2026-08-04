@@ -51,3 +51,34 @@ fun ActivityEdgeTab(
         )
     }
 }
+
+/** Cyan quick-access tab for pinned chats, mirrored on the right edge when pins exist. */
+@Composable
+fun PinnedChatsEdgeTab(
+    visible: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!visible) return
+
+    val edgeTabShape = MaterialTheme.shapes.extraSmall.copy(
+        topEnd = CornerSize(0.dp),
+        bottomEnd = CornerSize(0.dp),
+    )
+
+    Box(
+        modifier = modifier
+            .clip(edgeTabShape)
+            .background(MaterialTheme.colorScheme.secondary)
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp, horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        NexyIcon(
+            NexyIconName.Pin,
+            contentDescription = "Open pinned chats",
+            tint = MaterialTheme.colorScheme.onSecondary,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}

@@ -11,6 +11,8 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.WsEvent
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,6 +99,7 @@ class HomeViewModel(
 
     private val _searchResults = MutableStateFlow<List<Conversation>?>(null)
     val searchResults: StateFlow<List<Conversation>?> = _searchResults.asStateFlow()
+    private var searchJob: Job? = null
 
     // One-shot signals emitted when the desktop confirms creation — carries the new item's ID
     private val _projectCreated = MutableSharedFlow<String>(extraBufferCapacity = 1)
@@ -180,7 +183,7 @@ class HomeViewModel(
         }
     }
 
-    private fun requestConversationPage(append: Boolean) {
+    private fun requestConversationPage(append: Boolean, query: String = _searchQuery.value.trim()) {
         val requestId = java.util.UUID.randomUUID().toString()
         if (!append) pendingConversationPages.clear()
         pendingConversationPages[requestId] = append
@@ -188,7 +191,7 @@ class HomeViewModel(
             "requestId" to requestId,
             "scopeType" to "all",
             "scope" to mapOf("type" to "all"),
-            "query" to _searchQuery.value.trim(),
+            "query" to query,
             "limit" to 30,
         )
         if (append) _conversationNextCursor.value?.let { payload["cursor"] = it }
@@ -222,10 +225,27 @@ class HomeViewModel(
     }
 
     fun setSearchQuery(q: String) {
+        if (_searchQuery.value == q) return
+
         _searchQuery.value = q
-        _searchResults.value = if (q.isBlank()) null else emptyList()
-        _isRefreshingConversations.value = true
-        requestConversationPage(append = false)
+        searchJob?.cancel()
+        pendingConversationPages.clear()
+
+        if (q.isBlank()) {
+            _searchResults.value = null
+            _isRefreshingConversations.value = true
+            requestConversationPage(append = false, query = "")
+            return
+        }
+
+        // Keep the current rows visible while the replacement search is pending.
+        if (_searchResults.value == null) _searchResults.value = _conversations.value
+        _isRefreshingConversations.value = false
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            _isRefreshingConversations.value = true
+            requestConversationPage(append = false, query = q.trim())
+        }
     }
 
     fun renameConversation(id: String, title: String) = WsRepository.renameConversation(id, title)
@@ -253,3 +273,5 @@ class HomeViewModel(
         WsRepository.switchProfile(profileId)
     }
 }
+
+private const val SEARCH_DEBOUNCE_MS = 250L

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +41,7 @@ import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.theme.Green500
 import io.nexy.android.ui.theme.NexyNotificationDotShape
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -129,11 +131,10 @@ fun ConversationRow(
                             )
                         }
                         if (isActive) {
-                            NexyIcon(
-                                NexyIconName.Busy,
-                                contentDescription = "Chat active",
+                            CircularProgressIndicator(
                                 modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 1.5.dp,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         } else if (hasNewContent) {
                             Box(
@@ -147,10 +148,10 @@ fun ConversationRow(
                         }
                         if (isCompleted) {
                             NexyIcon(
-                                NexyIconName.Check,
+                                NexyIconName.CheckedBox,
                                 contentDescription = "Complete",
-                                modifier = Modifier.size(13.dp),
-                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(16.dp),
+                                tint = Green500,
                             )
                         }
                         Text(

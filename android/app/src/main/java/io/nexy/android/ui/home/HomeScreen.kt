@@ -102,6 +102,7 @@ fun HomeScreen(
     onOpenRatings: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenNewContent: () -> Unit,
     onOpenPairingScan: () -> Unit,
     onNavigateRoute: (String) -> Unit = {},
     vm: HomeViewModel = viewModel(),
@@ -447,6 +448,25 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    Box {
+                        IconButton(onClick = onOpenNewContent) {
+                            NexyIcon(NexyIconName.Inbox, contentDescription = "Open new content")
+                        }
+                        if (completedWhileAwayIds.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                            ) {
+                                Text(
+                                    if (completedWhileAwayIds.size > 9) "9+" else completedWhileAwayIds.size.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onError,
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = { showConnectionSheet = true }) {
                         NexyIcon(NexyIconName.ChevronDown, contentDescription = "Connection details")
                     }
