@@ -776,11 +776,16 @@ export function ChatWindow() {
   // other and would otherwise resurface as a highlighted option if the chat switches back.
   // Clear it whenever it no longer belongs to the newly active backend's own option set.
   useEffect(() => {
+    // During a conversation/model refresh the provider chip can briefly be unresolved. That is
+    // not a backend switch and must never be allowed to erase a persisted Claude permission mode.
+    // Explicit mode changes are persisted independently by the mode handler and are protected by
+    // the pending-mode display until the refreshed row confirms them.
+    if (!activeCliBackend) return
     const validValues: Record<string, (string | null)[]> = {
       'claude-cli': [null, 'plan', 'acceptEdits', 'bypassPermissions'],
       'codex-cli': [null, 'read-only', 'workspace-write', 'danger-full-access'],
     }
-    const allowed = activeCliBackend ? validValues[activeCliBackend] : [null, 'plan']
+    const allowed = validValues[activeCliBackend]
     const current = currentConversation
       ? ((currentConversation.cli_mode_override as CliModeOverride | null | undefined) ?? null)
       : pendingCliModeOverride
@@ -1242,7 +1247,7 @@ export function ChatWindow() {
   const contextBar = (
     <div className="border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50">
     <div
-      className="flex flex-wrap items-center gap-2 px-4 py-1.5"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 min-h-9"
       aria-label="Chat context"
     >
       <span

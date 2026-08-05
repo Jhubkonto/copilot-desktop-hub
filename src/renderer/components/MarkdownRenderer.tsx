@@ -2,7 +2,7 @@ import { memo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, ExternalLink } from 'lucide-react'
 
 function CopyButton({ getText }: { getText: () => string }) {
   const [copied, setCopied] = useState(false)
@@ -28,6 +28,38 @@ function extractLang(className?: string): string | null {
   if (!className) return null
   const match = /language-(\w+)/.exec(className)
   return match ? match[1] : null
+}
+
+function linkDestination(href?: string): string {
+  if (!href) return 'Unknown destination'
+  try {
+    const url = new URL(href, window.location.href)
+    return url.hostname ? `${url.hostname}${url.pathname === '/' ? '' : url.pathname}` : url.href
+  } catch {
+    return href
+  }
+}
+
+function MarkdownLink({ href, children }: { href?: string; children: ReactNode }) {
+  const destination = linkDestination(href)
+  return (
+    <span className="relative inline group/link">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Opens ${href ?? 'an unknown destination'} in your external browser`}
+        aria-label={`${typeof children === 'string' ? children : 'Link'} — ${href ?? 'unknown destination'}. Availability not checked.`}
+        className="!text-blue-500 hover:!text-blue-400 !underline focus-visible:!outline focus-visible:!outline-2 focus-visible:!outline-blue-400"
+      >
+        {children} <ExternalLink aria-hidden="true" className="inline-block align-[-0.12em]" size={12} />
+      </a>
+      <span role="tooltip" className="pointer-events-none invisible absolute left-0 top-full z-20 mt-1 w-max max-w-[min(24rem,80vw)] rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-normal leading-snug text-gray-700 opacity-0 shadow-lg transition group-hover/link:visible group-hover/link:opacity-100 group-focus-within/link:visible group-focus-within/link:opacity-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+        <span className="block max-w-full truncate">{destination}</span>
+        <span className="block text-[10px] text-gray-500 dark:text-gray-400">External browser · availability not checked</span>
+      </span>
+    </span>
+  )
 }
 
 // Fenced code blocks are intentionally dark-only (Catppuccin Mocha), regardless of
@@ -109,16 +141,7 @@ function MarkdownRendererBase({ content }: MarkdownRendererProps) {
               </code>
             )
           },
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="!text-blue-500 hover:!text-blue-400 !underline"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => <MarkdownLink href={href}>{children}</MarkdownLink>,
           li: ({ className, children, ...props }) => {
             if (className?.includes('task-list-item')) {
               return (
