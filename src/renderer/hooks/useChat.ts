@@ -4,6 +4,7 @@ import { getModelLabel } from '../../shared/models'
 import { isApiError, type CatalogModel } from '../../shared/types'
 import { isLegacyPortableOperationalSummary } from '../../shared/conversation-portability'
 import type {
+  Attachment,
   ChatMessage,
   TeamActivityStep,
   ToastType,
@@ -210,6 +211,7 @@ export function useChat({
             )
 
             return dbMessages.filter((message) => !isLegacyPortableOperationalSummary(message.role, message.content)).map((message) => {
+              const parsedAttachments: Attachment[] | undefined = message.attachments ? JSON.parse(message.attachments) : undefined
               const base: ChatMessage = {
                 id: message.id,
                 role: message.role as ChatMessage['role'],
@@ -217,8 +219,11 @@ export function useChat({
                 timestamp: message.timestamp,
                 model: message.model ?? null,
                 isEdited: message.is_edited === 1,
-                attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
-                images: imageMap.get(message.id),
+                attachments: parsedAttachments,
+                // Once persisted attachments already carry the image (server-side merge in
+                // buildStoredAttachments), reusing the in-memory local-echo `images` here would
+                // render the same screenshot twice.
+                images: parsedAttachments?.some((a) => a.type === 'image') ? undefined : imageMap.get(message.id),
                 contextSnapshot: message.context_snapshot ?? undefined,
               }
               if (message.role === 'assistant' && message.thinking_blocks) {
@@ -317,6 +322,7 @@ export function useChat({
           prev.filter((m) => m.images).map((m) => [m.id, m.images!]),
         )
         return dbMessages.filter((message) => !isLegacyPortableOperationalSummary(message.role, message.content)).map((message) => {
+          const parsedAttachments: Attachment[] | undefined = message.attachments ? JSON.parse(message.attachments) : undefined
           const base: ChatMessage = {
             id: message.id,
             role: message.role as ChatMessage['role'],
@@ -324,8 +330,8 @@ export function useChat({
             timestamp: message.timestamp,
             model: message.model ?? null,
             isEdited: message.is_edited === 1,
-            attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
-            images: imageMap.get(message.id),
+            attachments: parsedAttachments,
+            images: parsedAttachments?.some((a) => a.type === 'image') ? undefined : imageMap.get(message.id),
             contextSnapshot: message.context_snapshot ?? undefined,
           }
           if (message.role === 'assistant' && message.thinking_blocks) {

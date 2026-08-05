@@ -175,12 +175,16 @@ export function useChatWindowActions({
   const pendingModelWriteRef = useRef<Promise<void>>(Promise.resolve())
   // Same idea for the per-chat thinking effort / auto-approve overrides picked before the
   // conversation row exists — applied when the first message creates it.
-  const pendingThinkingEffortRef = useRef<'low' | 'medium' | 'high' | 'max' | 'disabled' | null>(null)
-  const pendingFullAutoApproveRef = useRef<boolean | null>(null)
-  const pendingAgenticModeRef = useRef<boolean | null>(null)
-  const pendingTerminalSandboxRef = useRef<boolean | null>(null)
-  const pendingCliModeOverrideRef = useRef<CliModeOverride | null>(null)
-  const pendingCodexExecutionModeOverrideRef = useRef<CodexExecutionModeOverride | null>(null)
+  // `undefined` means "this existing conversation's stored value is untouched". `null` is
+  // meaningful and means that the user explicitly selected Default, so it must not be the
+  // initial value. Sending the initial nulls used to reset every saved CLI permission mode on
+  // Enter, even when the user had not changed the mode in the current turn.
+  const pendingThinkingEffortRef = useRef<'low' | 'medium' | 'high' | 'max' | 'disabled' | null | undefined>(undefined)
+  const pendingFullAutoApproveRef = useRef<boolean | null | undefined>(undefined)
+  const pendingAgenticModeRef = useRef<boolean | null | undefined>(undefined)
+  const pendingTerminalSandboxRef = useRef<boolean | null | undefined>(undefined)
+  const pendingCliModeOverrideRef = useRef<CliModeOverride | null | undefined>(undefined)
+  const pendingCodexExecutionModeOverrideRef = useRef<CodexExecutionModeOverride | null | undefined>(undefined)
   // Mode controls update optimistically while persistence crosses IPC. Send and Retry await this
   // chain so a turn cannot launch with the preceding sandbox/approval values.
   const pendingModeWriteRef = useRef<Promise<void>>(Promise.resolve())
@@ -908,17 +912,17 @@ export function useChatWindowActions({
       const effectiveRequestBackend = pendingCliBackendRef.current ?? undefined
       pendingCliBackendRef.current = null
       const effectiveThinkingEffortOverride = pendingThinkingEffortRef.current
-      pendingThinkingEffortRef.current = null
+      pendingThinkingEffortRef.current = undefined
       const effectiveFullAutoApproveOverride = pendingFullAutoApproveRef.current
-      pendingFullAutoApproveRef.current = null
+      pendingFullAutoApproveRef.current = undefined
       const effectiveAgenticModeOverride = pendingAgenticModeRef.current
-      pendingAgenticModeRef.current = null
+      pendingAgenticModeRef.current = undefined
       const effectiveTerminalSandboxOverride = pendingTerminalSandboxRef.current
-      pendingTerminalSandboxRef.current = null
+      pendingTerminalSandboxRef.current = undefined
       const effectiveCliModeOverride = pendingCliModeOverrideRef.current
-      pendingCliModeOverrideRef.current = null
+      pendingCliModeOverrideRef.current = undefined
       const effectiveCodexExecutionModeOverride = pendingCodexExecutionModeOverrideRef.current
-      pendingCodexExecutionModeOverrideRef.current = null
+      pendingCodexExecutionModeOverrideRef.current = undefined
       const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
