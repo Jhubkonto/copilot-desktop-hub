@@ -213,7 +213,9 @@ fun ScopedChatHistoryScreen(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 8.dp))
-            if (conversations.isEmpty() && !isLoadingPage) {
+            if (conversations.isEmpty() && isLoadingPage) {
+                ConversationListSkeleton()
+            } else if (conversations.isEmpty() && !isLoadingPage) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,

@@ -1,5 +1,11 @@
 package io.nexy.android.ui.home
 
+import android.animation.ValueAnimator
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,6 +39,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -39,9 +49,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
+import io.nexy.android.ui.components.nexyDither
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.theme.Green500
+import io.nexy.android.ui.theme.LocalNexyEightBit
 import io.nexy.android.ui.theme.NexyNotificationDotShape
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -386,5 +398,92 @@ fun RefreshableContent(
         modifier = Modifier.fillMaxSize(),
     ) {
         content()
+    }
+}
+
+// Placeholder rows shown while a chat history list's first page is still loading — echoes
+// ConversationRow's 72dp shape (accent bar + two text lines) so the swap to real rows doesn't
+// jump the layout. Shares the same pulse styling as ChatLoadingSkeleton so both list and message
+// loading states feel like one system.
+@Composable
+fun ConversationListSkeleton(rows: Int = 6) {
+    if (LocalNexyEightBit.current) {
+        val motionEnabled = !LocalInspectionMode.current && ValueAnimator.areAnimatorsEnabled()
+        val transition = rememberInfiniteTransition(label = "retro-history-skeleton-pulse")
+        val pulseAlpha by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = if (motionEnabled) 0.62f else 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_400),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "retro-history-skeleton-pulse-alpha",
+        )
+        HistorySkeletonRows(
+            rows = rows,
+            shape = RoundedCornerShape(2.dp),
+            decoration = Modifier
+                .graphicsLayer(alpha = pulseAlpha)
+                .nexyDither(
+                    background = MaterialTheme.colorScheme.surfaceVariant,
+                    foreground = MaterialTheme.colorScheme.outlineVariant,
+                ),
+        )
+        return
+    }
+
+    val transition = rememberInfiniteTransition(label = "history-skeleton-pulse")
+    val pulseAlpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "history-skeleton-pulse-alpha",
+    )
+    HistorySkeletonRows(
+        rows = rows,
+        shape = RoundedCornerShape(8.dp),
+        decoration = Modifier.background(
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.25f),
+        ),
+    )
+}
+
+@Composable
+private fun HistorySkeletonRows(
+    rows: Int,
+    shape: RoundedCornerShape,
+    decoration: Modifier,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        repeat(rows) { index ->
+            Row(
+                modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(if (index % 2 == 0) 0.55f else 0.4f)
+                            .height(14.dp)
+                            .clip(shape)
+                            .then(decoration),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .height(12.dp)
+                            .clip(shape)
+                            .then(decoration),
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
     }
 }

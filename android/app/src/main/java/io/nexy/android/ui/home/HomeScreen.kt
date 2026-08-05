@@ -513,6 +513,7 @@ fun HomeScreen(
                         }
                     }
                 },
+                onConnectionStatusClick = { showConnectionSheet = true },
             )
         },
         floatingActionButton = {
