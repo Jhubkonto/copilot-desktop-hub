@@ -3,6 +3,9 @@ import type { ProviderMessage } from '../providers'
 
 export interface CliAdapterRequest {
   systemPrompt?: string
+  /** Per-invocation custom subagents. Claude CLI receives these through --agents so callers can
+   * refresh an app-owned project team without relying on Claude's persistent teammate state. */
+  agents?: Record<string, { description: string; prompt: string }>
   messages: ProviderMessage[]
   images?: { id: string; name: string; dataUrl: string }[]
   mcpServers?: {
@@ -24,6 +27,8 @@ export interface CliAdapterRequest {
   // 'read-only'|'workspace-write'|'danger-full-access' to --sandbox. Adapters ignore values
   // from the other backend's family (one conversation column serves both).
   permissionMode?: string
+  /** Hermes ACP profile. The process is launched with `--profile <name>` and is never switched in-place. */
+  hermesProfile?: string
   // Codex collaboration/execution mode, independent of approval policy and sandbox.
   // 'plan' is sent through the app-server protocol because `codex exec` has no Plan flag.
   executionMode?: 'plan'

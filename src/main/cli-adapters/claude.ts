@@ -180,6 +180,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
       if (req.systemPrompt) {
         args.push('--system-prompt', req.systemPrompt)
       }
+      if (req.agents && Object.keys(req.agents).length > 0) {
+        args.push('--agents', JSON.stringify(req.agents))
+      }
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
