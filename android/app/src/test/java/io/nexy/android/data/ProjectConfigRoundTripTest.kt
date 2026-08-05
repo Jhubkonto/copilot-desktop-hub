@@ -94,6 +94,46 @@ class ProjectConfigRoundTripTest {
         assertTrue(event.agents[1].isPrimary)
     }
 
+    @Test
+    fun projectSourcesUpdatedParserReturnsRefreshedHierarchyAndAction() = runTest {
+        val event = parseEvent(
+            """
+            {
+              "event": "project:sources-updated",
+              "data": {
+                "id": "project-1",
+                "action": "remove",
+                "config": {
+                  "rootDirectory": "C:/repo",
+                  "sources": [{
+                    "id": "source-1", "projectId": "project-1", "label": "repo",
+                    "kind": "workspace-root", "localPath": "C:/repo", "enabled": true, "isPrimary": true
+                  }],
+                  "repositories": []
+                }
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.ProjectSourcesUpdated
+
+        assertEquals("project-1", event.id)
+        assertEquals("remove", event.action)
+        assertEquals("C:/repo", event.config.rootDirectory)
+        assertEquals(listOf("source-1"), event.config.sources.map { it.id })
+        assertTrue(event.config.repositories.isEmpty())
+    }
+
+    @Test
+    fun projectSourcesErrorParserPreservesActionAndMessage() = runTest {
+        val event = parseEvent(
+            """{"event":"project:sources-error","data":{"id":"project-1","action":"rescan","message":"Folder is unavailable"}}"""
+        ) as WsEvent.ProjectSourcesError
+
+        assertEquals("project-1", event.id)
+        assertEquals("rescan", event.action)
+        assertEquals("Folder is unavailable", event.message)
+    }
+
     private suspend fun TestScope.parseEvent(raw: String): WsEvent {
         val events = MutableSharedFlow<WsEvent>(replay = 1, extraBufferCapacity = 8)
         parseWsEvent(

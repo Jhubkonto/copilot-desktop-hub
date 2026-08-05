@@ -84,6 +84,21 @@ class ConnectionIndicatorStateTest {
     }
 
     @Test
+    fun `cached content gets a usable while syncing state`() {
+        assertEquals(
+            ConnectionIndicatorState.CACHE_SYNCING,
+            resolveConnectionIndicatorState(
+                mode = EffectiveConnectionMode.CONNECTED,
+                syncInProgress = true,
+                pendingChanges = 0,
+                failedChanges = 0,
+                conflicts = 0,
+                hasLocalContent = true,
+            ),
+        )
+    }
+
+    @Test
     fun `disconnected mode resolves to error`() {
         assertEquals(
             ConnectionIndicatorState.ERROR,
