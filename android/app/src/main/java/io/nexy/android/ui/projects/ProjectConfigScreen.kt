@@ -162,6 +162,8 @@ fun ProjectConfigScreen(
     var saving by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var repositoryToRemove by remember { mutableStateOf<ProjectRepositoryBinding?>(null) }
+    var sourcesUpdating by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -251,6 +253,23 @@ fun ProjectConfigScreen(
                     // silently refresh since there's nothing unsaved here to clobber.
                     WsRepository.getProjectConfig(projectId)
                 }
+                is WsEvent.ProjectSourcesUpdated -> if (event.id == projectId) {
+                    projectSources = event.config.sources
+                    projectRepositories = event.config.repositories
+                    rootDirectory = event.config.rootDirectory.orEmpty()
+                    loadedRootDirectory = event.config.rootDirectory.orEmpty()
+                    sourcesUpdating = false
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            if (event.action == "remove") "Repository removed from project" else "Project sources rescanned",
+                            duration = SnackbarDuration.Short,
+                        )
+                    }
+                }
+                is WsEvent.ProjectSourcesError -> if (event.id == projectId) {
+                    sourcesUpdating = false
+                    scope.launch { snackbarHostState.showSnackbar(event.message, duration = SnackbarDuration.Long) }
+                }
                 is WsEvent.ProjectAgents -> if (event.id == projectId) {
                     projectAgents.clear()
                     projectAgents.addAll(event.agents)
@@ -319,6 +338,21 @@ fun ProjectConfigScreen(
                 onBack()
             },
             onDismiss = { showDeleteDialog = false },
+        )
+    }
+
+    repositoryToRemove?.let { repository ->
+        NexyConfirmDialog(
+            title = "Remove repository?",
+            message = "Remove \"${repository.label}\" from this project? Files on the desktop will not be deleted. A later rescan can discover it again if it is still inside a source folder.",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                repositoryToRemove = null
+                sourcesUpdating = true
+                WsRepository.removeProjectRepository(projectId, repository.id)
+            },
+            onDismiss = { repositoryToRemove = null },
         )
     }
 
@@ -586,7 +620,7 @@ fun ProjectConfigScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                     Text(
-                        "A project can use multiple desktop folders and Git repositories. The field below remains the primary-source compatibility path; add or remove sources in Nexy Desktop.",
+                        "A project can use multiple desktop folders and Git repositories. Rescan desktop sources here, or remove repositories from this project without deleting their files.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -601,8 +635,25 @@ fun ProjectConfigScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     if (!desktopDisconnected) {
-                        TextButton(onClick = { onOpenFileExplorer(rootDirectory) }, enabled = !saving) {
-                            Text("Browse desktop files…")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(onClick = { onOpenFileExplorer(rootDirectory) }, enabled = !saving && !sourcesUpdating) {
+                                Text("Browse desktop files…")
+                            }
+                            TextButton(
+                                onClick = {
+                                    sourcesUpdating = true
+                                    WsRepository.rescanProjectSources(projectId)
+                                },
+                                enabled = !saving && !sourcesUpdating,
+                            ) {
+                                NexyIcon(NexyIconName.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(6.dp))
+                                Text(if (sourcesUpdating) "Rescanning…" else "Rescan")
+                            }
                         }
                     }
                     projectSources.forEach { source ->
@@ -622,7 +673,28 @@ fun ProjectConfigScreen(
                                     Text("No Git repositories discovered", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 } else repositories.forEach { repository ->
                                     val state = if (!repository.available) "unavailable" else repository.branch ?: "Git"
-                                    Text("• ${repository.label} · $state${if (repository.dirty == true) " · changes" else ""}", style = MaterialTheme.typography.bodySmall)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "• ${repository.label} · $state${if (repository.dirty == true) " · changes" else ""}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        IconButton(
+                                            onClick = { repositoryToRemove = repository },
+                                            enabled = !saving && !sourcesUpdating && !desktopDisconnected,
+                                            modifier = Modifier.size(36.dp),
+                                        ) {
+                                            NexyIcon(
+                                                NexyIconName.Delete,
+                                                contentDescription = "Remove ${repository.label} from project",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
