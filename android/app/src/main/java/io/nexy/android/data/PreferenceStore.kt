@@ -17,6 +17,7 @@ class PreferenceStore private constructor(context: Context) {
 
         private const val PREFER_STANDALONE_MODE = "prefer_standalone_mode"
         private const val EMERGENCY_STOP_ACTIVE = "emergency_stop_active"
+        private const val HAS_COMPLETED_FIRST_LAUNCH = "has_completed_first_launch"
         private const val READ_ALOUD_ENABLED = "read_aloud_enabled"
         private const val FEATURE_VOICE_DOCK_V1 = "feature_voice_dock_v1"
         private const val FEATURE_SPOKEN_OUTPUT_V1 = "feature_spoken_output_v1"
@@ -47,6 +48,18 @@ class PreferenceStore private constructor(context: Context) {
     fun setPreferStandaloneMode(value: Boolean) {
         prefs.edit().putBoolean(PREFER_STANDALONE_MODE, value).apply()
         _preferStandaloneMode.value = value
+    }
+
+    /**
+     * True once the branded splash has been shown at least once. Lets the app skip the splash on
+     * every subsequent cold start — the Room cache is the durable source of truth, so a returning
+     * user should land straight on Home instead of re-watching the logo animation on each relaunch.
+     */
+    fun hasCompletedFirstLaunch(): Boolean = prefs.getBoolean(HAS_COMPLETED_FIRST_LAUNCH, false)
+
+    fun setFirstLaunchCompleted() {
+        if (prefs.getBoolean(HAS_COMPLETED_FIRST_LAUNCH, false)) return
+        prefs.edit().putBoolean(HAS_COMPLETED_FIRST_LAUNCH, true).apply()
     }
 
     fun isEmergencyStopActive(): Boolean = prefs.getBoolean(EMERGENCY_STOP_ACTIVE, false)

@@ -481,6 +481,8 @@ sealed class WsEvent {
     data class ProjectConfigUpdated(val id: String) : WsEvent()
     data class ProjectConfigChanged(val id: String) : WsEvent()
     data class ProjectConfig(val id: String, val config: ProjectSettingsConfig) : WsEvent()
+    data class ProjectSourcesUpdated(val id: String, val action: String, val config: ProjectSettingsConfig) : WsEvent()
+    data class ProjectSourcesError(val id: String, val action: String, val message: String) : WsEvent()
     data class ProjectAgents(val id: String, val agents: List<ProjectAgentEntry>) : WsEvent()
     data class ProjectAuditSessions(val projectId: String?, val sessions: List<ProjectAuditSession>) : WsEvent()
     data class ProjectAuditFiles(val sessionId: String, val files: List<ProjectAuditFile>) : WsEvent()

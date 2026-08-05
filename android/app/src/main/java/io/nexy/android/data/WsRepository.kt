@@ -55,7 +55,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -172,6 +175,17 @@ object WsRepository : WsClient {
 
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects
+
+    /**
+     * True once the Room cache holds any user content (conversations, agents, or projects). Sync UI
+     * uses this to tell a first-time bulk load apart from a routine reconnect: with content already
+     * cached, a delta-sync is applied silently over what's on screen, so surfacing a "N of M"
+     * download-style counter would misrepresent it as a fresh full download.
+     */
+    val hasLocalContent: StateFlow<Boolean> =
+        combine(_conversations, _agents, _projects) { conversations, agents, projects ->
+            conversations.isNotEmpty() || agents.isNotEmpty() || projects.isNotEmpty()
+        }.stateIn(scope, SharingStarted.Eagerly, false)
 
     private val _models = MutableStateFlow(STANDALONE_MODELS)
     val models: StateFlow<List<ModelOption>> = _models
@@ -1262,11 +1276,18 @@ object WsRepository : WsClient {
     }
 
     private fun onWsMessage(text: String) {
-        runCatching {
-            val envelope = JSONObject(text)
-            if (envelope.optString("event") == "chat:emergency-stop-changed") {
-                _emergencyStopActive.value = envelope.optJSONObject("data")?.optBoolean("active", false) == true
-                app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(_emergencyStopActive.value) }
+        // Cheap prefix guard before the full JSON parse: the emergency-stop event is small, but this
+        // handler runs on the socket reader thread for EVERY frame — including the multi-MB
+        // sync:welcome snapshot. Fully parsing that payload here just to check one string field
+        // doubles allocation/GC on the largest message the app ever receives, so skip it unless the
+        // event name is actually present.
+        if (text.contains("\"chat:emergency-stop-changed\"")) {
+            runCatching {
+                val envelope = JSONObject(text)
+                if (envelope.optString("event") == "chat:emergency-stop-changed") {
+                    _emergencyStopActive.value = envelope.optJSONObject("data")?.optBoolean("active", false) == true
+                    app?.let { PreferenceStore.getInstance(it).setEmergencyStopActive(_emergencyStopActive.value) }
+                }
             }
         }
         val isSyncWelcome = text.take(160).contains("\"sync:welcome\"")
@@ -2686,6 +2707,10 @@ object WsRepository : WsClient {
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
     fun updateProjectConfig(id: String, config: ProjectSettingsConfig) {
         send("project:update-config", buildProjectConfigPayload(id, config))
+    }
+    fun rescanProjectSources(id: String) { send("project:rescan-sources", mapOf("id" to id)) }
+    fun removeProjectRepository(id: String, repositoryId: String) {
+        send("project:remove-repository", mapOf("id" to id, "repositoryId" to repositoryId))
     }
 
     fun listProjectAgents(projectId: String) { send("project:list-agents", mapOf("id" to projectId)) }

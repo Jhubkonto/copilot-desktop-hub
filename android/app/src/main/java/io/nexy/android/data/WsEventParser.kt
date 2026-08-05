@@ -1824,6 +1824,21 @@ fun parseWsEvent(
                 )
             }
 
+            "project:sources-updated" -> {
+                val c = data?.optJSONObject("config") ?: JSONObject()
+                WsEvent.ProjectSourcesUpdated(
+                    id = data?.optString("id") ?: "",
+                    action = data?.optString("action") ?: "rescan",
+                    config = parseProjectSettingsConfig(c),
+                )
+            }
+
+            "project:sources-error" -> WsEvent.ProjectSourcesError(
+                id = data?.optString("id") ?: "",
+                action = data?.optString("action") ?: "rescan",
+                message = data?.optString("message") ?: "Could not update project sources",
+            )
+
             "project:agents" -> {
                 val id = data?.optString("id") ?: ""
                 val arr = data?.optJSONArray("agents") ?: JSONArray()

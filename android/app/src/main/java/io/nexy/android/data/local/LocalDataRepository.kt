@@ -813,9 +813,9 @@ class LocalDataRepository private constructor(
         }
         onProgress(0, total)
 
-        snapshot.optJSONArray("projects")?.forEachObject { row ->
+        snapshot.optJSONArray("projects")?.forEachObjectBatched(database) { row ->
             val id = row.optString("id")
-            if (id.isBlank()) return@forEachObject
+            if (id.isBlank()) return@forEachObjectBatched
             val current = database.projects().get(id)
             val fields = projectFieldsFromSnapshotRow(row)
             val remoteVersion = versions.optLong("project:$id", 1L)
@@ -842,9 +842,9 @@ class LocalDataRepository private constructor(
             reportItemApplied()
         }
 
-        snapshot.optJSONArray("agents")?.forEachObject { row ->
+        snapshot.optJSONArray("agents")?.forEachObjectBatched(database) { row ->
             val id = row.optString("id")
-            if (id.isBlank()) return@forEachObject
+            if (id.isBlank()) return@forEachObjectBatched
             val current = database.agents().get(id)
             val fields = agentFieldsFromSnapshotRow(row)
             val remoteVersion = versions.optLong("agent:$id", 1L)
@@ -872,9 +872,9 @@ class LocalDataRepository private constructor(
             reportItemApplied()
         }
 
-        snapshot.optJSONArray("conversations")?.forEachObject { row ->
+        snapshot.optJSONArray("conversations")?.forEachObjectBatched(database) { row ->
             val id = row.optString("id")
-            if (id.isBlank()) return@forEachObject
+            if (id.isBlank()) return@forEachObjectBatched
             val current = database.conversations().get(id)
             val remoteVersion = versions.optLong("conversation:$id", 1L)
             val remote = ConversationEntity(
@@ -924,7 +924,7 @@ class LocalDataRepository private constructor(
             yield()
         }
 
-        snapshot.optJSONArray("wiki")?.forEachObject { row ->
+        snapshot.optJSONArray("wiki")?.forEachObjectBatched(database) { row ->
             val entry = parseWikiEntry(row)
             mergeSnapshotLibrary(
                 kind = "wiki",
@@ -939,7 +939,7 @@ class LocalDataRepository private constructor(
             )
             reportItemApplied()
         }
-        snapshot.optJSONArray("prompts")?.forEachObject { row ->
+        snapshot.optJSONArray("prompts")?.forEachObjectBatched(database) { row ->
             val entry = parsePromptEntry(row)
             mergeSnapshotLibrary(
                 kind = "prompt",
@@ -954,7 +954,7 @@ class LocalDataRepository private constructor(
             )
             reportItemApplied()
         }
-        snapshot.optJSONArray("skills")?.forEachObject { row ->
+        snapshot.optJSONArray("skills")?.forEachObjectBatched(database) { row ->
             val skill = parseSkillConfig(row)
             mergeSnapshotLibrary(
                 kind = "skill",
@@ -1895,6 +1895,31 @@ private fun String.toEpochMillis(): Long =
 private suspend inline fun JSONArray.forEachObject(block: suspend (JSONObject) -> Unit) {
     for (index in 0 until length()) {
         optJSONObject(index)?.let { block(it) }
+    }
+}
+
+/**
+ * Applies [block] over the array in [chunkSize] batches, each wrapped in a single Room transaction
+ * with a [yield] between batches. Collapses N per-row Flow invalidations (one recomposition of the
+ * Chats list per upsert) into one invalidation per batch, which is what kills the freeze/unfreeze
+ * flicker while a large sync:welcome snapshot is applied. Mirrors the message-merge loop.
+ */
+private suspend inline fun JSONArray.forEachObjectBatched(
+    database: NexyDatabase,
+    chunkSize: Int = 50,
+    crossinline block: suspend (JSONObject) -> Unit,
+) {
+    val total = length()
+    var index = 0
+    while (index < total) {
+        val end = minOf(index + chunkSize, total)
+        database.withTransaction {
+            while (index < end) {
+                optJSONObject(index)?.let { block(it) }
+                index += 1
+            }
+        }
+        yield()
     }
 }
 
