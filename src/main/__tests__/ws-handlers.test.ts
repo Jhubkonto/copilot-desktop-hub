@@ -904,6 +904,40 @@ describe('ws handlers', () => {
     })
   })
 
+  it('removes a project repository requested by mobile and returns refreshed sources', async () => {
+    state.projectConfigJson = '{"rootDirectory":"C:/workspace"}'
+
+    const reply = sendCommand('project:remove-repository', { id: 'proj-1', repositoryId: 'repo-1' })
+
+    await vi.waitFor(() => expect(reply).toHaveBeenCalledWith({
+      event: 'project:sources-updated',
+      data: {
+        id: 'proj-1',
+        action: 'remove',
+        config: expect.objectContaining({ sources: [], repositories: [] }),
+      },
+    }))
+    expect(state.runs).toContainEqual({
+      sql: 'DELETE FROM project_repositories WHERE id = ? AND project_id = ?',
+      args: ['repo-1', 'proj-1'],
+    })
+  })
+
+  it('rescans project sources requested by mobile and returns refreshed sources', async () => {
+    state.projectConfigJson = '{"rootDirectory":"C:/workspace"}'
+
+    const reply = sendCommand('project:rescan-sources', { id: 'proj-1' })
+
+    await vi.waitFor(() => expect(reply).toHaveBeenCalledWith({
+      event: 'project:sources-updated',
+      data: {
+        id: 'proj-1',
+        action: 'rescan',
+        config: expect.objectContaining({ sources: [], repositories: [] }),
+      },
+    }))
+  })
+
   it('starts the automated workflow generator for mobile consumers', () => {
     sendCommand('automated-workflow-generator:start', {
       projectId: 'proj-1',

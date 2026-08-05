@@ -62,7 +62,10 @@ describe('CLI adapters', () => {
       cwd: 'C:\\workspace',
       model: 'default',
       conversationId: 'conv-1',
-      systemPrompt: 'system'
+      systemPrompt: 'system',
+      agents: {
+        reviewer: { description: 'Reviews plans', prompt: 'Challenge assumptions.' },
+      },
     }, (chunk: string) => chunks.push(chunk), onEvent)
 
     const line1 = JSON.stringify({ type: 'system', subtype: 'init' })
@@ -114,7 +117,11 @@ describe('CLI adapters', () => {
     })
     expect(mockSpawn).toHaveBeenCalledWith(
       'C:\\claude.exe',
-      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config', '--system-prompt', 'system'],
+      [
+        '--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config',
+        '--system-prompt', 'system',
+        '--agents', JSON.stringify({ reviewer: { description: 'Reviews plans', prompt: 'Challenge assumptions.' } }),
+      ],
       expect.objectContaining({ cwd: 'C:\\workspace' })
     )
     expect(proc.stdin.end).toHaveBeenCalledWith('[User]: hello', 'utf8')

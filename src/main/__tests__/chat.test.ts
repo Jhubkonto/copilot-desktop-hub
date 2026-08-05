@@ -503,6 +503,80 @@ describe('chat handlers', () => {
     expect(capturedReqs[0].systemPrompt ?? '').not.toContain('Runtime model for this conversation')
   })
 
+  it('refreshes Claude CLI custom agents from the live project team on every turn', async () => {
+    const capturedReqs: Array<{
+      systemPrompt?: string
+      agents?: Record<string, { description: string; prompt: string }>
+      allowedTools?: string[]
+    }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: typeof capturedReqs[number]) => {
+        capturedReqs.push(req)
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(getAgentConfig).mockReturnValue({
+      id: 'leader-id',
+      name: 'Pipeline Architect',
+      systemPrompt: 'Lead the project.',
+      backend: 'claude-cli',
+      tools: {},
+    } as never)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: 'leader-id',
+      model: null,
+      cli_backend: 'claude-cli',
+    })
+    state.getOverrides.set('SELECT name, config_json FROM projects', {
+      name: 'MOMM',
+      config_json: JSON.stringify({ workflowMode: 'orchestrated', orchestrationEnabled: true }),
+    })
+    const builtContext = {
+      augmentedContent: 'Ask the specialist',
+      attachedImages: [],
+      injectedRootDirectory: null,
+      wikiProjectId: 'project-1',
+      wikiToolDefs: [],
+      wikiInlineHandlers: new Map(),
+      fileToolDefs: [],
+      fileInlineHandlers: new Map(),
+      skillToolDefs: [],
+      skillInlineHandlers: new Map(),
+      planToolDefs: [],
+      planInlineHandlers: new Map(),
+    }
+    vi.mocked(buildChatContext).mockResolvedValueOnce(builtContext).mockResolvedValueOnce(builtContext)
+
+    state.allOverrides.set('project_agents pa JOIN agents', [
+      { agent_id: 'leader-id', is_primary: 1, sort_order: 0, config_json: JSON.stringify({ name: 'Pipeline Architect', systemPrompt: 'Lead.' }) },
+      { agent_id: 'builder-id', is_primary: 0, sort_order: 1, config_json: JSON.stringify({ name: 'Builder', systemPrompt: 'Build carefully.' }) },
+    ])
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-live-team', 'Ask Builder', { projectId: 'project-1' })
+
+    // Add a member after the conversation already exists, then send another message in it.
+    state.allOverrides.set('project_agents pa JOIN agents', [
+      { agent_id: 'leader-id', is_primary: 1, sort_order: 0, config_json: JSON.stringify({ name: 'Pipeline Architect', systemPrompt: 'Lead.' }) },
+      { agent_id: 'builder-id', is_primary: 0, sort_order: 1, config_json: JSON.stringify({ name: 'Builder', systemPrompt: 'Build carefully.' }) },
+      { agent_id: 'skeptic-id', is_primary: 0, sort_order: 2, config_json: JSON.stringify({ name: 'The Skeptical Senior', icon: '🧐', systemPrompt: 'Challenge assumptions.' }) },
+    ])
+    await handler({ sender: {} }, 'conv-live-team', 'Ask the skeptic', { projectId: 'project-1' })
+
+    expect(capturedReqs).toHaveLength(2)
+    expect(capturedReqs[0].agents).not.toHaveProperty('the-skeptical-senior')
+    expect(capturedReqs[1].agents?.['the-skeptical-senior']).toEqual({
+      description: 'Challenge assumptions.',
+      prompt: 'Challenge assumptions.',
+    })
+    expect(capturedReqs[1].systemPrompt).toContain('authoritative current roster for this turn')
+    expect(capturedReqs[1].systemPrompt).toContain('Do not use SendMessage')
+    expect(capturedReqs[1].allowedTools).toEqual(expect.arrayContaining(['Agent', 'Task']))
+  })
+
   it('forwards and stores CLI thinking events', async () => {
     const mockAdapter = {
       isAvailable: () => true,

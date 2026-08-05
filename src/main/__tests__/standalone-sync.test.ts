@@ -167,6 +167,37 @@ describe('standalone peer synchronization', () => {
     expect(messages.at(-1)?.id).toBe('message-79')
   })
 
+  it('caps the reconnect snapshot to the most-recently-updated conversations', () => {
+    const insertConv = state.db!.prepare(
+      'INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
+    )
+    const insertMsg = state.db!.prepare(
+      'INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)',
+    )
+    // 210 conversations; updated_at ascending with index so the newest 200 are conv-10..conv-209.
+    for (let index = 0; index < 210; index += 1) {
+      insertConv.run(`conv-${index}`, `Chat ${index}`, 1, index + 1)
+      insertMsg.run(`msg-${index}`, `conv-${index}`, 'user', `content-${index}`, index + 1)
+    }
+
+    const result = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 1,
+    })
+    const conversations = result.data.snapshot.conversations as Array<{ id: string }>
+    const messages = result.data.snapshot.messages as Array<{ conversation_id: string }>
+    const conversationIds = new Set(conversations.map(c => c.id))
+
+    expect(conversations).toHaveLength(200)
+    // Oldest 10 are dropped; the newest window is retained.
+    expect(conversationIds.has('conv-9')).toBe(false)
+    expect(conversationIds.has('conv-10')).toBe(true)
+    expect(conversationIds.has('conv-209')).toBe(true)
+    // Messages are only emitted for conversations included in the snapshot.
+    expect(messages.every(m => conversationIds.has(m.conversation_id))).toBe(true)
+  })
+
   it('applies and acknowledges an idempotent Android operation', () => {
     command('sync:hello', {
       deviceId: 'android-1',
