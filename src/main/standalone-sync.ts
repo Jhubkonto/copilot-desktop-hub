@@ -15,6 +15,12 @@ const MAX_SYNC_BATCH_SIZE = 100
 // Older rows remain available through conversation:get-messages pagination and are cached locally
 // when viewed.
 const SNAPSHOT_MESSAGES_PER_CONVERSATION = 60
+// The per-conversation message cap bounds each chat, but the snapshot still grew linearly with the
+// total number of conversations — hundreds of chats meant hundreds of (up to 60) message blocks in
+// one WebSocket frame, spiking Android's allocation on connect. Cap the initial hydration window to
+// the most-recently-updated conversations; older ones page in through conversation:get-messages and
+// the on-demand conversation list. Mirrors SNAPSHOT_MESSAGES_PER_CONVERSATION.
+const SNAPSHOT_MAX_CONVERSATIONS = 200
 
 interface SyncOperation {
   operationId: string
@@ -480,8 +486,11 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     FROM conversations c
     LEFT JOIN agents a ON a.id = c.agent_id
     LEFT JOIN projects p ON p.id = c.project_id
+    WHERE c.id IN (
+      SELECT id FROM conversations ORDER BY updated_at DESC, id DESC LIMIT ?
+    )
     ORDER BY c.updated_at, c.id
-  `).all() as Record<string, unknown>[]
+  `).all(SNAPSHOT_MAX_CONVERSATIONS) as Record<string, unknown>[]
   const messages = db.prepare(`
     SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
            input_tokens, output_tokens, timestamp
@@ -493,10 +502,13 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
                ORDER BY timestamp DESC, id DESC
              ) AS snapshot_rank
       FROM messages
+      WHERE conversation_id IN (
+        SELECT id FROM conversations ORDER BY updated_at DESC, id DESC LIMIT ?
+      )
     )
     WHERE snapshot_rank <= ?
     ORDER BY timestamp, id
-  `).all(SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]
+  `).all(SNAPSHOT_MAX_CONVERSATIONS, SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]
   const wiki = (db.prepare(`
     SELECT id, project_id, title, body, tags, source_conversation_id, created_at, updated_at
     FROM project_wiki_entries ORDER BY updated_at, id

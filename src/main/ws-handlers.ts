@@ -138,7 +138,14 @@ import { buildConversationExportPack, forkConversation, importConversationExport
 import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
 import { CLAUDE_CLI_MODES, CODEX_CLI_MODES } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
-import { ensureLegacyProjectSource, listProjectSources, primarySourcePath, setPrimarySourcePath } from './project-sources'
+import {
+  ensureLegacyProjectSource,
+  listProjectSources,
+  primarySourcePath,
+  removeProjectRepository,
+  rescanProjectSources,
+  setPrimarySourcePath,
+} from './project-sources'
 import { parseProjectConfig, detectProjectWorkspaceMetadata, PROJECT_COLORS } from './project-handlers'
 import { listDirectoryEntriesForRemote, getFsStartRoots } from './file-handlers'
 import {
@@ -1897,6 +1904,42 @@ export function registerWsHandlers(): void {
       Object.assign(merged, hierarchy, { rootDirectory: primarySourcePath(hierarchy) || merged.rootDirectory })
       db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
       broadcastToMobile({ event: 'project:config-updated', data: { id, config: parseProjectConfig(JSON.stringify(merged)) } })
+      return
+    }
+
+    if (command === 'project:remove-repository' || command === 'project:rescan-sources') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const repositoryId = typeof data.repositoryId === 'string' ? data.repositoryId : ''
+      if (!id || (command === 'project:remove-repository' && !repositoryId)) return
+      try {
+        const hierarchy = command === 'project:remove-repository'
+          ? removeProjectRepository(db, id, repositoryId)
+          : await rescanProjectSources(db, id)
+        const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as
+          { config_json: string | null } | undefined
+        if (!row) throw new Error('Project not found')
+        const config = {
+          ...parseProjectConfig(row.config_json),
+          ...hierarchy,
+          rootDirectory: primarySourcePath(hierarchy),
+        }
+        db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(config), Date.now(), id)
+        broadcastToMobile({ event: 'project:config-changed', data: { id, config } })
+        reply({
+          event: 'project:sources-updated',
+          data: { id, action: command === 'project:remove-repository' ? 'remove' : 'rescan', config },
+        })
+      } catch (error) {
+        reply({
+          event: 'project:sources-error',
+          data: {
+            id,
+            action: command === 'project:remove-repository' ? 'remove' : 'rescan',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        })
+      }
       return
     }
 
