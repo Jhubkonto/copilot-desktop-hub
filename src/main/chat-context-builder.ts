@@ -8,6 +8,7 @@ import type { Database } from 'better-sqlite3'
 import { getAgentConfig } from './agents'
 import { listDirectoryEntries } from './file-handlers'
 import { parseProjectConfig } from './project-handlers'
+import { listProjectSources, rescanProjectSources } from './project-sources'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { applyWikiChangeProposal, listRecentWikiEntries, proposeWikiChange } from './wiki-handlers'
 import { requestApproval } from './tools'
@@ -59,6 +60,8 @@ export type BuiltContext = {
   augmentedContent: string
   attachedImages: { id: string; name: string; dataUrl: string }[]
   injectedRootDirectory: string | null
+  /** Every enabled project source, refreshed at the beginning of the turn. */
+  projectDirectories?: string[]
   wikiProjectId: string | null
   wikiToolDefs: ToolDefinition[]
   wikiInlineHandlers: Map<string, InlineHandler>
@@ -75,17 +78,19 @@ export type BuiltContext = {
  * result stays inside it, preventing a BYOK model from writing/reading files elsewhere
  * on disk (e.g. via "../../" traversal) using only the root directory as authorization.
  */
-function resolveWithinRoot(rootDirectory: string, requestedPath: string): string | null {
-  const candidate = isAbsolute(requestedPath) ? requestedPath : resolve(rootDirectory, requestedPath)
-  const resolved = resolve(candidate)
-  const rel = relative(resolve(rootDirectory), resolved)
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return resolved
+function resolveWithinRoots(rootDirectories: string[], requestedPath: string): string | null {
+  for (const rootDirectory of rootDirectories) {
+    const candidate = isAbsolute(requestedPath) ? requestedPath : resolve(rootDirectory, requestedPath)
+    const resolved = resolve(candidate)
+    const rel = relative(resolve(rootDirectory), resolved)
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return resolved
+  }
   return null
 }
 
 // Session-scoped cache for directory listings. Keyed by project ID.
 // Entries are invalidated when the project's rootDirectory changes.
-const dirListingCache = new Map<string, { rootDirectory: string; block: string }>()
+const dirListingCache = new Map<string, { sourceKey: string; block: string }>()
 
 export function clearDirListingCache(): void {
   dirListingCache.clear()
@@ -441,6 +446,7 @@ export async function buildChatContext(
 
   // ── Project context injection ──────────────────────────────────────────────
   let injectedRootDirectory: string | null = null
+  let projectDirectories: string[] = []
   let wikiProjectId: string | null = null
 
   const convProjectId =
@@ -458,6 +464,22 @@ export async function buildChatContext(
       .prepare('SELECT config_json FROM projects WHERE id = ?')
       .get(convProjectId) as { config_json: string | null } | undefined
     const projCfg = parseProjectConfig(projRow?.config_json ?? null)
+
+    // Sources can be added while a conversation is already open. Refresh the persisted
+    // hierarchy before building context so BYOK and CLI-backed turns see the same project
+    // locations without requiring a new conversation or app restart.
+    try {
+      await rescanProjectSources(db, convProjectId)
+    } catch (error) {
+      debugLog('chat', `context-builder: source rescan failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const hierarchy = listProjectSources(db, convProjectId)
+    projectDirectories = hierarchy.sources
+      .filter((source) => source.enabled && existsSync(source.localPath))
+      .map((source) => source.localPath)
+    if (projectDirectories.length === 0 && projCfg.rootDirectory && existsSync(projCfg.rootDirectory)) {
+      projectDirectories = [projCfg.rootDirectory]
+    }
 
     if (projCfg.instructionsEnabled && projCfg.instructions.trim()) {
       let instructions = projCfg.instructions
@@ -520,24 +542,28 @@ export async function buildChatContext(
       }
     }
 
-    if (projCfg.rootDirectory && existsSync(projCfg.rootDirectory)) {
-      injectedRootDirectory = projCfg.rootDirectory
-      debugLog('chat', `context-builder: injecting directory listing for ${projCfg.rootDirectory}`)
+    if (projectDirectories.length > 0) {
+      injectedRootDirectory = projectDirectories[0]
+      const sourceKey = projectDirectories.join('\0')
+      debugLog('chat', `context-builder: injecting directory listings for ${projectDirectories.join(', ')}`)
       const cached = dirListingCache.get(convProjectId)
       let structureBlock: string
-      if (cached && cached.rootDirectory === projCfg.rootDirectory) {
+      if (cached && cached.sourceKey === sourceKey) {
         structureBlock = cached.block
       } else {
-        const entries = listDirectoryEntries(projCfg.rootDirectory, 3, '')
-        const lines = entries.map((e) => (e.type === 'dir' ? `${e.relativePath}/` : e.relativePath))
+        const sourceBlocks = projectDirectories.map((directory) => {
+          const entries = listDirectoryEntries(directory, 3, '')
+          const lines = entries.map((e) => (e.type === 'dir' ? `${e.relativePath}/` : e.relativePath))
+          return `Source: ${directory}\n${lines.join('\n')}`
+        })
         structureBlock =
           `[Project File Structure]\n` +
-          `The following file tree has already been retrieved from the project root directory (${projCfg.rootDirectory}). ` +
+          `The following file trees have already been retrieved from all enabled project source directories. ` +
           `Use it to answer questions about the project structure — do NOT say you cannot access the file system.\n` +
-          `\`\`\`\n${lines.join('\n')}\n\`\`\`\n` +
+          `\`\`\`\n${sourceBlocks.join('\n\n')}\n\`\`\`\n` +
           `[/Project File Structure]`
         dirListingCache.set(convProjectId, {
-          rootDirectory: projCfg.rootDirectory,
+          sourceKey,
           block: structureBlock,
         })
       }
@@ -810,7 +836,7 @@ export async function buildChatContext(
   const fileInlineHandlers = new Map<string, InlineHandler>()
 
   if (injectedRootDirectory) {
-    const capturedRoot = injectedRootDirectory
+    const capturedRoots = projectDirectories.length > 0 ? projectDirectories : [injectedRootDirectory]
     const capturedWebContentsForFiles = webContents
     const capturedFullAutoApprove = fullAutoApprove
     const capturedAgenticMode = agenticMode
@@ -820,7 +846,7 @@ export async function buildChatContext(
       function: {
         name: 'read_project_file',
         description:
-          'Read the contents of a file within the project directory. Path may be relative to the project root.',
+          'Read the contents of a file within any enabled project source directory. Relative paths are resolved against the project sources in listed order.',
         parameters: {
           type: 'object',
           properties: {
@@ -839,7 +865,7 @@ export async function buildChatContext(
         function: {
           name: 'write_project_file',
           description:
-            'Create or overwrite a file within the project directory. Path may be relative to the project root. Always requires explicit user approval before writing.',
+            'Create or overwrite a file within any enabled project source directory. Relative paths are resolved against the project sources in listed order. Always requires explicit user approval before writing.',
           parameters: {
             type: 'object',
             properties: {
@@ -875,7 +901,7 @@ export async function buildChatContext(
 
     fileInlineHandlers.set('read_project_file', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
-      const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
+      const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
       sendActivity({ state: 'tool', label: `Reading ${requestedPath}`, toolName: 'read_project_file' })
       if (!existsSync(resolvedPath)) return { success: false, error: `File not found: ${requestedPath}` }
@@ -891,7 +917,7 @@ export async function buildChatContext(
     if (!planMode) fileInlineHandlers.set('write_project_file', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
       const fileContent = typeof args.content === 'string' ? args.content : String(args.content ?? '')
-      const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
+      const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
       if (capturedWebContentsForFiles.isDestroyed())
         return { success: false, error: 'Window closed — cannot request approval' }
@@ -928,7 +954,7 @@ export async function buildChatContext(
 
     if (!planMode) fileInlineHandlers.set('copy_path_to_artifact', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
-      const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
+      const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
       if (!existsSync(resolvedPath)) return { success: false, error: `Path not found: ${requestedPath}` }
       if (capturedWebContentsForFiles.isDestroyed()) return { success: false, error: 'Window closed — cannot request approval' }
@@ -996,12 +1022,12 @@ export async function buildChatContext(
         if (!command.trim()) return { success: false, error: 'No command provided' }
         const requestedCwd = typeof args.cwd === 'string' && args.cwd.trim() ? args.cwd : '.'
 
-        const withinRoot = resolveWithinRoot(capturedRoot, requestedCwd)
+        const withinRoot = resolveWithinRoots(capturedRoots, requestedCwd)
         let resolvedCwd: string
         if (withinRoot) {
           resolvedCwd = withinRoot
         } else if (capturedTerminalSandboxBypass) {
-          resolvedCwd = isAbsolute(requestedCwd) ? resolve(requestedCwd) : resolve(capturedRoot, requestedCwd)
+          resolvedCwd = isAbsolute(requestedCwd) ? resolve(requestedCwd) : resolve(capturedRoots[0], requestedCwd)
         } else {
           return {
             success: false,
@@ -1230,6 +1256,7 @@ export async function buildChatContext(
     augmentedContent,
     attachedImages,
     injectedRootDirectory,
+    projectDirectories,
     wikiProjectId,
     wikiToolDefs,
     wikiInlineHandlers,

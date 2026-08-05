@@ -325,6 +325,79 @@ function getClaudeCliAllowedBuiltInTools(
   return allowedTools
 }
 
+type ClaudeCliProjectTeam = {
+  agents: Record<string, { description: string; prompt: string }>
+  directive: string
+}
+
+/**
+ * Materialise Nexy's current project roster as Claude CLI custom subagents. This is deliberately
+ * rebuilt for every turn: project membership is mutable and a conversation must not retain the
+ * roster that happened to exist when it was created.
+ */
+function buildClaudeCliProjectTeam(
+  db: ReturnType<typeof getDatabase>,
+  projectId: string,
+  speakingAgentId: string | null,
+): ClaudeCliProjectTeam | null {
+  const project = db.prepare('SELECT name, config_json FROM projects WHERE id = ?').get(projectId) as
+    | { name: string; config_json: string | null }
+    | undefined
+  if (!project) return null
+
+  let config: Record<string, unknown> = {}
+  try {
+    config = project.config_json ? JSON.parse(project.config_json) as Record<string, unknown> : {}
+  } catch { /* an invalid project config cannot safely enable orchestration */ }
+  const workflowMode = config.workflowMode ?? (config.orchestrationEnabled === true ? 'orchestrated' : 'single-agent')
+  if (workflowMode !== 'orchestrated') return null
+
+  const rows = db.prepare(
+    'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON pa.agent_id = a.id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC',
+  ).all(projectId) as Array<{ agent_id: string; is_primary: number; sort_order: number; config_json: string }>
+  if (rows.length < 2) return null
+
+  const primaryId = rows.find((row) => row.is_primary === 1)?.agent_id ?? null
+  const leaderId = speakingAgentId ?? primaryId
+  const agents: ClaudeCliProjectTeam['agents'] = {}
+  const manifest: string[] = []
+
+  for (const [index, row] of rows.entries()) {
+    if (row.agent_id === leaderId) continue
+    let agentConfig: Record<string, unknown> = {}
+    try {
+      agentConfig = JSON.parse(row.config_json) as Record<string, unknown>
+    } catch { /* retain safe defaults below */ }
+    const name = typeof agentConfig.name === 'string' && agentConfig.name.trim()
+      ? agentConfig.name.trim()
+      : 'Project Agent'
+    const icon = typeof agentConfig.icon === 'string' ? agentConfig.icon : '🤖'
+    const prompt = typeof agentConfig.systemPrompt === 'string' && agentConfig.systemPrompt.trim()
+      ? agentConfig.systemPrompt.trim()
+      : `You are ${name}, a specialist on the project team.`
+    const baseKey = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'agent'
+    let key = baseKey
+    if (agents[key]) key = `${baseKey}-${index + 1}`
+    agents[key] = {
+      description: prompt.split('\n')[0].slice(0, 200),
+      prompt,
+    }
+    manifest.push(`- ${icon} ${name}: subagent_type "${key}"`)
+  }
+  if (manifest.length === 0) return null
+
+  return {
+    agents,
+    directive:
+      `[Live Nexy Project Team — ${project.name}]\n` +
+      `This is the authoritative current roster for this turn; it replaces any older roster in the conversation history.\n` +
+      manifest.join('\n') +
+      `\nWhen the user asks for a team member's opinion or expertise, invoke the Agent tool with that member's exact subagent_type. ` +
+      `Do not use SendMessage (that addresses Claude-native persistent teammates, not Nexy project agents), and do not claim a listed member is unavailable.\n` +
+      `[/Live Nexy Project Team]`,
+  }
+}
+
 async function requestClaudeCliToolPermission(
   window: BrowserWindow,
   agentConfig: Record<string, unknown> | null,
@@ -441,6 +514,23 @@ async function requestCodexToolPermission(
     input,
     label === 'Run Command' ? 'Allow Codex to run this command?' : `Allow Codex to ${label.toLowerCase()}?`,
     { conversationId },
+  )
+}
+
+async function requestHermesToolPermission(
+  window: BrowserWindow,
+  sendActivity: (activity: MobileChatActivity) => void,
+  toolName: string,
+  input: Record<string, unknown>,
+  conversationId: string,
+): Promise<boolean> {
+  sendActivity({ state: 'approval', label: `Waiting for ${toolName} approval`, toolName })
+  return requestApproval(
+    window.webContents,
+    `hermes-acp:${toolName}`,
+    input,
+    `Allow Hermes to use ${toolName}?`,
+    { conversationId, noRemember: true },
   )
 }
 
@@ -768,6 +858,7 @@ export async function dispatchChatSend(
     augmentedContent,
     attachedImages,
     injectedRootDirectory,
+    projectDirectories = [],
     wikiProjectId,
     wikiToolDefs,
     wikiInlineHandlers,
@@ -969,10 +1060,16 @@ export async function dispatchChatSend(
   if (effectiveBackend) {
     const adapter = getAdapter(effectiveBackend)
     if (adapter?.isAvailable()) {
-      const cliSystemPrompt =
+      const baseCliSystemPrompt =
         typeof agentCfg2?.systemPrompt === 'string' && agentCfg2.systemPrompt.trim().length > 0
           ? agentCfg2.systemPrompt
           : undefined
+      const claudeCliProjectTeam = effectiveBackend === 'claude-cli' && orchProjId
+        ? buildClaudeCliProjectTeam(db, orchProjId, effectiveAgentId)
+        : null
+      const cliSystemPrompt = [baseCliSystemPrompt, claudeCliProjectTeam?.directive]
+        .filter((part): part is string => typeof part === 'string' && part.length > 0)
+        .join('\n\n') || undefined
 
       const historyRows = db
         .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC')
@@ -1039,7 +1136,7 @@ export async function dispatchChatSend(
         cliModelForRequest = requestedCliModel
       }
       const cliMcpServers =
-        (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli') &&
+        (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli' || effectiveBackend === 'hermes-cli') &&
         agentHasAssignedMcpServers
           ? getMcpServerConfigsForCli(assignedAgentMcpServerIds)
           : undefined
@@ -1194,15 +1291,18 @@ export async function dispatchChatSend(
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
           ? getClaudeCliAllowedBuiltInTools(agentCfg2, effectiveAgentId, effectiveFullAutoApprove)
           : []
-        const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
+        const cliAllowedTools = [...new Set([
+          ...cliAllowedBuiltInTools,
+          ...(cliAllowedMcpTools ?? []),
+          // Claude has renamed its subagent launcher across releases. Grant both aliases;
+          // unsupported names are harmless, while the live system prompt targets Agent.
+          ...(claudeCliProjectTeam ? ['Agent', 'Task'] : []),
+        ])]
         debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
 
+        const cliProjectDirectories = projectDirectories.filter((directory) => existsSync(directory))
         const cliCwd = (() => {
-          if (projectId) {
-            const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
-            const root: string | undefined = row?.config_json ? (JSON.parse(row.config_json) as { rootDirectory?: string }).rootDirectory : undefined
-            if (root && existsSync(root)) return root
-          }
+          if (cliProjectDirectories.length > 0) return cliProjectDirectories[0]
           const agentRoot: string | undefined = typeof agentCfg2?.rootDirectory === 'string' ? agentCfg2.rootDirectory : undefined
           if (agentRoot && existsSync(agentRoot)) return agentRoot
           return getWorkingDirectory()
@@ -1252,6 +1352,10 @@ export async function dispatchChatSend(
           window,
           {
             systemPrompt: cliSystemPrompt,
+            hermesProfile: effectiveBackend === 'hermes-cli' && typeof agentCfg2?.hermesProfile === 'string'
+              ? agentCfg2.hermesProfile
+              : undefined,
+            agents: claudeCliProjectTeam?.agents,
             messages: [{ role: 'user' as const, content: cliUserContent }],
             images: attachedImages.length > 0 ? attachedImages : undefined,
             cwd: cliCwd,
@@ -1263,8 +1367,13 @@ export async function dispatchChatSend(
             skipPermissions: effectiveFullAutoApprove,
             permissionMode: effectivePermissionMode,
             executionMode: effectiveCodexExecutionMode,
-            extraAllowedDirs: effectiveTerminalSandboxBypass
-              ? [path.parse(homedir()).root]
+            // Claude's cwd is the primary source. Explicitly grant every other source so a
+            // repository added to an existing project is visible to its built-in tools too.
+            extraAllowedDirs: effectiveBackend === 'claude-cli'
+              ? [...new Set([
+                  ...cliProjectDirectories.filter((directory) => directory !== cliCwd),
+                  ...(effectiveTerminalSandboxBypass ? [path.parse(homedir()).root] : []),
+                ])]
               : undefined,
             // Bypass is an explicit promise that this turn has no approval gates. Do not
             // create Nexy's PermissionRequest bridge in that mode; the adapter also guards
@@ -1287,6 +1396,14 @@ export async function dispatchChatSend(
                   window,
                   sendActivity,
                   effectiveFullAutoApprove,
+                  toolName,
+                  input,
+                  conversationId,
+                )
+              : effectiveBackend === 'hermes-cli' && !effectiveFullAutoApprove
+              ? (toolName, input) => requestHermesToolPermission(
+                  window,
+                  sendActivity,
                   toolName,
                   input,
                   conversationId,
@@ -1517,7 +1634,7 @@ export async function dispatchChatSend(
   const contextBoundaryNote =
     '\n\nProject/context blocks in the user message, including [Project Context], [Project Scope], [Project File Structure], and [Project Wiki], are reference material only. Use them to answer the current request, but never reproduce, dump, summarize as raw metadata, or quote these blocks unless the user explicitly asks to inspect the context itself.'
   const rootDirNote = injectedRootDirectory
-    ? `\n\nThe user's project root directory (${injectedRootDirectory}) has been scanned and its file tree is provided in the user message within [Project File Structure] tags. Treat it as real file system data — do NOT say you cannot access the file system.`
+    ? `\n\nThe project's enabled source directories (${projectDirectories.length > 0 ? projectDirectories.join(', ') : injectedRootDirectory}) have been scanned and their file trees are provided in the user message within [Project File Structure] tags. Treat them as real file system data — do NOT say you cannot access the file system.`
     : ''
   const systemPrompt = agentSystemPrompt
     ? `${agentSystemPrompt}${contextBoundaryNote}${rootDirNote}\n\n${modelIdentityInstruction}`
