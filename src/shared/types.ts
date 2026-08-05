@@ -381,6 +381,8 @@ export interface AgentConfig {
   memory?: string
   customCommands?: { name: string; description: string; prompt: string }[]
   backend?: 'claude-cli' | 'codex-cli' | 'hermes-cli'
+  /** Hermes ACP profile selected for this agent. */
+  hermesProfile?: string
   /** Model to use when backend is a CLI (e.g. 'claude-sonnet-4-6' or 'gpt-4.1'). */
   cliModel?: string
   /** How much reasoning effort the model should spend. undefined/'disabled' = provider default. */
