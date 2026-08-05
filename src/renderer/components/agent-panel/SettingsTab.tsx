@@ -146,6 +146,19 @@ export function SettingsTab({
             </button>
           </div>
         )}
+        {config.backend === 'hermes-cli' && (
+          <div className="mt-2 space-y-1.5">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Hermes profile</label>
+            <input
+              value={config.hermesProfile ?? ''}
+              onChange={(e) => onUpdateField('hermesProfile', e.target.value.trim() || undefined)}
+              placeholder="default (uses the normal Hermes profile)"
+              pattern="[A-Za-z0-9_-]+"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400">Nexy launches a separate ACP process with this profile; changing it starts a new Hermes session.</p>
+          </div>
+        )}
       </div>
 
       {/* Temperature */}

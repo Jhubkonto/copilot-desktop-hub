@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks intentionally retain the run-start configuration. */
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { StreamingFadeText } from './chat/StreamingFadeText'
@@ -585,7 +586,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                           <NexyIcon name="spark" size={12} className="text-nexy-on-accent" />
                         </div>
                         <div className="flex items-center gap-2 px-3 py-2 bg-nexy-recessed rounded-nexy-sm border border-nexy-border">
-                          <NexyIcon name="busy" size={12} className="text-nexy-accent" />
+                          <Loader2 className="w-3 h-3 text-nexy-accent animate-spin shrink-0" aria-hidden="true" />
                           <span className="text-xs text-nexy-muted">Generating project spec…</span>
                         </div>
                       </div>
