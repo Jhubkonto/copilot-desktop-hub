@@ -112,6 +112,19 @@ fun NavGraph(
     // that don't otherwise reach a chat screen (e.g. the project icon button firing before any
     // conversation is open).
     val context = LocalContext.current
+
+    // The splash is branding only; the durable Room cache — not the splash — is where returning
+    // sessions get their data. Show the logo animation on first launch, then land straight on Home
+    // for every subsequent cold start so relaunching never looks like a fresh download. Computed
+    // once (remember) so it stays stable across recompositions and Activity recreation.
+    val startDestination = remember {
+        if (io.nexy.android.data.PreferenceStore.getInstance(context).hasCompletedFirstLaunch()) {
+            "home"
+        } else {
+            "splash"
+        }
+    }
+
     LaunchedEffect(navController) {
         WsRepository.events.collect { event ->
             when (event) {
@@ -148,11 +161,12 @@ fun NavGraph(
         }
     }
 
-    NavHost(navController = navController, startDestination = "splash") {
+    NavHost(navController = navController, startDestination = startDestination) {
         composable("splash") {
             SplashScreen(onFinished = {
                 // Standalone is the default. Pairing remains available from Home and Settings,
                 // while saved profiles reconnect in the background.
+                io.nexy.android.data.PreferenceStore.getInstance(context).setFirstLaunchCompleted()
                 navController.navigate("home") {
                     popUpTo("splash") { inclusive = true }
                 }
@@ -297,8 +311,11 @@ fun NavGraph(
                         popUpTo("share/{batchId}") { inclusive = true }
                     }
                 },
-                onNewChat = {
-                    navController.navigate("chat/${java.util.UUID.randomUUID()}?shareId=${Uri.encode(batchId)}") {
+                onNewChat = { projectId ->
+                    val projectParam = Uri.encode(projectId.orEmpty())
+                    navController.navigate(
+                        "chat/${java.util.UUID.randomUUID()}?shareId=${Uri.encode(batchId)}&projectId=$projectParam",
+                    ) {
                         popUpTo("share/{batchId}") { inclusive = true }
                     }
                 },
