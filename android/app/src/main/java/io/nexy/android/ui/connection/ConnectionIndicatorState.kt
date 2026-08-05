@@ -4,6 +4,7 @@ import io.nexy.android.data.EffectiveConnectionMode
 
 enum class ConnectionIndicatorState {
     CONNECTED,
+    CACHE_SYNCING,
     SYNCING,
     STANDALONE,
     ERROR,
@@ -20,6 +21,7 @@ fun resolveConnectionIndicatorState(
     failedChanges: Int,
     conflicts: Int,
     contentSyncInProgress: Boolean? = null,
+    hasLocalContent: Boolean = false,
 ): ConnectionIndicatorState = when {
     mode == EffectiveConnectionMode.STANDALONE_BY_CHOICE ->
         ConnectionIndicatorState.STANDALONE
@@ -34,7 +36,8 @@ fun resolveConnectionIndicatorState(
         contentSyncInProgress == true ||
         mode == EffectiveConnectionMode.CONNECTING ||
         mode == EffectiveConnectionMode.SEARCHING ->
-        ConnectionIndicatorState.SYNCING
+        if (hasLocalContent && contentSyncInProgress == null) ConnectionIndicatorState.CACHE_SYNCING
+        else ConnectionIndicatorState.SYNCING
 
     else -> ConnectionIndicatorState.CONNECTED
 }

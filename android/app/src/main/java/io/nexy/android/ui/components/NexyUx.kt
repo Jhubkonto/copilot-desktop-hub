@@ -269,6 +269,7 @@ fun NexyTopAppBar(
     subtitle: String? = null,
     showConnectionStatus: Boolean = true,
     contentSyncInProgress: Boolean? = null,
+    onConnectionStatusClick: (() -> Unit)? = null,
 ) {
     TopAppBar(
         title = {
@@ -294,7 +295,10 @@ fun NexyTopAppBar(
         },
         actions = {
             if (showConnectionStatus) {
-                ConnectionStatusIndicator(contentSyncInProgress = contentSyncInProgress)
+                ConnectionStatusIndicator(
+                    contentSyncInProgress = contentSyncInProgress,
+                    onClick = onConnectionStatusClick,
+                )
             }
             actions()
         },

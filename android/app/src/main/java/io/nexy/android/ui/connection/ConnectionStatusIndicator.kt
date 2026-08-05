@@ -44,24 +44,30 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.nexy.android.data.WsRepository
 
 private val ConnectedGreen = Color(0xFF22C55E)
 private val SyncingAmber = Color(0xFFF59E0B)
+private val CacheSyncGray = Color(0xFF6B7280)
 private val StandalonePurple = Color(0xFF8B5CF6)
 private val ErrorRed = Color(0xFFEF4444)
 
 @Composable
 fun ConnectionStatusIndicator(
     contentSyncInProgress: Boolean? = null,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val mode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
     val syncProgress by WsRepository.syncProgress.collectAsStateWithLifecycle()
+    val hasLocalContent by WsRepository.hasLocalContent.collectAsStateWithLifecycle()
     val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
     val state = resolveConnectionIndicatorState(
         mode = mode,
@@ -70,19 +76,29 @@ fun ConnectionStatusIndicator(
         failedChanges = capabilities.failedChanges,
         conflicts = capabilities.conflicts,
         contentSyncInProgress = contentSyncInProgress,
+        hasLocalContent = hasLocalContent,
     )
     val motionEnabled = !LocalInspectionMode.current && ValueAnimator.areAnimatorsEnabled()
 
+    // Only surface the "N of M" counter during a first-time bulk load (empty cache). Once content
+    // is cached, a reconnect's delta-sync applies silently over what's already on screen, so the
+    // spinner alone conveys "syncing" without implying a fresh full download.
     val progressLabel =
-        if (contentSyncInProgress == null && state == ConnectionIndicatorState.SYNCING && syncProgress.total > 0) {
+        if (contentSyncInProgress == null &&
+            state == ConnectionIndicatorState.SYNCING &&
+            syncProgress.total > 0 &&
+            !hasLocalContent
+        ) {
             "${syncProgress.completed} of ${syncProgress.total}"
         } else {
             null
         }
     Row(
         modifier = modifier
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .semantics {
                 contentDescription = listOfNotNull(state.accessibilityDescription, progressLabel).joinToString(", ")
+                if (onClick != null) role = Role.Button
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -121,7 +137,7 @@ private fun ConnectionStatusGlyph(
     val infiniteTransition = rememberInfiniteTransition(label = "connection-status-motion")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = if (motionEnabled && state == ConnectionIndicatorState.SYNCING) 360f else 0f,
+        targetValue = if (motionEnabled && state in setOf(ConnectionIndicatorState.SYNCING, ConnectionIndicatorState.CACHE_SYNCING)) 360f else 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(1_600, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
@@ -185,10 +201,10 @@ private fun ConnectionStatusGlyph(
             )
         }
 
-        ConnectionIndicatorState.SYNCING -> Icon(
+        ConnectionIndicatorState.SYNCING, ConnectionIndicatorState.CACHE_SYNCING -> Icon(
             Icons.Default.Sync,
             contentDescription = null,
-            tint = SyncingAmber,
+            tint = if (state == ConnectionIndicatorState.CACHE_SYNCING) CacheSyncGray else SyncingAmber,
             modifier = Modifier
                 .size(22.dp)
                 .graphicsLayer(rotationZ = rotation),
@@ -230,6 +246,7 @@ private fun ConnectionStatusGlyph(
 private val ConnectionIndicatorState.accessibilityDescription: String
     get() = when (this) {
         ConnectionIndicatorState.CONNECTED -> "Connected to desktop and up to date"
+        ConnectionIndicatorState.CACHE_SYNCING -> "Ready from cache, synchronizing with desktop in the background"
         ConnectionIndicatorState.SYNCING -> "Synchronizing with desktop"
         ConnectionIndicatorState.STANDALONE -> "Standalone mode"
         ConnectionIndicatorState.ERROR -> "Connection or synchronization problem"
