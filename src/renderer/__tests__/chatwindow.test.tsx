@@ -195,6 +195,48 @@ describe("ChatWindow — Sending Messages", () => {
     await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledTimes(1));
   });
 
+  it("does not reset a persisted Claude permission mode when sending", async () => {
+    const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: false,
+        mode: "none",
+        user: null,
+        cliInstalled: true,
+        clis: { claude: true, codex: false },
+      },
+      currentConversationId: "conv-claude",
+      conversations: [{
+        id: "conv-claude",
+        title: "Claude chat",
+        project_id: null,
+        model: "claude-sonnet-4-6",
+        cli_backend: "claude-cli",
+        cli_mode_override: "bypassPermissions",
+        pinned: false,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      availableModelGroups: [{
+        sourceKey: "claude-cli",
+        sourceLabel: "Claude CLI",
+        sourceType: "cli",
+        models: [{ id: "claude-sonnet-4-6", label: "Claude Sonnet" }],
+      }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await user.type(screen.getByRole("textbox", { name: /message input/i }), "Continue the task");
+    await user.click(screen.getByRole("button", { name: /^send message$/i }));
+
+    await waitFor(() => expect(mockApi.sendMessage).toHaveBeenCalledTimes(1));
+    expect(mockApi.setConversationMode).not.toHaveBeenCalled();
+    expect(mockApi.sendMessage.mock.calls[0][2]).toEqual(expect.objectContaining({
+      cliModeOverride: undefined,
+    }));
+  });
+
   it("waits for an in-flight model update before launching the turn", async () => {
     const user = userEvent.setup();
     let resolveModelWrite!: (value: true) => void;
