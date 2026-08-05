@@ -989,10 +989,20 @@ fun ChatScreen(
     LaunchedEffect(emergencyStopActive) {
         if (emergencyStopActive && assistantBusy) vm.stopStream()
     }
-    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) &&
-        !emergencyStopActive &&
-        !assistantBusy &&
-        (connectionState == ConnectionState.CONNECTED || capabilities.internetState != InternetState.UNAVAILABLE)
+    // Deferred behind derivedStateOf so the composer's per-keystroke `input` mutation is observed
+    // only by whoever reads canSend.value — the bottom input bar — instead of being read in the
+    // top-level ChatScreen scope. A direct read here subscribed the entire screen (message timeline
+    // included) to `input`, so every character typed recomposed the whole conversation, which is the
+    // keyboard lag on long chats. `assistantBusy` is inlined as (isStreaming || isAwaitingResponse)
+    // so the remembered derived block re-reads those snapshot States rather than a stale captured Boolean.
+    val canSend by remember {
+        derivedStateOf {
+            (input.isNotBlank() || attachments.isNotEmpty()) &&
+                !emergencyStopActive &&
+                !(isStreaming || isAwaitingResponse) &&
+                (connectionState == ConnectionState.CONNECTED || capabilities.internetState != InternetState.UNAVAILABLE)
+        }
+    }
     val draftAgent = agentId?.let { id -> agents.find { it.id == id } }
     val draftProject = projectId?.let { id -> projects.find { it.id == id } }
     val agentLabel = conversation?.agent_name?.let { name ->

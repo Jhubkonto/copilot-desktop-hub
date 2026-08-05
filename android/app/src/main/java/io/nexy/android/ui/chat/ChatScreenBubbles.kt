@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.text.method.LinkMovementMethod
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -382,6 +383,12 @@ private fun ChatMarkdownAndroidView(
                     view.maxWidth = exactWidthPx
                     view.textSize = 14f
                     view.setTextIsSelectable(true)
+                    // Markwon produces URLSpan/LinkSpan instances, but TextView does not
+                    // dispatch them unless a movement method is installed. Without this,
+                    // block-level markdown links look clickable but silently do nothing.
+                    view.movementMethod = LinkMovementMethod.getInstance()
+                    view.linksClickable = true
+                    view.highlightColor = android.graphics.Color.TRANSPARENT
                     view.addOnLayoutChangeListener { laidOutView, left, top, right, bottom, _, _, _, _ ->
                         val textView = laidOutView as TextView
                         val textLayout = textView.layout
