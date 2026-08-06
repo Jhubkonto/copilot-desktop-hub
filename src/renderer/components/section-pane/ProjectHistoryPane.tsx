@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { NexyIcon } from '../ui/icons/NexyIcon'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
 import { formatRelativeTime } from '../../../shared/utils'
-import { isPinned, groupByDate } from './shared'
+import { isPinned, groupByDate, withLivePinState } from './shared'
 import { PaneEmptyState } from './pane-primitives'
 import { PaginationFooter } from '../ui/PaginationFooter'
 import { useConversationPagination } from '../../hooks/useConversationPagination'
@@ -24,17 +24,21 @@ export function ProjectHistoryPane() {
   const completedConversationIds = useAppStore((s) => s.completedConversationIds)
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
   const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
+  const setConversationPinned = useAppStore((s) => s.setConversationPinned)
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebouncedSearchQuery(query)
   const pagination = useConversationPagination(
     { type: 'project', id: historyProjectId === '__none__' ? null : historyProjectId },
     debouncedQuery,
   )
-  const conversations = pagination.hasLoaded || debouncedQuery
-    ? pagination.items
-    : cachedConversations.filter((conversation) =>
-        historyProjectId === '__none__' ? !conversation.project_id : conversation.project_id === historyProjectId
-      )
+  const conversations = useMemo(() => {
+    const source = pagination.hasLoaded || debouncedQuery
+      ? pagination.items
+      : cachedConversations.filter((conversation) =>
+          historyProjectId === '__none__' ? !conversation.project_id : conversation.project_id === historyProjectId
+        )
+    return withLivePinState(source, cachedConversations)
+  }, [cachedConversations, debouncedQuery, historyProjectId, pagination.hasLoaded, pagination.items])
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
   const filtered = conversations
@@ -82,6 +86,16 @@ export function ProjectHistoryPane() {
           </div>
         </div>
         <div className="invisible group-hover:visible flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); void setConversationPinned(conv.id, !isPinned(conv)) }}
+            className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${
+              isPinned(conv) ? 'text-nexy-accent hover:text-gray-400' : 'text-gray-400 hover:text-nexy-accent'
+            }`}
+            title={isPinned(conv) ? 'Unpin' : 'Pin'}
+            aria-label={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
+          >
+            <NexyIcon name={isPinned(conv) ? 'unpin' : 'pin'} className="w-3 h-3" />
+          </button>
           {isCompleted ? (
             <button
               onClick={(e) => { e.stopPropagation(); void markConversationIncomplete(conv.id) }}

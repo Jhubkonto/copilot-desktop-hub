@@ -3,7 +3,7 @@ import { NexyIcon } from '../ui/icons/NexyIcon'
 import { useAppStore } from '../../store/app-store'
 import type { ProjectAgent } from '../../store/types'
 import { DeleteProjectDialog } from '../DeleteProjectDialog'
-import { PROJECT_COLOR_MAP, AgentAvatarStack } from './shared'
+import { PROJECT_COLOR_MAP, AgentAvatarStack, projectColorHex } from './shared'
 import { PaneEmptyState } from './pane-primitives'
 
 export function ProjectsPane() {
@@ -176,7 +176,7 @@ export function ProjectsPane() {
               }}
               onClick={() => !isRenaming && selectProject(project.id)}
             >
-              <div className={`w-1 self-stretch shrink-0 ${colors.dot}`} />
+              <div className={`w-1 self-stretch shrink-0 ${colors.dot}`} style={{ backgroundColor: projectColorHex(project.color) }} />
 
               <NexyIcon name="project" className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-nexy-text' : 'text-nexy-muted'}`} />
 
@@ -256,8 +256,8 @@ export function ProjectsPane() {
       {pendingDeleteProject && (
         <DeleteProjectDialog
           projectName={pendingDeleteProject.name}
-          onConfirm={async () => {
-            await deleteProject(pendingDeleteProject.id)
+          onConfirm={async (deleteChats) => {
+            await deleteProject(pendingDeleteProject.id, deleteChats)
             setPendingDeleteProject(null)
           }}
           onCancel={() => setPendingDeleteProject(null)}

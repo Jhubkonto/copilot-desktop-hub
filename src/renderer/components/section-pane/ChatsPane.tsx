@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
 import { formatRelativeTime } from '../../../shared/utils'
-import { isPinned, groupByDate, PROJECT_COLOR_MAP } from './shared'
+import { isPinned, groupByDate, PROJECT_COLOR_MAP, projectColorHex, withLivePinState } from './shared'
 import { PaneEmptyState } from './pane-primitives'
 import { NexyIcon } from '../ui/icons/NexyIcon'
 import { PaginationFooter } from '../ui/PaginationFooter'
@@ -24,12 +25,16 @@ export function ChatsPane() {
   const completedConversationIds = useAppStore((s) => s.completedConversationIds)
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
   const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
+  const setConversationPinned = useAppStore((s) => s.setConversationPinned)
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebouncedSearchQuery(query)
   const pagination = useConversationPagination({ type: 'all' }, debouncedQuery)
-  const conversations = !pagination.hasLoaded && !debouncedQuery
-    ? cachedConversations.slice(0, 30)
-    : pagination.items
+  const conversations = useMemo(() => {
+    const source = !pagination.hasLoaded && !debouncedQuery
+      ? cachedConversations.slice(0, 30)
+      : pagination.items
+    return withLivePinState(source, cachedConversations)
+  }, [cachedConversations, debouncedQuery, pagination.hasLoaded, pagination.items])
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
   const filtered = conversations
@@ -58,13 +63,13 @@ export function ChatsPane() {
         }`}
       >
         {colors
-          ? <div className={`w-1 shrink-0 ${colors.dot}`} />
+          ? <div className={`w-1 shrink-0 ${colors.dot}`} style={{ backgroundColor: projectColorHex(project?.color ?? 'blue') }} />
           : <div className="w-1 shrink-0" />
         }
         <div className="flex items-start gap-2 px-3 py-2 flex-1 min-w-0">
           {isPinned(conv) && <NexyIcon name="pin" className="w-3 h-3 text-nexy-muted shrink-0 mt-0.5" />}
           {isGenerating ? (
-            <span title="Generating…"><NexyIcon name="busy" className="w-3.5 h-3.5 text-nexy-activity shrink-0 mt-0.5" /></span>
+            <span title="Generating…"><Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0 mt-0.5" /></span>
           ) : isUnread ? (
             <span className="nexy-notification-dot w-2 h-2 bg-nexy-info shrink-0 mt-1.5" />
           ) : isCompleted ? (
@@ -79,6 +84,16 @@ export function ChatsPane() {
             </p>
           </div>
           <div className="invisible group-hover:visible flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); void setConversationPinned(conv.id, !isPinned(conv)) }}
+              className={`p-1 rounded-nexy-sm hover:bg-nexy-recessed ${
+                isPinned(conv) ? 'text-nexy-accent hover:text-nexy-muted' : 'text-nexy-muted hover:text-nexy-accent'
+              }`}
+              title={isPinned(conv) ? 'Unpin' : 'Pin'}
+              aria-label={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
+            >
+              <NexyIcon name={isPinned(conv) ? 'unpin' : 'pin'} className="w-3 h-3" />
+            </button>
             {isCompleted ? (
               <button
                 onClick={(e) => { e.stopPropagation(); void markConversationIncomplete(conv.id) }}
@@ -156,7 +171,7 @@ export function ChatsPane() {
                   onClick={() => selectConversation(id)}
                   className="group flex items-start gap-2 px-3 py-2 rounded-nexy-sm border border-transparent cursor-pointer transition-colors hover:border-nexy-border-soft hover:bg-nexy-recessed"
                 >
-                  <NexyIcon name="busy" className="w-3.5 h-3.5 text-nexy-activity shrink-0 mt-0.5" />
+                  <span title="Sending…"><Loader2 className="w-3.5 h-3.5 text-nexy-activity animate-spin shrink-0 mt-0.5" /></span>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-nexy-text truncate">New chat</p>
                     <p className="text-[10px] text-nexy-muted mt-0.5">Sending…</p>

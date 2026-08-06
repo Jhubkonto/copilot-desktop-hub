@@ -1,4 +1,5 @@
 import type { ProjectAgent, Conversation } from '../../store/types'
+import { normalizeProjectColor, PROJECT_COLOR_OPTIONS } from '../../../shared/project-colors'
 export type { Conversation } from '../../store/types'
 
 export const PANE_MIN = 220
@@ -19,6 +20,12 @@ PROJECT_COLOR_MAP.teal = PROJECT_COLOR_MAP.cyan
 PROJECT_COLOR_MAP.indigo = PROJECT_COLOR_MAP.purple
 
 export const COLOR_OPTIONS = ['blue', 'green', 'red', 'purple', 'orange', 'pink', 'yellow', 'cyan', 'gray']
+
+export function projectColorHex(color: string): string {
+  const normalized = normalizeProjectColor(color)
+  if (!normalized) return PROJECT_COLOR_OPTIONS[0].hex
+  return PROJECT_COLOR_OPTIONS.find((option) => option.value === normalized)?.hex ?? normalized
+}
 
 export const PROJECT_BADGE_COLOR_MAP: Record<string, { bg: string; text: string; border: string; hover: string }> = {
   blue:   { bg: 'bg-nexy-project-blue-light dark:bg-nexy-project-blue-dark/60',     text: 'text-nexy-project-blue-dark dark:text-nexy-project-blue-light',     border: 'border-nexy-project-blue',   hover: 'hover:bg-nexy-project-blue-light/70 dark:hover:bg-nexy-project-blue-dark/80' },
@@ -59,6 +66,24 @@ export function AgentAvatarStack({ members }: { members: ProjectAgent[] }) {
 }
 
 export function isPinned(c: Conversation) { return c.pinned === 1 }
+
+/**
+ * Paginated history results are snapshots, while pin changes are applied optimistically to the
+ * app-wide conversation store. Keep the snapshot's paging/order data, but take the mutable pin
+ * flag from the live store so a row cannot keep offering the action it just performed.
+ */
+export function withLivePinState(
+  conversations: Conversation[],
+  liveConversations: Conversation[],
+): Conversation[] {
+  const livePinnedById = new Map(liveConversations.map((conversation) => [conversation.id, conversation.pinned]))
+  return conversations.map((conversation) => {
+    const livePinned = livePinnedById.get(conversation.id)
+    return livePinned == null || livePinned === conversation.pinned
+      ? conversation
+      : { ...conversation, pinned: livePinned }
+  })
+}
 
 export function groupByDate(conversations: Conversation[]) {
   const todayStart = new Date().setHours(0, 0, 0, 0)
