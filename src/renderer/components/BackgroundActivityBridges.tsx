@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../store/app-store'
-import type { BackgroundActivity, BackgroundActivityKind } from '../store/types'
+import type { BackgroundActivity, BackgroundActivityKind, BuildNotification, SectionBadgeKey } from '../store/types'
 
 interface BackgroundActivityStoreApi {
   upsertBackgroundActivity?: (activity: {
@@ -11,6 +11,8 @@ interface BackgroundActivityStoreApi {
   }) => void
   removeBackgroundActivity?: (id: string) => void
   applyActivitySnapshot?: (snapshot: BackgroundActivity[]) => void
+  incrementSectionNewCount?: (key: SectionBadgeKey) => void
+  addBuildNotification?: (notification: BuildNotification) => void
 }
 
 const activityLabels: Record<BackgroundActivityKind, string> = {
@@ -85,8 +87,9 @@ export function BackgroundActivityBridges() {
     const offProjectToken = window.api.onProjectGeneratorToken(() => {
       startActivity('project-generator')
     })
-    const offProjectDone = window.api.onProjectGeneratorDone(() => {
+    const offProjectDone = window.api.onProjectGeneratorDone(({ hasSpec }) => {
       stopActivity('project-generator')
+      if (hasSpec) useAppStore.getState().incrementSectionNewCount('projects')
     })
     const offProjectError = window.api.onProjectGeneratorError?.(() => {
       stopActivity('project-generator')
@@ -95,8 +98,9 @@ export function BackgroundActivityBridges() {
     const offAgentToken = window.api.onAgentGeneratorToken(() => {
       startActivity('agent-generator')
     })
-    const offAgentDone = window.api.onAgentGeneratorDone(() => {
+    const offAgentDone = window.api.onAgentGeneratorDone(({ hasSpec }) => {
       stopActivity('agent-generator')
+      if (hasSpec) useAppStore.getState().incrementSectionNewCount('agents')
     })
     const offAgentError = window.api.onAgentGeneratorError?.(() => {
       stopActivity('agent-generator')
@@ -105,8 +109,9 @@ export function BackgroundActivityBridges() {
     const offSkillToken = window.api.onSkillGeneratorToken(() => {
       startActivity('skill-generator')
     })
-    const offSkillDone = window.api.onSkillGeneratorDone(() => {
+    const offSkillDone = window.api.onSkillGeneratorDone(({ hasSpec }) => {
       stopActivity('skill-generator')
+      if (hasSpec) useAppStore.getState().incrementSectionNewCount('skills')
     })
     const offSkillError = window.api.onSkillGeneratorError?.(() => {
       stopActivity('skill-generator')
@@ -115,18 +120,48 @@ export function BackgroundActivityBridges() {
     const offScheduleToken = window.api.onScheduleGeneratorToken(() => {
       startActivity('scheduler-generator')
     })
-    const offScheduleDone = window.api.onScheduleGeneratorDone(() => {
+    const offScheduleDone = window.api.onScheduleGeneratorDone(({ hasSpec }) => {
       stopActivity('scheduler-generator')
+      if (hasSpec) useAppStore.getState().incrementSectionNewCount('scheduled')
     })
     const offScheduleError = window.api.onScheduleGeneratorError?.(() => {
       stopActivity('scheduler-generator')
     }) ?? (() => {})
+
+    const offWorkflowDone = window.api.onAutomatedWorkflowGeneratorDone(({ hasSpec }) => {
+      if (hasSpec) useAppStore.getState().incrementSectionNewCount('workflows')
+    })
+
+    const offBuildDone = window.api.onBuildCommandDone(({ status }) => {
+      if (status === 'running') return
+      useAppStore.getState().addBuildNotification({
+        id: crypto.randomUUID(),
+        label: `Desktop build ${status}`,
+        status,
+        platform: 'desktop',
+        timestamp: Date.now(),
+      })
+    })
+
+    const offAndroidDone = window.api.onAndroidCommandDone(({ status }) => {
+      if (status === 'running') return
+      useAppStore.getState().addBuildNotification({
+        id: crypto.randomUUID(),
+        label: `Android build ${status}`,
+        status,
+        platform: 'android',
+        timestamp: Date.now(),
+      })
+    })
 
     return () => {
       offSkillLibraryUpdated()
       offProjectToken()
       offProjectDone()
       offProjectError()
+      offWorkflowDone()
+      offBuildDone()
+      offAndroidDone()
       offAgentToken()
       offAgentDone()
       offAgentError()
