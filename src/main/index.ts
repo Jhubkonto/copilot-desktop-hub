@@ -15,7 +15,7 @@ import { initErrorLogCapture } from './error-log-handlers'
 import { autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 import { schedulerEngine } from './scheduler-engine'
-import { initializeActivityBadge } from './activity-badge'
+import { initializeActivityBadge, getUnseenActivityCount, setUnseenCountChangeCallback } from './activity-badge'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -115,9 +115,34 @@ function createWindow(): void {
   })
 }
 
+// The tray icon itself is drawn as an SVG data URL rather than loaded from resources/icon.*
+// because that directory is only used by electron-builder to embed the exe icon at build time
+// — it isn't bundled into the packaged app and so isn't readable at runtime.
+function buildTrayIcon(unseenCount: number) {
+  // Rendered at 2x (32x32) so the badge stays crisp at Windows' HiDPI tray scales; the
+  // badge circle is inset from the corner (not flush against it) so its stroke doesn't get
+  // clipped by the canvas edge, which previously made it render as an invisible sliver.
+  const badge =
+    unseenCount > 0
+      ? '<circle cx="24" cy="8" r="7" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>'
+      : ''
+  const svg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">',
+    '<rect width="32" height="32" rx="6" fill="#5146C8"/>',
+    '<text x="16" y="24" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="700" fill="white">N</text>',
+    badge,
+    '</svg>',
+  ].join('')
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
+}
+
+function updateTrayIcon(unseenCount: number): void {
+  tray?.setImage(buildTrayIcon(unseenCount))
+}
+
 function createTray(): void {
-  const icon = nativeImage.createEmpty()
-  tray = new Tray(icon)
+  tray = new Tray(buildTrayIcon(getUnseenActivityCount()))
+  setUnseenCountChangeCallback(updateTrayIcon)
 
   const contextMenu = Menu.buildFromTemplate([
     {
