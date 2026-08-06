@@ -70,6 +70,7 @@ fun NexyConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     destructive: Boolean = false,
+    extraContent: (@Composable () -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -77,7 +78,14 @@ fun NexyConfirmDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         title = { Text(title) },
-        text = { Text(message) },
+        text = {
+            Column {
+                Text(message)
+                if (extraContent != null) {
+                    extraContent()
+                }
+            }
+        },
         confirmButton = {
             if (destructive) {
                 NexyDangerButton(text = confirmLabel, onClick = onConfirm)

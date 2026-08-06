@@ -196,6 +196,12 @@ class ChatViewModel(
     private val _selectedModel = MutableStateFlow<String?>(null)
     val selectedModel: StateFlow<String?> = _selectedModel
 
+    // Set once the user explicitly picks a model via the picker, so the "derive default model"
+    // effect in ChatScreen stops clobbering that choice when it re-fires (e.g. the project's model
+    // list resolving over WS after the pick, for a draft conversation with no server-side model yet).
+    private val _userSelectedModel = MutableStateFlow(false)
+    val userSelectedModel: StateFlow<Boolean> = _userSelectedModel
+
     // Local, optimistic mirror of the conversation's mode overrides. Needed because a
     // brand-new/unsent chat only has a client-generated draft id (see NavGraph.kt) — there's no
     // server-side conversation row yet, so `conversation:set-mode` would target an id the desktop
@@ -1526,11 +1532,13 @@ class ChatViewModel(
     }
 
     fun loadModel(model: String?) {
+        if (_userSelectedModel.value) return
         _selectedModel.value = model?.takeIf { it.isNotBlank() && it != "default" }
     }
 
     fun setModel(model: String?) {
         val normalized = model?.takeIf { it.isNotBlank() && it != "default" }
+        _userSelectedModel.value = true
         _selectedModel.value = normalized
         wsClient.send(
             "conversation:set-model",
