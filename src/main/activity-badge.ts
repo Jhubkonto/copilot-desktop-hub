@@ -8,9 +8,21 @@ const SETTINGS_KEY = 'unseenActivityDestinations'
 let initialized = false
 let unseenDestinations = new Set<string>()
 let viewedConversationId: string | null = null
+let unseenCountChangeCallback: ((count: number) => void) | null = null
+
+// Lets index.ts keep the system tray icon's badge in sync without activity-badge.ts
+// needing to know about the Tray object itself.
+export function setUnseenCountChangeCallback(callback: ((count: number) => void) | null): void {
+  unseenCountChangeCallback = callback
+}
 
 function destinationFor(activity: BackgroundActivity): string {
-  if (activity.conversationId) return `chat:${activity.conversationId}`
+  // 'orchestration' activities are per-delegation sub-steps nested inside a still-running
+  // 'chat' turn (see orchestrator.ts) — the leader hasn't synthesized its final answer yet
+  // when a specialist finishes, so routing them to the conversation's chat: destination
+  // marked the conversation "unread" while the response was still streaming. The enclosing
+  // 'chat' activity already owns that destination and reports it once the turn truly ends.
+  if (activity.conversationId && activity.kind !== 'orchestration') return `chat:${activity.conversationId}`
   return `activity:${activity.id}`
 }
 
@@ -63,6 +75,7 @@ function applyNativeBadge(): void {
   } catch {
     // Badges are not supported by every Linux desktop environment or test stub.
   }
+  unseenCountChangeCallback?.(count)
 }
 
 function broadcastUnseenConversations(): void {
@@ -233,4 +246,5 @@ export function resetActivityBadgeForTests(): void {
   initialized = false
   unseenDestinations = new Set()
   viewedConversationId = null
+  unseenCountChangeCallback = null
 }

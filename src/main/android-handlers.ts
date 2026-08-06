@@ -12,6 +12,7 @@ import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { startFeedServer, getFeedLanUrl, isFeedRunning } from './local-feed-server'
+import { getTailscaleIp } from './ws-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
 import { runBuildProcess, cancelBuildProcess, mapBuildRecord } from './build-runner'
 import { startActivity, endActivity } from './activity-tracker'
@@ -286,7 +287,8 @@ export async function getAndroidUpdateManifest(db: Database.Database): Promise<A
   if (!existsSync(manifestPath)) return null
   try {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as AndroidUpdateManifest
-    return { ...manifest, artifactUrl: refreshArtifactUrl(manifest.artifactUrl) }
+    const artifactUrls = refreshArtifactUrls(manifest.artifactUrl)
+    return { ...manifest, artifactUrl: artifactUrls[0] ?? manifest.artifactUrl, artifactUrls }
   } catch {
     return null
   }
@@ -295,15 +297,19 @@ export async function getAndroidUpdateManifest(db: Database.Database): Promise<A
 // The manifest on disk embeds the feed origin that was current at publish
 // time, but the feed server gets a fresh random port each launch and the LAN
 // IP can change. Re-point the URL at the live feed so downloads keep working
-// across desktop restarts.
-function refreshArtifactUrl(artifactUrl: string): string {
-  if (!isFeedRunning()) return artifactUrl
-  const liveOrigin = getFeedLanUrl(getLocalIp())
-  if (!liveOrigin) return artifactUrl
+// across desktop restarts. Returns LAN and (if active) Tailscale candidates,
+// in that order, so a phone that can't reach the LAN address (e.g. connected
+// over cellular via Tailscale) can fall back to the one it can reach.
+function refreshArtifactUrls(artifactUrl: string): string[] {
+  if (!isFeedRunning()) return [artifactUrl]
+  const origins = [getFeedLanUrl(getLocalIp())]
+  const tsIp = getTailscaleIp()
+  if (tsIp) origins.push(getFeedLanUrl(tsIp))
   try {
-    return `${liveOrigin}${new URL(artifactUrl).pathname}`
+    const pathname = new URL(artifactUrl).pathname
+    return origins.filter(Boolean).map((origin) => `${origin}${pathname}`)
   } catch {
-    return artifactUrl
+    return [artifactUrl]
   }
 }
 
@@ -732,6 +738,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
        VALUES (?, ?, ?, ?, ?, ?, 'android', ?, 'running', ?)`
     ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.versionName, wsInfo.versionCode, command, now)
 
+    startActivity({ id: `android-build:${buildId}`, kind: 'build', label: `Android build (${command})…`, detail: wsInfo.branch ?? undefined })
     runBuildProcess({
       db,
       buildId,
@@ -744,13 +751,19 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       window: mainWindow,
       registry: activeAndroidProcesses,
       collectArtifacts: () => collectAndroidArtifacts(workspacePath, command, now),
+      onDone: () => endActivity(`android-build:${buildId}`),
     })
 
     return { buildId }
   })
 
   safeHandle('android:cancel-command', (_event, buildId: string) => {
-    return cancelBuildProcess({ db, buildId, registry: activeAndroidProcesses })
+    return cancelBuildProcess({
+      db,
+      buildId,
+      registry: activeAndroidProcesses,
+      onCancelled: () => endActivity(`android-build:${buildId}`),
+    })
   })
 
   safeHandle('android:get-records', (_event, limit?: number) => {

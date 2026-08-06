@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog } from "electron";
-import { writeFileSync } from "fs";
+import { app, BrowserWindow, dialog, shell } from "electron";
+import { existsSync, writeFileSync } from "fs";
+import path from "path";
 import { safeHandle } from "./safe-handle";
 
 export function registerSystemHandlers(): void {
@@ -9,6 +10,15 @@ export function registerSystemHandlers(): void {
 
   safeHandle("app:get-runtime-info", () => {
     return { isPackaged: app.isPackaged };
+  });
+
+  safeHandle("app:open-path", async (_event, absolutePath: string) => {
+    if (typeof absolutePath !== 'string' || !path.isAbsolute(absolutePath)) {
+      return { ok: false, error: 'Only absolute local paths can be opened' };
+    }
+    if (!existsSync(absolutePath)) return { ok: false, error: 'File or folder not found' };
+    const error = await shell.openPath(absolutePath);
+    return error ? { ok: false, error } : { ok: true };
   });
 
   safeHandle(

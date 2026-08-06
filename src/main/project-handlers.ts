@@ -20,6 +20,7 @@ import {
   rescanProjectSources,
   setPrimarySourcePath,
 } from './project-sources'
+import { normalizeProjectColor, PROJECT_COLOR_NAMES } from '../shared/project-colors'
 
 export { DEFAULT_PROJECT_CONFIG };
 
@@ -41,16 +42,7 @@ const CODING_MARKERS = [
   'src',
 ] as const
 
-export const PROJECT_COLORS = new Set([
-  "blue",
-  "green",
-  "red",
-  "purple",
-  "orange",
-  "pink",
-  "yellow",
-  "gray",
-]);
+export const PROJECT_COLORS = PROJECT_COLOR_NAMES;
 
 function parseBranchFromStatus(statusOutput: string): string | null {
   const header = statusOutput.split('\n').find((line) => line.startsWith('## '))
@@ -248,7 +240,7 @@ export function registerProjectHandlers(): void {
 
   safeHandle("project:create", (_event, name: string, color: string) => {
     const safeName = String(name).trim().slice(0, 100);
-    const safeColor = PROJECT_COLORS.has(color) ? color : "blue";
+    const safeColor = normalizeProjectColor(color) ?? "blue";
     if (!safeName) throw new Error("Project name is required");
     const id = randomUUID();
     const now = Date.now();
@@ -269,7 +261,7 @@ export function registerProjectHandlers(): void {
   safeHandle("project:rename", (_event, id: string, name: string, color?: string) => {
     const safeName = String(name).trim().slice(0, 100);
     if (!safeName) throw new Error("Project name is required");
-    const safeColor = color === undefined ? undefined : PROJECT_COLORS.has(color) ? color : null;
+    const safeColor = color === undefined ? undefined : normalizeProjectColor(color);
     if (safeColor === null) throw new Error("Invalid project color");
     if (safeColor) {
       db.prepare("UPDATE projects SET name = ?, color = ?, updated_at = ? WHERE id = ?").run(
@@ -289,7 +281,10 @@ export function registerProjectHandlers(): void {
     return true;
   });
 
-  safeHandle("project:delete", (_event, id: string) => {
+  safeHandle("project:delete", (_event, id: string, deleteChats?: boolean) => {
+    if (deleteChats) {
+      db.prepare("DELETE FROM conversations WHERE project_id = ?").run(id);
+    }
     db.prepare("DELETE FROM projects WHERE id = ?").run(id);
     return true;
   });
