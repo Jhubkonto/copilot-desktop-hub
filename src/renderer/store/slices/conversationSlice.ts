@@ -16,6 +16,7 @@ export interface ConversationSlice {
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
   markConversationComplete: (id: string) => Promise<void>
   markConversationIncomplete: (id: string) => Promise<void>
+  setConversationPinned: (id: string, pinned: boolean) => Promise<void>
   handleConversationCompleted: (conversationId: string) => void
   handleConversationIncompleted: (conversationId: string) => void
   submitConversationRating: (id: string, rating: number, note?: string | null) => Promise<void>
@@ -124,6 +125,24 @@ export const createConversationSlice: StateCreator<
       })
     } catch {
       get().addToast('Failed to mark conversation incomplete', 'error')
+    }
+  },
+
+  setConversationPinned: async (id, pinned) => {
+    const previous = get().conversations.find((c) => c.id === id)?.pinned
+    set((s) => {
+      const conv = s.conversations.find((c) => c.id === id)
+      if (conv) conv.pinned = pinned ? 1 : 0
+    })
+    try {
+      const result = await window.api.setConversationPinned(id, pinned)
+      if (isApiError(result)) throw new Error(result.error)
+    } catch {
+      set((s) => {
+        const conv = s.conversations.find((c) => c.id === id)
+        if (conv) conv.pinned = previous
+      })
+      get().addToast(pinned ? 'Failed to pin conversation' : 'Failed to unpin conversation', 'error')
     }
   },
 

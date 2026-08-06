@@ -85,5 +85,17 @@ export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
 export type UiStyle = 'classic' | '8bit'
-export type ActiveSectionPane = 'new-content' | 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings' | null
+export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings' | null
 export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'verify' | 'changes' | 'wiki' | 'artifacts'
+
+/** Sidebar sections that surface a "new item ready" badge when background generation completes. */
+export type SectionBadgeKey = 'projects' | 'agents' | 'skills' | 'scheduled' | 'workflows'
+
+/** A finished desktop or Android build/test/package run, surfaced in the top bar (not the sidebar) since it's triggered from Settings rather than a project/agent-style list. */
+export interface BuildNotification {
+  id: string
+  label: string
+  status: 'success' | 'failed' | 'cancelled'
+  platform: 'desktop' | 'android'
+  timestamp: number
+}

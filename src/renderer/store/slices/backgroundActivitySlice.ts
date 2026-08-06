@@ -121,7 +121,8 @@ export const createBackgroundActivitySlice: StateCreator<
       return
     }
     if (activity.kind === 'build') {
-      get().setSettingsInitialTab('developer')
+      const isAndroid = activity.id.startsWith('android-build:')
+      get().setSettingsInitialTab(isAndroid ? 'developer:android' : 'developer:desktop')
       get().setShowSettings(true)
       return
     }

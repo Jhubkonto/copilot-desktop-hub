@@ -2,6 +2,8 @@ import type { StateCreator } from 'zustand'
 import type { AppState } from '../app-store'
 import type {
   ActiveSectionPane,
+  BuildNotification,
+  SectionBadgeKey,
   Theme,
   UiStyle,
   Toast,
@@ -84,6 +86,14 @@ export interface UiSlice {
   closeArtifactPanel: () => void
   pendingKeyHandoffProvider: string | null
   setPendingKeyHandoffProvider: (provider: string | null) => void
+  /** Counts of newly-generated items per sidebar section, cleared when the user opens that section. */
+  sectionNewCounts: Record<SectionBadgeKey, number>
+  incrementSectionNewCount: (key: SectionBadgeKey) => void
+  clearSectionNewCount: (key: SectionBadgeKey) => void
+  /** Finished builds, surfaced as a top-bar notification (the one exception to "notify next to the sidebar section"). */
+  buildNotifications: BuildNotification[]
+  addBuildNotification: (notification: BuildNotification) => void
+  clearBuildNotifications: () => void
 }
 
 export const createUiSlice: StateCreator<
@@ -121,6 +131,8 @@ export const createUiSlice: StateCreator<
   androidDebugLog: false,
   viewingArtifactId: null,
   pendingKeyHandoffProvider: null,
+  sectionNewCounts: { projects: 0, agents: 0, skills: 0, scheduled: 0, workflows: 0 },
+  buildNotifications: [],
 
   openArtifactPanel: (id) => {
     set((s) => {
@@ -400,6 +412,34 @@ export const createUiSlice: StateCreator<
     set((s) => {
       if (s.pendingConversationIds.includes(id)) {
         s.pendingConversationIds = s.pendingConversationIds.filter((cid) => cid !== id)
+      }
+    })
+  },
+
+  incrementSectionNewCount: (key) => {
+    set((s) => {
+      s.sectionNewCounts[key] += 1
+    })
+  },
+
+  clearSectionNewCount: (key) => {
+    set((s) => {
+      if (s.sectionNewCounts[key] !== 0) {
+        s.sectionNewCounts[key] = 0
+      }
+    })
+  },
+
+  addBuildNotification: (notification) => {
+    set((s) => {
+      s.buildNotifications.push(notification)
+    })
+  },
+
+  clearBuildNotifications: () => {
+    set((s) => {
+      if (s.buildNotifications.length !== 0) {
+        s.buildNotifications = []
       }
     })
   },

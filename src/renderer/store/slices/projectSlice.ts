@@ -33,7 +33,7 @@ export interface ProjectSlice {
   createProject: (name: string, color: string) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   updateProjectColor: (id: string, name: string, color: string) => Promise<void>
-  deleteProject: (id: string) => Promise<void>
+  deleteProject: (id: string, deleteChats?: boolean) => Promise<void>
   setConversationProject: (
     conversationId: string,
     projectId: string | null
@@ -211,9 +211,9 @@ export const createProjectSlice: StateCreator<
     }
   },
 
-  deleteProject: async (id) => {
+  deleteProject: async (id, deleteChats = false) => {
     try {
-      const result = await window.api.deleteProject(id)
+      const result = await window.api.deleteProject(id, deleteChats)
       if (isApiError(result)) {
         get().addToast('Failed to delete project', 'error')
         return
