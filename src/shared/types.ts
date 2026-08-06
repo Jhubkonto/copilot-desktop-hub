@@ -1771,6 +1771,7 @@ export interface AndroidUpdateManifest {
     changelog: string
   checksum: string
   artifactUrl: string
+  artifactUrls?: string[]
   publishedAt: number
 }
 
@@ -2572,6 +2573,7 @@ export type IpcReturnMap = {
   'artifact:download': { canceled: boolean; downloadPath?: string }
   'artifact:open-folder': { ok: boolean }
   'artifact:get-file-content': { content: string }
+  'app:open-path': { ok: boolean; error?: string }
   'artifact-generator:chat': { started: boolean }
   'artifact-generator:generate': { started: boolean }
   'artifact-generator:get-runs': ArtifactGeneratorRun[]
@@ -3028,6 +3030,7 @@ export type IpcChannels =
   | 'artifact:open-folder'
   | 'artifact:promote-message'
   | 'artifact:get-file-content'
+  | 'app:open-path'
   | 'artifact-generator:chat'
   | 'artifact-generator:generate'
   | 'artifact-generator:get-runs'

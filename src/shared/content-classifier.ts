@@ -24,3 +24,25 @@ export function classifyContent(text: string): ContentHints {
 
   return { hasCode, hasTable, hasMath, dominantType }
 }
+
+const HEADING_LINE = /^#{1,3}\s+.+$/gm
+const CODE_FENCE_BLOCK = /```[\s\S]*?```/g
+const MIN_DOCUMENT_LENGTH = 400
+const MIN_HEADING_COUNT = 2
+const MAX_CODE_SHARE = 0.7
+
+/**
+ * Heuristic for "this response is a standalone document" (a report/plan/brief the
+ * model wrote out inline) rather than a short reply or a code answer — used to decide
+ * when to surface a prominent "Save as artifact" affordance instead of leaving the
+ * content to live only as chat text.
+ */
+export function looksLikeStandaloneDocument(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length < MIN_DOCUMENT_LENGTH) return false
+  const headingCount = (trimmed.match(HEADING_LINE) || []).length
+  if (headingCount < MIN_HEADING_COUNT) return false
+  const codeFenceChars = (trimmed.match(CODE_FENCE_BLOCK) || []).join('').length
+  if (codeFenceChars > trimmed.length * MAX_CODE_SHARE) return false
+  return true
+}
