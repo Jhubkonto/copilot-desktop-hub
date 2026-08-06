@@ -639,7 +639,7 @@ const api = {
   createProject: (name: string, color: string) => typedInvoke('project:create', name, color),
   renameProject: (id: string, name: string) => typedInvoke('project:rename', id, name),
   updateProjectColor: (id: string, name: string, color: string) => typedInvoke('project:rename', id, name, color),
-  deleteProject: (id: string) => typedInvoke('project:delete', id),
+  deleteProject: (id: string, deleteChats?: boolean) => typedInvoke('project:delete', id, deleteChats),
   setConversationProject: (conversationId: string, projectId: string | null) =>
     typedInvoke('project:set-conversation', conversationId, projectId),
   setProjectDefaultModel: (id: string, model: string | null) =>
@@ -1003,6 +1003,9 @@ const api = {
     typedInvoke('artifact:open-folder', absolutePath),
   artifactGetFileContent: (versionId: string, relativePath: string) =>
     typedInvoke('artifact:get-file-content', versionId, relativePath),
+
+  // Opens a validated local path using the operating system's default handler.
+  appOpenPath: (absolutePath: string) => typedInvoke('app:open-path', absolutePath),
 
   // Artifact generator
   artifactGeneratorChat: (messages: ArtifactGeneratorMessage[], projectId?: string, modelOverride?: string) =>
