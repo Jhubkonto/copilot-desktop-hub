@@ -1,25 +1,16 @@
+import { useEffect, useState } from 'react'
 import { FolderOpen, Plus, X, ChevronDown } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
 import type { ProjectConfig } from '../../store/types'
 import type { AvailableModelGroup, CatalogModel } from '../../../shared/types'
 import { ModelPicker } from '../chat/ModelPicker'
+import { PROJECT_COLOR_OPTIONS, PROJECT_COLOR_HEX_REGEX } from '../../../shared/project-colors'
 
 const INSTRUCTION_MODES: { value: ProjectConfig['instructionMode']; label: string }[] = [
   { value: 'prepend',    label: 'Prepend to agent prompt' },
   { value: 'append',    label: 'Append to agent prompt' },
   { value: 'replace',   label: 'Replace agent prompt' },
   { value: 'standalone', label: 'Standalone (ignore agent prompt)' },
-]
-
-const COLOR_OPTIONS: { value: string; bg: string; ring: string }[] = [
-  { value: 'blue',   bg: 'bg-blue-500',   ring: 'ring-blue-300 dark:ring-blue-600' },
-  { value: 'green',  bg: 'bg-green-500',  ring: 'ring-green-300 dark:ring-green-600' },
-  { value: 'red',    bg: 'bg-red-500',    ring: 'ring-red-300 dark:ring-red-600' },
-  { value: 'purple', bg: 'bg-purple-500', ring: 'ring-purple-300 dark:ring-purple-600' },
-  { value: 'orange', bg: 'bg-orange-500', ring: 'ring-orange-300 dark:ring-orange-600' },
-  { value: 'pink',   bg: 'bg-pink-500',   ring: 'ring-pink-300 dark:ring-pink-600' },
-  { value: 'yellow', bg: 'bg-yellow-400', ring: 'ring-yellow-300 dark:ring-yellow-500' },
-  { value: 'gray',   bg: 'bg-gray-400',   ring: 'ring-gray-300 dark:ring-gray-600' },
 ]
 
 function resolveVarHighlights(text: string, vars: Array<{ key: string; value: string }>) {
@@ -94,6 +85,8 @@ export function GeneralTab({
 }: Props) {
   const selectedModeLabel = INSTRUCTION_MODES.find((m) => m.value === instructionMode)?.label ?? instructionMode
   const highlightParts = resolveVarHighlights(instructions, variables)
+  const [customHex, setCustomHex] = useState(color.startsWith('#') ? color : '')
+  useEffect(() => { setCustomHex(color.startsWith('#') ? color : '') }, [color])
 
   return (
     <>
@@ -116,17 +109,42 @@ export function GeneralTab({
       <div>
         <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Color</label>
         <div className="mt-1.5 flex gap-2 flex-wrap">
-          {COLOR_OPTIONS.map((c) => (
+          {PROJECT_COLOR_OPTIONS.map((c) => (
             <button
               key={c.value}
               type="button"
-              onClick={() => onSetColor(c.value)}
-              className={`w-5 h-5 rounded-full ${c.bg} ${color === c.value ? `ring-2 ring-offset-2 ${c.ring}` : ''}`}
+              onClick={() => { setCustomHex(''); onSetColor(c.value) }}
+              style={{ backgroundColor: c.hex }}
+              className={`w-5 h-5 rounded-full border border-black/10 ${color === c.value ? 'ring-2 ring-offset-2 ring-nexy-accent' : ''}`}
               aria-label={`Color ${c.value}`}
               aria-pressed={color === c.value}
               title={c.value}
             />
           ))}
+          <label className={`flex h-6 items-center gap-1 rounded-md border px-1.5 ${color.startsWith('#') ? 'border-nexy-accent' : 'border-gray-200 dark:border-gray-600'}`} title="Custom hex color">
+            <input
+              type="color"
+              value={PROJECT_COLOR_HEX_REGEX.test(color) ? color : '#3478D4'}
+              onChange={(e) => onSetColor(e.target.value.toUpperCase())}
+              className="h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
+              aria-label="Choose custom color"
+            />
+            <input
+              value={customHex}
+              onChange={(e) => {
+                const value = e.target.value.toUpperCase()
+                if (/^#?[0-9A-F]{0,6}$/.test(value)) {
+                  const normalized = value && !value.startsWith('#') ? `#${value}` : value
+                  setCustomHex(normalized)
+                  if (PROJECT_COLOR_HEX_REGEX.test(normalized)) onSetColor(normalized)
+                }
+              }}
+              placeholder="#HEX"
+              maxLength={7}
+              className="w-14 bg-transparent text-[10px] font-mono text-gray-600 outline-none dark:text-gray-300"
+              aria-label="Custom hex color"
+            />
+          </label>
         </div>
       </div>
 

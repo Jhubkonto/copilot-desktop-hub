@@ -103,6 +103,9 @@ interface Props {
   remoteEditReportingBuildId: string | null
   desktopPackagingBlocked: boolean
   onFixBuildWithRemoteEdit: (record: BuildRecord) => void
+  // Set when the tab is opened from an activity feed entry that needs a specific sub-tab
+  // (e.g. clicking an Android build activity should land on the Android sub-tab, not Desktop).
+  initialDeveloperTab?: 'desktop' | 'android' | null
 }
 
 // ---------------------------------------------------------------------------
@@ -387,8 +390,15 @@ export function DeveloperTab({
   onAndroidPublishUpdate, onAndroidRestoreVersion,
   remoteEditReportingBuildId, desktopPackagingBlocked, onFixBuildWithRemoteEdit,
   debugLogging, onToggleDebugLogging,
+  initialDeveloperTab,
 }: Props) {
-  const [developerTab, setDeveloperTab] = useState<DeveloperInnerTab>('desktop')
+  const [developerTab, setDeveloperTab] = useState<DeveloperInnerTab>(initialDeveloperTab ?? 'desktop')
+
+  // The settings modal (and this tab) can stay mounted across multiple activity-feed clicks —
+  // react to a later request to switch sub-tab rather than only honoring the initial mount value.
+  useEffect(() => {
+    if (initialDeveloperTab) setDeveloperTab(initialDeveloperTab)
+  }, [initialDeveloperTab])
 
   // Console state
   const [consoleEntries, setConsoleEntries] = useState<ErrorLogEntry[]>([])
@@ -666,7 +676,12 @@ export function DeveloperTab({
 
           {/* Live log */}
           {buildLogLines.length > 0 && (
-            <BuildLog lines={buildLogLines} running={activeBuildId !== null} resizable />
+            <BuildLog
+              lines={buildLogLines}
+              running={activeBuildId !== null}
+              finished={activeBuildId === null && lastBuildStatus !== null}
+              resizable
+            />
           )}
 
           {/* Build history */}
@@ -691,8 +706,9 @@ export function DeveloperTab({
                         </span>
                         <span className="font-mono text-gray-700 dark:text-gray-300 w-20 shrink-0">{rec.command}</span>
                         <span className="text-gray-400 font-mono truncate">{rec.branch ?? '—'}</span>
+                        <span className="text-gray-400 ml-auto shrink-0">{new Date(rec.startedAt).toLocaleString()}</span>
                         {rec.finishedAt && (
-                          <span className="text-gray-400 ml-auto shrink-0">{Math.round((rec.finishedAt - rec.startedAt) / 1000)}s</span>
+                          <span className="text-gray-400 shrink-0">{Math.round((rec.finishedAt - rec.startedAt) / 1000)}s</span>
                         )}
                         {isExpanded ? <ChevronDown className="w-3 h-3 text-gray-400 shrink-0" /> : <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />}
                       </button>
@@ -951,7 +967,12 @@ export function DeveloperTab({
 
           {/* Android live log */}
           {androidLogLines.length > 0 && (
-            <BuildLog lines={androidLogLines} running={activeAndroidBuildId !== null} resizable />
+            <BuildLog
+              lines={androidLogLines}
+              running={activeAndroidBuildId !== null}
+              finished={activeAndroidBuildId === null && androidLastBuildStatus !== null}
+              resizable
+            />
           )}
 
           {/* Android build history */}
@@ -973,7 +994,8 @@ export function DeveloperTab({
                         <span className="font-mono text-gray-600 dark:text-gray-300 w-32 truncate">{r.command}</span>
                         <span className="text-gray-400">{r.branch ?? '—'}</span>
                         {r.versionCode != null && <span className="text-gray-400">build {r.versionCode}</span>}
-                        <span className="text-gray-400 ml-auto">{r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : '…'}</span>
+                        <span className="text-gray-400 ml-auto">{new Date(r.startedAt).toLocaleString()}</span>
+                        <span className="text-gray-400">{r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : '…'}</span>
                         {isExpanded ? <ChevronDown className="w-3 h-3 text-gray-400 shrink-0" /> : <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />}
                       </button>
                       {isExpanded && (
