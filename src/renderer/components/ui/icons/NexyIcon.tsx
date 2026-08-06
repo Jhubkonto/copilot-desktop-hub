@@ -3,7 +3,7 @@ import {
   AlertTriangle, ArrowLeft, Bot, Box, Camera, Check, CheckSquare, ChevronRight, Clipboard,
   Copy, Download, ExternalLink, File, Folder, Info, KeyRound, Maximize2, Menu,
   MessageSquare, Mic, Milestone, Minimize2, Paperclip, Pause, Pencil,
-  Pin, Play, Plus, RefreshCw, Search, Send, Settings, Smartphone,
+  Pin, PinOff, Play, Plus, RefreshCw, Search, Send, Settings, Smartphone,
   Sparkles, Square, Star, Trash2, Upload, Wrench, X, ZoomIn, CalendarClock, Workflow,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -14,7 +14,7 @@ export type NexyIconName =
   | 'folder'
   | 'info' | 'inspect' | 'key' | 'maximize' | 'menu' | 'microphone'
   | 'milestone' | 'minimize' | 'mobile' | 'project' | 'prompt' | 'rating' | 'restore'
-  | 'pause' | 'pin' | 'play' | 'refresh' | 'scheduled' | 'search' | 'send' | 'settings' | 'skill' | 'spark' | 'stop'
+  | 'pause' | 'pin' | 'unpin' | 'play' | 'refresh' | 'scheduled' | 'search' | 'send' | 'settings' | 'skill' | 'spark' | 'stop'
   | 'tool' | 'upload' | 'warning' | 'workflow'
 
 const paths: Record<NexyIconName, string> = {
@@ -66,6 +66,7 @@ const paths: Record<NexyIconName, string> = {
   upload: 'M7 15h2V8h3V6h-2V4H6v2H4v2h3zM2 1h12v3h-2V3H4v1H2z',
   warning: 'M7 1h2l7 14H0zm0 5v4h2V6zm0 6v2h2v-2z',
   pin: 'M5 1h6v2h2v2h-2v4H9v6H7V9H5V5H3V3h2z',
+  unpin: 'M2 1h2v2h1V1h6v2h2v2h-2v2l4 4v3h-2v-2h-2v-2H9v5H7V9H6L4 7H3V5H2V3H1V1zm4 3v1h2v2h2V5h1V4z',
   workflow: 'M1 2h5v5H1zm2 2v1h1V4zm7-2h5v5h-5zm2 2v1h1V4zM6 4h4v2H6zM7 6h2v4H7zm-6 4h5v5H1zm2 2v1h1v-1zm7-2h5v5h-5zm2 2v1h1v-1zM6 11h4v2H6z',
 }
 
@@ -77,7 +78,7 @@ const classicIcons: Record<NexyIconName, LucideIcon> = {
   expand: ZoomIn, external: ExternalLink, folder: Folder, info: Info,
   inspect: Search, key: KeyRound, maximize: Maximize2, menu: Menu,
   microphone: Mic, milestone: Milestone, minimize: Minimize2, mobile: Smartphone,
-  pause: Pause, pin: Pin, play: Play, project: Folder, prompt: File,
+  pause: Pause, pin: Pin, unpin: PinOff, play: Play, project: Folder, prompt: File,
   rating: Star, refresh: RefreshCw, restore: Maximize2, scheduled: CalendarClock,
   search: Search, send: Send, settings: Settings, skill: Wrench, spark: Sparkles,
   stop: Square, tool: Wrench, upload: Upload, warning: AlertTriangle,
