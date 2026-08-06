@@ -36,18 +36,26 @@ internal fun downloadUpdateApk(
     manifest: AndroidUpdateManifest,
     onProgress: (bytesRead: Long, total: Long) -> Unit = { _, _ -> },
 ): File {
-    val request = Request.Builder()
-        .url(manifest.artifactUrl)
-        .build()
-    val response = try {
-        httpClient.newCall(request).execute()
-    } catch (e: Exception) {
-        throw UpdateException(UpdateStage.DOWNLOAD, "Couldn't reach the desktop to download the update. Check your connection and try again.", e)
-    }
-    response.use { resp ->
-        if (!resp.isSuccessful) {
-            throw UpdateException(UpdateStage.DOWNLOAD, "Download failed with HTTP ${resp.code}.")
+    // Try each candidate origin in order (LAN first, then Tailscale) so a phone that
+    // can't reach the LAN address — e.g. connected over cellular via Tailscale — falls
+    // back to the one it can reach, instead of failing outright.
+    val candidateUrls = manifest.artifactUrls.ifEmpty { listOf(manifest.artifactUrl) }
+    var response: okhttp3.Response? = null
+    var lastError: Exception? = null
+    for (url in candidateUrls) {
+        try {
+            val resp = httpClient.newCall(Request.Builder().url(url).build()).execute()
+            if (resp.isSuccessful) {
+                response = resp
+                break
+            }
+            resp.close()
+        } catch (e: Exception) {
+            lastError = e
         }
+    }
+    val resp = response ?: throw UpdateException(UpdateStage.DOWNLOAD, "Couldn't reach the desktop to download the update. Check your connection and try again.", lastError)
+    resp.use {
         val body = resp.body ?: throw UpdateException(UpdateStage.DOWNLOAD, "The update download was empty.")
         val total = body.contentLength()
         val updateDir = File(app.cacheDir, "updates").also { it.mkdirs() }

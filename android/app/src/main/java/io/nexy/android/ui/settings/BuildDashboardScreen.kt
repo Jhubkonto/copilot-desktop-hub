@@ -69,7 +69,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BuildDashboardScreen(onBack: () -> Unit) {
+fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val buildRecords by WsRepository.buildRecords.collectAsStateWithLifecycle()
     val desktopIsPackaged by WsRepository.desktopIsPackaged.collectAsStateWithLifecycle()
@@ -77,7 +77,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
 
     // Top-level tab split: 0 = Desktop, 1 = Android. Keeps the two build
     // pipelines visually separate instead of one long interleaved list.
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by remember { mutableStateOf(if (initialTab == "android") 1 else 0) }
     var desktopRecordFilter by remember { mutableStateOf("") }
     var androidRecordFilter by remember { mutableStateOf("") }
 

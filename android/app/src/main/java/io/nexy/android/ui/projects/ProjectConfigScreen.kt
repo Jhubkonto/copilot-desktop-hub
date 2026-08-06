@@ -2,6 +2,7 @@ package io.nexy.android.ui.projects
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -79,6 +81,7 @@ import io.nexy.android.ui.settings.SettingsNavRow
 import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.home.projectColor
+import io.nexy.android.ui.home.projectColorOptions
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
 import kotlinx.coroutines.launch
@@ -104,8 +107,6 @@ private val instructionModeDescriptions = mapOf(
 )
 
 private val milestoneStatuses = listOf("upcoming", "active", "completed")
-private val projectColorOptions = listOf("blue", "green", "red", "purple", "orange", "pink", "yellow", "gray")
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectConfigScreen(
@@ -127,6 +128,7 @@ fun ProjectConfigScreen(
     val project = projects.find { it.id == projectId }
 
     var color by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
+    var customColorHex by remember(projectId) { mutableStateOf("") }
     var instructions by remember { mutableStateOf("") }
     var rootDirectory by remember { mutableStateOf("") }
     var projectSources by remember { mutableStateOf<List<ProjectSource>>(emptyList()) }
@@ -162,6 +164,7 @@ fun ProjectConfigScreen(
     var saving by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteDialogDeleteChats by remember { mutableStateOf(false) }
     var repositoryToRemove by remember { mutableStateOf<ProjectRepositoryBinding?>(null) }
     var sourcesUpdating by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -334,10 +337,21 @@ fun ProjectConfigScreen(
             destructive = true,
             onConfirm = {
                 showDeleteDialog = false
-                WsRepository.deleteProject(projectId)
+                WsRepository.deleteProject(projectId, deleteDialogDeleteChats)
                 onBack()
             },
             onDismiss = { showDeleteDialog = false },
+            extraContent = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { deleteDialogDeleteChats = !deleteDialogDeleteChats },
+                ) {
+                    Checkbox(checked = deleteDialogDeleteChats, onCheckedChange = { deleteDialogDeleteChats = it })
+                    Text("Also delete conversations in this project")
+                }
+            },
         )
     }
 
@@ -481,7 +495,7 @@ fun ProjectConfigScreen(
                                 rowColors.forEach { option ->
                                     FilterChip(
                                         selected = color == option,
-                                        onClick = { if (!saving && !disconnected) color = option },
+                                        onClick = { if (!saving && !disconnected) { color = option; customColorHex = "" } },
                                         label = { Text(option.replaceFirstChar { it.uppercase() }) },
                                         leadingIcon = {
                                             Box(
@@ -495,6 +509,21 @@ fun ProjectConfigScreen(
                                 }
                             }
                         }
+                        OutlinedTextField(
+                            value = customColorHex,
+                            onValueChange = { value ->
+                                val normalized = value.uppercase()
+                                if (normalized.matches(Regex("^#?[0-9A-F]{0,6}$"))) {
+                                    customColorHex = if (normalized.isEmpty() || normalized.startsWith("#")) normalized else "#$normalized"
+                                    if (customColorHex.length == 7) color = customColorHex
+                                }
+                            },
+                            label = { Text("Custom hex (optional)") },
+                            placeholder = { Text("#3478D4") },
+                            singleLine = true,
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                     OutlinedTextField(
                         value = instructions,
