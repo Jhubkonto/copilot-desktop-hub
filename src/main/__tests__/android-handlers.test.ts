@@ -54,6 +54,10 @@ vi.mock('../local-feed-server', () => ({
   getFeedDir: vi.fn().mockReturnValue(''),
 }))
 
+vi.mock('../ws-server', () => ({
+  getTailscaleIp: vi.fn().mockReturnValue(null),
+}))
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -911,7 +915,7 @@ describe('getAndroidUpdateManifest', () => {
 
     try {
       const { getAndroidUpdateManifest } = await import('../android-handlers')
-      expect(await getAndroidUpdateManifest(db)).toEqual(manifest)
+      expect(await getAndroidUpdateManifest(db)).toEqual({ ...manifest, artifactUrls: [manifest.artifactUrl] })
     } finally {
       rmSync(feedDir, { recursive: true, force: true })
     }
