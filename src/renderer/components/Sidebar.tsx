@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
-import { PROJECT_COLOR_MAP } from './section-pane/shared'
+import { PROJECT_COLOR_MAP, projectColorHex } from './section-pane/shared'
 import { NexyIcon } from './ui/icons'
 import { useEmergencyStop } from '../hooks/useEmergencyStop'
 import { isApiError } from '../../shared/types'
@@ -81,8 +81,9 @@ export function Sidebar() {
   const projects = useAppStore((s) => s.projects)
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
-  const syncedUnreadConversationIds = useAppStore((s) => s.syncedUnreadConversationIds) ?? []
   const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
+  const sectionNewCounts = useAppStore((s) => s.sectionNewCounts)
+  const clearSectionNewCount = useAppStore((s) => s.clearSectionNewCount)
   const backgroundActivities = useAppStore((s) => s.backgroundActivities)
   const setShowActivityFeed = useAppStore((s) => s.setShowActivityFeed)
   const loadConversations = useAppStore((s) => s.loadConversations)
@@ -183,14 +184,6 @@ export function Sidebar() {
             ariaLabel="Open activity feed"
           />
         )}
-        <NavButton
-          icon={<NexyIcon name="chat" size={14} />}
-          label="New content"
-          ariaLabel="Open new content"
-          badgeCount={syncedUnreadConversationIds.length}
-          onClick={() => openSectionPane('new-content')}
-          active={activeSectionPane === 'new-content'}
-        />
         {pinnedConvs.length > 0 && (
           <section aria-labelledby="pinned-chats-heading" className="pt-1">
             <div className="flex items-center justify-between gap-2 px-1 mb-1">
@@ -215,7 +208,7 @@ export function Sidebar() {
                         : 'hover:bg-cyan-50 dark:hover:bg-cyan-950/30'
                     }`}
                   >
-                    {colors ? <span className={`w-1 shrink-0 ${colors.dot}`} /> : <span className="w-1 shrink-0 bg-cyan-500/50" />}
+                    {colors ? <span className={`w-1 shrink-0 ${colors.dot}`} style={{ backgroundColor: projectColorHex(project?.color ?? 'blue') }} /> : <span className="w-1 shrink-0 bg-cyan-500/50" />}
                     <button
                       onClick={() => selectConversation(conv.id)}
                       className="flex items-center gap-2 px-2 py-1.5 flex-1 min-w-0 text-left"
@@ -237,7 +230,7 @@ export function Sidebar() {
                       aria-label={`Unpin ${conv.title}`}
                       title="Unpin"
                     >
-                      <NexyIcon name={unpinningId === conv.id ? 'busy' : 'close'} size={11} />
+                      <NexyIcon name={unpinningId === conv.id ? 'busy' : 'unpin'} size={11} />
                     </button>
                   </div>
                 )
@@ -257,42 +250,48 @@ export function Sidebar() {
         <NavButton
           icon={<NexyIcon name="chat" size={14} />}
           label="Chats"
+          badgeCount={unreadConversationIds.length}
           onClick={() => openSectionPane('chats')}
           active={activeSectionPane === 'chats'}
-          ariaLabel="Open chat history"
+          ariaLabel={`Open chat history${unreadConversationIds.length > 0 ? ` (${unreadConversationIds.length} unread)` : ''}`}
         />
         <NavButton
           icon={<NexyIcon name="project" size={14} />}
           label="Projects"
-          onClick={() => { setHistoryProjectId(null); openSectionPane('projects') }}
+          badgeCount={sectionNewCounts.projects}
+          onClick={() => { setHistoryProjectId(null); openSectionPane('projects'); clearSectionNewCount('projects') }}
           active={activeSectionPane === 'projects'}
           ariaLabel="Open projects"
         />
         <NavButton
           icon={<NexyIcon name="agent" size={14} />}
           label="Agents"
-          onClick={() => { setHistoryAgentId(null); openSectionPane('agents') }}
+          badgeCount={sectionNewCounts.agents}
+          onClick={() => { setHistoryAgentId(null); openSectionPane('agents'); clearSectionNewCount('agents') }}
           active={activeSectionPane === 'agents'}
           ariaLabel="Open agents"
         />
         <NavButton
           icon={<NexyIcon name="skill" size={14} />}
           label="Skills"
-          onClick={() => openSectionPane('skills')}
+          badgeCount={sectionNewCounts.skills}
+          onClick={() => { openSectionPane('skills'); clearSectionNewCount('skills') }}
           active={activeSectionPane === 'skills'}
           ariaLabel="Open skills"
         />
         <NavButton
           icon={<NexyIcon name="scheduled" size={14} />}
-          label="Scheduled"
-          onClick={() => openSectionPane('scheduled')}
+          label="Schedules"
+          badgeCount={sectionNewCounts.scheduled}
+          onClick={() => { openSectionPane('scheduled'); clearSectionNewCount('scheduled') }}
           active={activeSectionPane === 'scheduled'}
-          ariaLabel="Open scheduled tasks"
+          ariaLabel="Open schedules"
         />
         <NavButton
           icon={<NexyIcon name="workflow" size={14} />}
           label="Workflows"
-          onClick={() => openSectionPane('workflows')}
+          badgeCount={sectionNewCounts.workflows}
+          onClick={() => { openSectionPane('workflows'); clearSectionNewCount('workflows') }}
           active={activeSectionPane === 'workflows'}
           ariaLabel="Open automated workflows"
         />
@@ -351,7 +350,7 @@ export function Sidebar() {
                     }`}
                   >
                     {colors
-                      ? <span className={`w-1 shrink-0 ${colors.dot}`} />
+                      ? <span className={`w-1 shrink-0 ${colors.dot}`} style={{ backgroundColor: projectColorHex(project?.color ?? 'blue') }} />
                       : <span className="w-1 shrink-0" />
                     }
                     <span className="flex items-center gap-2 px-2 py-1 flex-1 min-w-0">

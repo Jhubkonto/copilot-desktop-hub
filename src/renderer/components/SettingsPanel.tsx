@@ -119,9 +119,17 @@ export function SettingsPanel() {
     authMode === 'byok' ? 'providers' : 'general'
   )
 
+  const [developerInitialSubTab, setDeveloperInitialSubTab] = useState<'desktop' | 'android' | null>(null)
+
   useEffect(() => {
     if (visible && settingsInitialTab) {
-      setCategory(settingsInitialTab as SettingsCategory)
+      // Background activities that need to land on a specific Developer sub-tab (e.g. an
+      // Android build vs a desktop build) encode it as 'developer:android' / 'developer:desktop'.
+      const [tab, subTab] = settingsInitialTab.split(':')
+      setCategory(tab as SettingsCategory)
+      if (tab === 'developer' && (subTab === 'desktop' || subTab === 'android')) {
+        setDeveloperInitialSubTab(subTab)
+      }
       setSettingsInitialTab(null)
     }
   }, [visible, settingsInitialTab, setSettingsInitialTab])
@@ -514,6 +522,43 @@ export function SettingsPanel() {
       }
     })
     return () => { offChunk(); offDone(); offAndroidChunk(); offAndroidDone() }
+  }, [visible, activeBuildId, activeAndroidBuildId])
+
+  // Self-healing guard: a dropped 'command-done' IPC event (e.g. no live window when the
+  // build's process closed) would otherwise leave the live Output panel stuck showing
+  // "running" forever even though build_records already recorded the terminal status.
+  // Reconcile against whatever the most recent record fetch actually says.
+  useEffect(() => {
+    if (!activeBuildId) return
+    const record = buildRecords.find((r) => r.id === activeBuildId)
+    if (record && record.status !== 'running') {
+      setActiveBuildId(null)
+      setActiveBuildCommand(null)
+      setLastBuildStatus(record.status)
+    }
+  }, [buildRecords, activeBuildId])
+
+  useEffect(() => {
+    if (!activeAndroidBuildId) return
+    const record = androidBuildRecords.find((r) => r.id === activeAndroidBuildId)
+    if (record && record.status !== 'running') {
+      setActiveAndroidBuildId(null)
+      setActiveAndroidCommand(null)
+      setAndroidLastBuildStatus(record.status)
+    }
+  }, [androidBuildRecords, activeAndroidBuildId])
+
+  // Fallback poll while a build looks active: the reconciliation above only fires once new
+  // records actually arrive, and the only other fetch is on settings-open. Without this, a
+  // dropped 'command-done' event leaves the record fetch — and therefore the reconciliation —
+  // never happening at all, so the Output panel stays stuck on "running" indefinitely.
+  useEffect(() => {
+    if (!visible || (!activeBuildId && !activeAndroidBuildId)) return
+    const interval = window.setInterval(() => {
+      if (activeBuildId) void window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
+      if (activeAndroidBuildId) void window.api.androidGetRecords(10).then(setAndroidBuildRecords).catch(() => {})
+    }, 5000)
+    return () => window.clearInterval(interval)
   }, [visible, activeBuildId, activeAndroidBuildId])
 
   const handleMobileToggle = async () => {
@@ -1197,6 +1242,7 @@ export function SettingsPanel() {
             remoteEditReportingBuildId={remoteEditReportingBuildId}
             desktopPackagingBlocked={runtimeInfo?.isPackaged === false}
             onFixBuildWithRemoteEdit={(record) => void handleFixBuildWithRemoteEdit(record)}
+            initialDeveloperTab={developerInitialSubTab}
           />
         )}
       </div>

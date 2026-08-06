@@ -121,6 +121,8 @@ export function TitleBar() {
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
   const pendingKeyHandoffProvider = useAppStore((s) => s.pendingKeyHandoffProvider)
+  const buildNotifications = useAppStore((s) => s.buildNotifications)
+  const clearBuildNotifications = useAppStore((s) => s.clearBuildNotifications)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
   const openEditAgent = useAppStore((s) => s.openEditAgent)
@@ -326,6 +328,30 @@ export function TitleBar() {
       >
         <NexyIcon name={emergencyStop.active ? 'play' : 'stop'} />
       </button>
+
+      {/* Build/package completion indicator — the one notification kind that lives in the top bar
+          instead of next to a sidebar section, since it's triggered from Settings rather than
+          from a project/agent-style list. */}
+      {buildNotifications.length > 0 && (
+        <button
+          onClick={() => {
+            setSettingsInitialTab('developer')
+            setShowSettings(true)
+            clearBuildNotifications()
+          }}
+          className={`ml-1 h-7 w-7 inline-flex items-center justify-center rounded transition-colors relative ${
+            buildNotifications.some((n) => n.status === 'failed')
+              ? 'hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400'
+              : 'hover:bg-green-100 dark:hover:bg-green-900/40 text-green-600 dark:text-green-400'
+          }`}
+          style={NO_DRAG}
+          aria-label={`${buildNotifications.length} build notification${buildNotifications.length === 1 ? '' : 's'} — click to review`}
+          title={buildNotifications.map((n) => n.label).join(', ')}
+        >
+          <NexyIcon name="tool" />
+          <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-current" />
+        </button>
+      )}
 
       {/* Key-handoff request indicator — clickable, opens Providers so the user can approve/reject */}
       {pendingKeyHandoffProvider && (

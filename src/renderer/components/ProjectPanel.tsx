@@ -66,9 +66,9 @@ export function ProjectPanel() {
     }
   }
 
-  const handleDelete = async () => {
+  const handleDelete = async (deleteChats: boolean) => {
     if (!editingProjectId) return
-    await deleteProject(editingProjectId)
+    await deleteProject(editingProjectId, deleteChats)
     closeEditProject()
     setShowDeleteConfirm(false)
   }
