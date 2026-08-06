@@ -686,6 +686,7 @@ export function createMockApi() {
     artifactExport: vi.fn().mockResolvedValue({ exportPath: '/tmp/export' }),
     artifactDownload: vi.fn().mockResolvedValue({ canceled: false, downloadPath: '/tmp/download' }),
     artifactOpenFolder: vi.fn().mockResolvedValue({ ok: true }),
+    appOpenPath: vi.fn().mockResolvedValue({ ok: true }),
     artifactGeneratorChat: vi.fn().mockResolvedValue({ started: true }),
     artifactGeneratorGenerate: vi.fn().mockResolvedValue({ started: true }),
     artifactGeneratorGetRuns: vi.fn().mockResolvedValue([]),
