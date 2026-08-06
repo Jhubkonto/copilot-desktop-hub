@@ -12,6 +12,8 @@ function stripAnsi(line: string): string {
 interface BuildLogProps {
   lines: string[]
   running?: boolean
+  /** Show a "finished" indicator in the header. Only meaningful when `running` is false. */
+  finished?: boolean
   /** Max height in px. Defaults to 320. Pass 0 for free-grow (no max-height). */
   maxHeightPx?: number
   /** Show a vertical ResizeHandle at the bottom. */
@@ -19,7 +21,7 @@ interface BuildLogProps {
   className?: string
 }
 
-export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable = false, className = '' }: BuildLogProps) {
+export function BuildLog({ lines, running = false, finished = false, maxHeightPx = 320, resizable = false, className = '' }: BuildLogProps) {
   const scrollRef = useRef<HTMLPreElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -74,6 +76,7 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
         <span className="nexy-font-status flex items-center gap-1.5 text-nexy-muted">
           Output
           {running && <span className="inline-flex items-center gap-1 text-[10px] text-nexy-activity"><NexyIcon name="busy" motion="pulse" className="h-3 w-3" /> running</span>}
+          {!running && finished && <span className="inline-flex items-center gap-1 text-[10px] text-nexy-success"><NexyIcon name="check" className="h-3 w-3" /> finished</span>}
         </span>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-nexy-muted">{lines.length} lines</span>

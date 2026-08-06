@@ -219,9 +219,16 @@ export function ChatWindow() {
     if (voiceState === 'recording') spokenOutput.stop()
   }, [voiceState, spokenOutput.stop])
 
-  const [voiceDockEnabled, setVoiceDockEnabled] = useState(
-    () => localStorage.getItem('nexy.voiceDock.enabled') === 'true',
-  )
+  const [voiceDockEnabled, setVoiceDockEnabled] = useState(() => {
+    // Force docked mode on every fresh app launch — floating position can land
+    // off-screen after a restart. sessionStorage resets when the app quits but
+    // survives reloads/tray hide, so this only fires once per launch.
+    if (!sessionStorage.getItem('nexy.voiceDock.freshLaunchHandled')) {
+      sessionStorage.setItem('nexy.voiceDock.freshLaunchHandled', 'true')
+      return false
+    }
+    return localStorage.getItem('nexy.voiceDock.enabled') === 'true'
+  })
   const setVoiceDock = useCallback((enabled: boolean) => {
     setVoiceDockEnabled(enabled)
     localStorage.setItem('nexy.voiceDock.enabled', String(enabled))

@@ -9,6 +9,7 @@ import type { SpokenPlaybackState } from '../hooks/useSpokenOutput'
 import type { SpokenOutputSettings } from '../lib/spoken-output'
 import { DropdownPanel } from './DropdownPanel'
 import { ImagePreview } from './ImagePreview'
+import { looksLikeStandaloneDocument } from '@shared/content-classifier'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -208,10 +209,14 @@ export function MessageBubbleBase({
   const isAssistant = role === 'assistant'
   const isUser = role === 'user'
   const isSystem = role === 'system'
+  // Generated reports/plans/briefs read as chat text unless the user notices the
+  // "Save as artifact" item buried in the overflow menu. Surface it inline instead
+  // so document-shaped responses get an obvious, one-click path to durable storage.
+  const isDocumentLike = Boolean(onSaveAsArtifact) && looksLikeStandaloneDocument(content)
   const hasAssistantOverflowActions = Boolean(
     onSaveAsPrompt
     || onSaveToWiki
-    || onSaveAsArtifact
+    || (onSaveAsArtifact && !isDocumentLike)
     || onCreateCodeChange
     || onDeleteAfter
     || (isLastAssistant && onRegenerate)
@@ -273,6 +278,16 @@ export function MessageBubbleBase({
                 }}
                 tone={copied ? 'success' : 'default'}
               />
+              {isDocumentLike && onSaveAsArtifact && (
+                <Button
+                  variant="secondary"
+                  onClick={() => onSaveAsArtifact(id, content)}
+                  title="This looks like a generated document — save it as a durable, versioned artifact"
+                  className="gap-1.5 rounded-nexy-sm border border-nexy-border bg-nexy-raised text-nexy-text text-xs px-2 py-1"
+                >
+                  <Package className="w-3 h-3" />Save as artifact
+                </Button>
+              )}
               {spokenOutput?.supported && (
                 <DropdownPanel
                   open={listenMenuOpen}

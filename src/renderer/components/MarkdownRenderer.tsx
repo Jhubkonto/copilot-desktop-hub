@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { Copy, Check, ExternalLink } from 'lucide-react'
+import { localPathFromHref } from '../lib/link-routing'
 
 function CopyButton({ getText }: { getText: () => string }) {
   const [copied, setCopied] = useState(false)
@@ -30,8 +31,7 @@ function extractLang(className?: string): string | null {
   return match ? match[1] : null
 }
 
-function linkDestination(href?: string): string {
-  if (!href) return 'Unknown destination'
+function linkDestination(href: string): string {
   try {
     const url = new URL(href, window.location.href)
     return url.hostname ? `${url.hostname}${url.pathname === '/' ? '' : url.pathname}` : url.href
@@ -41,15 +41,40 @@ function linkDestination(href?: string): string {
 }
 
 function MarkdownLink({ href, children }: { href?: string; children: ReactNode }) {
+  const localPath = localPathFromHref(href)
+  const label = typeof children === 'string' ? children : 'Link'
+
+  // The model sometimes emits a link with no real destination (e.g. `[text]()`).
+  // Rendering that as a normal external link falsely implies clicking will go
+  // somewhere; render it as plain text instead of dead-end "unknown destination" chrome.
+  if (!href) {
+    return <span title="No link destination was provided">{children}</span>
+  }
+
   const destination = linkDestination(href)
+
+  if (localPath) {
+    return (
+      <button
+        type="button"
+        title={`Open ${localPath}`}
+        aria-label={`${label} — open local file`}
+        onClick={() => void window.api.appOpenPath(localPath)}
+        className="!text-blue-500 hover:!text-blue-400 !underline focus-visible:!outline focus-visible:!outline-2 focus-visible:!outline-blue-400"
+      >
+        {children} <ExternalLink aria-hidden="true" className="inline-block align-[-0.12em]" size={12} />
+      </button>
+    )
+  }
+
   return (
     <span className="relative inline group/link">
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        title={`Opens ${href ?? 'an unknown destination'} in your external browser`}
-        aria-label={`${typeof children === 'string' ? children : 'Link'} — ${href ?? 'unknown destination'}. Availability not checked.`}
+        title={`Opens ${href} in your external browser`}
+        aria-label={`${label} — ${href}`}
         className="!text-blue-500 hover:!text-blue-400 !underline focus-visible:!outline focus-visible:!outline-2 focus-visible:!outline-blue-400"
       >
         {children} <ExternalLink aria-hidden="true" className="inline-block align-[-0.12em]" size={12} />
