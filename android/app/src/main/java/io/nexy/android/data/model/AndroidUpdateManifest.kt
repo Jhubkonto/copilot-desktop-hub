@@ -10,5 +10,6 @@ data class AndroidUpdateManifest(
     val changelog: String,
     val checksum: String,
     val artifactUrl: String,
+    val artifactUrls: List<String> = emptyList(),
     val publishedAt: Long,
 )

@@ -669,10 +669,23 @@ class LocalDataRepository private constructor(
         }
     }
 
-    override suspend fun deleteProject(id: String) {
+    override suspend fun deleteProject(id: String, deleteChats: Boolean) {
         val current = database.projects().get(id) ?: return
         val now = System.currentTimeMillis()
         database.withTransaction {
+            if (deleteChats) {
+                database.conversations().byProject(id).forEach { conversation ->
+                    database.conversations().tombstone(conversation.id, now)
+                    enqueue(
+                        "conversation",
+                        conversation.id,
+                        "delete",
+                        JSONObject().put("id", conversation.id).put("deletedAt", now).toString(),
+                        conversation.remoteVersion,
+                    )
+                    cancelOutboxForConversationMessages(conversation.id)
+                }
+            }
             database.projects().tombstone(id, now)
             enqueue("project", id, "delete", JSONObject().put("id", id).put("deletedAt", now).toString(), current.remoteVersion)
         }

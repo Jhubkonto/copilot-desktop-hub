@@ -451,6 +451,9 @@ fun parseWsEvent(
                         changelog = it.optString("changelog"),
                         checksum = it.optString("checksum"),
                         artifactUrl = it.optString("artifactUrl"),
+                        artifactUrls = it.optJSONArray("artifactUrls")?.let { arr ->
+                            (0 until arr.length()).map { i -> arr.optString(i) }
+                        } ?: emptyList(),
                         publishedAt = it.optLong("publishedAt", 0L),
                     )
                 }
@@ -3423,7 +3426,7 @@ private fun routeForServerActivity(id: String, kind: String, conversationId: Str
     "skill-generator" -> "skill-generator"
     "scheduler-generator" -> "scheduled/generator"
     "automated-workflow-generator" -> projectId?.let { "automated-workflow/${android.net.Uri.encode(it)}" }
-    "build" -> "settings/build-dashboard"
+    "build" -> if (id.startsWith("android-build:")) "settings/build-dashboard?tab=android" else "settings/build-dashboard?tab=desktop"
     else -> null
 }
 

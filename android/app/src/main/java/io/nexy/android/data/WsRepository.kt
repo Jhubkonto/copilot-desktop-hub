@@ -1135,6 +1135,14 @@ object WsRepository : WsClient {
             .build()
     }
 
+    // A manifest fetched during a prior session is only valid while connected — once the socket
+    // drops, clear it so the Updates screen doesn't show a stale "published" status alongside a
+    // "not connected" warning.
+    private fun markDisconnected() {
+        _connectionState.value = ConnectionState.DISCONNECTED
+        _androidUpdateManifest.value = null
+    }
+
     // Race all candidate URLs in parallel; the first to open wins and the others are cancelled.
     // Falls back to the single-URL path when there is only one candidate.
     private fun doConnectWithFallbacks(urls: List<String>) {
@@ -1158,7 +1166,7 @@ object WsRepository : WsClient {
         for (wsUrl in urls) {
             val request = runCatching { Request.Builder().url(wsUrl).build() }.getOrNull() ?: run {
                 if (failCount.incrementAndGet() == candidateCount && !winner.get()) {
-                    _connectionState.value = ConnectionState.DISCONNECTED
+                    markDisconnected()
                     scheduleReconnect()
                 }
                 continue
@@ -1189,7 +1197,7 @@ object WsRepository : WsClient {
                     android.util.Log.w(WS_LOG_TAG, "candidate $wsUrl failed: ${t.message}", t)
                     _lastError.value = t.message
                     if (!winner.get() && failCount.incrementAndGet() == candidateCount) {
-                        _connectionState.value = ConnectionState.DISCONNECTED
+                        markDisconnected()
                         scheduleReconnect()
                     }
                 }
@@ -1211,7 +1219,7 @@ object WsRepository : WsClient {
         val request = runCatching { Request.Builder().url(wsUrl).build() }
             .getOrElse {
                 _lastError.value = it.message ?: "Invalid WebSocket URL"
-                _connectionState.value = ConnectionState.DISCONNECTED
+                markDisconnected()
                 return false
             }
         val activeClient = currentCertFingerprint?.takeIf { it.isNotBlank() }
@@ -1222,7 +1230,7 @@ object WsRepository : WsClient {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 android.util.Log.w(WS_LOG_TAG, "connection to $wsUrl failed: ${t.message}", t)
                 _lastError.value = t.message
-                _connectionState.value = ConnectionState.DISCONNECTED
+                markDisconnected()
                 scheduleReconnect()
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = handleSocketClosed(code)
@@ -1236,7 +1244,7 @@ object WsRepository : WsClient {
      * close was part of an intentional desktop restart we were told to expect.
      */
     private fun handleSocketClosed(code: Int) {
-        _connectionState.value = ConnectionState.DISCONNECTED
+        markDisconnected()
         val intentional = _intentionalRestartExpected.compareAndSet(expect = true, update = false)
         if ((code != WS_CLOSE_UNAUTHORIZED && code != WS_CLOSE_TOKEN_REGENERATED) || intentional) scheduleReconnect()
     }
@@ -1269,7 +1277,7 @@ object WsRepository : WsClient {
             if (_serverVersion.value == null) {
                 _lastError.value = "Desktop did not respond — check that Nexy is open and on the same network."
                 webSocket.cancel()
-                _connectionState.value = ConnectionState.DISCONNECTED
+                markDisconnected()
                 scheduleReconnect()
             }
         }
@@ -1390,7 +1398,7 @@ object WsRepository : WsClient {
         _reconnectExhausted.value = false
         reconnectJob?.cancel()
         ws?.cancel()
-        _connectionState.value = ConnectionState.DISCONNECTED
+        markDisconnected()
         scheduleReconnect()
     }
 
@@ -1440,7 +1448,7 @@ object WsRepository : WsClient {
         _reconnectExhausted.value = false
         reconnectJob?.cancel()
         ws?.cancel()
-        _connectionState.value = ConnectionState.DISCONNECTED
+        markDisconnected()
         scheduleReconnect()
     }
 
@@ -2588,7 +2596,7 @@ object WsRepository : WsClient {
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
     fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
     fun updateProjectColor(id: String, name: String, color: String) { send("project:rename", mapOf("id" to id, "name" to name, "color" to color)) }
-    fun deleteProject(id: String) { send("project:delete", mapOf("id" to id)) }
+    fun deleteProject(id: String, deleteChats: Boolean = false) { send("project:delete", mapOf("id" to id, "deleteChats" to deleteChats)) }
     fun createAgent(name: String, icon: String) { send("agent:create", mapOf("name" to name, "icon" to icon)) }
     fun updateAgent(id: String, name: String, icon: String) { send("agent:update", mapOf("id" to id, "name" to name, "icon" to icon)) }
     fun deleteAgent(id: String) { send("agent:delete", mapOf("id" to id)) }

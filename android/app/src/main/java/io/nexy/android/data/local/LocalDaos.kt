@@ -14,6 +14,9 @@ interface ConversationDao {
     @Query("SELECT * FROM local_conversations WHERE id = :id LIMIT 1")
     suspend fun get(id: String): ConversationEntity?
 
+    @Query("SELECT * FROM local_conversations WHERE projectId = :projectId AND deleted = 0")
+    suspend fun byProject(projectId: String): List<ConversationEntity>
+
     @Query(
         """SELECT * FROM local_conversations
            WHERE deleted = 0 AND archived = 0 AND (
