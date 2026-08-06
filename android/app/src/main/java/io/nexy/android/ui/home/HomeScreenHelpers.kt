@@ -1,6 +1,7 @@
 package io.nexy.android.ui.home
 
 import androidx.compose.ui.graphics.Color
+import android.graphics.Color.parseColor
 import io.nexy.android.data.BackgroundActivity
 import io.nexy.android.ui.theme.GeneratedNexyColors
 
@@ -18,7 +19,11 @@ fun hasActiveActivity(
         syncInProgress ||
         backgroundActivities.isNotEmpty()
 
-fun projectColor(color: String): Color = when (color.lowercase()) {
+val projectColorOptions = listOf("blue", "green", "red", "purple", "orange", "pink", "yellow", "cyan", "gray")
+
+fun projectColor(color: String): Color = if (color.matches(Regex("^#[0-9a-fA-F]{6}$"))) {
+    try { Color(parseColor(color)) } catch (_: IllegalArgumentException) { GeneratedNexyColors.ProjectBlueMain }
+} else when (color.lowercase()) {
     "red" -> GeneratedNexyColors.ProjectRedMain
     "orange" -> GeneratedNexyColors.ProjectOrangeMain
     "yellow" -> GeneratedNexyColors.ProjectYellowMain

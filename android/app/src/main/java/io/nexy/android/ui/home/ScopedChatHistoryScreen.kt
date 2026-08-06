@@ -65,7 +65,9 @@ fun ScopedChatHistoryScreen(
     val activeConversationIds by WsRepository.activeConversationIds.collectAsStateWithLifecycle()
     val completedConversationIds by WsRepository.completedConversationIds.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
-    var isRefreshing by remember { mutableStateOf(false) }
+    // Only set by an explicit pull-to-refresh gesture — ON_RESUME and initial-load use
+    // isLoadingPage/the skeleton instead, so the pull spinner doesn't fire redundantly.
+    var isPullRefreshing by remember { mutableStateOf(false) }
     var deletingConversation by remember { mutableStateOf<Conversation?>(null) }
     var conversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var totalCount by remember { mutableStateOf(0) }
@@ -99,7 +101,6 @@ fun ScopedChatHistoryScreen(
     }
 
     RefreshConversationsOnResume {
-        isRefreshing = true
         requestPage(append = false)
     }
 
@@ -118,7 +119,7 @@ fun ScopedChatHistoryScreen(
                 nextCursor = event.nextCursor
                 hasMore = event.hasMore
                 isLoadingPage = false
-                isRefreshing = false
+                isPullRefreshing = false
             }
         }
     }
@@ -190,8 +191,8 @@ fun ScopedChatHistoryScreen(
         },
     ) { padding ->
         PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { isRefreshing = true; requestPage(append = false) },
+            isRefreshing = isPullRefreshing,
+            onRefresh = { isPullRefreshing = true; requestPage(append = false) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
         Column(modifier = Modifier.fillMaxSize()) {

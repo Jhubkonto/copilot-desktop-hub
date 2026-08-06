@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -88,6 +89,7 @@ fun ChatsTab(
     agents: List<Agent>,
     projects: List<Project>,
     isRefreshing: Boolean,
+    isPullRefreshing: Boolean,
     searchQuery: String,
     searchResults: List<Conversation>?,
     onSearchQueryChange: (String) -> Unit,
@@ -236,7 +238,7 @@ fun ChatsTab(
         }
     }
 
-    RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+    RefreshableContent(isRefreshing = isPullRefreshing, onRefresh = onRefresh) {
         if (conversations.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -416,13 +418,12 @@ fun ChatsTab(
     }
 }
 
-private val projectColors = listOf("blue", "green", "purple", "orange", "pink", "yellow")
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ProjectsTab(
     projects: List<Project>,
     isRefreshing: Boolean,
+    isPullRefreshing: Boolean,
     showCreateSheet: Boolean,
     highlightProjectId: String? = null,
     onHighlightConsumed: () -> Unit = {},
@@ -436,7 +437,7 @@ fun ProjectsTab(
     activeCodeChangesByProject: Map<String, Int> = emptyMap(),
     onCreateProject: (name: String, color: String) -> Unit,
     onRenameProject: (id: String, name: String) -> Unit,
-    onDeleteProject: (id: String) -> Unit,
+    onDeleteProject: (id: String, deleteChats: Boolean) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
@@ -454,6 +455,7 @@ fun ProjectsTab(
     if (showCreateSheet) {
         var newName by remember { mutableStateOf("") }
         var newColor by remember { mutableStateOf("blue") }
+        var newColorHex by remember { mutableStateOf("") }
         var sending by remember { mutableStateOf(false) }
         ModalBottomSheet(
             onDismissRequest = { if (!sending) onDismissCreateSheet() },
@@ -472,10 +474,10 @@ fun ProjectsTab(
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    projectColors.forEach { color ->
+                    projectColorOptions.forEach { color ->
                         FilterChip(
                             selected = newColor == color,
-                            onClick = { if (!sending) newColor = color },
+                            onClick = { if (!sending) { newColor = color; newColorHex = "" } },
                             label = {},
                             leadingIcon = {
                                 Box(modifier = Modifier.size(16.dp).background(projectColor(color), RoundedCornerShape(4.dp)))
@@ -483,6 +485,21 @@ fun ProjectsTab(
                         )
                     }
                 }
+                OutlinedTextField(
+                    value = newColorHex,
+                    onValueChange = { value ->
+                        val normalized = value.uppercase()
+                        if (normalized.matches(Regex("^#?[0-9A-F]{0,6}$"))) {
+                            newColorHex = if (normalized.isEmpty() || normalized.startsWith("#")) normalized else "#$normalized"
+                            if (newColorHex.length == 7) newColor = newColorHex
+                        }
+                    },
+                    label = { Text("Custom hex (optional)") },
+                    placeholder = { Text("#3478D4") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !sending,
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
                         if (!sending) scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
@@ -525,16 +542,28 @@ fun ProjectsTab(
     }
 
     deleteTarget?.let { target ->
+        var deleteChats by remember(target.id) { mutableStateOf(false) }
         NexyConfirmDialog(
             title = "Delete project?",
             message = "\"${target.name}\" and its project settings will be deleted locally and synchronized when the desktop is available.",
             confirmLabel = "Delete",
             destructive = true,
             onConfirm = {
-                onDeleteProject(target.id)
+                onDeleteProject(target.id, deleteChats)
                 deleteTarget = null
             },
             onDismiss = { deleteTarget = null },
+            extraContent = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { deleteChats = !deleteChats },
+                ) {
+                    Checkbox(checked = deleteChats, onCheckedChange = { deleteChats = it })
+                    Text("Also delete conversations in this project")
+                }
+            },
         )
     }
 
@@ -552,7 +581,7 @@ fun ProjectsTab(
         )
     }
 
-    RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+    RefreshableContent(isRefreshing = isPullRefreshing, onRefresh = onRefresh) {
         if (projects.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -786,6 +815,7 @@ fun ProjectsTab(
 fun AgentsTab(
     agents: List<Agent>,
     isRefreshing: Boolean,
+    isPullRefreshing: Boolean,
     showCreateSheet: Boolean,
     highlightAgentId: String? = null,
     onHighlightConsumed: () -> Unit = {},
@@ -904,7 +934,7 @@ fun AgentsTab(
         )
     }
 
-    RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+    RefreshableContent(isRefreshing = isPullRefreshing, onRefresh = onRefresh) {
         if (agents.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),

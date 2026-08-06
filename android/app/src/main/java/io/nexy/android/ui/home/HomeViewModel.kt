@@ -91,6 +91,18 @@ class HomeViewModel(
     private val _isRefreshingProjects = MutableStateFlow(false)
     val isRefreshingProjects: StateFlow<Boolean> = _isRefreshingProjects
 
+    // Distinct from the flags above: only set by an explicit pull-to-refresh gesture, never by
+    // initial load, ON_RESUME, reconnect, tab-switch, search, or pagination — so the pull spinner
+    // doesn't fire redundantly alongside the top sync indicator / list skeleton.
+    private val _isPullRefreshingConversations = MutableStateFlow(false)
+    val isPullRefreshingConversations: StateFlow<Boolean> = _isPullRefreshingConversations
+
+    private val _isPullRefreshingAgents = MutableStateFlow(false)
+    val isPullRefreshingAgents: StateFlow<Boolean> = _isPullRefreshingAgents
+
+    private val _isPullRefreshingProjects = MutableStateFlow(false)
+    val isPullRefreshingProjects: StateFlow<Boolean> = _isPullRefreshingProjects
+
     private val _newConversationId = MutableStateFlow<String?>(null)
     val newConversationId: StateFlow<String?> = _newConversationId
 
@@ -146,6 +158,7 @@ class HomeViewModel(
                         _conversations.value = event.conversations
                         _conversationTotalCount.value = event.conversations.size
                         _isRefreshingConversations.value = false
+                        _isPullRefreshingConversations.value = false
                     }
                     is WsEvent.ConversationPage -> {
                         val append = pendingConversationPages.remove(event.requestId) ?: return@collect
@@ -156,10 +169,17 @@ class HomeViewModel(
                         _conversationHasMore.value = event.hasMore
                         _conversationNextCursor.value = event.nextCursor
                         _isRefreshingConversations.value = false
+                        _isPullRefreshingConversations.value = false
                         _searchResults.value = if (_searchQuery.value.isBlank()) null else _conversations.value
                     }
-                    is WsEvent.AgentList -> _isRefreshingAgents.value = false
-                    is WsEvent.ProjectList -> _isRefreshingProjects.value = false
+                    is WsEvent.AgentList -> {
+                        _isRefreshingAgents.value = false
+                        _isPullRefreshingAgents.value = false
+                    }
+                    is WsEvent.ProjectList -> {
+                        _isRefreshingProjects.value = false
+                        _isPullRefreshingProjects.value = false
+                    }
                     is WsEvent.ConversationCreated -> _newConversationId.value = event.id
                     is WsEvent.ConversationSearchResults -> _searchResults.value = event.conversations
                     is WsEvent.ProjectCreated -> _projectCreated.tryEmit(event.project.id)
@@ -174,6 +194,12 @@ class HomeViewModel(
     fun refreshConversations() {
         _isRefreshingConversations.value = true
         requestConversationPage(append = false)
+    }
+
+    /** Call from a user pull-to-refresh gesture only — shows the pull spinner. */
+    fun pullRefreshConversations() {
+        _isPullRefreshingConversations.value = true
+        refreshConversations()
     }
 
     fun loadMoreConversations() {
@@ -203,9 +229,21 @@ class HomeViewModel(
         wsClient.send("agent:list", emptyMap())
     }
 
+    /** Call from a user pull-to-refresh gesture only — shows the pull spinner. */
+    fun pullRefreshAgents() {
+        _isPullRefreshingAgents.value = true
+        requestAgents()
+    }
+
     fun requestProjects() {
         _isRefreshingProjects.value = true
         wsClient.send("project:list", emptyMap())
+    }
+
+    /** Call from a user pull-to-refresh gesture only — shows the pull spinner. */
+    fun pullRefreshProjects() {
+        _isPullRefreshingProjects.value = true
+        requestProjects()
     }
 
     fun approveRequest(requestId: String) {
@@ -256,7 +294,7 @@ class HomeViewModel(
 
     fun createProject(name: String, color: String) = WsRepository.createProject(name, color)
     fun renameProject(id: String, name: String) = WsRepository.renameProject(id, name)
-    fun deleteProject(id: String) = WsRepository.deleteProject(id)
+    fun deleteProject(id: String, deleteChats: Boolean = false) = WsRepository.deleteProject(id, deleteChats)
     fun createAgent(name: String, icon: String) = WsRepository.createAgent(name, icon)
     fun updateAgent(id: String, name: String, icon: String) = WsRepository.updateAgent(id, name, icon)
     fun deleteAgent(id: String) = WsRepository.deleteAgent(id)

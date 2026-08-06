@@ -122,6 +122,9 @@ fun HomeScreen(
     val isRefreshingConversations by vm.isRefreshingConversations.collectAsStateWithLifecycle()
     val isRefreshingAgents by vm.isRefreshingAgents.collectAsStateWithLifecycle()
     val isRefreshingProjects by vm.isRefreshingProjects.collectAsStateWithLifecycle()
+    val isPullRefreshingConversations by vm.isPullRefreshingConversations.collectAsStateWithLifecycle()
+    val isPullRefreshingAgents by vm.isPullRefreshingAgents.collectAsStateWithLifecycle()
+    val isPullRefreshingProjects by vm.isPullRefreshingProjects.collectAsStateWithLifecycle()
     val pendingApproval by vm.pendingApproval.collectAsStateWithLifecycle()
     val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
     val searchResults by vm.searchResults.collectAsStateWithLifecycle()
@@ -598,11 +601,12 @@ fun HomeScreen(
                     agents = agents,
                     projects = projects,
                     isRefreshing = isRefreshingConversations,
+                    isPullRefreshing = isPullRefreshingConversations,
                     searchQuery = searchQuery,
                     searchResults = searchResults,
                     onSearchQueryChange = { vm.setSearchQuery(it) },
                     onOpenChat = onOpenChat,
-                    onRefresh = { vm.refreshConversations() },
+                    onRefresh = { vm.pullRefreshConversations() },
                     onDisconnect = { vm.disconnect() },
                     onRenameConversation = { id, title -> vm.renameConversation(id, title) },
                     onDeleteConversation = { id -> vm.deleteConversation(id) },
@@ -617,11 +621,12 @@ fun HomeScreen(
                 1 -> ProjectsTab(
                     projects = projects,
                     isRefreshing = isRefreshingProjects,
+                    isPullRefreshing = isPullRefreshingProjects,
                     showCreateSheet = showCreateProjectSheet,
                     highlightProjectId = highlightProjectId,
                     onHighlightConsumed = { vm.clearHighlightProject() },
                     onDismissCreateSheet = { showCreateProjectSheet = false },
-                    onRefresh = { vm.requestProjects() },
+                    onRefresh = { vm.pullRefreshProjects() },
                     onOpenProjectHistory = onOpenProjectHistory,
                     onOpenProjectConfig = onOpenProjectConfig,
                     onOpenProjectGenerator = onOpenProjectGenerator,
@@ -630,16 +635,17 @@ fun HomeScreen(
                     activeCodeChangesByProject = activeCodeChangesByProject,
                     onCreateProject = { name, color -> vm.createProject(name, color) },
                     onRenameProject = { id, name -> vm.renameProject(id, name) },
-                    onDeleteProject = { id -> vm.deleteProject(id) },
+                    onDeleteProject = { id, deleteChats -> vm.deleteProject(id, deleteChats) },
                 )
                 2 -> AgentsTab(
                     agents = agents,
                     isRefreshing = isRefreshingAgents,
+                    isPullRefreshing = isPullRefreshingAgents,
                     showCreateSheet = showCreateAgentSheet,
                     highlightAgentId = highlightAgentId,
                     onHighlightConsumed = { vm.clearHighlightAgent() },
                     onDismissCreateSheet = { showCreateAgentSheet = false },
-                    onRefresh = { vm.requestAgents() },
+                    onRefresh = { vm.pullRefreshAgents() },
                     onOpenAgentHistory = onOpenAgentHistory,
                     onOpenAgentConfig = onOpenAgentConfig,
                     onOpenAgentGenerator = onOpenAgentGenerator,
