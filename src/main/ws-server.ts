@@ -89,7 +89,7 @@ function getAllIpSnapshot(): string {
 
 // Detect the Tailscale interface by name (ts0 on Linux/Mac, "Tailscale" on Windows)
 // and return its IPv4 address, or null if Tailscale is not active.
-function getTailscaleIp(): string | null {
+export function getTailscaleIp(): string | null {
   const ifaces = networkInterfaces()
   for (const [name, iface] of Object.entries(ifaces)) {
     if (!iface || !/tailscale|ts0|utun/i.test(name)) continue
@@ -333,13 +333,18 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     onClientCountChange?.(connectedClients.size)
     debugLog('ws', `client connected: ${req.socket.remoteAddress} total=${connectedClients.size}`)
     const localIp = getLocalIp()
+    const tsIp = getTailscaleIp()
     const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
+    const feedUrls = isFeedRunning()
+      ? [getFeedLanUrl(localIp), ...(tsIp ? [getFeedLanUrl(tsIp)] : [])]
+      : null
     const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
     ws.send(JSON.stringify({
       event: 'connected',
       data: {
         version: app.getVersion(),
         feedUrl,
+        feedUrls,
         macAddress,
         broadcastAddress,
         mDnsName: getMdnsName(),

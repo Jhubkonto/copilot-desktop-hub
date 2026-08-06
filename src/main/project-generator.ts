@@ -20,7 +20,7 @@ import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
 import { startActivity, endActivity } from './activity-tracker'
-import { PROJECT_COLORS } from './project-handlers'
+import { normalizeProjectColor } from '../shared/project-colors'
 import { addProjectSource, listProjectSources, primarySourcePath } from './project-sources'
 
 const SPEC_OPEN_TAG = '<project-spec>'
@@ -421,7 +421,7 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
   try {
     // Step 1: create project
     const safeName = String(spec.name).trim().slice(0, 100) || 'New Project'
-    const safeColor = PROJECT_COLORS.has(spec.color) ? spec.color : 'blue'
+    const safeColor = normalizeProjectColor(spec.color) ?? 'blue'
     projectId = randomUUID()
     const now = Date.now()
     db.prepare(

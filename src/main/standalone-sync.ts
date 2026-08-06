@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
 import { getDatabase } from './database'
 import type { WsReply } from './ws-server'
+import { normalizeProjectColor } from '../shared/project-colors'
 
 export const STANDALONE_SYNC_PROTOCOL_VERSION = 2
 const SUPPORTED_SYNC_PROTOCOL_VERSIONS = [1, STANDALONE_SYNC_PROTOCOL_VERSION] as const
@@ -477,7 +478,10 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }))
-  const conversations = db.prepare(`
+  const conversationIds = (db.prepare(`
+    SELECT id FROM conversations ORDER BY updated_at DESC, id DESC LIMIT ?
+  `).all(SNAPSHOT_MAX_CONVERSATIONS) as Array<{ id: string }>).map(row => row.id)
+  const conversations = conversationIds.length === 0 ? [] : db.prepare(`
     SELECT c.id, c.title, c.agent_id, c.project_id, c.model, c.pinned, c.archived, c.completed_at, c.kind, c.created_at, c.updated_at,
            json_extract(a.config_json, '$.name') AS agent_name,
            json_extract(a.config_json, '$.icon') AS agent_icon,
@@ -486,29 +490,31 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     FROM conversations c
     LEFT JOIN agents a ON a.id = c.agent_id
     LEFT JOIN projects p ON p.id = c.project_id
-    WHERE c.id IN (
-      SELECT id FROM conversations ORDER BY updated_at DESC, id DESC LIMIT ?
-    )
+    WHERE c.id IN (${conversationIds.map(() => '?').join(',')})
     ORDER BY c.updated_at, c.id
-  `).all(SNAPSHOT_MAX_CONVERSATIONS) as Record<string, unknown>[]
-  const messages = db.prepare(`
+  `).all(...conversationIds) as Record<string, unknown>[]
+  // A single windowed query (PARTITION BY conversation_id) forces SQLite to sort every message
+  // row in the snapshot window before ranking, ignoring the idx_messages_conversation index. Since
+  // that index already orders rows per-conversation, fetching each conversation's most recent slice
+  // with an indexed ORDER BY + LIMIT is a index range scan instead of a full sort.
+  const messagesStmt = db.prepare(`
     SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
            input_tokens, output_tokens, timestamp
-    FROM (
-      SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
-             input_tokens, output_tokens, timestamp,
-             ROW_NUMBER() OVER (
-               PARTITION BY conversation_id
-               ORDER BY timestamp DESC, id DESC
-             ) AS snapshot_rank
-      FROM messages
-      WHERE conversation_id IN (
-        SELECT id FROM conversations ORDER BY updated_at DESC, id DESC LIMIT ?
-      )
-    )
-    WHERE snapshot_rank <= ?
-    ORDER BY timestamp, id
-  `).all(SNAPSHOT_MAX_CONVERSATIONS, SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]
+    FROM messages
+    WHERE conversation_id = ?
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ?
+  `)
+  const messages: Record<string, unknown>[] = []
+  for (const conversationId of conversationIds) {
+    messages.push(...(messagesStmt.all(conversationId, SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]))
+  }
+  messages.sort((left, right) => {
+    const leftTimestamp = numberValue(left.timestamp, 0)
+    const rightTimestamp = numberValue(right.timestamp, 0)
+    if (leftTimestamp !== rightTimestamp) return leftTimestamp - rightTimestamp
+    return String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0
+  })
   const wiki = (db.prepare(`
     SELECT id, project_id, title, body, tags, source_conversation_id, created_at, updated_at
     FROM project_wiki_entries ORDER BY updated_at, id
@@ -556,11 +562,20 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     ['prompt', prompts],
     ['skill', skills],
   ] as const) {
+    if (rows.length === 0) continue
+    // Looking up sync_entity_versions one row at a time meant thousands of round trips on a large
+    // snapshot. The table's primary key is (dataset_id, entity_type, entity_id), so a single scan
+    // per type fetches every existing version in one query instead of one per entity.
+    const existingRows = db.prepare(`
+      SELECT entity_id, version, source_updated_at FROM sync_entity_versions
+      WHERE dataset_id = ? AND entity_type = ?
+    `).all(datasetId, type) as Array<{ entity_id: string; version: number; source_updated_at: number }>
+    const existing = new Map(existingRows.map(row => [row.entity_id, row]))
     for (const row of rows) {
       const record = row as Record<string, unknown>
       const id = String(record.id)
       const sourceUpdatedAt = numberValue(record.updated_at ?? record.updatedAt ?? record.timestamp, 0)
-      versions[`${type}:${id}`] = ensureEntityVersion(db, datasetId, type, id, sourceUpdatedAt)
+      versions[`${type}:${id}`] = ensureEntityVersion(db, datasetId, type, id, sourceUpdatedAt, existing.get(id))
     }
   }
 
@@ -613,7 +628,7 @@ function applyOperation(
       `).run(
         operation.entityId,
         stringValue(payload.name) ?? 'Project',
-        stringValue(payload.color) ?? 'blue',
+        normalizeProjectColor(payload.color) ?? 'blue',
         jsonString(payload.config),
         numberValue(payload.createdAt, Date.now()),
         numberValue(payload.updatedAt, Date.now()),
@@ -952,18 +967,18 @@ function ensureEntityVersion(
   type: string,
   id: string,
   sourceUpdatedAt: number,
+  current: EntityVersionRow | undefined,
 ): number {
-  const current = db.prepare(`
-    SELECT version, source_updated_at FROM sync_entity_versions
-    WHERE dataset_id = ? AND entity_type = ? AND entity_id = ?
-  `).get(datasetId, type, id) as EntityVersionRow | undefined
   const version = current == null ? 1 : sourceUpdatedAt > current.source_updated_at ? current.version + 1 : current.version
+  // Unchanged rows are the overwhelming majority on every snapshot (connect or push), so skip the
+  // payload re-read and history insert entirely when the version didn't move — history for this
+  // version was already recorded the last time it changed.
   if (current == null || version !== current.version) {
     upsertEntityVersion(db, datasetId, type, id, version, sourceUpdatedAt)
     const payload = readEntityPayload(db, type, id)
     appendDesktopChange(db, datasetId, type, id, 'upsert', payload, version)
+    storeEntityHistory(db, datasetId, type, id, version, payload)
   }
-  storeEntityHistory(db, datasetId, type, id, version, readEntityPayload(db, type, id))
   return version
 }
 

@@ -66,6 +66,7 @@ import {
   unstageFiles,
 } from './code-change/git-manager'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
+import { normalizeProjectColor } from '../shared/project-colors'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
 import {
@@ -1832,7 +1833,7 @@ export function registerWsHandlers(): void {
 
     if (command === 'project:create') {
       const name = typeof data.name === 'string' ? data.name.trim() : ''
-      const color = typeof data.color === 'string' ? data.color : 'blue'
+      const color = normalizeProjectColor(data.color) ?? 'blue'
       if (!name) return
       const id = randomUUID()
       const now = Date.now()
@@ -1846,7 +1847,7 @@ export function registerWsHandlers(): void {
     if (command === 'project:rename') {
       const id = typeof data.id === 'string' ? data.id : ''
       const name = typeof data.name === 'string' ? data.name.trim() : ''
-      const color = typeof data.color === 'string' && PROJECT_COLORS.has(data.color) ? data.color : null
+      const color = normalizeProjectColor(data.color)
       if (!id || !name) return
       if (color) {
         db.prepare('UPDATE projects SET name = ?, color = ?, updated_at = ? WHERE id = ?').run(name, color, Date.now(), id)
@@ -1860,6 +1861,10 @@ export function registerWsHandlers(): void {
     if (command === 'project:delete') {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
+      const deleteChats = data.deleteChats === true
+      if (deleteChats) {
+        db.prepare('DELETE FROM conversations WHERE project_id = ?').run(id)
+      }
       db.prepare('DELETE FROM projects WHERE id = ?').run(id)
       broadcastToMobile({ event: 'project:deleted', data: { id } })
       return
