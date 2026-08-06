@@ -450,8 +450,14 @@ fun NavGraph(
             )
         }
 
-        composable("settings/build-dashboard") {
-            BuildDashboardScreen(onBack = { navController.popBackStack() })
+        composable(
+            "settings/build-dashboard?tab={tab}",
+            arguments = listOf(navArgument("tab") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
+            BuildDashboardScreen(
+                onBack = { navController.popBackStack() },
+                initialTab = backStackEntry.arguments?.getString("tab"),
+            )
         }
 
         composable("settings/debug-log") {
