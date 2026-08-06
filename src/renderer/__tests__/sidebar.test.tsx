@@ -70,16 +70,25 @@ describe('Sidebar', () => {
     expect(mockStore.openSectionPane).toHaveBeenCalledWith('ratings')
   })
 
-  it('shows the unread chat count and opens New content', async () => {
-    mockStore = createMockAppStore({ syncedUnreadConversationIds: ['chat-1', 'chat-2'] })
+  it('shows the unread chat count on Chats without auto-opening any chat', async () => {
+    mockStore = createMockAppStore({
+      unreadConversationIds: ['chat-1', 'chat-2'],
+      conversations: [
+        { id: 'chat-1', title: 'Older', pinned: 0, project_id: null, agent_id: null, updated_at: 100 },
+        { id: 'chat-2', title: 'Newer', pinned: 0, project_id: null, agent_id: null, updated_at: 200 },
+      ],
+    })
     setupStoreMock(useAppStore, mockStore)
 
     render(<Sidebar />)
-    const entry = screen.getByLabelText('Open new content')
+    const entry = screen.getByLabelText('Open chat history (2 unread)')
     expect(entry).toHaveTextContent('2')
     await user.click(entry)
 
-    expect(mockStore.openSectionPane).toHaveBeenCalledWith('new-content')
+    // Opening the Chats list must not itself mark any conversation read — the badge
+    // should only clear once the user opens that specific chat and reads it.
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('chats')
+    expect(mockStore.selectConversation).not.toHaveBeenCalled()
   })
 
   it('shows pinned chats as quick access and allows unpinning', async () => {

@@ -57,70 +57,6 @@ beforeEach(() => {
 });
 
 describe("SectionPane", () => {
-  it("closes New Content after opening its final unread chat", async () => {
-    const api = setupMockApi();
-    api.getNewContentConversations.mockResolvedValue([
-      {
-        conversationId: "new-chat",
-        title: "New reply",
-        projectId: null,
-        projectName: null,
-        agentId: null,
-        agentName: null,
-        preview: "The assistant replied",
-        newContentAt: 1,
-      },
-    ]);
-    mockStore = createMockAppStore({
-      activeSectionPane: "new-content" as const,
-      syncedUnreadConversationIds: ["new-chat"],
-    });
-    setupStoreMock(useAppStore, mockStore);
-
-    render(<SectionPane section="new-content" />);
-    await userEvent.click(await screen.findByRole("button", { name: /new reply/i }));
-
-    expect(mockStore.selectConversation).toHaveBeenCalledWith("new-chat");
-    expect(mockStore.setSectionPane).toHaveBeenCalledWith("new-content");
-  });
-
-  it("keeps New Content open when another unread chat remains", async () => {
-    const api = setupMockApi();
-    api.getNewContentConversations.mockResolvedValue([
-      {
-        conversationId: "first-chat",
-        title: "First reply",
-        projectId: null,
-        projectName: null,
-        agentId: null,
-        agentName: null,
-        preview: null,
-        newContentAt: 2,
-      },
-      {
-        conversationId: "second-chat",
-        title: "Second reply",
-        projectId: null,
-        projectName: null,
-        agentId: null,
-        agentName: null,
-        preview: null,
-        newContentAt: 1,
-      },
-    ]);
-    mockStore = createMockAppStore({
-      activeSectionPane: "new-content" as const,
-      syncedUnreadConversationIds: ["first-chat", "second-chat"],
-    });
-    setupStoreMock(useAppStore, mockStore);
-
-    render(<SectionPane section="new-content" />);
-    await userEvent.click(await screen.findByRole("button", { name: /first reply/i }));
-
-    expect(mockStore.selectConversation).toHaveBeenCalledWith("first-chat");
-    expect(mockStore.setSectionPane).not.toHaveBeenCalled();
-  });
-
   it("renders the projects header when section is projects", () => {
     render(<SectionPane section="projects" />);
     expect(
@@ -202,6 +138,84 @@ describe("SectionPane", () => {
   it('shows "No conversations yet" message when conversations list is empty', () => {
     render(<SectionPane section="chats" />);
     expect(screen.getByText(/no conversations yet/i)).toBeInTheDocument();
+  });
+});
+
+// ── Pin/unpin toggle in Chats pane ─────────────────────────────────
+
+describe("SectionPane — Chats pane pin/unpin toggle", () => {
+  const now = Date.now();
+  const pinnedConv = {
+    id: "c-pinned",
+    agent_id: null,
+    title: "Pinned chat",
+    project_id: null as string | null,
+    pinned: 1,
+    created_at: now,
+    updated_at: now,
+  };
+  const unpinnedConv = {
+    id: "c-unpinned",
+    agent_id: null,
+    title: "Unpinned chat",
+    project_id: null as string | null,
+    pinned: 0,
+    created_at: now,
+    updated_at: now,
+  };
+
+  let mockStore: ReturnType<typeof createMockAppStore>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMockApi();
+    mockStore = createMockAppStore({
+      activeSectionPane: "chats" as const,
+      projects: [],
+      agents: [],
+      agentsLoading: false,
+      activeProjectId: null,
+      activeAgentId: null,
+      currentConversationId: null,
+      conversations: [pinnedConv, unpinnedConv],
+    });
+    setupStoreMock(useAppStore, mockStore);
+  });
+
+  it("shows an 'Unpin conversation' button for an already-pinned chat", () => {
+    render(<SectionPane section="chats" />);
+    expect(
+      screen.getByRole("button", { name: /unpin conversation/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a 'Pin conversation' button for a chat that isn't pinned", () => {
+    render(<SectionPane section="chats" />);
+    expect(
+      screen.getByRole("button", { name: "Pin conversation" }),
+    ).toBeInTheDocument();
+  });
+
+  it("clicking the button on a pinned chat calls setConversationPinned with false", async () => {
+    render(<SectionPane section="chats" />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /unpin conversation/i }),
+    );
+    expect(mockStore.setConversationPinned).toHaveBeenCalledWith(
+      "c-pinned",
+      false,
+    );
+  });
+
+  it("clicking the button on an unpinned chat calls setConversationPinned with true", async () => {
+    render(<SectionPane section="chats" />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Pin conversation" }),
+    );
+    expect(mockStore.setConversationPinned).toHaveBeenCalledWith(
+      "c-unpinned",
+      true,
+    );
   });
 });
 
