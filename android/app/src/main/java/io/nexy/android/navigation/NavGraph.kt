@@ -134,6 +134,14 @@ fun NavGraph(
         }
     }
 
+    // App-global navigation intents from chrome that has no screen-local navigator — currently the
+    // persistent connection sheet's "Scan new QR code" action (see AppNavigator).
+    LaunchedEffect(navController) {
+        AppNavigator.routes.collect { route ->
+            navController.navigate(route)
+        }
+    }
+
     // Consume deeplinks from notification taps (cold-start and while-running)
     LaunchedEffect(navController) {
         pendingDeeplink.filterNotNull().collect { deeplink ->
@@ -257,9 +265,6 @@ fun NavGraph(
                     navController.navigate("settings")
                 },
                 onOpenNewContent = { navController.openNewContent() },
-                onOpenPairingScan = {
-                    navController.navigate("home/add-server")
-                },
                 onNavigateRoute = { route ->
                     navController.navigate(route)
                 },
