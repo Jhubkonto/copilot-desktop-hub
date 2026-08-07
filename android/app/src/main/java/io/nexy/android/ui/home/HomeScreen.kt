@@ -2,9 +2,7 @@ package io.nexy.android.ui.home
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,21 +57,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.ConnectionState
-import io.nexy.android.data.EffectiveConnectionMode
-import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.ApprovalDialog
-import io.nexy.android.ui.connection.StandaloneModeToggle
-import androidx.compose.foundation.layout.Arrangement
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
 import io.nexy.android.ui.theme.NexyTextStyles
 import io.nexy.android.ui.theme.LocalNexyEightBit
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.launch
@@ -103,16 +93,12 @@ fun HomeScreen(
     onOpenSkillGenerator: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenNewContent: () -> Unit,
-    onOpenPairingScan: () -> Unit,
     onNavigateRoute: (String) -> Unit = {},
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsStateWithLifecycle()
     val effectiveMode by vm.effectiveMode.collectAsStateWithLifecycle()
-    val preferStandaloneMode by vm.preferStandaloneMode.collectAsStateWithLifecycle()
     val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
-    val backgroundActivities by BackgroundActivityTracker.activities.collectAsStateWithLifecycle()
-    val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
     val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsStateWithLifecycle()
     val conversations by vm.conversations.collectAsStateWithLifecycle()
     val conversationTotalCount by vm.conversationTotalCount.collectAsStateWithLifecycle()
@@ -130,8 +116,6 @@ fun HomeScreen(
     val searchResults by vm.searchResults.collectAsStateWithLifecycle()
     val highlightProjectId by vm.highlightProjectId.collectAsStateWithLifecycle()
     val highlightAgentId by vm.highlightAgentId.collectAsStateWithLifecycle()
-    val profiles by vm.profiles.collectAsStateWithLifecycle()
-    val activeProfileId by vm.activeProfileId.collectAsStateWithLifecycle()
     val activeConversationIds by vm.activeConversationIds.collectAsStateWithLifecycle()
     val pendingConversationIds by vm.pendingConversationIds.collectAsStateWithLifecycle()
     val completedWhileAwayIds by vm.completedWhileAwayIds.collectAsStateWithLifecycle()
@@ -142,9 +126,7 @@ fun HomeScreen(
     var showCreateProjectSheet by remember { mutableStateOf(false) }
     var showCreateAgentSheet by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var showConnectionSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val connectionSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
@@ -295,139 +277,6 @@ fun HomeScreen(
         }
     }
 
-    if (showConnectionSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showConnectionSheet = false },
-            sheetState = connectionSheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            val activeProfile = profiles.firstOrNull { it.id == activeProfileId } ?: profiles.firstOrNull()
-            Text(
-                "Connection",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-            activeProfile?.let { profile ->
-                Text(
-                    profile.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                )
-                Text(
-                    profile.endpoint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                )
-            }
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            StandaloneModeToggle(
-                isStandaloneModeEnabled = preferStandaloneMode,
-                onToggle = { prefer ->
-                    if (hasActiveActivity(activeConversationIds, pendingConversationIds, syncInProgress, backgroundActivities)) {
-                        scope.launch { snackbarHostState.showSnackbar("Can't switch modes while a chat or generation is in progress") }
-                    } else {
-                        vm.setPreferStandaloneMode(prefer)
-                    }
-                },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            if (profiles.size > 1) {
-                Text(
-                    "Saved servers",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                )
-                profiles.forEach { profile ->
-                    val isActive = profile.id == activeProfileId
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (!isActive) Modifier.clickable {
-                                    scope.launch { connectionSheetState.hide() }.invokeOnCompletion {
-                                        showConnectionSheet = false
-                                    }
-                                    vm.switchProfile(profile.id)
-                                } else Modifier
-                            )
-                            .padding(horizontal = 20.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                profile.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                profile.endpoint,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (isActive) {
-                            Text(
-                                "Active",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                FilledTonalButton(
-                    onClick = {
-                        scope.launch { connectionSheetState.hide() }.invokeOnCompletion {
-                            showConnectionSheet = false
-                            onOpenPairingScan()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    NexyIcon(
-                        NexyIconName.Scan,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                    Text("Scan new QR code")
-                }
-                OutlinedButton(
-                    onClick = {
-                        scope.launch { connectionSheetState.hide() }.invokeOnCompletion {
-                            showConnectionSheet = false
-                            vm.disconnect()
-                        }
-                    },
-                    enabled = connectionState != ConnectionState.DISCONNECTED,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    Text("Disconnect")
-                }
-            }
-            Spacer(Modifier.padding(bottom = 8.dp))
-        }
-    }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -469,9 +318,6 @@ fun HomeScreen(
                                 )
                             }
                         }
-                    }
-                    IconButton(onClick = { showConnectionSheet = true }) {
-                        NexyIcon(NexyIconName.ChevronDown, contentDescription = "Connection details")
                     }
                     IconButton(onClick = onOpenSettings) {
                         NexyIcon(NexyIconName.Settings, contentDescription = "Settings")
@@ -516,7 +362,6 @@ fun HomeScreen(
                         }
                     }
                 },
-                onConnectionStatusClick = { showConnectionSheet = true },
             )
         },
         floatingActionButton = {

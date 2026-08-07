@@ -16,6 +16,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -29,20 +30,18 @@ import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.Conversation
-import io.nexy.android.data.model.WsEvent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.WsRepository
 import java.util.UUID
-import kotlinx.coroutines.delay
 
 enum class HistoryScope {
     Agent,
@@ -59,82 +58,36 @@ fun ScopedChatHistoryScreen(
     onOpenDraftChat: (String, String?, String?) -> Unit,
     onOpenDebrief: ((String) -> Unit)? = null,
     onOpenQuiz: ((String) -> Unit)? = null,
+    vm: ScopedChatHistoryViewModel = viewModel(),
 ) {
     val agents by WsRepository.agents.collectAsStateWithLifecycle()
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
     val activeConversationIds by WsRepository.activeConversationIds.collectAsStateWithLifecycle()
     val completedConversationIds by WsRepository.completedConversationIds.collectAsStateWithLifecycle()
-    var searchQuery by remember { mutableStateOf("") }
-    // Only set by an explicit pull-to-refresh gesture — ON_RESUME and initial-load use
-    // isLoadingPage/the skeleton instead, so the pull spinner doesn't fire redundantly.
-    var isPullRefreshing by remember { mutableStateOf(false) }
+    val completedWhileAwayIds by WsRepository.completedWhileAwayIds.collectAsStateWithLifecycle()
+
+    val conversations by vm.conversations.collectAsStateWithLifecycle()
+    val totalCount by vm.totalCount.collectAsStateWithLifecycle()
+    val hasMore by vm.hasMore.collectAsStateWithLifecycle()
+    val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
+    val isLoadingMore by vm.isLoadingMore.collectAsStateWithLifecycle()
+    val isPullRefreshing by vm.isPullRefreshing.collectAsStateWithLifecycle()
+    val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
+    val freshPageGeneration by vm.freshPageGeneration.collectAsStateWithLifecycle()
+
     var deletingConversation by remember { mutableStateOf<Conversation?>(null) }
-    var conversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
-    var totalCount by remember { mutableStateOf(0) }
-    var nextCursor by remember { mutableStateOf<String?>(null) }
-    var hasMore by remember { mutableStateOf(false) }
-    var isLoadingPage by remember { mutableStateOf(false) }
-    var pageError by remember { mutableStateOf<String?>(null) }
-    var pendingRequests by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val listState = rememberLazyListState()
-    var freshPageGeneration by remember { mutableStateOf(0) }
 
-    fun requestPage(append: Boolean) {
-        if (isLoadingPage && append) return
-        val requestId = UUID.randomUUID().toString()
-        pendingRequests = if (append) pendingRequests + (requestId to true) else mapOf(requestId to false)
-        isLoadingPage = true
-        pageError = null
-        if (!append) {
-            conversations = emptyList()
-            totalCount = 0
-            nextCursor = null
-            hasMore = false
-        }
-        WsRepository.listConversationPage(
-            scopeType = scopeType.name.lowercase(),
-            scopeId = scopeId,
-            query = searchQuery.trim(),
-            cursor = if (append) nextCursor else null,
-            requestId = requestId,
-        )
-    }
+    LaunchedEffect(scopeType, scopeId) { vm.start(scopeType, scopeId) }
 
-    RefreshConversationsOnResume {
-        requestPage(append = false)
-    }
-
-    LaunchedEffect(Unit) {
-        WsRepository.events.collect { event ->
-            if (event is WsEvent.ConversationPage) {
-                val append = pendingRequests[event.requestId] ?: return@collect
-                pendingRequests = pendingRequests - event.requestId
-                conversations = if (append) {
-                    (conversations + event.conversations).distinctBy { it.id }
-                } else {
-                    freshPageGeneration += 1
-                    event.conversations
-                }
-                totalCount = event.totalCount
-                nextCursor = event.nextCursor
-                hasMore = event.hasMore
-                isLoadingPage = false
-                isPullRefreshing = false
-            }
-        }
-    }
+    RefreshConversationsOnResume { vm.onResume() }
 
     // A navigation entry keeps its LazyListState while a chat is open above it. Every fresh
     // history page represents entering/resuming this destination (or starting a new search), so
     // explicitly return to the newest conversation. Appended pagination pages intentionally keep
-    // the user's position.
+    // the user's position. Guarded on `> 0` so the initial composition (generation 0) is a no-op.
     LaunchedEffect(freshPageGeneration) {
-        if (conversations.isNotEmpty()) listState.scrollToItem(0)
-    }
-
-    LaunchedEffect(scopeType, scopeId, searchQuery) {
-        delay(if (searchQuery.isBlank()) 0 else 250)
-        requestPage(append = false)
+        if (freshPageGeneration > 0 && conversations.isNotEmpty()) listState.scrollToItem(0)
     }
 
     val title = when (scopeType) {
@@ -192,19 +145,19 @@ fun ScopedChatHistoryScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
-            onRefresh = { isPullRefreshing = true; requestPage(append = false) },
+            onRefresh = { vm.pullRefresh() },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { vm.setSearchQuery(it) },
                 modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp),
                 singleLine = true,
                 leadingIcon = { NexyIcon(NexyIconName.Search, contentDescription = null) },
                 trailingIcon = {
                     if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { searchQuery = "" }) {
+                        IconButton(onClick = { vm.setSearchQuery("") }) {
                             NexyIcon(NexyIconName.Close, contentDescription = "Clear search")
                         }
                     }
@@ -214,9 +167,14 @@ fun ScopedChatHistoryScreen(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 8.dp))
-            if (conversations.isEmpty() && isLoadingPage) {
+            // Non-destructive refresh affordance: while refreshing over already-cached rows, show a
+            // thin progress bar instead of blanking to the skeleton, matching the global Chats tab.
+            if (isRefreshing && conversations.isNotEmpty()) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            if (conversations.isEmpty() && isRefreshing) {
                 ConversationListSkeleton()
-            } else if (conversations.isEmpty() && !isLoadingPage) {
+            } else if (conversations.isEmpty() && !isRefreshing) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -228,7 +186,7 @@ fun ScopedChatHistoryScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (searchQuery.isNotBlank()) {
-                        TextButton(onClick = { searchQuery = "" }) { Text("Clear search") }
+                        TextButton(onClick = { vm.setSearchQuery("") }) { Text("Clear search") }
                     }
                 }
             } else {
@@ -242,6 +200,7 @@ fun ScopedChatHistoryScreen(
                             projects = projects,
                             onOpenChat = onOpenChat,
                             isActive = conversation.id in activeConversationIds,
+                            hasNewContent = conversation.id in completedWhileAwayIds,
                             isCompleted = conversation.id in completedConversationIds,
                             onDelete = { _ -> deletingConversation = conversation },
                             onDebrief = if (onOpenDebrief != null) { id -> onOpenDebrief(id) } else null,
@@ -256,10 +215,10 @@ fun ScopedChatHistoryScreen(
                             loadedCount = conversations.size,
                             totalCount = totalCount,
                             hasMore = hasMore,
-                            isLoading = isLoadingPage,
-                            error = pageError,
-                            onLoadMore = { requestPage(append = true) },
-                            onRetry = { requestPage(append = conversations.isNotEmpty()) },
+                            isLoading = isLoadingMore,
+                            error = null,
+                            onLoadMore = { vm.loadMore() },
+                            onRetry = { vm.retry() },
                         )
                     }
                 }
