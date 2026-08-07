@@ -214,6 +214,8 @@ export function materializeMobileAttachment(
   const decoded = decodeMobileAttachmentDataUrl(value.dataUrl)
   if (!id || !name || !decoded) return null
   const safeConversation = conversationId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'chat'
+  // Intentionally strips control characters (\x00-\x1f) from the filename.
+  // eslint-disable-next-line no-control-regex
   const safeName = pathModule.basename(name).replace(/[\x00-\x1f<>:"/\\|?*]/g, '_').slice(0, 120) || 'attachment'
   const extension = pathModule.extname(safeName).slice(0, 16)
   const directory = pathModule.join(app.getPath('userData'), 'mobile-attachments', safeConversation)

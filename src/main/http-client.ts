@@ -3,6 +3,8 @@ import type { RequestOptions } from 'https'
 import type { IncomingMessage } from 'http'
 import type { ClientRequest } from 'http'
 
+import { activeStreamingRequests } from './provider-stream-state'
+
 export interface HttpsResponse {
   status: number
   headers: IncomingMessage['headers']
@@ -16,29 +18,52 @@ export function abortAllHttpsRequests(): void {
   activeHttpsRequests.clear()
 }
 
-function requestWithResponse(options: RequestOptions, body?: string): Promise<HttpsResponse> {
+/**
+ * `abortKey` (a conversation id) registers this in-flight non-streaming request against
+ * `activeStreamingRequests` so `abortActiveStream(conversationId)` can cancel it — this is what
+ * lets "Stop" interrupt a BYOK tool-loop round mid-request (the streaming helpers already register
+ * themselves; the non-streaming *WithTools calls previously did not). Only one request per
+ * conversation is in flight at a time, so reusing the same map key is safe.
+ */
+function requestWithResponse(options: RequestOptions, body?: string, abortKey?: string): Promise<HttpsResponse> {
   return new Promise((resolve, reject) => {
+    let settled = false
+    const cleanup = (req: ClientRequest) => {
+      activeHttpsRequests.delete(req)
+      if (abortKey && activeStreamingRequests.get(abortKey) === req) activeStreamingRequests.delete(abortKey)
+    }
     const req = https.request(options, (res) => {
       let data = ''
       res.on('data', (chunk) => {
         data += chunk.toString()
       })
       res.on('end', () => {
-        activeHttpsRequests.delete(req)
+        if (settled) return
+        settled = true
+        cleanup(req)
         resolve({
           status: res.statusCode || 0,
           headers: res.headers,
           data
         })
       })
-      res.on('error', (error) => { activeHttpsRequests.delete(req); reject(error) })
+      res.on('error', (error) => { if (settled) return; settled = true; cleanup(req); reject(error) })
     })
 
     activeHttpsRequests.add(req)
+    if (abortKey) activeStreamingRequests.set(abortKey, req)
     req.setTimeout(30000, () => {
       req.destroy(new Error('Request timed out'))
     })
-    req.on('error', (error) => { activeHttpsRequests.delete(req); reject(error) })
+    req.on('error', (error) => { if (settled) return; settled = true; cleanup(req); reject(error) })
+    // A bare req.destroy() (as abortActiveStream issues on Stop) may emit only 'close', not
+    // 'error'. Reject on close-before-settle so the request promise never hangs on abort.
+    req.on('close', () => {
+      if (settled) return
+      settled = true
+      cleanup(req)
+      reject(new Error('Request aborted'))
+    })
     if (body !== undefined) req.write(body)
     req.end()
   })
@@ -53,16 +78,19 @@ export async function httpsRequestWithResponse(options: RequestOptions, body?: s
   return requestWithResponse(options, body)
 }
 
-/** URL-based https request returning status + raw body (shared by the provider layer). */
+/** URL-based https request returning status + raw body (shared by the provider layer).
+ *  Pass `abortKey` (a conversation id) to make the request cancellable via abortActiveStream. */
 export function httpsRequestUrl(
   url: string,
   options: RequestOptions,
   body?: string,
+  abortKey?: string,
 ): Promise<HttpsResponse> {
   const urlObj = new URL(url)
   return requestWithResponse(
     { hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, ...options },
     body,
+    abortKey,
   )
 }
 

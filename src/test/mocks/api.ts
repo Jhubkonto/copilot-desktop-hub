@@ -304,6 +304,8 @@ export function createMockApi() {
     exportSkill: vi.fn().mockResolvedValue(true),
     exportSkillMarkdown: vi.fn().mockResolvedValue(true),
     importSkill: vi.fn().mockResolvedValue(null),
+    discoverSkills: vi.fn().mockResolvedValue([]),
+    importDiscoveredSkill: vi.fn().mockResolvedValue(null),
     onSkillLibraryUpdated: vi.fn(() => () => {}),
     getSkillAgentLinks: vi.fn().mockResolvedValue([]),
     attachSkillToAgent: vi.fn().mockResolvedValue(true),
