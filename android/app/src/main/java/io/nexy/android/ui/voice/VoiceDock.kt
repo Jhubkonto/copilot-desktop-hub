@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -288,12 +289,20 @@ fun VoiceDock(
                             },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            if (state.recording) Icons.Default.Stop else Icons.Default.Mic,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(28.dp),
-                        )
+                        if (state.busy && !state.recording) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Icon(
+                                if (state.recording) Icons.Default.Stop else Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
                         if (state.recording) {
                             Box(
                                 modifier = Modifier

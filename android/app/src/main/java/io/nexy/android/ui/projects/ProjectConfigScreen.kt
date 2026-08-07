@@ -130,7 +130,7 @@ fun ProjectConfigScreen(
     var color by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
     var customColorHex by remember(projectId) { mutableStateOf("") }
     var instructions by remember { mutableStateOf("") }
-    var rootDirectory by remember { mutableStateOf("") }
+    var rootDirectory by rememberSaveable(projectId) { mutableStateOf("") }
     var projectSources by remember { mutableStateOf<List<ProjectSource>>(emptyList()) }
     var projectRepositories by remember { mutableStateOf<List<ProjectRepositoryBinding>>(emptyList()) }
     var instructionMode by remember { mutableStateOf("prepend") }
@@ -146,7 +146,7 @@ fun ProjectConfigScreen(
     // Snapshot variables for dirty-check
     var loadedColor by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
     var loadedInstructions by remember { mutableStateOf("") }
-    var loadedRootDirectory by remember { mutableStateOf("") }
+    var loadedRootDirectory by rememberSaveable(projectId) { mutableStateOf("") }
     var loadedInstructionMode by remember { mutableStateOf("prepend") }
     var loadedInstructionsEnabled by remember { mutableStateOf(true) }
     var loadedWorkflowMode by remember { mutableStateOf("single-agent") }
@@ -160,7 +160,7 @@ fun ProjectConfigScreen(
     val projectAgents = remember { mutableStateListOf<ProjectAgentEntry>() }
     var showAddAgentSheet by remember { mutableStateOf(false) }
 
-    var loaded by remember { mutableStateOf(false) }
+    var loaded by rememberSaveable(projectId) { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -192,9 +192,14 @@ fun ProjectConfigScreen(
         defaultModel != loadedDefaultModel
     )
 
+    // Navigating to the file explorer (for "Browse desktop files...") disposes and
+    // recreates this composable; `loaded` is rememberSaveable so it survives that round
+    // trip and this skips re-fetching, which would otherwise overwrite the just-picked
+    // rootDirectory with the stale persisted value before the user can hit Save.
     LaunchedEffect(projectId) {
-        loaded = false
-        WsRepository.getProjectConfig(projectId)
+        if (!loaded) {
+            WsRepository.getProjectConfig(projectId)
+        }
         WsRepository.listProjectAgents(projectId)
     }
 
