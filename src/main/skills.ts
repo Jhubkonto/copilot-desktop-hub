@@ -17,7 +17,13 @@ import {
   skillEntryMarkdown,
   writeManagedSkillPackage,
 } from './skill-packages'
-import type { SkillConfig, SkillPackageFile, ToolConfig } from '../shared/types'
+import {
+  discoverSkillPackages,
+  importDiscoveredSkill,
+  projectSkillDiscoveryRoots,
+  userSkillDiscoveryRoots,
+} from './skill-discovery'
+import type { DiscoveredSkill, SkillConfig, SkillPackageFile, ToolConfig } from '../shared/types'
 
 interface SkillRow {
   id: string
@@ -280,6 +286,24 @@ export function applySkillsToAgentConfig(agentId: string, baseConfig: Record<str
   return baseConfig
 }
 
+/** Resolves the enabled on-disk source roots for a project, used for project-scoped skill discovery. */
+function projectSourceRoots(projectId: string): string[] {
+  if (!projectId.trim()) return []
+  const rows = getDatabase()
+    .prepare('SELECT local_path FROM project_sources WHERE project_id = ? AND enabled = 1')
+    .all(projectId) as { local_path: string }[]
+  return rows.map((r) => r.local_path).filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+}
+
+/** Scans standard filesystem locations for skill packages not yet in the managed library. */
+export function discoverSkills(projectId = ''): DiscoveredSkill[] {
+  const knownHashes = new Set(
+    listSkillConfigs().map((s) => s.contentHash).filter((h): h is string => typeof h === 'string'),
+  )
+  const roots = [...userSkillDiscoveryRoots(), ...projectSkillDiscoveryRoots(projectSourceRoots(projectId))]
+  return discoverSkillPackages(roots, knownHashes)
+}
+
 export function registerSkillHandlers(): void {
   const db = getDatabase()
 
@@ -357,6 +381,14 @@ export function registerSkillHandlers(): void {
     } catch {
       return null
     }
+  })
+
+  safeHandle('skill:discover', (_event, projectId?: string) => discoverSkills(typeof projectId === 'string' ? projectId : ''))
+
+  safeHandle('skill:import-discovered', (_event, discovery: DiscoveredSkill) => {
+    if (!discovery || typeof discovery.packagePath !== 'string') return null
+    if (!existsSync(discovery.packagePath)) return null
+    return importDiscoveredSkill(discovery, {})
   })
 
   safeHandle('skill:get-agent-links', (_event, agentId: string) => getSkillAgentLinks(agentId))

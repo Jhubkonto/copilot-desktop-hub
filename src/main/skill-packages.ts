@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { app } from 'electron'
 import type { SkillConfig, SkillPackageFile } from '../shared/types'
 import { parseSkillMarkdown, skillToMarkdown } from './skill-markdown'
@@ -37,6 +37,23 @@ export function portableSkillName(name: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 64)
     .replace(/-+$/g, '') || 'nexy-skill'
+}
+
+/**
+ * Resolves the on-disk config home for a CLI harness, honouring the same environment overrides the
+ * harness itself respects, and falling back to the default `~/.<harness>` location. Codex reads
+ * `CODEX_HOME`; Claude Code reads `CLAUDE_CONFIG_DIR`. A blank/whitespace value is treated as unset.
+ */
+export function cliHarnessHome(harness: 'claude' | 'codex'): string {
+  const envVar = harness === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'
+  const override = process.env[envVar]
+  if (typeof override === 'string' && override.trim()) return resolve(override.trim())
+  return join(homedir(), harness === 'codex' ? '.codex' : '.claude')
+}
+
+/** The skills directory a CLI harness scans, honouring `CODEX_HOME` / `CLAUDE_CONFIG_DIR`. */
+export function cliHarnessSkillsRoot(harness: 'claude' | 'codex'): string {
+  return join(cliHarnessHome(harness), 'skills')
 }
 
 export function getManagedSkillRoot(): string {
@@ -208,7 +225,9 @@ export function importSkillPackage(sourcePath: string, skill: SkillConfig): Skil
   const managedRoot = getManagedSkillRoot()
   const packagePath = uniquePackagePath(managedRoot, portableSkillName(String(skill.frontmatter?.name ?? skill.name)))
   cpSync(sourcePath, packagePath, { recursive: true, dereference: false, errorOnExist: true })
-  return writeManagedSkillPackage({ ...skill, source: 'import' }, packagePath)
+  // Preserve a discovered package's origin (codex/claude/filesystem); otherwise record it as a manual import.
+  const source = skill.source === 'codex' || skill.source === 'claude' || skill.source === 'filesystem' ? skill.source : 'import'
+  return writeManagedSkillPackage({ ...skill, source }, packagePath)
 }
 
 export function duplicateSkillPackage(sourcePath: string | undefined, skill: SkillConfig): SkillConfig {
