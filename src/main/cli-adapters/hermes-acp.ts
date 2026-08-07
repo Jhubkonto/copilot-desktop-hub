@@ -3,6 +3,7 @@ import { AcpStdioConnection } from './acp-stdio'
 import type { CliAdapterRequest, CliAgentAdapter, CliStreamEvent } from './types'
 import { createOpenBlockTracker, resolveCliPath } from './utils'
 import { debugLog } from '../debug-mode'
+import { listHermesProfiles } from '../cli-detection'
 
 type Session = {
   id: string
@@ -48,12 +49,30 @@ export class HermesAcpAdapter implements CliAgentAdapter {
   ): Promise<string> {
     const executable = resolveCliPath('hermes')
     if (!executable) throw new Error('hermes CLI not found')
-    const profile = req.hermesProfile?.trim() || 'default'
+    const requestedProfile = req.hermesProfile?.trim()
+    let profile = requestedProfile || 'default'
+    // 4.1 — Graceful unknown profile: if a specific profile was requested but no longer
+    // exists on disk (deleted/renamed in the Hermes CLI after it was set on the agent),
+    // warn and fall back to `default` rather than letting the ACP spawn fail with a raw,
+    // unexplained error. `default` is always synthesized by listHermesProfiles().
+    if (requestedProfile && requestedProfile !== 'default') {
+      const known = listHermesProfiles().some((p) => p.name === requestedProfile)
+      if (!known) {
+        onEvent?.({ type: 'activity', label: `Hermes profile "${requestedProfile}" not found — using default` })
+        debugLog('cli', `hermes ACP: profile "${requestedProfile}" not found on disk, falling back to default`)
+        profile = 'default'
+      }
+    }
+    const useProfileFlag = profile !== 'default'
     const key = `${req.conversationId}:${profile}:${req.cwd}:${req.model}`
     let session = this.sessions.get(key)
     if (!session) {
-      const args = req.hermesProfile?.trim() ? ['--profile', profile, 'acp'] : ['acp']
+      const args = useProfileFlag ? ['--profile', profile, 'acp'] : ['acp']
       debugLog('cli', `hermes ACP spawn: ${executable} ${args.join(' ')}`)
+      // Assigned once at line ~91 after `session` exists, but captured by the
+      // notification callback below (which only fires later) — so it must be a
+      // forward-declared `let`; the const suggestion is unfollowable here.
+      // eslint-disable-next-line prefer-const
       let activeSession: Session | undefined
       const connection = new AcpStdioConnection(
         executable,

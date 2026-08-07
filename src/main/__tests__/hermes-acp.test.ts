@@ -1,12 +1,17 @@
 import { EventEmitter } from 'events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSpawn, mockResolve } = vi.hoisted(() => ({ mockSpawn: vi.fn(), mockResolve: vi.fn(() => 'C:\\hermes.exe') }))
+const { mockSpawn, mockResolve, mockListProfiles } = vi.hoisted(() => ({
+  mockSpawn: vi.fn(),
+  mockResolve: vi.fn(() => 'C:\\hermes.exe'),
+  mockListProfiles: vi.fn(() => [{ name: 'default', isDefault: true }, { name: 'coder' }]),
+}))
 vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('child_process')>()), spawn: mockSpawn }))
 vi.mock('../cli-adapters/utils', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../cli-adapters/utils')>()),
   resolveCliPath: mockResolve,
 }))
+vi.mock('../cli-detection', () => ({ listHermesProfiles: mockListProfiles }))
 
 import { HermesAcpAdapter } from '../cli-adapters/hermes-acp'
 
@@ -61,6 +66,26 @@ describe('Hermes ACP adapter', () => {
     sendResponse(proc, 4, { stopReason: 'end_turn' })
     await expect(second).resolves.toBe('Again')
     expect(mockSpawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to default (no --profile) and warns when the stored profile is gone', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const adapter = new HermesAcpAdapter()
+    const events: unknown[] = []
+    const request = adapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }], cwd: 'C:\\workspace', model: 'default', conversationId: 'c3', hermesProfile: 'ghost',
+    }, () => {}, (event) => events.push(event))
+
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(1))
+    sendResponse(proc, 1, { protocolVersion: 1 })
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(2))
+    sendResponse(proc, 2, { sessionId: 's3' })
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(3))
+    sendResponse(proc, 3, { stopReason: 'end_turn' })
+    await request
+    expect(mockSpawn).toHaveBeenCalledWith('C:\\hermes.exe', ['acp'], expect.objectContaining({ shell: false }))
+    expect(events).toContainEqual({ type: 'activity', label: 'Hermes profile "ghost" not found — using default' })
   })
 
   it('answers ACP permission requests through Nexy and cancels on abort', async () => {
