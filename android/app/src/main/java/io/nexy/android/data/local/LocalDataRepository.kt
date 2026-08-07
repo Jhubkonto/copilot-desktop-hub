@@ -206,6 +206,17 @@ class LocalDataRepository private constructor(
         )
     }
 
+    /**
+     * Returns the ids of the top [limit] conversations (same ordering as the Home list) that have no
+     * cached message bodies yet. Used to drive a bounded post-connect prefetch: after a shell
+     * snapshot the most-likely taps still cost a round-trip, so warming just these into Room makes
+     * them open instantly. Conversations already carrying bodies (full-mode snapshot, or previously
+     * opened) are skipped so this is a no-op when there is nothing to warm.
+     */
+    suspend fun conversationsNeedingPrefetch(limit: Int): List<String> =
+        database.conversations().topConversationIds(limit)
+            .filter { database.messages().countForConversation(it) == 0 }
+
     suspend fun getRetryableUserMessage(id: String, conversationId: String): HistoryMessage? =
         database.messages().get(id)
             ?.takeIf { it.conversationId == conversationId && it.role == "user" && !it.deleted }
@@ -745,8 +756,61 @@ class LocalDataRepository private constructor(
     }
 
     override suspend fun resolveConflict(conflictId: String, resolution: String) {
-        database.sync().resolveConflict(conflictId, resolution, System.currentTimeMillis())
+        val conflict = database.sync().conflict(conflictId)
+        database.withTransaction {
+            if (conflict != null && conflict.resolvedAt == null) {
+                applyConflictResolution(conflict, resolution)
+            }
+            database.sync().resolveConflict(conflictId, resolution, System.currentTimeMillis())
+        }
     }
+
+    /**
+     * Reconcile the entity a resolved conflict points at so the sheet clearing also fixes the data
+     * behind it — otherwise "resolving" only hid the row while leaving the entity stuck in
+     * [SyncStatus.CONFLICT]. Resolution vocabulary follows the desktop's perspective: "remote" means
+     * this device's queued value wins, "local" means the desktop value wins.
+     */
+    private suspend fun applyConflictResolution(conflict: ConflictEntity, resolution: String) {
+        val deviceValueWins = resolution == "remote"
+        when (conflict.entityType) {
+            "conversation" -> {
+                val current = database.conversations().get(conflict.entityId) ?: return
+                if (deviceValueWins) {
+                    // Keep our value and re-queue the push so the desktop adopts it.
+                    val updated = current.copy(
+                        localVersion = current.localVersion + 1,
+                        syncStatus = SyncStatus.PENDING,
+                    )
+                    database.conversations().upsert(updated)
+                    enqueue("conversation", current.id, "upsert", updated.toSyncJson(), current.remoteVersion)
+                } else {
+                    val remoteTitle = decodeConflictValue(conflict.remoteValueJson)
+                    database.conversations().upsert(
+                        current.copy(
+                            title = if (conflict.field == "title") remoteTitle else current.title,
+                            syncStatus = SyncStatus.SYNCED,
+                        ),
+                    )
+                }
+            }
+            // Other entity types simply clear the conflict flag; the next desktop snapshot
+            // reconciles their fields authoritatively.
+            "agent" -> database.agents().get(conflict.entityId)?.let {
+                database.agents().upsert(it.copy(syncStatus = if (deviceValueWins) SyncStatus.PENDING else SyncStatus.SYNCED))
+            }
+            "project" -> database.projects().get(conflict.entityId)?.let {
+                database.projects().upsert(it.copy(syncStatus = if (deviceValueWins) SyncStatus.PENDING else SyncStatus.SYNCED))
+            }
+            "message" -> database.messages().get(conflict.entityId)?.let {
+                database.messages().upsert(it.copy(syncStatus = if (deviceValueWins) SyncStatus.PENDING else SyncStatus.SYNCED))
+            }
+        }
+    }
+
+    /** Values are stored JSON-quoted (see [recordConflict]); decode back to the raw string. */
+    private fun decodeConflictValue(json: String): String =
+        runCatching { org.json.JSONTokener(json).nextValue() as? String }.getOrNull() ?: json
 
     suspend fun saveDraft(conversationId: String, text: String, attachmentsJson: String = "[]") {
         if (text.isBlank() && attachmentsJson == "[]") {
@@ -909,11 +973,13 @@ class LocalDataRepository private constructor(
                 remoteVersion = remoteVersion,
             )
             if (current?.syncStatus == SyncStatus.PENDING) {
-                if (current.title != remote.title) {
+                if (current.title != remote.title && !isPlaceholderTitle(current.title)) {
                     recordConflict("conversation", id, "title", current.title, remote.title, current.localVersion, remoteVersion)
                     database.conversations().upsert(current.copy(syncStatus = SyncStatus.CONFLICT, remoteVersion = remoteVersion))
                 } else {
-                    database.conversations().upsert(current.copy(remoteVersion = remoteVersion))
+                    // Titles match, or the local title is still the placeholder the desktop just
+                    // auto-named — adopt the desktop title. The pending creation stays queued.
+                    database.conversations().upsert(current.copy(title = remote.title, remoteVersion = remoteVersion))
                 }
             } else {
                 database.conversations().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
@@ -1424,9 +1490,13 @@ class LocalDataRepository private constructor(
         val current = database.conversations().get(model.id)
         val remote = model.toEntity(remoteVersion = (current?.remoteVersion ?: 0) + 1)
         if (current?.syncStatus == SyncStatus.PENDING) {
-            if (current.title != remote.title) {
+            if (current.title != remote.title && !isPlaceholderTitle(current.title)) {
                 recordConflict("conversation", model.id, "title", current.title, remote.title, current.localVersion, remote.remoteVersion)
                 database.conversations().upsert(current.copy(syncStatus = SyncStatus.CONFLICT, remoteVersion = remote.remoteVersion))
+            } else {
+                // Placeholder title being auto-named by the desktop (or an identical title): adopt the
+                // desktop title without flagging a conflict; the pending change stays queued.
+                database.conversations().upsert(current.copy(title = remote.title, remoteVersion = remote.remoteVersion))
             }
         } else {
             database.conversations().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
@@ -1477,6 +1547,15 @@ class LocalDataRepository private constructor(
             database.projects().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
         }
     }
+
+    /**
+     * A brand-new chat starts life as the default placeholder title, then the desktop auto-names it
+     * from the first message. That rename is not a user edit, so a placeholder-vs-generated title
+     * divergence must never surface as a conflict the user is asked to resolve — the desktop title
+     * simply wins.
+     */
+    private fun isPlaceholderTitle(title: String): Boolean =
+        title.isBlank() || title == DEFAULT_CONVERSATION_TITLE
 
     private suspend fun recordConflict(
         entityType: String,
@@ -1551,6 +1630,9 @@ class LocalDataRepository private constructor(
     }
 
     companion object {
+        /** Default title a chat is created with before the desktop auto-names it. */
+        const val DEFAULT_CONVERSATION_TITLE = "New Chat"
+
         @Volatile private var instance: LocalDataRepository? = null
 
         fun get(context: Context): LocalDataRepository =

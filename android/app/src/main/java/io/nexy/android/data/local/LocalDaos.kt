@@ -51,6 +51,11 @@ interface ConversationDao {
     @Query("SELECT COUNT(*) FROM local_conversations")
     suspend fun count(): Int
 
+    // Ordered like observeAll() so a bounded prefetch targets the same top-of-list conversations
+    // the user is most likely to open next.
+    @Query("SELECT id FROM local_conversations WHERE deleted = 0 AND archived = 0 ORDER BY pinned DESC, updatedAt DESC LIMIT :limit")
+    suspend fun topConversationIds(limit: Int): List<String>
+
     @Query("UPDATE local_conversations SET syncStatus = 'SYNCED' WHERE id = :id AND syncStatus = 'PENDING'")
     suspend fun markSynced(id: String)
 }
@@ -87,6 +92,9 @@ interface MessageDao {
 
     @Query("SELECT id FROM local_messages WHERE conversationId = :conversationId")
     suspend fun idsForConversation(conversationId: String): List<String>
+
+    @Query("SELECT COUNT(*) FROM local_messages WHERE conversationId = :conversationId AND deleted = 0")
+    suspend fun countForConversation(conversationId: String): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MessageEntity)
@@ -262,6 +270,9 @@ interface SyncDao {
 
     @Query("SELECT * FROM sync_conflicts WHERE resolvedAt IS NULL ORDER BY createdAt DESC")
     fun observeConflicts(): Flow<List<ConflictEntity>>
+
+    @Query("SELECT * FROM sync_conflicts WHERE id = :id LIMIT 1")
+    suspend fun conflict(id: String): ConflictEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertConflict(entity: ConflictEntity)

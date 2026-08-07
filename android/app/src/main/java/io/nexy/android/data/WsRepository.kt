@@ -71,6 +71,19 @@ import java.util.concurrent.TimeUnit
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, POLLING }
 enum class SyncProgressPhase { CONNECTING, RECEIVING, APPLYING, UPLOADING, COMPLETE }
+
+// Requested connect-snapshot hydration mode (item B). "shell" asks the desktop for metadata only
+// (conversation/project/agent/wiki/prompt/skill rows, including each conversation's `last_message`
+// preview) and defers bulk message bodies to on-demand conversation:get-messages loads. Desktops
+// that predate the field ignore it and return the full snapshot.
+private const val STANDALONE_SYNC_HYDRATION_MODE = "shell"
+
+// Bounded post-connect prefetch (item E). After a shell snapshot, warm the newest few
+// conversations' latest messages into Room so the most-likely taps open from cache instead of
+// costing a round-trip. Kept deliberately small so it never recreates the monolithic-snapshot cost.
+private const val PREFETCH_CONVERSATION_COUNT = 5
+private const val PREFETCH_MESSAGE_LIMIT = 5
+
 data class SyncProgress(
     val phase: SyncProgressPhase = SyncProgressPhase.COMPLETE,
     val completed: Int = 0,
@@ -822,6 +835,9 @@ object WsRepository : WsClient {
                                 desktopSequence = event.desktopSequence,
                                 datasetId = event.datasetId,
                             )
+                            // Room now holds the metadata shell; warm the top conversations so the
+                            // most-likely taps open from cache rather than a round-trip.
+                            prefetchTopConversations()
                         }
                     }
                     is WsEvent.SyncAck -> {
@@ -1482,6 +1498,11 @@ object WsRepository : WsClient {
                     "schemaVersion" to 2,
                     "supportedEntityTypes" to listOf("project", "agent", "conversation", "message", "wiki", "prompt", "skill"),
                     "attachmentSupport" to "metadata",
+                    // Request the metadata-only connect snapshot (item B). Bulk message bodies are
+                    // deferred and hydrate on demand via conversation:get-messages when a chat opens,
+                    // keeping the connect frame small. Desktops that predate this field ignore it and
+                    // send the full snapshot, which still applies correctly.
+                    "hydrationMode" to STANDALONE_SYNC_HYDRATION_MODE,
                     "maxBatchSize" to 100,
                     "lastDesktopSequence" to lastDesktopSequence,
                 ),
@@ -1519,6 +1540,7 @@ object WsRepository : WsClient {
                 "deviceId" to local.deviceId,
                 "datasetId" to datasetId,
                 "protocolVersion" to protocolVersion,
+                "hydrationMode" to STANDALONE_SYNC_HYDRATION_MODE,
                 "lastDesktopSequence" to lastDesktopSequence,
                 "operations" to operations.map { operation ->
                     mapOf(
@@ -1558,6 +1580,39 @@ object WsRepository : WsClient {
             flushStandaloneOutbox()
         } catch (error: Exception) {
             reportSyncFailure("snapshot", error)
+        }
+    }
+
+    private var prefetchJob: Job? = null
+
+    /**
+     * Warms the newest [PREFETCH_CONVERSATION_COUNT] conversations' latest messages into Room after a
+     * connect snapshot (item E). Responses arrive as paged `conversation:messages` and persist via the
+     * existing remote-event collector, so opening one of these chats becomes a cache hit. Only
+     * conversations with no cached bodies are requested, so this is a no-op after a full-mode snapshot
+     * or for chats the user has already opened.
+     */
+    private fun prefetchTopConversations() {
+        val local = localData ?: return
+        if (_connectionState.value != ConnectionState.CONNECTED) return
+        prefetchJob?.cancel()
+        prefetchJob = scope.launch {
+            val ids = runCatching { local.conversationsNeedingPrefetch(PREFETCH_CONVERSATION_COUNT) }
+                .getOrNull()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return@launch
+            appendDebugLog("sync-timing", "prefetch-top-conversations count=${ids.size}")
+            ids.forEach { conversationId ->
+                if (_connectionState.value != ConnectionState.CONNECTED) return@launch
+                send(
+                    "conversation:get-messages",
+                    mapOf(
+                        "conversationId" to conversationId,
+                        "limit" to PREFETCH_MESSAGE_LIMIT,
+                        "requestId" to java.util.UUID.randomUUID().toString(),
+                    ),
+                )
+            }
         }
     }
 
@@ -1677,15 +1732,20 @@ object WsRepository : WsClient {
     }
 
     fun resolveSyncConflict(conflictId: String, useAndroidVersion: Boolean) {
-        if (_connectionState.value != ConnectionState.CONNECTED) return
-        send(
-            "sync:resolve-conflict",
-            mapOf(
-                "conflictId" to conflictId,
-                // Desktop calls its own value "local"; the incoming Android operation is "remote".
-                "resolution" to if (useAndroidVersion) "remote" else "local",
-            ),
-        )
+        // Desktop calls its own value "local"; the incoming Android operation is "remote".
+        val resolution = if (useAndroidVersion) "remote" else "local"
+        // Apply locally right away so the choice sticks offline / in standalone mode; the desktop's
+        // later echo re-runs this on an already-resolved conflict and is a harmless no-op.
+        scope.launch { localData?.resolveConflict(conflictId, resolution) }
+        if (_connectionState.value == ConnectionState.CONNECTED) {
+            send(
+                "sync:resolve-conflict",
+                mapOf(
+                    "conflictId" to conflictId,
+                    "resolution" to resolution,
+                ),
+            )
+        }
     }
 
     private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
@@ -1702,6 +1762,7 @@ object WsRepository : WsClient {
         reconnectJob?.cancel()
         handshakeTimeoutJob?.cancel()
         foregroundProbeJob?.cancel()
+        prefetchJob?.cancel()
         pendingForegroundProbeId = null
         currentUrl = null
         currentToken = null
