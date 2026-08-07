@@ -59,7 +59,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import io.nexy.android.data.ConnectionState
-import io.nexy.android.ui.connection.ConnectionStatusIndicator
+import io.nexy.android.ui.connection.ConnectionDot
+import io.nexy.android.ui.connection.ContentSyncIndicator
 import kotlinx.coroutines.delay
 
 @Composable
@@ -277,7 +278,6 @@ fun NexyTopAppBar(
     subtitle: String? = null,
     showConnectionStatus: Boolean = true,
     contentSyncInProgress: Boolean? = null,
-    onConnectionStatusClick: (() -> Unit)? = null,
 ) {
     TopAppBar(
         title = {
@@ -303,10 +303,12 @@ fun NexyTopAppBar(
         },
         actions = {
             if (showConnectionStatus) {
-                ConnectionStatusIndicator(
-                    contentSyncInProgress = contentSyncInProgress,
-                    onClick = onConnectionStatusClick,
-                )
+                // Two separate glyphs: the dot answers connectivity (tap → connection sheet), the
+                // sync icon answers content freshness (tap → sync-status sheet). Both own their own
+                // sheets, so they work on every screen with no per-screen wiring. Kept distinct so
+                // neither question is read off the other's state.
+                ConnectionDot()
+                ContentSyncIndicator(contentSyncInProgress = contentSyncInProgress)
             }
             actions()
         },
