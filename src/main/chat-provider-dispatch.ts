@@ -4,10 +4,12 @@ import {
   sendOpenAIMessage,
   sendOpenAIWithTools,
   sendAnthropicMessage,
+  sendAnthropicMessagesStream,
   sendAnthropicWithTools,
   sendAzureMessage,
   sendAzureWithTools,
   getAzureEndpoint,
+  toOpenAICompatibleMessages,
   type ProviderMessage,
 } from './providers'
 import { runProviderMcpToolLoop } from './tool-loop'
@@ -176,7 +178,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
           callWithResilience(
-            (c) => sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }),
+            (c) => sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }),
             choice,
           ),
         chatMessages,
@@ -197,6 +199,9 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         fullAutoApprove,
         forceFirstToolChoice,
         onUsage,
+        async (msgs, onChunk) => {
+          await sendAnthropicMessagesStream(conversationId, byokKey, providerModel, msgs, onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks })
+        },
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -217,7 +222,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
           callWithResilience(
-            (c) => sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }),
+            (c) => sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }),
             choice,
           ),
         chatMessages,
@@ -238,6 +243,9 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         fullAutoApprove,
         forceFirstToolChoice,
         onUsage,
+        async (msgs, onChunk) => {
+          await sendOpenAIMessage(conversationId, byokKey, providerModel, toOpenAICompatibleMessages(msgs), onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage })
+        },
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -261,7 +269,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       const caller = (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, choice: ToolChoice): Promise<ProviderNonStreamResult> =>
         callWithResilience(async (c) => {
           try {
-            return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+            return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }, baseUrl)
           } catch (err) {
             if (!(err instanceof Error)) throw err
             if (err.message.includes('No endpoints found that support tool use')) {
@@ -297,6 +305,9 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         fullAutoApprove,
         forceFirstToolChoice,
         onUsage,
+        async (msgs, onChunk) => {
+          await sendOpenAIMessage(conversationId, byokKey, providerModel, toOpenAICompatibleMessages(msgs), onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+        },
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -325,7 +336,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     return runProviderMcpToolLoop(
       (msgs, tools, choice) =>
         callWithResilience(
-          (c) => sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, onUsage }),
+          (c) => sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, onUsage, conversationId }),
           choice,
         ),
       chatMessages,
@@ -346,6 +357,9 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       fullAutoApprove,
       forceFirstToolChoice,
       onUsage,
+      async (msgs, onChunk) => {
+        await sendAzureMessage(conversationId, byokKey, azureEndpoint, providerModel, toOpenAICompatibleMessages(msgs), onChunk, effectiveGenerationOptions)
+      },
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

@@ -123,6 +123,16 @@ export async function runProviderMcpToolLoop(
   fullAutoApprove?: boolean,
   forceFirstToolChoice?: boolean,
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void,
+  /**
+   * Streams the terminal answer token-by-token instead of the non-streaming forced-'none' call.
+   * When provided, it is used for the final wrap-up; on any error *before* it emits text, the loop
+   * falls back to the non-streaming `caller` so the turn still completes. It receives the same
+   * budget-trimmed messages and must emit text via the provided onChunk.
+   */
+  finalStreamCaller?: (
+    messages: ProviderMessage[],
+    onChunk: (chunk: string) => void,
+  ) => Promise<void>,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -387,7 +397,29 @@ export async function runProviderMcpToolLoop(
   }
 
   sendActivity({ type: 'thinking' })
-  const finalResult = await caller(trimLoopMessagesToBudget(loopMessages), undefined, 'none')
+  const finalMessages = trimLoopMessagesToBudget(loopMessages)
+
+  // Stream the terminal answer when a streaming caller is available (parity with the CLI token
+  // stream). A long final answer arriving as one blob reads as a stall; streaming avoids that.
+  if (finalStreamCaller) {
+    let streamedAny = false
+    const trackedChunk = (chunk: string) => {
+      if (chunk) streamedAny = true
+      fullResponse += chunk
+      onChunk(chunk)
+    }
+    try {
+      await finalStreamCaller(finalMessages, trackedChunk)
+      return fullResponse
+    } catch (err) {
+      // If text already streamed, surface the error rather than re-running the non-streaming
+      // caller (which would duplicate the streamed text). If nothing streamed (e.g. the endpoint
+      // rejected the request outright), fall through to the resilient non-streaming path.
+      if (streamedAny) throw err
+    }
+  }
+
+  const finalResult = await caller(finalMessages, undefined, 'none')
   if (finalResult.usage) onUsage?.(finalResult.usage)
   if (!modelEmitted && onModel && finalResult.model) {
     onModel(finalResult.model)

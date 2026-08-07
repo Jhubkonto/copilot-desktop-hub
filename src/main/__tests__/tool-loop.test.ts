@@ -748,6 +748,94 @@ describe('runProviderMcpToolLoop', () => {
     expect(onUsage).toHaveBeenCalledWith({ inputTokens: 10, outputTokens: 5 })
     expect(onUsage).toHaveBeenCalledWith({ inputTokens: 20, outputTokens: 8 })
   })
+
+  async function runWithFinalStream(
+    caller: ModelToolCaller,
+    onChunk: (chunk: string) => void,
+    finalStreamCaller: (messages: ProviderMessage[], onChunk: (chunk: string) => void) => Promise<void>,
+  ) {
+    return runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'loop' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      onChunk,
+      undefined, // onModel
+      undefined, // agenticMode
+      undefined, // inlineHandlers
+      undefined, // toolDirective
+      undefined, // onActivity
+      undefined, // autoApproveTools
+      undefined, // toolPolicy
+      undefined, // onToolFinished
+      undefined, // fullAutoApprove
+      undefined, // forceFirstToolChoice
+      undefined, // onUsage
+      finalStreamCaller,
+    )
+  }
+
+  it('streams the forced final answer through finalStreamCaller instead of the non-streaming caller', async () => {
+    // Every tool round returns a tool call so the loop reaches the forced final answer.
+    const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
+      if (toolChoice === 'none') throw new Error('non-streaming final caller should not be used')
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    const onChunk = vi.fn()
+    const finalStreamCaller = vi.fn(async (_messages: ProviderMessage[], chunk: (c: string) => void) => {
+      chunk('streamed ')
+      chunk('final answer')
+    })
+
+    const result = await runWithFinalStream(caller, onChunk, finalStreamCaller)
+
+    expect(finalStreamCaller).toHaveBeenCalledTimes(1)
+    expect(result).toContain('streamed final answer')
+    expect(onChunk).toHaveBeenCalledWith('streamed ')
+    expect(onChunk).toHaveBeenCalledWith('final answer')
+    // The non-streaming forced-'none' call must NOT have been made.
+    expect(caller).not.toHaveBeenCalledWith(expect.any(Array), undefined, 'none')
+  })
+
+  it('falls back to the non-streaming final caller when finalStreamCaller fails before emitting', async () => {
+    const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
+      if (toolChoice === 'none') return { content: 'fallback final', toolCalls: [] }
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    const onChunk = vi.fn()
+    // Throws without emitting any chunk — the loop should fall back to caller(..., 'none').
+    const finalStreamCaller = vi.fn(async () => { throw new Error('endpoint rejected stream') })
+
+    const result = await runWithFinalStream(caller, onChunk, finalStreamCaller)
+
+    expect(finalStreamCaller).toHaveBeenCalledTimes(1)
+    expect(result).toBe('fallback final')
+    expect(onChunk).toHaveBeenCalledWith('fallback final')
+    expect(caller).toHaveBeenLastCalledWith(expect.any(Array), undefined, 'none')
+  })
+
+  it('does not fall back (avoiding duplicate text) when finalStreamCaller fails after emitting', async () => {
+    const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
+      if (toolChoice === 'none') throw new Error('non-streaming final caller should not be used after partial stream')
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    const onChunk = vi.fn()
+    const finalStreamCaller = vi.fn(async (_messages: ProviderMessage[], chunk: (c: string) => void) => {
+      chunk('partial answer')
+      throw new Error('connection dropped mid-stream')
+    })
+
+    await expect(runWithFinalStream(caller, onChunk, finalStreamCaller)).rejects.toThrow('connection dropped mid-stream')
+    expect(onChunk).toHaveBeenCalledWith('partial answer')
+    // No fallback: the non-streaming forced-'none' call must not run (would duplicate the text).
+    expect(caller).not.toHaveBeenCalledWith(expect.any(Array), undefined, 'none')
+  })
 })
 
 function randomId() {

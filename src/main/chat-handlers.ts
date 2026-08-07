@@ -20,6 +20,8 @@ import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
 import { requestApproval, denyPendingApprovalsForConversation } from './tools'
 import { getAdapter } from './cli-adapters/registry'
+import { getSkillConfigsForAgent } from './skills'
+import { bridgeSkillsForCliRun, releaseBridgedSkills, type BridgedSkill } from './cli-skill-bridge'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendChatCompleteNotification, generateSpokenSummary } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -1225,6 +1227,7 @@ export async function dispatchChatSend(
         cliTextBuffer.set(blockId, { ...existing, content: existing.content + chunk })
       }
 
+      let bridgedSkills: BridgedSkill[] = []
       try {
         turnEmitter.model(cliModelForRequest || effectiveBackend)
         sendActivity({ state: 'thinking', label: 'Starting CLI agent' })
@@ -1383,6 +1386,16 @@ export async function dispatchChatSend(
         assertConversationStartsAllowed()
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
+        // Bridge the agent's attached skills into the CLI harness's on-disk skills directory so a
+        // Claude/Codex-backed run can discover them. Nexy owns and reference-counts these copies;
+        // they are removed in the finally below once no other in-flight run still needs them.
+        if (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli') {
+          const attachedSkills = getSkillConfigsForAgent(effectiveAgentId ?? 'default')
+          bridgedSkills = bridgeSkillsForCliRun(effectiveBackend, attachedSkills)
+          if (bridgedSkills.length > 0) {
+            debugLog('chat', `cli-adapter: bridged ${bridgedSkills.length} skill(s) into ${effectiveBackend} skills dir`)
+          }
+        }
         const cliResponseContent = await adapter.send(
           window,
           {
@@ -1603,6 +1616,9 @@ export async function dispatchChatSend(
           db, conversationId, message, effectiveBackend, cliThinkingBuffer, cliTextBuffer, nextOccurrenceAt(),
         )
         return { assistantMsgId }
+      } finally {
+        // Remove the skills this run bridged (unless another in-flight run still references them).
+        if (bridgedSkills.length > 0) releaseBridgedSkills(bridgedSkills)
       }
     }
   }
