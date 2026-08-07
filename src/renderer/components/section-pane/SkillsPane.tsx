@@ -14,8 +14,22 @@ export function SkillsPane() {
   const exportSkillMarkdown = useAppStore((s) => s.exportSkillMarkdown)
   const deleteSkill = useAppStore((s) => s.deleteSkill)
   const setShowSkillGenerator = useAppStore((s) => s.setShowSkillGenerator)
+  const discoveredSkills = useAppStore((s) => s.discoveredSkills)
+  const discoveringSkills = useAppStore((s) => s.discoveringSkills)
+  const discoverSkills = useAppStore((s) => s.discoverSkills)
+  const importDiscoveredSkill = useAppStore((s) => s.importDiscoveredSkill)
+  const activeProjectId = useAppStore((s) => s.activeProjectId)
   const [query, setQuery] = useState('')
+  const [showDiscovery, setShowDiscovery] = useState(false)
   const deferredQuery = useDeferredValue(query)
+
+  const toggleDiscovery = () => {
+    setShowDiscovery((prev) => {
+      const next = !prev
+      if (next) void discoverSkills(activeProjectId ?? undefined)
+      return next
+    })
+  }
 
   const filtered = useMemo(
     () => deferredQuery
@@ -47,6 +61,15 @@ export function SkillsPane() {
           >
             <NexyIcon name="upload" className="w-3.5 h-3.5" />
             Import
+          </button>
+          <button
+            onClick={toggleDiscovery}
+            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${showDiscovery ? 'text-nexy-accent bg-nexy-recessed' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+            aria-label="Discover skills on disk"
+            aria-pressed={showDiscovery}
+          >
+            <NexyIcon name="search" className="w-3.5 h-3.5" />
+            Discover
           </button>
           <button
             onClick={() => setShowSkillGenerator(true)}
@@ -88,6 +111,66 @@ export function SkillsPane() {
           )}
         </div>
       </div>
+
+      {showDiscovery && (
+        <div className="border-b border-nexy-border bg-nexy-recessed/40 px-2 py-2">
+          <div className="flex items-center justify-between px-1 pb-1.5">
+            <span className="nexy-font-status text-nexy-muted">
+              {discoveringSkills ? 'Scanning disk…' : `${discoveredSkills.length} on disk`}
+            </span>
+            <button
+              onClick={() => void discoverSkills(activeProjectId ?? undefined)}
+              disabled={discoveringSkills}
+              className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-1.5 py-0.5 rounded disabled:opacity-50"
+              aria-label="Rescan for skills on disk"
+            >
+              <NexyIcon name="refresh" className="w-3 h-3" />
+              Rescan
+            </button>
+          </div>
+          {!discoveringSkills && discoveredSkills.length === 0 ? (
+            <p className="px-1 py-1 text-[10px] text-nexy-muted">
+              No skill packages found in the Claude, Codex, or project skills folders.
+            </p>
+          ) : (
+            <div className="space-y-0.5 max-h-48 overflow-y-auto">
+              {discoveredSkills.map((discovery) => (
+                <div
+                  key={discovery.packagePath}
+                  className="flex items-center gap-2 rounded-nexy-sm border border-transparent px-2 py-1.5 hover:border-nexy-border"
+                >
+                  <span className="text-sm leading-none shrink-0">{discovery.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{discovery.name}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                      {discovery.rootLabel} · {discovery.source}
+                    </p>
+                  </div>
+                  {discovery.alreadyImported ? (
+                    <span className="text-[9px] uppercase text-nexy-muted shrink-0">In library</span>
+                  ) : (
+                    <button
+                      onClick={() => void importDiscoveredSkill(discovery)}
+                      disabled={discovery.validationStatus === 'invalid'}
+                      className="flex items-center gap-1 text-[10px] text-nexy-accent hover:opacity-80 px-1.5 py-0.5 rounded disabled:opacity-40 shrink-0"
+                      aria-label={`Import ${discovery.name}`}
+                    >
+                      <NexyIcon name="download" className="w-3 h-3" />
+                      Import
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-1.5 px-1 pt-1.5 border-t border-nexy-border/60 text-[9px] leading-snug text-nexy-muted">
+            Scans your Claude, Codex, and project skills folders. Set{' '}
+            <code className="text-[9px]">CLAUDE_CONFIG_DIR</code> or <code className="text-[9px]">CODEX_HOME</code> to
+            point Nexy at a custom harness location. Skills you attach to a CLI agent are synced into that
+            harness&apos;s folder automatically while the agent runs.
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-0.5">
         {filtered.length === 0 ? (

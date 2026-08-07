@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { SkillConfig } from '../../../shared/types'
+import type { DiscoveredSkill, SkillConfig } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
 import type { AppState } from '../app-store'
 
@@ -9,7 +9,11 @@ export interface SkillSlice {
   editingSkillId: string | null
   showSkillPanel: boolean
   showSkillGenerator: boolean
+  discoveredSkills: DiscoveredSkill[]
+  discoveringSkills: boolean
   loadSkills: () => Promise<void>
+  discoverSkills: (projectId?: string) => Promise<void>
+  importDiscoveredSkill: (discovery: DiscoveredSkill) => Promise<void>
   openCreateSkill: () => void
   openEditSkill: (id: string) => void
   closeSkillPanel: () => void
@@ -33,6 +37,8 @@ export const createSkillSlice: StateCreator<
   editingSkillId: null,
   showSkillPanel: false,
   showSkillGenerator: false,
+  discoveredSkills: [],
+  discoveringSkills: false,
 
   loadSkills: async () => {
     set((s) => { s.skillsLoading = true })
@@ -163,6 +169,43 @@ export const createSkillSlice: StateCreator<
       if (result) {
         await get().loadSkills()
         get().addToast('Skill imported', 'success')
+      }
+    } catch {
+      get().addToast('Failed to import skill', 'error')
+    }
+  },
+
+  discoverSkills: async (projectId) => {
+    set((s) => { s.discoveringSkills = true })
+    try {
+      const result = await window.api.discoverSkills(projectId)
+      if (isApiError(result)) {
+        get().addToast('Failed to scan for skills', 'error')
+        return
+      }
+      set((s) => { s.discoveredSkills = result })
+    } catch {
+      get().addToast('Failed to scan for skills', 'error')
+    } finally {
+      set((s) => { s.discoveringSkills = false })
+    }
+  },
+
+  importDiscoveredSkill: async (discovery) => {
+    try {
+      const result = await window.api.importDiscoveredSkill(discovery)
+      if (isApiError(result)) {
+        get().addToast('Failed to import skill', 'error')
+        return
+      }
+      if (result) {
+        await get().loadSkills()
+        // Reflect the new imported state without a full rescan.
+        set((s) => {
+          const match = s.discoveredSkills.find((d) => d.packagePath === discovery.packagePath)
+          if (match) match.alreadyImported = true
+        })
+        get().addToast(`Skill "${result.name}" imported`, 'success')
       }
     } catch {
       get().addToast('Failed to import skill', 'error')

@@ -448,6 +448,26 @@ export interface SkillConfig {
   updated_at?: number
 }
 
+/**
+ * A skill package found on disk in a standard location (`~/.claude/skills`, `~/.codex/skills`,
+ * project `.claude/skills`, …) but not yet imported into Nexy's managed library. Read-only until imported.
+ */
+export interface DiscoveredSkill {
+  /** Absolute path to the external package root. */
+  packagePath: string
+  name: string
+  description: string
+  icon: string
+  scope: 'user' | 'project'
+  source: 'filesystem' | 'codex' | 'claude'
+  /** Human-readable location label, e.g. `~/.claude/skills`. */
+  rootLabel: string
+  validationStatus: 'valid' | 'warning' | 'invalid'
+  contentHash?: string
+  /** True when a managed skill already has identical package contents. */
+  alreadyImported: boolean
+}
+
 export interface CliInstallStatus {
   installed: boolean
   path: string | null
@@ -2139,7 +2159,9 @@ export type IpcReturnMap = {
   'skill:get': SkillConfig | null
   'skill:get-agent-links': { skill_id: string; sort_order: number }[]
   'skill:get-agent-usage': { skill_id: string; agent_count: number }[]
+  'skill:discover': DiscoveredSkill[]
   'skill:import': SkillConfig | null
+  'skill:import-discovered': SkillConfig | null
   'skill:library-updated': void
   'skill:list': SkillConfig[]
   'skill:reorder-for-agent': boolean
@@ -2657,7 +2679,9 @@ export type IpcChannels =
   | 'skill:get'
   | 'skill:get-agent-links'
   | 'skill:get-agent-usage'
+  | 'skill:discover'
   | 'skill:import'
+  | 'skill:import-discovered'
   | 'skill:library-updated'
   | 'skill:list'
   | 'skill:reorder-for-agent'

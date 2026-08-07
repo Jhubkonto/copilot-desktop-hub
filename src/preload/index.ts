@@ -35,6 +35,7 @@ import type {
   AgentGeneratorMessage,
   AgentGeneratorSpec,
   SkillConfig,
+  DiscoveredSkill,
   SkillGeneratorMessage,
   SkillGeneratorSpec,
   SaveSpokenOutputInput,
@@ -466,6 +467,8 @@ const api = {
   exportSkill: (id: string) => typedInvoke('skill:export', id),
   exportSkillMarkdown: (id: string) => typedInvoke('skill:export-md', id),
   importSkill: () => typedInvoke('skill:import'),
+  discoverSkills: (projectId?: string) => typedInvoke('skill:discover', projectId),
+  importDiscoveredSkill: (discovery: DiscoveredSkill) => typedInvoke('skill:import-discovered', discovery),
   onSkillLibraryUpdated: (callback: () => void) => {
     const handler = () => callback()
     typedOn('skill:library-updated', handler)
