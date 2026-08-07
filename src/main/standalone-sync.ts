@@ -10,6 +10,27 @@ export const STANDALONE_SYNC_SCHEMA_VERSION = 2
 const SUPPORTED_SYNC_SCHEMA_VERSIONS = [1, STANDALONE_SYNC_SCHEMA_VERSION] as const
 const SUPPORTED_ENTITY_TYPES = ['project', 'agent', 'conversation', 'message', 'wiki', 'prompt', 'skill'] as const
 const MAX_SYNC_BATCH_SIZE = 100
+
+// Hydration modes negotiated in sync:hello (item B — "shell then hydrate").
+//   'full'  — legacy behavior: the connect snapshot inlines up to SNAPSHOT_MESSAGES_PER_CONVERSATION
+//             message bodies for the most-recent SNAPSHOT_MAX_CONVERSATIONS conversations.
+//   'shell' — metadata only: conversation rows (with their inlined `last_message` preview),
+//             projects and agents, but NO bulk message bodies AND no wiki / prompt / skill bodies.
+//             Message bodies hydrate on demand through conversation:get-messages when a chat is
+//             opened; wiki / prompt / skill bodies hydrate through wiki:list / prompt:list /
+//             skill:list when their screen (or a prompt/skill picker) is opened (item C). Every
+//             Android consumer of those library entities already fetches them lazily and caches the
+//             result in Room, and standalone chat never reads them, so omitting them from the
+//             connect frame leaves no screen unpopulated.
+// A single long chat history could otherwise push ~12k message blocks into one WebSocket frame on
+// every reconnect; shell mode keeps the connect frame tiny so Home renders "Live" almost instantly.
+// Older Android builds omit the field and default to 'full', so the change is backward compatible.
+type HydrationMode = 'full' | 'shell'
+const SUPPORTED_HYDRATION_MODES: readonly HydrationMode[] = ['full', 'shell']
+
+function negotiateHydrationMode(value: unknown): HydrationMode {
+  return SUPPORTED_HYDRATION_MODES.includes(value as HydrationMode) ? (value as HydrationMode) : 'full'
+}
 // A reconnect snapshot is a hydration window, not a full conversation export. Sending every
 // message makes the WebSocket frame and Android's JSON object graph grow without bound; a single
 // long-running chat can then exhaust the mobile heap while the home screen shows "Syncing".
@@ -127,6 +148,7 @@ function handleHello(data: Record<string, unknown>, reply: WsReply): void {
   const maxBatchSize = Math.max(1, Math.min(MAX_SYNC_BATCH_SIZE, requestedBatchSize))
   const attachmentSupport =
     requestedSchema >= 2 && data.attachmentSupport === 'metadata' ? 'metadata' : 'none'
+  const hydrationMode = negotiateHydrationMode(data.hydrationMode)
 
   const db = getDatabase()
   const now = Date.now()
@@ -144,6 +166,7 @@ function handleHello(data: Record<string, unknown>, reply: WsReply): void {
     db,
     datasetId,
     requestedVersion >= 2 ? numberValue(data.lastDesktopSequence, 0) : 0,
+    hydrationMode,
   )
   reply({
     event: 'sync:welcome',
@@ -152,6 +175,7 @@ function handleHello(data: Record<string, unknown>, reply: WsReply): void {
       schemaVersion: requestedSchema,
       supportedEntityTypes: negotiatedEntities,
       attachmentSupport,
+      hydrationMode,
       maxBatchSize,
       desktopDeviceId: desktopDeviceId(db),
       datasetId,
@@ -221,6 +245,7 @@ function handlePush(data: Record<string, unknown>, reply: WsReply): void {
     db,
     datasetId,
     requestedVersion >= 2 ? numberValue(data.lastDesktopSequence, 0) : 0,
+    negotiateHydrationMode(data.hydrationMode),
   )
   reply({
     event: 'sync:ack',
@@ -239,10 +264,11 @@ function buildSyncSnapshot(
   db: Database.Database,
   datasetId: string,
   lastDesktopSequence: number,
+  hydrationMode: HydrationMode = 'full',
 ): { snapshot: Record<string, unknown>; desktopSequence: number; isDelta: boolean } {
   // Scanning also advances entity versions for desktop-side writes that did not originate in
   // standalone sync. The returned delta then avoids transferring and re-applying unchanged rows.
-  const full = buildSnapshot(db, datasetId)
+  const full = buildSnapshot(db, datasetId, hydrationMode)
   const sequenceRow = db.prepare(
     'SELECT MIN(sequence) AS minSequence, MAX(sequence) AS maxSequence FROM sync_desktop_changes WHERE dataset_id = ?',
   ).get(datasetId) as { minSequence: number | null; maxSequence: number | null }
@@ -457,7 +483,15 @@ function handleAttachmentPull(data: Record<string, unknown>, reply: WsReply): vo
   })
 }
 
-function buildSnapshot(db: Database.Database, datasetId: string): Record<string, unknown> {
+function buildSnapshot(
+  db: Database.Database,
+  datasetId: string,
+  hydrationMode: HydrationMode = 'full',
+): Record<string, unknown> {
+  const includeMessageBodies = hydrationMode === 'full'
+  // Item C: shell hydration also defers the project wiki, prompt library, and skill bodies. See the
+  // HydrationMode comment above for why this is safe; mirrors the message-body deferral below.
+  const includeLibraryBodies = hydrationMode === 'full'
   const projects = (db.prepare(`
     SELECT id, name, color, config_json, created_at, updated_at
     FROM projects ORDER BY updated_at, id
@@ -497,6 +531,9 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
   // row in the snapshot window before ranking, ignoring the idx_messages_conversation index. Since
   // that index already orders rows per-conversation, fetching each conversation's most recent slice
   // with an indexed ORDER BY + LIMIT is a index range scan instead of a full sort.
+  // Shell hydration ships zero message bodies — chats hydrate on demand via conversation:get-messages.
+  // The conversation rows above still carry their `last_message` preview, so Home/Projects list rows
+  // stay fully rendered; only the bulk per-conversation history is deferred.
   const messagesStmt = db.prepare(`
     SELECT id, conversation_id, role, content, model, provider, finish_reason, attachments, thinking_blocks, text_segments,
            input_tokens, output_tokens, timestamp
@@ -506,16 +543,18 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     LIMIT ?
   `)
   const messages: Record<string, unknown>[] = []
-  for (const conversationId of conversationIds) {
-    messages.push(...(messagesStmt.all(conversationId, SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]))
+  if (includeMessageBodies) {
+    for (const conversationId of conversationIds) {
+      messages.push(...(messagesStmt.all(conversationId, SNAPSHOT_MESSAGES_PER_CONVERSATION) as Record<string, unknown>[]))
+    }
+    messages.sort((left, right) => {
+      const leftTimestamp = numberValue(left.timestamp, 0)
+      const rightTimestamp = numberValue(right.timestamp, 0)
+      if (leftTimestamp !== rightTimestamp) return leftTimestamp - rightTimestamp
+      return String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0
+    })
   }
-  messages.sort((left, right) => {
-    const leftTimestamp = numberValue(left.timestamp, 0)
-    const rightTimestamp = numberValue(right.timestamp, 0)
-    if (leftTimestamp !== rightTimestamp) return leftTimestamp - rightTimestamp
-    return String(left.id) < String(right.id) ? -1 : String(left.id) > String(right.id) ? 1 : 0
-  })
-  const wiki = (db.prepare(`
+  const wiki: Record<string, unknown>[] = !includeLibraryBodies ? [] : (db.prepare(`
     SELECT id, project_id, title, body, tags, source_conversation_id, created_at, updated_at
     FROM project_wiki_entries ORDER BY updated_at, id
   `).all() as Record<string, unknown>[]).map(row => ({
@@ -528,7 +567,7 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }))
-  const prompts = (db.prepare(`
+  const prompts: Record<string, unknown>[] = !includeLibraryBodies ? [] : (db.prepare(`
     SELECT id, title, body, description, category, tags, scope, project_id, created_at, updated_at
     FROM prompt_library_entries ORDER BY updated_at, id
   `).all() as Record<string, unknown>[]).map(row => ({
@@ -543,7 +582,7 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }))
-  const skills = (db.prepare(`
+  const skills: Record<string, unknown>[] = !includeLibraryBodies ? [] : (db.prepare(`
     SELECT id, config_json, created_at, updated_at FROM skills ORDER BY updated_at, id
   `).all() as Record<string, unknown>[]).map(row => ({
     ...objectValue(sanitizeSyncValue(parseJsonValue(row.config_json, {}))),
