@@ -50,7 +50,7 @@ export {
   sendAzureNonStreaming,
   sendAzureWithTools,
 } from './providers/openai-provider'
-export { sendAnthropicMessage, sendAnthropicWithTools } from './providers/anthropic-provider'
+export { sendAnthropicMessage, sendAnthropicMessagesStream, sendAnthropicWithTools } from './providers/anthropic-provider'
 export { sendProviderWithTools, sendProviderNonStreaming } from './provider-tools'
 
 import type { ProviderName, ProviderMessage } from './provider-core-types'

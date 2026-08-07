@@ -76,6 +76,7 @@ export async function sendAnthropicWithTools(
     maxTokens?: number
     temperature?: number
     thinkingEffort?: string
+    conversationId?: string
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
@@ -113,7 +114,8 @@ export async function sendAnthropicWithTools(
       method: 'POST',
       headers: { ...anthropicHeaders(apiKey), 'Content-Length': String(Buffer.byteLength(body)) }
     },
-    body
+    body,
+    options.conversationId,
   )
 
   if (status >= 400) {
@@ -194,6 +196,23 @@ export async function sendAnthropicMessage(
   const streamThinkingBudget = streamThinkingEnabled ? (bodyObj.thinking as { budget_tokens?: number })?.budget_tokens : undefined
   debugLog('anthropic', `stream: model=${model} thinking=${streamThinkingEnabled}${streamThinkingBudget ? ` budget=${streamThinkingBudget}` : ''} msgs=${messages.length} keyLen=${apiKey.length}`)
 
+  return runAnthropicStream(conversationId, apiKey, model, body, onChunk, options)
+}
+
+interface AnthropicStreamCallbacks {
+  onThinkingChunk?: (blockId: string, chunk: string) => void
+  onThinkingEnd?: (blockId: string) => void
+}
+
+/** Shared SSE handler for Anthropic streaming (thinking + text deltas). */
+function runAnthropicStream(
+  conversationId: string,
+  apiKey: string,
+  model: string,
+  body: string,
+  onChunk: (chunk: string) => void,
+  options: AnthropicStreamCallbacks,
+): Promise<string> {
   return runStreamingRequest(conversationId, ANTHROPIC_MESSAGES_URL, anthropicHeaders(apiKey), body, (res, finish) => {
     if (res.statusCode && res.statusCode >= 400) {
       rejectHttpError(res, finish, (errBody) => {
@@ -242,4 +261,39 @@ export async function sendAnthropicMessage(
       .then(() => finish.resolve(fullContent))
       .catch((err: Error) => finish.reject(err))
   })
+}
+
+/**
+ * Streams a terminal (text-only) answer for the BYOK tool loop. Unlike sendAnthropicMessage, this
+ * accepts the full tool-loop message array (system + assistant tool_use + tool_result history) and
+ * normalizes it via toAnthropicMessages so the streamed final answer has the same context the
+ * non-streaming forced-'none' call would. No tools are sent — the model produces text only.
+ */
+export function sendAnthropicMessagesStream(
+  conversationId: string,
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  onChunk: (chunk: string) => void,
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+  } = {},
+): Promise<string> {
+  const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
+  const bodyObj: Record<string, unknown> = {
+    model,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7,
+    stream: true,
+    ...(system ? { system } : {}),
+    messages: anthropicMsgs,
+  }
+  applyThinkingBudget(bodyObj, model, options.thinkingEffort)
+  const body = JSON.stringify(bodyObj)
+  debugLog('anthropic', `stream-final: model=${model} msgs=${anthropicMsgs.length} keyLen=${apiKey.length}`)
+  return runAnthropicStream(conversationId, apiKey, model, body, onChunk, options)
 }

@@ -43,8 +43,9 @@ function azureEndpoint(apiKey: string, endpoint: string, deployment: string): Ch
   }
 }
 
-/** POSTs a non-streaming chat-completions body and returns the parsed JSON, throwing on HTTP errors. */
-async function chatCompletionsRequest(endpoint: ChatEndpoint, body: string): Promise<Record<string, unknown>> {
+/** POSTs a non-streaming chat-completions body and returns the parsed JSON, throwing on HTTP errors.
+ *  `abortKey` (a conversation id) makes the in-flight request cancellable via abortActiveStream. */
+async function chatCompletionsRequest(endpoint: ChatEndpoint, body: string, abortKey?: string): Promise<Record<string, unknown>> {
   const { status, data } = await httpsRequestUrl(
     endpoint.url,
     {
@@ -52,6 +53,7 @@ async function chatCompletionsRequest(endpoint: ChatEndpoint, body: string): Pro
       headers: { ...endpoint.headers, 'Content-Length': String(Buffer.byteLength(body)) },
     },
     body,
+    abortKey,
   )
   if (status >= 400) {
     const err = providerHttpError(endpoint.label, status, data)
@@ -308,6 +310,7 @@ export async function sendOpenAIWithTools(
     maxTokens?: number
     temperature?: number
     thinkingEffort?: string
+    conversationId?: string
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
@@ -329,7 +332,7 @@ export async function sendOpenAIWithTools(
   const body = JSON.stringify(bodyObj)
   debugLog('openai', `withTools: model=${model} baseUrl=${baseUrl ?? 'openai-default'} tools=${tools.length} toolChoice=${toolChoice} keyLen=${apiKey.length}`)
 
-  const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body)
+  const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body, options.conversationId)
   const msg = extractMessage(parsed)
   const usage = extractUsage(parsed)
   if (usage) options.onUsage?.(usage)
@@ -399,6 +402,7 @@ export async function sendAzureWithTools(
   options: {
     maxTokens?: number
     temperature?: number
+    conversationId?: string
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {}
 ): Promise<ProviderNonStreamResult> {
@@ -414,7 +418,7 @@ export async function sendAzureWithTools(
   }
   const body = JSON.stringify(bodyObj)
 
-  const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body)
+  const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body, options.conversationId)
   const msg = extractMessage(parsed)
   const usage = extractUsage(parsed)
   if (usage) options.onUsage?.(usage)
