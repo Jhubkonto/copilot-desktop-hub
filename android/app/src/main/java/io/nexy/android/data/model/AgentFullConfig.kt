@@ -7,6 +7,7 @@ data class AgentFullConfig(
     val systemPrompt: String = "",
     val backend: String? = null,
     val cliModel: String? = null,
+    val hermesProfile: String? = null,
     val temperature: Float = 0.7f,
     val maxTokens: Int = 8192,
     val responseFormat: String = "default",

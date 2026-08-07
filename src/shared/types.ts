@@ -25,6 +25,9 @@ export type {
   SupertonicSynthesisResult,
 } from './neural-tts'
 
+import type { HermesProfileInfo, HermesAcpReadiness } from './hermes'
+export type { HermesProfileInfo, HermesAcpReadiness } from './hermes'
+
 export interface Attachment {
   id: string
   name: string
@@ -410,6 +413,14 @@ export interface SkillMcpServerTrust {
   trust: 'auto' | 'always-ask' | 'block'
 }
 
+export interface SkillPackageFile {
+  /** POSIX-style path relative to the package root. */
+  relativePath: string
+  encoding: 'utf8' | 'base64'
+  content: string
+  sizeBytes: number
+}
+
 export interface SkillConfig {
   id: string
   name: string
@@ -422,6 +433,17 @@ export interface SkillConfig {
   mcpToolOverrides: SkillMcpToolOverride[]
   knowledge: { title: string; content: string }[]
   tags: string[]
+  /** Absolute package root. The directory and its SKILL.md are the canonical skill source. */
+  packagePath?: string
+  /** SHA-256 of every package file, used to invalidate trust when package contents change. */
+  contentHash?: string
+  scope?: 'user' | 'project' | 'bundled'
+  source?: 'nexy' | 'filesystem' | 'codex' | 'claude' | 'import'
+  validationStatus?: 'valid' | 'warning' | 'invalid'
+  /** Portable package contents used by sync/import/export. Never contains a host filesystem path. */
+  packageFiles?: SkillPackageFile[]
+  /** Losslessly retained standard/provider frontmatter that Nexy does not execute itself. */
+  frontmatter?: Record<string, unknown>
   created_at?: number
   updated_at?: number
 }
@@ -2170,6 +2192,8 @@ export type IpcReturnMap = {
   'cli:status': CliInstallStatus
   'cli:detect-all': Record<string, CliInstallStatus>
   'cli:get-models': { id: string; label: string }[]
+  'hermes:list-profiles': HermesProfileInfo[]
+  'hermes:acp-readiness': HermesAcpReadiness
   // Context
   'context:git': string
   'context:git-diff': string
@@ -2685,6 +2709,8 @@ export type IpcChannels =
   | 'cli:status'
   | 'cli:detect-all'
   | 'cli:get-models'
+  | 'hermes:list-profiles'
+  | 'hermes:acp-readiness'
   | 'context:git'
   | 'context:git-diff'
   | 'context:read-file'

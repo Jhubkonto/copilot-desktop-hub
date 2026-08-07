@@ -1731,6 +1731,16 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       `)
     },
   },
+  {
+    // Skill availability is no longer treated as invocation. These fields describe the real
+    // activation event and pin it to the package contents used by the conversation.
+    version: 88,
+    sql: `
+      ALTER TABLE conversation_skill_invocations ADD COLUMN content_hash TEXT;
+      ALTER TABLE conversation_skill_invocations ADD COLUMN trigger TEXT NOT NULL DEFAULT 'implicit';
+      ALTER TABLE conversation_skill_invocations ADD COLUMN status TEXT NOT NULL DEFAULT 'activated';
+    `,
+  },
 ];
 
 

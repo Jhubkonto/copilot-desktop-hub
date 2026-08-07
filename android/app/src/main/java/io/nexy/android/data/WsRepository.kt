@@ -17,6 +17,7 @@ import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
+import io.nexy.android.data.model.HermesCliInfo
 import io.nexy.android.data.model.CodeChangeRequestType
 import io.nexy.android.data.model.codeChangeRequestTypeWireValue
 import io.nexy.android.data.model.PromptEntry
@@ -35,6 +36,7 @@ import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillConfig
+import io.nexy.android.data.model.SkillPackageFile
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.local.LocalDataRepository
@@ -261,6 +263,9 @@ object WsRepository : WsClient {
 
     private val _cliStatus = MutableStateFlow<Map<String, CliInstallInfo>>(emptyMap())
     val cliStatus: StateFlow<Map<String, CliInstallInfo>> = _cliStatus
+
+    private val _hermesInfo = MutableStateFlow(HermesCliInfo())
+    val hermesInfo: StateFlow<HermesCliInfo> = _hermesInfo
 
     private val _scheduledTasks = MutableStateFlow<List<ScheduledTask>>(emptyList())
     val scheduledTasks: StateFlow<List<ScheduledTask>> = _scheduledTasks
@@ -1344,6 +1349,7 @@ object WsRepository : WsClient {
             wikiEntries = _wikiEntries,
             promptEntries = _promptEntries,
             cliStatus = _cliStatus,
+            hermesInfo = _hermesInfo,
             scheduledTasks = _scheduledTasks,
             scheduledRuns = _scheduledRuns,
             currentDebrief = _currentDebrief,
@@ -1784,6 +1790,7 @@ object WsRepository : WsClient {
         _skillAgentUsage.value = emptyMap()
         _artifacts.value = emptyList()
         _cliStatus.value = emptyMap()
+        _hermesInfo.value = HermesCliInfo()
         _scheduledTasks.value = emptyList()
         _scheduledRuns.value = emptyMap()
     }
@@ -2680,6 +2687,7 @@ object WsRepository : WsClient {
         mcpServerTrust: List<Map<String, String>>,
         mcpToolOverrides: List<Map<String, Any>>,
         knowledge: List<Map<String, String>>,
+        packageFiles: List<SkillPackageFile> = emptyList(),
     ): Map<String, Any> =
         mapOf(
             "name" to name,
@@ -2692,6 +2700,14 @@ object WsRepository : WsClient {
             "mcpServerTrust" to mcpServerTrust,
             "mcpToolOverrides" to mcpToolOverrides,
             "knowledge" to knowledge,
+            "packageFiles" to packageFiles.map { file ->
+                mapOf(
+                    "relativePath" to file.relativePath,
+                    "encoding" to file.encoding,
+                    "content" to file.content,
+                    "sizeBytes" to file.sizeBytes,
+                )
+            },
         )
     fun listSkills() { send("skill:list", emptyMap()) }
     fun getSkill(id: String) { send("skill:get", mapOf("id" to id)) }
@@ -2721,8 +2737,9 @@ object WsRepository : WsClient {
         mcpServerTrust: List<Map<String, String>>,
         mcpToolOverrides: List<Map<String, Any>>,
         knowledge: List<Map<String, String>>,
+        packageFiles: List<SkillPackageFile>,
     ) {
-        val data = skillPayload(name, icon, description, instructions, tags, tools, mcpServers, mcpServerTrust, mcpToolOverrides, knowledge).toMutableMap()
+        val data = skillPayload(name, icon, description, instructions, tags, tools, mcpServers, mcpServerTrust, mcpToolOverrides, knowledge, packageFiles).toMutableMap()
         data["id"] = id
         send("skill:update", data)
     }

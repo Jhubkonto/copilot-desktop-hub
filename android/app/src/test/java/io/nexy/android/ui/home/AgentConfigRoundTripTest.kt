@@ -43,6 +43,7 @@ class AgentConfigRoundTripTest {
                   "systemPrompt": "Review carefully",
                   "backend": "codex-cli",
                   "cliModel": "gpt-5-codex",
+                  "hermesProfile": "localllm-iso",
                   "temperature": 0.35,
                   "maxTokens": 64000,
                   "responseFormat": "detailed",
@@ -79,6 +80,7 @@ class AgentConfigRoundTripTest {
         assertEquals("agent-1", payload["id"])
         assertEquals("codex-cli", payload["backend"])
         assertEquals("gpt-5-codex", payload["cliModel"])
+        assertEquals("localllm-iso", payload["hermesProfile"])
         assertEquals(64000, payload["maxTokens"])
         assertEquals(true, payload["fullAutoApprove"])
         assertEquals(listOf("github", "filesystem"), payload["mcpServers"])

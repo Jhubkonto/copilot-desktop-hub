@@ -812,4 +812,21 @@ describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
     expect(markIncomplete.querySelector("svg")).not.toBeInTheDocument();
     expect(markIncomplete.firstElementChild).toHaveClass("border-2", "border-current");
   });
+
+  it("q2-8: completed conversation shows the tick from completed_at even when absent from completedConversationIds", () => {
+    // Regression: scoped (project) conversations arrive via pagination and are not seeded into
+    // completedConversationIds (which is derived only from the global conversation load), so the
+    // completion checkmark must fall back to the conversation's own completed_at.
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+      conversations: [{ ...projectConv, completed_at: now }, orphanConv],
+      completedConversationIds: [],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+
+    expect(screen.getByTitle("Complete")).toBeInTheDocument();
+  });
 });

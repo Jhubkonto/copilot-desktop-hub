@@ -166,6 +166,29 @@ private fun SyncStatusSheet(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
+        // One-line summary carried over from the home-screen banner so the outstanding count is
+        // legible before scanning the itemized sections below.
+        val summary = buildString {
+            if (pending.isNotEmpty()) {
+                append(if (pending.size == 1) "Syncing 1 change…" else "Syncing ${pending.size} changes…")
+            }
+            if (failed.isNotEmpty()) {
+                if (isNotEmpty()) append(" · ")
+                append(if (failed.size == 1) "1 change failed to sync" else "${failed.size} changes failed to sync")
+            }
+            if (conflicts.isNotEmpty()) {
+                if (isNotEmpty()) append(" · ")
+                append(if (conflicts.size == 1) "1 conflict to resolve" else "${conflicts.size} conflicts to resolve")
+            }
+        }
+        if (summary.isNotEmpty()) {
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
         if (pending.isEmpty() && failed.isEmpty() && conflicts.isEmpty()) {
             Text(
                 "Everything is up to date.",

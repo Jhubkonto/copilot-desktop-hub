@@ -97,9 +97,6 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsStateWithLifecycle()
-    val effectiveMode by vm.effectiveMode.collectAsStateWithLifecycle()
-    val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
-    val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsStateWithLifecycle()
     val conversations by vm.conversations.collectAsStateWithLifecycle()
     val conversationTotalCount by vm.conversationTotalCount.collectAsStateWithLifecycle()
     val conversationHasMore by vm.conversationHasMore.collectAsStateWithLifecycle()
@@ -428,17 +425,6 @@ fun HomeScreen(
                     )
                 }
             }
-
-            StatusActivityBar(
-                effectiveMode = effectiveMode,
-                intentionalRestartExpected = intentionalRestartExpected,
-                pendingChanges = capabilities.pendingChanges,
-                failedChanges = capabilities.failedChanges,
-                backgroundActivities = emptyList(),
-                onWakeDesktop = { vm.wakeDesktop() },
-                onOpenConnection = { onNavigateRoute("settings/connection") },
-                onOpenActivity = { activity -> onNavigateRoute(activity.route) },
-            )
 
             when (selectedTab) {
                 0 -> ChatsTab(

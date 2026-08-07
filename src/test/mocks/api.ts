@@ -154,6 +154,8 @@ export function createMockApi() {
       { id: 'gpt-5.4', label: 'GPT-5.4' },
       { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
     ]),
+    listHermesProfiles: vi.fn().mockResolvedValue([{ name: 'default', isDefault: true }]),
+    getHermesAcpReadiness: vi.fn().mockResolvedValue({ ready: true }),
 
     // Chat
     sendMessage: vi.fn().mockResolvedValue(undefined),

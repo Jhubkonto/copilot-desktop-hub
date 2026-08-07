@@ -3,6 +3,12 @@ import type Database from 'better-sqlite3'
 import { getDatabase } from './database'
 import type { WsReply } from './ws-server'
 import { normalizeProjectColor } from '../shared/project-colors'
+import {
+  deleteSkillConfig,
+  getSkillConfigForTransport,
+  listSkillConfigsForTransport,
+  upsertSyncedSkillConfig,
+} from './skills'
 
 export const STANDALONE_SYNC_PROTOCOL_VERSION = 2
 const SUPPORTED_SYNC_PROTOCOL_VERSIONS = [1, STANDALONE_SYNC_PROTOCOL_VERSION] as const
@@ -582,14 +588,9 @@ function buildSnapshot(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }))
-  const skills: Record<string, unknown>[] = !includeLibraryBodies ? [] : (db.prepare(`
-    SELECT id, config_json, created_at, updated_at FROM skills ORDER BY updated_at, id
-  `).all() as Record<string, unknown>[]).map(row => ({
-    ...objectValue(sanitizeSyncValue(parseJsonValue(row.config_json, {}))),
-    id: row.id,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  }))
+  const skills: Record<string, unknown>[] = !includeLibraryBodies
+    ? []
+    : listSkillConfigsForTransport().map(skill => objectValue(sanitizeSyncValue(skill)))
 
   const versions: Record<string, number> = {}
   for (const [type, rows] of [
@@ -784,13 +785,9 @@ function applyOperation(
     }
     case 'skill': {
       const now = numberValue(payload.updated_at ?? payload.updatedAt, Date.now())
-      db.prepare(`
-        INSERT INTO skills (id, config_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at
-      `).run(
+      upsertSyncedSkillConfig(
         operation.entityId,
-        JSON.stringify({ ...payload, id: operation.entityId }),
+        { ...payload, id: operation.entityId },
         numberValue(payload.created_at ?? payload.createdAt, now),
         now,
       )
@@ -853,6 +850,10 @@ function appendDesktopChange(
 }
 
 function deleteEntity(db: Database.Database, type: string, id: string): void {
+  if (type === 'skill') {
+    deleteSkillConfig(id)
+    return
+  }
   const table = {
     conversation: 'conversations',
     message: 'messages',
@@ -860,7 +861,6 @@ function deleteEntity(db: Database.Database, type: string, id: string): void {
     project: 'projects',
     wiki: 'project_wiki_entries',
     prompt: 'prompt_library_entries',
-    skill: 'skills',
   }[type]
   if (!table) throw new Error(`Unsupported sync entity type: ${type}`)
   db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id)
@@ -989,12 +989,7 @@ function readEntityPayload(db: Database.Database, type: string, id: string): Rec
         updatedAt: row.updated_at,
       }
     case 'skill':
-      return {
-        ...objectValue(sanitizeSyncValue(parseJsonValue(row.config_json, {}))),
-        id: row.id,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      }
+      return objectValue(sanitizeSyncValue(getSkillConfigForTransport(String(row.id)) ?? {}))
     default:
       return {}
   }

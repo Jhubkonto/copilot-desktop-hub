@@ -947,6 +947,19 @@ data class SkillConfig(
     val knowledge: List<SkillKnowledge>,
     val createdAt: Long?,
     val updatedAt: Long?,
+    val packagePath: String? = null,
+    val contentHash: String? = null,
+    val scope: String = "user",
+    val source: String = "nexy",
+    val validationStatus: String = "valid",
+    val packageFiles: List<SkillPackageFile> = emptyList(),
+)
+
+data class SkillPackageFile(
+    val relativePath: String,
+    val encoding: String,
+    val content: String,
+    val sizeBytes: Long,
 )
 
 data class SkillTools(

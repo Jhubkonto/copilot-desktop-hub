@@ -57,8 +57,12 @@ describe('conversation capture instrumentation — skill invocations', () => {
 
     const db = state.db
     db.prepare("INSERT INTO agents (id, config_json) VALUES ('agent-1', '{}')").run()
-    db.prepare("INSERT INTO skills (id, config_json) VALUES ('skill-1', '{}')").run()
-    db.prepare("INSERT INTO skills (id, config_json) VALUES ('skill-2', '{}')").run()
+    db.prepare("INSERT INTO skills (id, config_json) VALUES ('skill-1', ?)").run(JSON.stringify({
+      name: 'release-notes', description: 'Prepare release notes when the user asks for a changelog.', instructions: 'Summarize user-facing changes.',
+    }))
+    db.prepare("INSERT INTO skills (id, config_json) VALUES ('skill-2', ?)").run(JSON.stringify({
+      name: 'test-runner', description: 'Run focused tests after code changes.', instructions: 'Run the narrowest relevant tests first.',
+    }))
     db.prepare(
       "INSERT INTO agent_skills (agent_id, skill_id, sort_order, attached_at) VALUES ('agent-1', 'skill-1', 0, 1)",
     ).run()
@@ -75,7 +79,7 @@ describe('conversation capture instrumentation — skill invocations', () => {
     state.db = null
   })
 
-  it('logs one conversation_skill_invocations row per skill attached to the resolved agent', async () => {
+  it('does not log attached skills as invoked when they are only advertised', async () => {
     const db = state.db!
     await buildChatContext(db, 'conv-1', 'Hello', {}, makeWebContents(), vi.fn())
 
@@ -83,22 +87,32 @@ describe('conversation capture instrumentation — skill invocations', () => {
       .prepare('SELECT skill_id, agent_id FROM conversation_skill_invocations WHERE conversation_id = ? ORDER BY skill_id')
       .all('conv-1') as { skill_id: string; agent_id: string }[]
 
-    expect(rows).toEqual([
-      { skill_id: 'skill-1', agent_id: 'agent-1' },
-      { skill_id: 'skill-2', agent_id: 'agent-1' },
-    ])
+    expect(rows).toEqual([])
   })
 
-  it('does not duplicate rows across multiple turns in the same conversation', async () => {
+  it('logs only the skill explicitly activated with $skill-name', async () => {
     const db = state.db!
-    await buildChatContext(db, 'conv-1', 'Hello', {}, makeWebContents(), vi.fn())
+    const result = await buildChatContext(db, 'conv-1', '$release-notes Summarize this release', {}, makeWebContents(), vi.fn())
     await buildChatContext(db, 'conv-1', 'Follow-up', {}, makeWebContents(), vi.fn())
+
+    const rows = db
+      .prepare('SELECT skill_id, agent_id, trigger FROM conversation_skill_invocations WHERE conversation_id = ?')
+      .all('conv-1') as { skill_id: string; agent_id: string; trigger: string }[]
+
+    expect(result.augmentedContent).toContain('Explicitly activated skill: release-notes')
+    expect(rows).toEqual([{ skill_id: 'skill-1', agent_id: 'agent-1', trigger: 'explicit' }])
+  })
+
+  it('logs an implicit activation only when activate_skill is called', async () => {
+    const db = state.db!
+    const context = await buildChatContext(db, 'conv-1', 'Please prepare a changelog', {}, makeWebContents(), vi.fn())
+    const activate = context.skillInlineHandlers.get('activate_skill')!
+    expect(await activate({ name: 'release-notes' })).toEqual(expect.objectContaining({ success: true }))
 
     const count = db
       .prepare('SELECT COUNT(*) as count FROM conversation_skill_invocations WHERE conversation_id = ?')
       .get('conv-1') as { count: number }
-
-    expect(count.count).toBe(2)
+    expect(count.count).toBe(1)
   })
 
   it('logs nothing when the resolved agent has no attached skills', async () => {

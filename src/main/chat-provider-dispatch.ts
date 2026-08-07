@@ -12,6 +12,7 @@ import {
 } from './providers'
 import { runProviderMcpToolLoop } from './tool-loop'
 import type { ToolLoopToolFinishedEvent } from './tool-loop'
+import { callWithResilience } from './provider-resilience'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
 import type { MessageContentPart } from './provider-core-types'
@@ -64,6 +65,7 @@ function makeActivityHandler(sendActivity: (a: MobileChatActivity) => void) {
     }
   }
 }
+
 
 export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise<string> {
   const {
@@ -173,7 +175,10 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     if (hasToolLoop) {
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
-          sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, { ...effectiveGenerationOptions, ...thinkingCallbacks }),
+          callWithResilience(
+            (c) => sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }),
+            choice,
+          ),
         chatMessages,
         effectiveToolDefs,
         toolMap,
@@ -181,7 +186,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         conversationId,
         webContents,
         sendChunk,
-        undefined,
+        onModel,
         agenticMode,
         inlineHandlers,
         toolDirective,
@@ -191,6 +196,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         onToolFinished,
         fullAutoApprove,
         forceFirstToolChoice,
+        onUsage,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -210,7 +216,10 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     if (hasToolLoop) {
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
-          sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, effectiveGenerationOptions),
+          callWithResilience(
+            (c) => sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }),
+            choice,
+          ),
         chatMessages,
         effectiveToolDefs,
         toolMap,
@@ -228,6 +237,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         onToolFinished,
         fullAutoApprove,
         forceFirstToolChoice,
+        onUsage,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -248,24 +258,25 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       // Some OpenRouter models don't support tool use or image input. If the
       // first call fails with those specific errors, retry gracefully so the
       // user gets a response instead of a hard failure.
-      const caller = async (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, choice: ToolChoice): Promise<ProviderNonStreamResult> => {
-        try {
-          return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, effectiveGenerationOptions, baseUrl)
-        } catch (err) {
-          if (!(err instanceof Error)) throw err
-          if (err.message.includes('No endpoints found that support tool use')) {
-            debugLog('provider', `${providerName}: tool-use not supported by endpoint — retrying without tools model=${providerModel}`)
-            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, { ...effectiveGenerationOptions, onUsage }, baseUrl)
-            return { content: text, toolCalls: [] }
+      const caller = (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, choice: ToolChoice): Promise<ProviderNonStreamResult> =>
+        callWithResilience(async (c) => {
+          try {
+            return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+          } catch (err) {
+            if (!(err instanceof Error)) throw err
+            if (err.message.includes('No endpoints found that support tool use')) {
+              debugLog('provider', `${providerName}: tool-use not supported by endpoint — retrying without tools model=${providerModel}`)
+              const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+              return { content: text, toolCalls: [] }
+            }
+            if (err.message.includes('No endpoints found that support image input')) {
+              debugLog('provider', `${providerName}: image input not supported by endpoint — retrying with text-only model=${providerModel}`)
+              const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+              return { content: text, toolCalls: [] }
+            }
+            throw err
           }
-          if (err.message.includes('No endpoints found that support image input')) {
-            debugLog('provider', `${providerName}: image input not supported by endpoint — retrying with text-only model=${providerModel}`)
-            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, { ...effectiveGenerationOptions, onUsage }, baseUrl)
-            return { content: text, toolCalls: [] }
-          }
-          throw err
-        }
-      }
+        }, choice)
       return runProviderMcpToolLoop(
         caller,
         chatMessages,
@@ -285,6 +296,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         onToolFinished,
         fullAutoApprove,
         forceFirstToolChoice,
+        onUsage,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -312,7 +324,10 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   if (hasToolLoop) {
     return runProviderMcpToolLoop(
       (msgs, tools, choice) =>
-        sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, effectiveGenerationOptions),
+        callWithResilience(
+          (c) => sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, onUsage }),
+          choice,
+        ),
       chatMessages,
       effectiveToolDefs,
       toolMap,
@@ -330,6 +345,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       onToolFinished,
       fullAutoApprove,
       forceFirstToolChoice,
+      onUsage,
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

@@ -36,6 +36,8 @@ import io.nexy.android.data.model.TeachbackExercise
 import io.nexy.android.data.model.TeachbackFeedback
 import io.nexy.android.data.model.TeachbackRubricDimension
 import io.nexy.android.data.model.CliInstallInfo
+import io.nexy.android.data.model.HermesCliInfo
+import io.nexy.android.data.model.HermesProfileInfo
 import io.nexy.android.data.model.ConversationExportPackData
 import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.PromptVersion
@@ -73,6 +75,7 @@ import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.SkillKnowledge
 import io.nexy.android.data.model.SkillMcpServerTrust
 import io.nexy.android.data.model.SkillMcpToolOverride
+import io.nexy.android.data.model.SkillPackageFile
 import io.nexy.android.data.model.SkillToolConfig
 import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
@@ -135,6 +138,7 @@ fun parseWsEvent(
     promptEntries: MutableStateFlow<List<PromptEntry>>,
     pairedServerStore: PairedServerStore? = null,
     cliStatus: MutableStateFlow<Map<String, CliInstallInfo>>,
+    hermesInfo: MutableStateFlow<HermesCliInfo> = MutableStateFlow(HermesCliInfo()),
     scheduledTasks: MutableStateFlow<List<ScheduledTask>>,
     scheduledRuns: MutableStateFlow<Map<String, List<ScheduledRun>>>,
     currentDebrief: MutableStateFlow<ConversationDebrief?>,
@@ -1318,6 +1322,25 @@ fun parseWsEvent(
                     )
                 }
                 cliStatus.value = map
+                data?.optJSONObject("hermes")?.let { h ->
+                    val profilesArr = h.optJSONArray("profiles")
+                    val profiles = if (profilesArr == null) emptyList() else (0 until profilesArr.length()).mapNotNull { i ->
+                        profilesArr.optJSONObject(i)?.let { p ->
+                            HermesProfileInfo(
+                                name = p.optString("name"),
+                                isDefault = p.optBoolean("isDefault", false),
+                                model = p.nullableString("model"),
+                                provider = p.nullableString("provider"),
+                                description = p.nullableString("description"),
+                            )
+                        }
+                    }.filter { it.name.isNotBlank() }
+                    hermesInfo.value = HermesCliInfo(
+                        profiles = profiles,
+                        acpReady = h.optBoolean("acpReady", false),
+                        version = h.nullableString("version"),
+                    )
+                }
                 WsEvent.CliStatus(map)
             }
 
@@ -2739,6 +2762,7 @@ internal fun parseSkillConfig(obj: JSONObject): SkillConfig {
     val knowledgeArr = obj.optJSONArray("knowledge") ?: JSONArray()
     val trustArr = obj.optJSONArray("mcpServerTrust") ?: JSONArray()
     val overridesArr = obj.optJSONArray("mcpToolOverrides") ?: JSONArray()
+    val packageFilesArr = obj.optJSONArray("packageFiles") ?: JSONArray()
     return SkillConfig(
         id = obj.optString("id"),
         name = obj.optString("name", "New Skill"),
@@ -2778,6 +2802,22 @@ internal fun parseSkillConfig(obj: JSONObject): SkillConfig {
         },
         createdAt = if (obj.has("created_at")) obj.optLong("created_at") else null,
         updatedAt = if (obj.has("updated_at")) obj.optLong("updated_at") else null,
+        packagePath = obj.optString("packagePath").takeIf { it.isNotBlank() },
+        contentHash = obj.optString("contentHash").takeIf { it.isNotBlank() },
+        scope = obj.optString("scope", "user"),
+        source = obj.optString("source", "nexy"),
+        validationStatus = obj.optString("validationStatus", "valid"),
+        packageFiles = (0 until packageFilesArr.length()).mapNotNull { i ->
+            val item = packageFilesArr.optJSONObject(i) ?: return@mapNotNull null
+            val relativePath = item.optString("relativePath")
+            if (relativePath.isBlank()) return@mapNotNull null
+            SkillPackageFile(
+                relativePath = relativePath,
+                encoding = item.optString("encoding", "utf8"),
+                content = item.optString("content", ""),
+                sizeBytes = item.optLong("sizeBytes", 0L),
+            )
+        },
     )
 }
 
@@ -2924,6 +2964,7 @@ internal fun parseAgentFullConfig(a: JSONObject): AgentFullConfig {
         systemPrompt = a.optString("systemPrompt", ""),
         backend = a.nullableString("backend"),
         cliModel = a.nullableString("cliModel"),
+        hermesProfile = a.nullableString("hermesProfile"),
         temperature = a.optDouble("temperature", 0.7).toFloat(),
         maxTokens = a.optInt("maxTokens", 8192),
         responseFormat = a.optString("responseFormat", "default"),

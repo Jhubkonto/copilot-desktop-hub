@@ -15,6 +15,8 @@ vi.mock('../database', () => ({
 }))
 
 import { handleStandaloneSyncCommand } from '../standalone-sync'
+import { deleteSkillConfig, getSkillConfig } from '../skills'
+import { readSkillResource } from '../skill-packages'
 
 describe('standalone peer synchronization', () => {
   beforeEach(() => {
@@ -332,6 +334,53 @@ describe('standalone peer synchronization', () => {
     expect(
       state.db!.prepare('SELECT COUNT(*) AS count FROM sync_applied_operations').get(),
     ).toMatchObject({ count: 1 })
+  })
+
+  it('materializes complete skill packages pushed from Android', () => {
+    command('sync:hello', {
+      deviceId: 'android-1', datasetId: 'dataset-1', protocolVersion: 2,
+    })
+    const skillId = 'synced-package-skill'
+    const result = command('sync:push', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      operations: [{
+        operationId: 'skill-package-upsert',
+        deviceId: 'android-1',
+        deviceSequence: 50,
+        entityType: 'skill',
+        entityId: skillId,
+        operation: 'upsert',
+        payloadJson: JSON.stringify({
+          id: skillId,
+          name: 'synced-package',
+          description: 'Use when checking synchronized packages.',
+          instructions: 'Read references/checklist.md.',
+          created_at: 1,
+          updated_at: 2,
+          packageFiles: [
+            { relativePath: 'SKILL.md', encoding: 'utf8', content: 'remote entry is regenerated', sizeBytes: 27 },
+            { relativePath: 'references/checklist.md', encoding: 'utf8', content: 'Preserved on desktop.\n', sizeBytes: 22 },
+          ],
+        }),
+        baseRemoteVersion: 0,
+      }],
+    })
+
+    expect(result.event).toBe('sync:ack')
+    const skill = getSkillConfig(skillId)
+    expect(skill?.packagePath).toBeTruthy()
+    expect(readSkillResource(skill!.packagePath!, 'references/checklist.md')).toBe('Preserved on desktop.\n')
+
+    const snapshot = command('sync:hello', {
+      deviceId: 'android-2', datasetId: 'dataset-1', protocolVersion: 2, hydrationMode: 'full',
+    })
+    const synced = (snapshot.data.snapshot.skills as Array<Record<string, any>>).find(item => item.id === skillId)
+    expect(synced!).not.toHaveProperty('packagePath')
+    expect(synced!.packageFiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ relativePath: 'references/checklist.md', encoding: 'utf8', content: 'Preserved on desktop.\n' }),
+    ]))
+    deleteSkillConfig(skillId)
   })
 
   it('preserves both versions when the base version is stale', () => {

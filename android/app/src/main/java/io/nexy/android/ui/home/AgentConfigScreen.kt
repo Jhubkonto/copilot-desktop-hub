@@ -56,6 +56,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AgentContextRules
 import io.nexy.android.data.model.AgentCustomCommand
@@ -64,6 +65,7 @@ import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
 import io.nexy.android.data.model.AgentTools
+import io.nexy.android.data.model.HermesProfileInfo
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ToolConfig
@@ -125,6 +127,7 @@ fun AgentConfigScreen(
     val availableMcpServers by WsRepository.mcpServers.collectAsStateWithLifecycle()
     val models by WsRepository.models.collectAsStateWithLifecycle()
     val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
+    val hermesInfo by WsRepository.hermesInfo.collectAsStateWithLifecycle()
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
     val agent = agents.find { it.id == agentId }
 
@@ -140,6 +143,8 @@ fun AgentConfigScreen(
     // Backend
     var backend by remember { mutableStateOf<String?>(null) }
     var cliModel by remember { mutableStateOf("") }
+    var hermesProfile by remember { mutableStateOf("") }
+    var hermesProfileMenuExpanded by remember { mutableStateOf(false) }
     var backendMenuExpanded by remember { mutableStateOf(false) }
     var showCliModelSheet by remember { mutableStateOf(false) }
     val cliModelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -195,6 +200,7 @@ fun AgentConfigScreen(
     var loadedFullAutoApprove by remember { mutableStateOf(false) }
     var loadedBackend by remember { mutableStateOf<String?>(null) }
     var loadedCliModel by remember { mutableStateOf("") }
+    var loadedHermesProfile by remember { mutableStateOf("") }
     var loadedResponseFormat by remember { mutableStateOf("default") }
     var loadedTemperature by remember { mutableFloatStateOf(0.7f) }
     var loadedMaxTokensText by remember { mutableStateOf("8192") }
@@ -234,6 +240,7 @@ fun AgentConfigScreen(
         fullAutoApprove != loadedFullAutoApprove ||
         backend != loadedBackend ||
         cliModel != loadedCliModel ||
+        hermesProfile != loadedHermesProfile ||
         responseFormat != loadedResponseFormat ||
         temperature != loadedTemperature ||
         maxTokensText != loadedMaxTokensText ||
@@ -297,6 +304,8 @@ fun AgentConfigScreen(
         WsRepository.listKnowledgeFiles(agentId)
         WsRepository.getMcpToolOverrides(agentId)
         WsRepository.getMcpServerTrust(agentId)
+        // Hermes profile list + ACP readiness ride along with the CLI-status reply.
+        WsRepository.getCliStatus()
     }
 
     LaunchedEffect(backend) {
@@ -313,6 +322,7 @@ fun AgentConfigScreen(
         fullAutoApprove = c.fullAutoApprove; loadedFullAutoApprove = c.fullAutoApprove
         backend = c.backend; loadedBackend = c.backend
         cliModel = c.cliModel ?: ""; loadedCliModel = c.cliModel ?: ""
+        hermesProfile = c.hermesProfile ?: ""; loadedHermesProfile = c.hermesProfile ?: ""
         responseFormat = c.responseFormat; loadedResponseFormat = c.responseFormat
         temperature = c.temperature; loadedTemperature = c.temperature
         maxTokensText = c.maxTokens.toString(); loadedMaxTokensText = c.maxTokens.toString()
@@ -345,7 +355,8 @@ fun AgentConfigScreen(
                     loadedSystemPrompt = systemPrompt; loadedMemory = memory
                     loadedAgenticMode = agenticMode; loadedFullAutoApprove = fullAutoApprove
                     loadedBackend = backend
-                    loadedCliModel = cliModel; loadedResponseFormat = responseFormat
+                    loadedCliModel = cliModel; loadedHermesProfile = hermesProfile
+                    loadedResponseFormat = responseFormat
                     loadedTemperature = temperature; loadedMaxTokensText = maxTokensText
                     loadedThinkingEffort = thinkingEffort
                     if (isNew) WsRepository.pendingHighlightAgentId.value = agentId
@@ -431,6 +442,7 @@ fun AgentConfigScreen(
                                     systemPrompt = systemPrompt.trim(),
                                     backend = backend,
                                     cliModel = cliModel.trim(),
+                                    hermesProfile = hermesProfile.trim().ifBlank { null },
                                     temperature = temperature,
                                     maxTokens = maxTokensParsed!!.coerceIn(256, 128000),
                                     responseFormat = responseFormat,
@@ -653,6 +665,18 @@ fun AgentConfigScreen(
                                 )
                             }
                         }
+                    }
+
+                    if (backend == "hermes-cli") {
+                        HermesProfileField(
+                            connected = effectiveMode == EffectiveConnectionMode.CONNECTED,
+                            profiles = hermesInfo.profiles,
+                            selected = hermesProfile,
+                            expanded = hermesProfileMenuExpanded,
+                            disabled = saving || disconnected,
+                            onExpandedChange = { hermesProfileMenuExpanded = it },
+                            onSelect = { hermesProfile = it },
+                        )
                     }
                 }
             }
@@ -1117,6 +1141,114 @@ fun AgentConfigScreen(
 
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+/**
+ * Hermes profile picker for the Backend section, shown only when the Hermes backend is
+ * selected. Android is a companion: the live profile list arrives over WebSocket from
+ * desktop (`hermesInfo`), so the picker is meaningful only in connected mode. In
+ * standalone/disconnected mode there is no desktop and no Hermes, so we surface a muted
+ * note instead of a dropdown. Selecting a profile stores its name; blank means the
+ * implicit `default` profile (no `--profile` flag).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HermesProfileField(
+    connected: Boolean,
+    profiles: List<HermesProfileInfo>,
+    selected: String,
+    expanded: Boolean,
+    disabled: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Hermes profile", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            NexyInfoIcon("Each profile is a separate Hermes home with its own model, skills, and memory. Changing it starts a fresh Hermes session.")
+        }
+
+        if (!connected) {
+            Text(
+                "Connect to your desktop to choose a Hermes profile — the profile list comes from the machine that runs Hermes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+
+        val knownNames = profiles.map { it.name }.toSet()
+        val isUnknown = selected.isNotBlank() && selected !in knownNames
+        val fieldLabel = when {
+            selected.isBlank() -> "Default (normal Hermes profile)"
+            isUnknown -> "⚠ $selected — unknown profile, will fall back to default"
+            else -> selected
+        }
+
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { if (!disabled) onExpandedChange(it) },
+        ) {
+            OutlinedTextField(
+                value = fieldLabel,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Profile") },
+                isError = isUnknown,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                enabled = !disabled,
+                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { onExpandedChange(false) },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Default (normal Hermes profile)") },
+                    onClick = { onSelect(""); onExpandedChange(false) },
+                )
+                profiles.filterNot { it.isDefault }.forEach { profile ->
+                    val subtitle = listOfNotNull(profile.model, profile.description)
+                        .joinToString(" · ")
+                        .takeIf { it.isNotBlank() }
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(profile.name)
+                                if (subtitle != null) {
+                                    Text(
+                                        subtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        },
+                        onClick = { onSelect(profile.name); onExpandedChange(false) },
+                    )
+                }
+                if (isUnknown) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "⚠ $selected — unknown, falls back to default",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = { onExpandedChange(false) },
+                    )
+                }
+            }
+        }
+
+        // D1 inheritance disclosure — mirrors desktop SettingsTab so users understand the
+        // picked profile brings its own memory/skills/SOUL.md into every session (not a sandbox).
+        Text(
+            "Nexy runs Hermes with this profile's own home — its memory, skills, and SOUL.md carry into every session. Profiles are managed in the Hermes CLI.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

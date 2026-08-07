@@ -52,7 +52,10 @@ export function ProjectHistoryPane() {
     const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
     const isUnread = unreadConversationIds.includes(conv.id)
     const isGenerating = generatingConversationIds.includes(conv.id)
-    const isCompleted = completedConversationIds.includes(conv.id)
+    // completedConversationIds is only seeded from the global conversation load, so a
+    // project-scoped conversation that arrived via pagination wouldn't be in it — fall back to the
+    // conversation's own completed_at (the source of truth the all-chats list and chat header use).
+    const isCompleted = conv.completed_at != null || completedConversationIds.includes(conv.id)
     return (
       <div
         key={conv.id}
@@ -98,7 +101,12 @@ export function ProjectHistoryPane() {
           </button>
           {isCompleted ? (
             <button
-              onClick={(e) => { e.stopPropagation(); void markConversationIncomplete(conv.id) }}
+              onClick={(e) => {
+                e.stopPropagation()
+                void markConversationIncomplete(conv.id).then(() =>
+                  pagination.updateItem(conv.id, (c) => ({ ...c, completed_at: null }))
+                )
+              }}
               className="p-1 rounded text-emerald-500 hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
               title="Mark incomplete"
               aria-label="Mark conversation incomplete"
@@ -107,7 +115,12 @@ export function ProjectHistoryPane() {
             </button>
           ) : (
             <button
-              onClick={(e) => { e.stopPropagation(); void markConversationComplete(conv.id) }}
+              onClick={(e) => {
+                e.stopPropagation()
+                void markConversationComplete(conv.id).then(() =>
+                  pagination.updateItem(conv.id, (c) => ({ ...c, completed_at: Date.now() }))
+                )
+              }}
               className="p-1 rounded text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
               title="Mark complete"
               aria-label="Mark conversation complete"

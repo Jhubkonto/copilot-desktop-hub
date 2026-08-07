@@ -1,4 +1,5 @@
 import type { SkillBuiltinToolConfig, SkillConfig } from '../shared/types'
+import { dump, load } from 'js-yaml'
 
 /**
  * Bidirectional codec between Nexy's internal `SkillConfig` and the cross-provider
@@ -42,41 +43,6 @@ function matchToolBucket(name: string): ToolBucket | null {
 // back to a quote-stripped scalar for everything else. This keeps the format flat
 // (one `key: value` per line) while still round-tripping arrays and the tools object.
 
-function serialiseValue(value: unknown): string {
-  if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
-    return JSON.stringify(value)
-  }
-  const str = String(value)
-  // JSON strings are valid YAML scalars. Quote values that YAML could reinterpret or truncate.
-  if (
-    /^[[{]|^(?:true|false|null|~|[-+]?\d+(?:\.\d+)?)$/i.test(str) ||
-    /[:#\n\r]/.test(str) ||
-    str !== str.trim()
-  ) return JSON.stringify(str)
-  return str
-}
-
-function parseValue(raw: string): unknown {
-  const trimmed = raw.trim()
-  if (trimmed === '') return ''
-  if (/^[[{"]/.test(trimmed)) {
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      // Tolerate a loose inline array like [a, b, c] (unquoted items).
-      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        return trimmed
-          .slice(1, -1)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      }
-      return trimmed.replace(/^"|"$/g, '')
-    }
-  }
-  return trimmed
-}
-
 interface ParsedMarkdown {
   frontmatter: Record<string, unknown>
   body: string
@@ -98,7 +64,6 @@ export function splitFrontmatter(md: string): ParsedMarkdown {
     return { frontmatter: {}, body: text.trim() }
   }
 
-  const frontmatter: Record<string, unknown> = {}
   let closed = false
   let j = i + 1
   for (; j < lines.length; j++) {
@@ -106,27 +71,19 @@ export function splitFrontmatter(md: string): ParsedMarkdown {
       closed = true
       break
     }
-    const line = lines[j]
-    const colon = line.indexOf(':')
-    if (colon === -1) continue
-    const key = line.slice(0, colon).trim()
-    if (!key) continue
-    const rawValue = line.slice(colon + 1)
-    if (rawValue.trim() === '') {
-      const list: string[] = []
-      while (j + 1 < lines.length) {
-        const item = lines[j + 1].match(/^\s+-\s+(.+?)\s*$/)
-        if (!item) break
-        list.push(String(parseValue(item[1])))
-        j++
-      }
-      frontmatter[key] = list
-    } else {
-      frontmatter[key] = parseValue(rawValue)
-    }
   }
 
   if (!closed) return { frontmatter: {}, body: text.trim() }
+  const yamlText = lines.slice(i + 1, j).join('\n')
+  let frontmatter: Record<string, unknown> = {}
+  try {
+    const parsed = load(yamlText)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      frontmatter = parsed as Record<string, unknown>
+    }
+  } catch {
+    return { frontmatter: {}, body: text.trim() }
+  }
   const body = lines.slice(j + 1).join('\n').trim()
   return { frontmatter, body }
 }
@@ -202,6 +159,7 @@ export function parseSkillMarkdown(md: string): Partial<SkillConfig> {
   const { body: instructions, knowledge: bodyKnowledge } = extractKnowledgeSection(body)
 
   const result: Partial<SkillConfig> = {}
+  result.frontmatter = { ...fm }
   const displayName = fm['x-nexy-display-name'] ?? fm.name
   if (typeof displayName === 'string' && displayName.trim()) result.name = displayName.trim()
   if (typeof fm.description === 'string') result.description = fm.description
@@ -308,28 +266,33 @@ function portableSkillName(name: string): string {
  * body, then a `## Knowledge` section. Round-trips losslessly through `parseSkillMarkdown`.
  */
 export function skillToMarkdown(config: SkillConfig): string {
-  const lines: string[] = [FRONTMATTER_FENCE]
-
   const portableName = portableSkillName(config.name)
-  lines.push(`name: ${serialiseValue(portableName)}`)
-  lines.push(`description: ${serialiseValue(
-    config.description.trim() ||
-    `Reusable guidance for ${config.name}. Use when the task matches this skill's instructions.`,
-  )}`)
+  const frontmatter: Record<string, unknown> = {
+    ...(config.frontmatter ?? {}),
+    name: portableName,
+    description: config.description.trim() ||
+      `Reusable guidance for ${config.name}. Use when the task matches this skill's instructions.`,
+  }
 
   const allowed = allowedToolsFrom(config.tools)
-  if (allowed.length) lines.push(`allowed-tools: ${serialiseValue(allowed)}`)
+  if (allowed.length) frontmatter['allowed-tools'] = allowed
+  else delete frontmatter['allowed-tools']
 
   // x-nexy extensions.
-  if (config.name !== portableName) lines.push(`x-nexy-display-name: ${serialiseValue(config.name)}`)
-  if (config.icon) lines.push(`x-nexy-icon: ${serialiseValue(config.icon)}`)
-  if (config.tags.length) lines.push(`x-nexy-tags: ${serialiseValue(config.tags)}`)
-  if (config.mcpServers.length) lines.push(`x-nexy-mcp-servers: ${serialiseValue(config.mcpServers)}`)
+  if (config.name !== portableName) frontmatter['x-nexy-display-name'] = config.name
+  else delete frontmatter['x-nexy-display-name']
+  if (config.icon) frontmatter['x-nexy-icon'] = config.icon
+  if (config.tags.length) frontmatter['x-nexy-tags'] = config.tags
+  else delete frontmatter['x-nexy-tags']
+  if (config.mcpServers.length) frontmatter['x-nexy-mcp-servers'] = config.mcpServers
+  else delete frontmatter['x-nexy-mcp-servers']
   // Emit the full tool config only when it carries information beyond the derived allowed-tools
   // (a non-default approval or per-tool instructions), so simple skills stay clean.
-  if (!toolsAreDefault(config.tools)) lines.push(`x-nexy-tools: ${serialiseValue(config.tools)}`)
+  if (!toolsAreDefault(config.tools)) frontmatter['x-nexy-tools'] = config.tools
+  else delete frontmatter['x-nexy-tools']
 
-  lines.push(FRONTMATTER_FENCE, '')
+  const yaml = dump(frontmatter, { lineWidth: 120, noRefs: true, sortKeys: false }).trimEnd()
+  const lines: string[] = [FRONTMATTER_FENCE, yaml, FRONTMATTER_FENCE, '']
 
   if (config.instructions.trim()) lines.push(config.instructions.trim(), '')
 

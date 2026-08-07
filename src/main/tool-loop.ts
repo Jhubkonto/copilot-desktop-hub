@@ -122,6 +122,7 @@ export async function runProviderMcpToolLoop(
   onToolFinished?: (event: ToolLoopToolFinishedEvent) => void,
   fullAutoApprove?: boolean,
   forceFirstToolChoice?: boolean,
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -189,6 +190,8 @@ export async function runProviderMcpToolLoop(
     const result = await caller(loopMessages, toolDefs, toolChoice)
     assertConversationStartsAllowed()
 
+    if (result.usage) onUsage?.(result.usage)
+
     if (!modelEmitted && onModel && result.model) {
       modelEmitted = true
       onModel(result.model)
@@ -221,9 +224,19 @@ export async function runProviderMcpToolLoop(
       isInspectionTool(tc.name.split('__').pop() ?? tc.name)
     )
 
+    // Interstitial narration: models routinely write text ("Now let me open the parser…") in the
+    // SAME message as a tool call. Previously this was discarded (content: null). Stream it to the
+    // user, keep it in fullResponse so it's persisted, and preserve it as the assistant message
+    // content so the model retains its own continuity across rounds.
+    const interstitialText = (result.content ?? '').trim()
+    if (interstitialText) {
+      onChunk(result.content as string)
+      fullResponse += result.content as string
+    }
+
     loopMessages.push({
       role: 'assistant' as const,
-      content: null,
+      content: interstitialText ? (result.content as string) : null,
       tool_calls: result.toolCalls.map((tc) => ({
         id: tc.id,
         type: 'function' as const,
@@ -238,6 +251,24 @@ export async function runProviderMcpToolLoop(
       const inlineHandler = inlineHandlers?.get(call.name)
       let toolResultContent: string
       let toolImages: { dataUrl: string }[] | undefined
+
+      // Malformed arguments: the provider returned a tool call whose arguments couldn't be parsed
+      // as JSON. Running the tool with `{}` silently produces a wrong result and burns an
+      // iteration; instead feed the parse error back so the model can re-emit valid arguments.
+      if (call.argsError) {
+        toolResultContent = `Error: ${call.argsError}. Re-call the tool with valid JSON arguments.`
+        sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })
+        sendToolFinished({
+          toolName: toolShortName,
+          serverName: call.name.split('__')[0] ?? '',
+          args: call.arguments as Record<string, unknown>,
+          result: toolResultContent,
+          success: false,
+          conversationId,
+        })
+        loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
+        continue
+      }
 
       // Tool policy enforcement for scheduled runs
       if (toolPolicy) {
@@ -357,6 +388,7 @@ export async function runProviderMcpToolLoop(
 
   sendActivity({ type: 'thinking' })
   const finalResult = await caller(trimLoopMessagesToBudget(loopMessages), undefined, 'none')
+  if (finalResult.usage) onUsage?.(finalResult.usage)
   if (!modelEmitted && onModel && finalResult.model) {
     onModel(finalResult.model)
   }

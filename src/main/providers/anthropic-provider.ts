@@ -78,6 +78,7 @@ export async function sendAnthropicWithTools(
     thinkingEffort?: string
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {}
 ): Promise<ProviderNonStreamResult> {
   const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
@@ -147,7 +148,18 @@ export async function sendAnthropicWithTools(
     }
   }
 
-  return { content, toolCalls }
+  const rawUsage = parsed.usage as { input_tokens?: number; output_tokens?: number } | undefined
+  const usage = rawUsage && typeof rawUsage.input_tokens === 'number' && typeof rawUsage.output_tokens === 'number'
+    ? { inputTokens: rawUsage.input_tokens, outputTokens: rawUsage.output_tokens }
+    : undefined
+  if (usage) options.onUsage?.(usage)
+
+  return {
+    content,
+    toolCalls,
+    ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
+    ...(usage ? { usage } : {}),
+  }
 }
 
 export async function sendAnthropicMessage(

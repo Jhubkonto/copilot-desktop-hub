@@ -235,6 +235,7 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
             mcpServerTrust = buildMcpServerTrustPayload(),
             mcpToolOverrides = parseMcpToolOverrides(_state.value.editMcpToolOverrides),
             knowledge = parseKnowledge(_state.value.editKnowledge),
+            packageFiles = _state.value.selectedSkill?.packageFiles.orEmpty(),
         )
     }
 
@@ -429,6 +430,17 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
                     .put("instructions", it.instructions)
             }))
             .put("knowledge", knowledge)
+            .put("contentHash", skill.contentHash)
+            .put("scope", skill.scope)
+            .put("source", skill.source)
+            .put("validationStatus", skill.validationStatus)
+            .put("packageFiles", JSONArray(skill.packageFiles.map { file ->
+                JSONObject()
+                    .put("relativePath", file.relativePath)
+                    .put("encoding", file.encoding)
+                    .put("content", file.content)
+                    .put("sizeBytes", file.sizeBytes)
+            }))
             .toString(2)
     }
 

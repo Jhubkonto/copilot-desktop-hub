@@ -110,7 +110,7 @@ import {
 import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion, AutomatedWorkflowGeneratorMessage, AutomatedWorkflowStepStatus } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
-import { detectAllClis } from './cli-detection'
+import { detectAllClis, listHermesProfiles, hermesAcpReadiness } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { HermesAdapter } from './cli-adapters/hermes'
@@ -155,12 +155,13 @@ import {
   duplicateSkillConfig,
   getSkillAgentLinks,
   getSkillAgentUsage,
-  getSkillConfig,
-  listSkillConfigs,
+  getSkillConfigForTransport,
+  listSkillConfigsForTransport,
   reorderSkillsForAgent,
   setSkillAgentAttachment,
   updateSkillConfig,
 } from './skills'
+import { skillForTransport } from './skill-packages'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import { app } from 'electron'
@@ -2134,6 +2135,7 @@ export function registerWsHandlers(): void {
       if (typeof data.systemPrompt === 'string') patch.systemPrompt = data.systemPrompt
       if (data.backend === '' || typeof data.backend === 'string') patch.backend = data.backend || undefined
       if (typeof data.cliModel === 'string') patch.cliModel = data.cliModel
+      if (data.hermesProfile === '' || typeof data.hermesProfile === 'string') patch.hermesProfile = data.hermesProfile || undefined
       if (typeof data.temperature === 'number') patch.temperature = data.temperature
       if (typeof data.maxTokens === 'number') patch.maxTokens = data.maxTokens
       if (['default', 'concise', 'detailed', 'code-only'].includes(data.responseFormat as string)) patch.responseFormat = data.responseFormat
@@ -2213,7 +2215,20 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'app:cli-status') {
-      reply({ event: 'app:cli-status', data: { clis: detectAllClis() } })
+      // Android is a companion and cannot run `hermes` locally, so the profile list +
+      // ACP readiness ride along with the CLI-status reply for the Hermes profile picker.
+      const readiness = hermesAcpReadiness()
+      reply({
+        event: 'app:cli-status',
+        data: {
+          clis: detectAllClis(),
+          hermes: {
+            profiles: listHermesProfiles(),
+            acpReady: readiness.ready,
+            version: readiness.version ?? null,
+          },
+        },
+      })
       return
     }
 
@@ -2440,20 +2455,20 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'skill:list') {
-      reply({ event: 'skill:list', data: { skills: listSkillConfigs() } })
+      reply({ event: 'skill:list', data: { skills: listSkillConfigsForTransport() } })
       return
     }
 
     if (command === 'skill:get') {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
-      reply({ event: 'skill:detail', data: { skill: getSkillConfig(id) } })
+      reply({ event: 'skill:detail', data: { skill: getSkillConfigForTransport(id) } })
       return
     }
 
     if (command === 'skill:create') {
       const skill = createSkillConfig(data as Partial<SkillConfig>)
-      broadcastToMobile({ event: 'skill:created', data: { skill } })
+      broadcastToMobile({ event: 'skill:created', data: { skill: skillForTransport(skill) } })
       return
     }
 
@@ -2461,7 +2476,7 @@ export function registerWsHandlers(): void {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
       const skill = updateSkillConfig(id, data as Partial<SkillConfig>)
-      broadcastToMobile({ event: 'skill:updated', data: { skill } })
+      broadcastToMobile({ event: 'skill:updated', data: { skill: skillForTransport(skill) } })
       return
     }
 
@@ -2477,15 +2492,15 @@ export function registerWsHandlers(): void {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
       const skill = duplicateSkillConfig(id)
-      reply({ event: 'skill:duplicated', data: { skill } })
-      if (skill) broadcastToMobile({ event: 'skill:created', data: { skill } })
+      reply({ event: 'skill:duplicated', data: { skill: skill ? skillForTransport(skill) : null } })
+      if (skill) broadcastToMobile({ event: 'skill:created', data: { skill: skillForTransport(skill) } })
       return
     }
 
     if (command === 'skill:export') {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
-      const skill = getSkillConfig(id)
+      const skill = getSkillConfigForTransport(id)
       reply({ event: 'skill:exported', data: { skill } })
       return
     }
@@ -2493,7 +2508,7 @@ export function registerWsHandlers(): void {
     if (command === 'skill:import') {
       const rawSkill = (typeof data.skill === 'object' && data.skill !== null ? data.skill : data) as Partial<SkillConfig>
       const skill = createSkillConfig(rawSkill)
-      broadcastToMobile({ event: 'skill:created', data: { skill } })
+      broadcastToMobile({ event: 'skill:created', data: { skill: skillForTransport(skill) } })
       return
     }
 

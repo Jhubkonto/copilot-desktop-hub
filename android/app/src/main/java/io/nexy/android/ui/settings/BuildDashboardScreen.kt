@@ -27,11 +27,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -121,6 +121,7 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
     var updateFlowActive by remember { mutableStateOf(false) }
     var updateFlowDone by remember { mutableStateOf(false) }
     var lastBuildError by remember { mutableStateOf<String?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         WsRepository.getBuildRecords(platform = null)
@@ -134,6 +135,7 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
                 is WsEvent.BuildRecords -> {
                     desktopRecords = event.records.filter { it.platform != "android" }
                     androidRecords = event.records.filter { it.platform == "android" }
+                    isRefreshing = false
                     // Reconcile the live status indicator against the DB records: if this
                     // client missed the build:command-done push (e.g. it was reconnecting,
                     // or the screen wasn't mounted when a long Android release build
@@ -242,11 +244,6 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
                 titleContent = { Text("Build Dashboard", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 subtitle = "Settings › Developer",
-                actions = {
-                    IconButton(onClick = { WsRepository.getBuildRecords() }, enabled = !disconnected) {
-                        NexyIcon(NexyIconName.Refresh, contentDescription = "Refresh")
-                    }
-                },
             )
         },
     ) { padding ->
@@ -282,7 +279,15 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
             return@Scaffold
         }
 
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                WsRepository.getBuildRecords()
+            },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             PrimaryTabRow(selectedTabIndex = selectedTab) {
                 listOf("Desktop", "Android").forEachIndexed { index, title ->
                     Tab(
@@ -645,6 +650,7 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
                     }
                 }
             }
+        }
         }
     }
 }

@@ -1,10 +1,23 @@
 import { randomUUID } from 'crypto'
 import { BrowserWindow, dialog } from 'electron'
+import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
-import { parseSkillMarkdown, skillToMarkdown } from './skill-markdown'
-import type { AgentConfig, SkillConfig, ToolConfig } from '../shared/types'
+import { parseSkillMarkdown } from './skill-markdown'
+import {
+  applySkillPackageFiles,
+  deleteManagedSkillPackage,
+  duplicateSkillPackage,
+  exportSkillPackage,
+  importSkillPackage,
+  loadSkillPackage,
+  packageRootFromImport,
+  skillForTransport,
+  skillEntryMarkdown,
+  writeManagedSkillPackage,
+} from './skill-packages'
+import type { SkillConfig, SkillPackageFile, ToolConfig } from '../shared/types'
 
 interface SkillRow {
   id: string
@@ -45,6 +58,16 @@ export function normalizeSkillConfig(input: Partial<SkillConfig> & Record<string
     mcpToolOverrides: Array.isArray(input.mcpToolOverrides) ? input.mcpToolOverrides as SkillConfig['mcpToolOverrides'] : [],
     mcpServerTrust: Array.isArray(input.mcpServerTrust) ? input.mcpServerTrust as SkillConfig['mcpServerTrust'] : [],
     knowledge: Array.isArray(input.knowledge) ? input.knowledge as SkillConfig['knowledge'] : [],
+    packagePath: typeof input.packagePath === 'string' ? input.packagePath : undefined,
+    contentHash: typeof input.contentHash === 'string' ? input.contentHash : undefined,
+    scope: input.scope === 'project' || input.scope === 'bundled' ? input.scope : 'user',
+    source: input.source === 'filesystem' || input.source === 'codex' || input.source === 'claude' || input.source === 'import'
+      ? input.source
+      : 'nexy',
+    validationStatus: input.validationStatus === 'invalid' || input.validationStatus === 'warning' ? input.validationStatus : 'valid',
+    frontmatter: input.frontmatter && typeof input.frontmatter === 'object' && !Array.isArray(input.frontmatter)
+      ? input.frontmatter as Record<string, unknown>
+      : undefined,
     created_at: typeof input.created_at === 'number' ? input.created_at : undefined,
     updated_at: typeof input.updated_at === 'number' ? input.updated_at : undefined,
   }
@@ -52,8 +75,16 @@ export function normalizeSkillConfig(input: Partial<SkillConfig> & Record<string
 
 export function rowToSkill(row: SkillRow): SkillConfig {
   const parsed = normalizeSkillConfig(JSON.parse(row.config_json) as Record<string, unknown>)
+  let packageConfig: Partial<SkillConfig> = {}
+  if (parsed.packagePath && existsSync(parsed.packagePath)) {
+    try {
+      packageConfig = loadSkillPackage(parsed.packagePath)
+    } catch {
+      packageConfig = { validationStatus: 'invalid' }
+    }
+  }
   return {
-    ...parsed,
+    ...normalizeSkillConfig({ ...parsed, ...packageConfig, id: row.id }),
     id: row.id,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -72,11 +103,18 @@ export function getSkillConfig(id: string): SkillConfig | null {
   return row ? rowToSkill(row) : null
 }
 
-export function createSkillConfig(input: Partial<SkillConfig>): SkillConfig {
+export function createSkillConfig(input: Partial<SkillConfig>, packageSourcePath?: string): SkillConfig {
   const db = getDatabase()
   const id = randomUUID()
   const now = Date.now()
-  const config = normalizeSkillConfig({ ...input, id, created_at: now, updated_at: now })
+  const normalized = normalizeSkillConfig({ ...input, packagePath: undefined, id, created_at: now, updated_at: now })
+  let config = packageSourcePath
+    ? importSkillPackage(packageSourcePath, normalized)
+    : writeManagedSkillPackage(normalized)
+  if (!packageSourcePath && Array.isArray(input.packageFiles) && config.packagePath) {
+    applySkillPackageFiles(config.packagePath, input.packageFiles as SkillPackageFile[])
+    config = writeManagedSkillPackage(normalized, config.packagePath)
+  }
   db.prepare('INSERT INTO skills (id, config_json, created_at, updated_at) VALUES (?, ?, ?, ?)').run(
     id,
     JSON.stringify(config),
@@ -111,13 +149,54 @@ export function updateSkillConfig(id: string, input: Partial<SkillConfig>): Skil
   const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(id) as SkillRow | undefined
   const now = Date.now()
   const previous = row ? rowToSkill(row) : null
-  const config = normalizeSkillConfig({ ...(previous ?? {}), ...input, id, updated_at: now, created_at: previous?.created_at ?? now })
+  const normalized = normalizeSkillConfig({ ...(previous ?? {}), ...input, id, updated_at: now, created_at: previous?.created_at ?? now })
+  let config = writeManagedSkillPackage(normalized, previous?.packagePath)
+  if (Array.isArray(input.packageFiles) && config.packagePath) {
+    applySkillPackageFiles(config.packagePath, input.packageFiles as SkillPackageFile[])
+    config = writeManagedSkillPackage(normalized, config.packagePath)
+  }
   db.prepare('UPDATE skills SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(config), now, id)
   return config
 }
 
+export function upsertSyncedSkillConfig(
+  id: string,
+  input: Partial<SkillConfig>,
+  createdAt: number,
+  updatedAt: number,
+): SkillConfig {
+  const db = getDatabase()
+  const existing = db.prepare('SELECT id FROM skills WHERE id = ?').get(id)
+  if (existing) {
+    const skill = updateSkillConfig(id, input)
+    db.prepare('UPDATE skills SET updated_at = ? WHERE id = ?').run(updatedAt, id)
+    return { ...skill, updated_at: updatedAt }
+  }
+  const normalized = normalizeSkillConfig({ ...input, id, created_at: createdAt, updated_at: updatedAt, packagePath: undefined })
+  let config = writeManagedSkillPackage(normalized)
+  if (Array.isArray(input.packageFiles) && config.packagePath) {
+    applySkillPackageFiles(config.packagePath, input.packageFiles as SkillPackageFile[])
+    config = writeManagedSkillPackage(normalized, config.packagePath)
+  }
+  db.prepare('INSERT INTO skills (id, config_json, created_at, updated_at) VALUES (?, ?, ?, ?)').run(
+    id, JSON.stringify(config), createdAt, updatedAt,
+  )
+  return config
+}
+
+export function listSkillConfigsForTransport(): SkillConfig[] {
+  return listSkillConfigs().map(skillForTransport)
+}
+
+export function getSkillConfigForTransport(id: string): SkillConfig | null {
+  const skill = getSkillConfig(id)
+  return skill ? skillForTransport(skill) : null
+}
+
 export function deleteSkillConfig(id: string): boolean {
+  const skill = getSkillConfig(id)
   getDatabase().prepare('DELETE FROM skills WHERE id = ?').run(id)
+  deleteManagedSkillPackage(skill?.packagePath)
   return true
 }
 
@@ -128,7 +207,16 @@ export function duplicateSkillConfig(id: string): SkillConfig | null {
   const source = rowToSkill(row)
   const now = Date.now()
   const newId = randomUUID()
-  const config = normalizeSkillConfig({ ...source, id: newId, name: `${source.name} (copy)`, created_at: now, updated_at: now })
+  const normalized = normalizeSkillConfig({
+    ...source,
+    id: newId,
+    name: `${source.name} (copy)`,
+    packagePath: undefined,
+    contentHash: undefined,
+    created_at: now,
+    updated_at: now,
+  })
+  const config = duplicateSkillPackage(source.packagePath, normalized)
   db.prepare('INSERT INTO skills (id, config_json, created_at, updated_at) VALUES (?, ?, ?, ?)').run(
     newId,
     JSON.stringify(config),
@@ -186,62 +274,18 @@ export function getSkillConfigsForAgent(agentId: string): SkillConfig[] {
   return rows.map(rowToSkill)
 }
 
-function mergeToolConfig(base: ToolConfig, skill: ToolConfig): ToolConfig {
-  if (!skill.enabled && !skill.instructions.trim()) return base
-  const enabled = base.enabled || skill.enabled
-  const approval = enabled && base.approval === 'disabled' && skill.enabled
-    ? skill.approval === 'disabled' ? 'always-ask' : skill.approval
-    : base.enabled ? base.approval : skill.approval
-  return {
-    enabled,
-    approval: enabled && approval === 'disabled' ? 'always-ask' : approval,
-    instructions: [skill.instructions, base.instructions].filter((v) => v.trim()).join('\n\n'),
-  }
-}
-
+/** Attachment now controls availability only. It never grants tools or injects instructions. */
 export function applySkillsToAgentConfig(agentId: string, baseConfig: Record<string, unknown>): Record<string, unknown> {
-  const skills = getSkillConfigsForAgent(agentId)
-  if (skills.length === 0) return baseConfig
-
-  const config = { ...baseConfig } as unknown as AgentConfig
-  const tools = config.tools ?? {
-    fileEdit: { ...DEFAULT_TOOL },
-    terminal: { ...DEFAULT_TOOL },
-    webFetch: { ...DEFAULT_TOOL },
-  }
-
-  config.tools = {
-    fileEdit: mergeToolConfig(tools.fileEdit, skills.reduce((acc, skill) => mergeToolConfig(acc, skill.tools.fileEdit), { ...DEFAULT_TOOL })),
-    terminal: mergeToolConfig(tools.terminal, skills.reduce((acc, skill) => mergeToolConfig(acc, skill.tools.terminal), { ...DEFAULT_TOOL })),
-    webFetch: mergeToolConfig(tools.webFetch, skills.reduce((acc, skill) => mergeToolConfig(acc, skill.tools.webFetch), { ...DEFAULT_TOOL })),
-  }
-
-  const skillInstructions = skills
-    .filter((skill) => skill.instructions.trim() || skill.knowledge.length > 0)
-    .map((skill) => {
-      const knowledge = skill.knowledge.length > 0
-        ? `\n\nKnowledge:\n${skill.knowledge.map((item) => `- ${item.title}: ${item.content}`).join('\n')}`
-        : ''
-      return `## ${skill.icon} ${skill.name}\n${skill.instructions.trim()}${knowledge}`.trim()
-    })
-    .join('\n\n')
-
-  if (skillInstructions) {
-    config.systemPrompt = [config.systemPrompt, `Attached skills:\n\n${skillInstructions}`]
-      .filter((v) => typeof v === 'string' && v.trim())
-      .join('\n\n')
-  }
-
-  config.mcpServers = Array.from(new Set([...(config.mcpServers ?? []), ...skills.flatMap((skill) => skill.mcpServers)]))
-  return config as unknown as Record<string, unknown>
+  void agentId
+  return baseConfig
 }
 
 export function registerSkillHandlers(): void {
   const db = getDatabase()
 
-  safeHandle('skill:list', () => listSkillConfigs())
+  safeHandle('skill:list', () => listSkillConfigsForTransport())
 
-  safeHandle('skill:get', (_event, id: string) => getSkillConfig(id))
+  safeHandle('skill:get', (_event, id: string) => getSkillConfigForTransport(id))
 
   safeHandle('skill:create', (_event, input: Partial<SkillConfig>) => createSkillConfig(input))
 
@@ -261,7 +305,7 @@ export function registerSkillHandlers(): void {
       filters: [{ name: 'JSON', extensions: ['json'] }],
     })
     if (result.canceled || !result.filePath) return false
-    await writeFile(result.filePath, JSON.stringify(skill, null, 2), 'utf-8')
+    await writeFile(result.filePath, JSON.stringify(skillForTransport(skill), null, 2), 'utf-8')
     return true
   })
 
@@ -270,12 +314,21 @@ export function registerSkillHandlers(): void {
     if (!row) return false
     const skill = rowToSkill(row)
     const win = BrowserWindow.getAllWindows()[0]
+    if (skill.packagePath && existsSync(skill.packagePath)) {
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Choose where to export the skill package',
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      if (result.canceled || result.filePaths.length === 0) return false
+      exportSkillPackage(skill.packagePath, result.filePaths[0])
+      return true
+    }
     const result = await dialog.showSaveDialog(win, {
       defaultPath: `${skill.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.SKILL.md`,
       filters: [{ name: 'Markdown', extensions: ['md'] }],
     })
     if (result.canceled || !result.filePath) return false
-    await writeFile(result.filePath, skillToMarkdown(skill), 'utf-8')
+    await writeFile(result.filePath, skillEntryMarkdown(skill), 'utf-8')
     return true
   })
 
@@ -299,7 +352,8 @@ export function registerSkillHandlers(): void {
       const parsed = isMarkdown
         ? parseSkillMarkdown(content)
         : (JSON.parse(content) as Record<string, unknown>)
-      return createSkillConfig(parsed)
+      const packageRoot = isMarkdown ? packageRootFromImport(filePath) : null
+      return createSkillConfig(parsed, packageRoot ?? undefined)
     } catch {
       return null
     }

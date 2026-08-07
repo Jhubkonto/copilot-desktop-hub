@@ -122,6 +122,28 @@ class ScopedChatHistoryViewModel(
         requestPage(append = _conversations.value.isNotEmpty())
     }
 
+    /**
+     * Eagerly reflects a mark-complete/incomplete action in the loaded page so the checkmark
+     * updates immediately, matching [completedConversationIds] rather than waiting for the next
+     * page refresh to pick up a fresh `completed_at`.
+     */
+    fun updateCompletedAt(conversationId: String, completedAt: Long?) {
+        _conversations.value = _conversations.value.map { conversation ->
+            if (conversation.id == conversationId) conversation.copy(completed_at = completedAt) else conversation
+        }
+    }
+
+    /**
+     * Eagerly reflects a pin/unpin action in the loaded page so the pin icon updates immediately.
+     * [WsRepository.setPinnedConversation] only mutates the global conversation list, so this
+     * scoped page needs its own optimistic copy before the desktop echoes `conversation:pinned`.
+     */
+    fun updatePinned(conversationId: String, pinned: Boolean) {
+        _conversations.value = _conversations.value.map { conversation ->
+            if (conversation.id == conversationId) conversation.copy(pinned = pinned) else conversation
+        }
+    }
+
     fun setSearchQuery(query: String) {
         if (_searchQuery.value == query) return
         _searchQuery.value = query

@@ -26,18 +26,12 @@ const SPEC_CLOSE_TAG = '</skill-spec>'
 
 const SKILL_GENERATOR_SYSTEM_PROMPT = `You are an expert skill configuration assistant for Nexy, an AI-powered desktop application.
 
-Your job is to help the user create a reusable skill. A skill is a portable capability preset that can be attached to one or more agents. It can add instructions, enable built-in tools, provide tool-specific instructions, and describe useful knowledge.
+Your job is to help the user create a reusable Agent Skills package. A skill contains activation metadata and reusable instructions. It may describe required capabilities, but it must never grant tools, approvals, or MCP trust; those belong to the agent and user permission policy.
 
 ## Conversation style
-- Ask focused questions only when needed: task type, boundaries, tools, approval level, and agents that may use it
+- Ask focused questions only when needed: task type, activation conditions, boundaries, references, and agents that may use it
 - Be concise
 - When enough context is available, emit the skill spec
-
-## Tool guidance
-- fileEdit: true only when the skill should change files
-- terminal: true only when commands, builds, tests, or scripts are part of the workflow
-- webFetch: true only when live web research or URL reading is needed
-- Use "always-ask" approval for risky file/terminal skills unless the user explicitly asks for automatic execution
 
 ## Skill instructions
 Write instructions in second person, as reusable behavior guidance. Include:
@@ -54,8 +48,8 @@ When ready, emit a brief summary followed immediately by JSON wrapped in <skill-
   "description": "Short summary",
   "instructions": "Reusable instructions...",
   "tools": { "fileEdit": false, "terminal": false, "webFetch": false },
-  "toolInstructions": { "fileEdit": "", "terminal": "", "webFetch": "" },
-  "approval": { "fileEdit": "always-ask", "terminal": "always-ask", "webFetch": "always-ask" },
+  "toolInstructions": {},
+  "approval": {},
   "mcpServers": [],
   "tags": [],
   "knowledge": [{ "title": "Optional note", "content": "..." }],
@@ -312,12 +306,6 @@ export async function createSkillFromSpec(spec: SkillGeneratorSpec): Promise<{ s
     icon: spec.icon,
     description: spec.description,
     instructions: spec.instructions,
-    tools: {
-      fileEdit: { enabled: spec.tools.fileEdit, approval: spec.approval?.fileEdit ?? 'always-ask', instructions: spec.toolInstructions?.fileEdit ?? '' },
-      terminal: { enabled: spec.tools.terminal, approval: spec.approval?.terminal ?? 'always-ask', instructions: spec.toolInstructions?.terminal ?? '' },
-      webFetch: { enabled: spec.tools.webFetch, approval: spec.approval?.webFetch ?? 'always-ask', instructions: spec.toolInstructions?.webFetch ?? '' },
-    },
-    mcpServers: spec.mcpServers ?? [],
     tags: spec.tags ?? [],
     knowledge: spec.knowledge ?? [],
   })

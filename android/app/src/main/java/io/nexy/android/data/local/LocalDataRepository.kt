@@ -1864,6 +1864,25 @@ private fun SkillConfig.toJson(): JSONObject = JSONObject()
     )
     .put("created_at", createdAt)
     .put("updated_at", updatedAt)
+    .put("packagePath", packagePath)
+    .put("contentHash", contentHash)
+    .put("scope", scope)
+    .put("source", source)
+    .put("validationStatus", validationStatus)
+    .put(
+        "packageFiles",
+        JSONArray().also { array ->
+            packageFiles.forEach { file ->
+                array.put(
+                    JSONObject()
+                        .put("relativePath", file.relativePath)
+                        .put("encoding", file.encoding)
+                        .put("content", file.content)
+                        .put("sizeBytes", file.sizeBytes),
+                )
+            }
+        },
+    )
 
 private fun io.nexy.android.data.model.SkillToolConfig.toJson(): JSONObject = JSONObject()
     .put("enabled", enabled)

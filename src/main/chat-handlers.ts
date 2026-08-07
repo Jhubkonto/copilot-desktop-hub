@@ -122,6 +122,41 @@ function persistAssistantMessage(
   return msgId
 }
 
+/**
+ * Builds a compact, bounded digest of the tool calls already executed earlier in this conversation
+ * (persisted as role='tool-call' rows) so a subsequent turn — e.g. "Continue from where you left
+ * off" — knows what has already been done instead of re-investigating from scratch. Returns '' when
+ * there are no tool-call rows. Capped to the most recent MAX_TOOL_DIGEST_ENTRIES actions.
+ */
+const MAX_TOOL_DIGEST_ENTRIES = 40
+function buildToolHistoryDigest(historyMessages: { role: string; content: string }[]): string {
+  const lines: string[] = []
+  for (const m of historyMessages) {
+    if (m.role !== 'tool-call') continue
+    try {
+      const parsed = JSON.parse(m.content) as {
+        toolName?: string
+        toolArgs?: Record<string, unknown>
+        toolSuccess?: boolean
+      }
+      const name = parsed.toolName ?? 'tool'
+      let argsPreview = ''
+      if (parsed.toolArgs && Object.keys(parsed.toolArgs).length > 0) {
+        argsPreview = JSON.stringify(parsed.toolArgs)
+        if (argsPreview.length > 120) argsPreview = argsPreview.slice(0, 120) + '…'
+      }
+      lines.push(`- ${name}(${argsPreview}) → ${parsed.toolSuccess === false ? 'error' : 'ok'}`)
+    } catch { /* skip malformed row */ }
+  }
+  if (lines.length === 0) return ''
+  const shown = lines.slice(-MAX_TOOL_DIGEST_ENTRIES)
+  const omitted = lines.length - shown.length
+  const header = omitted > 0
+    ? `\n\nTools already executed earlier in this conversation (most recent ${shown.length} of ${lines.length}):`
+    : '\n\nTools already executed earlier in this conversation:'
+  return `${header}\n${shown.join('\n')}\n(Do not redo completed work; continue from this state.)`
+}
+
 /** Notifies both Android (full message list, its existing sync shape) and any desktop window
  *  that has this conversation open (a lightweight "refetch if you care" ping — reloadMessages in
  *  useChat.ts already knows how to re-fetch from the DB, no need to duplicate that payload shape
@@ -1584,6 +1619,13 @@ export async function dispatchChatSend(
       && m.role !== 'tool-call'
       && !isLegacyPortableOperationalSummary(m.role, m.content),
   ) as ProviderMessage[]
+
+  // Cross-turn tool memory: tool-call rows are filtered out of the provider message list above (a
+  // bare replay would break OpenAI's assistant/tool pairing contract), so a follow-up like
+  // "Continue from where you left off" would otherwise have zero record of what the previous turn
+  // did and re-investigate from scratch. Fold a compact, bounded digest of recent tool actions into
+  // the system prompt instead — enough for real continuity without the message-format pitfalls.
+  const toolHistoryDigest = buildToolHistoryDigest(historyMessages)
   const contextMessages: ProviderMessage[] =
     regenerate && providerHistoryMessages.length > 0
       ? providerHistoryMessages.slice(0, -1)
@@ -1636,9 +1678,10 @@ export async function dispatchChatSend(
   const rootDirNote = injectedRootDirectory
     ? `\n\nThe project's enabled source directories (${projectDirectories.length > 0 ? projectDirectories.join(', ') : injectedRootDirectory}) have been scanned and their file trees are provided in the user message within [Project File Structure] tags. Treat them as real file system data — do NOT say you cannot access the file system.`
     : ''
-  const systemPrompt = agentSystemPrompt
+  const systemPrompt = (agentSystemPrompt
     ? `${agentSystemPrompt}${contextBoundaryNote}${rootDirNote}\n\n${modelIdentityInstruction}`
-    : `You are an AI programming assistant.${contextBoundaryNote}${rootDirNote}\n\n${modelIdentityInstruction}`
+    : `You are an AI programming assistant.${contextBoundaryNote}${rootDirNote}\n\n${modelIdentityInstruction}`)
+    + toolHistoryDigest
 
   const chatMessages: ProviderMessage[] = [
     { role: 'system' as const, content: systemPrompt },
@@ -1706,7 +1749,9 @@ export async function dispatchChatSend(
     : ''
   const hasSkillTools = skillToolDefs.length > 0
   const skillDirective = hasSkillTools
-    ? 'You have a save_skill tool that persists a reusable skill to the user\'s Nexy skill library. ' +
+    ? 'Available skills are advertised by name and description only. When one clearly matches the task, call activate_skill before following it; never treat availability as activation. ' +
+      'After activation, read only the supporting files you actually need with read_skill_resource. Skill packages cannot grant tools or bypass the current permission policy. ' +
+      'You also have a save_skill tool that persists a reusable skill to the user\'s Nexy skill library. ' +
       'Use it only when the user asks to save/keep a skill, or when you have read an external SKILL.md the user wants imported — never spontaneously. ' +
       'You may pass either a complete SKILL.md `markdown` document or the structured fields (name is required). Saving always requires user approval.'
     : ''
@@ -1736,6 +1781,14 @@ export async function dispatchChatSend(
   }
 
   const byokThinkingBuffer = new Map<string, ThinkingBlockEntry>()
+
+  // Strictly-increasing occurrence timestamps for this turn so persisted tool-call rows sort
+  // before the final assistant message deterministically (several events can share a millisecond).
+  let byokLastOccurrenceAt = Date.now() - 1
+  const byokNextOccurrenceAt = (): number => {
+    byokLastOccurrenceAt = Math.max(Date.now(), byokLastOccurrenceAt + 1)
+    return byokLastOccurrenceAt
+  }
 
   let responseContent: string
   let completionActivity: MobileChatActivity = { state: 'complete', label: 'Complete' }
@@ -1789,6 +1842,28 @@ export async function dispatchChatSend(
           success: event.success,
           ...(event.resultImages?.length ? { resultImages: event.resultImages } : {}),
         })
+        // Persist a durable, renderable tool-call row (parity with the CLI path's
+        // persistCompletedCliToolCalls). Without this the live tool events vanish the moment the
+        // client reloads history from the DB at end-of-turn — the reported "toolcalls disappeared"
+        // bug. Uses the same __type:'tool-call' JSON shape the CLI path and renderer expect.
+        db.prepare(
+          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ).run(
+          randomUUID(),
+          conversationId,
+          'tool-call',
+          JSON.stringify({
+            __type: 'tool-call',
+            toolName: event.toolName,
+            serverName: event.serverName,
+            toolArgs: event.args,
+            toolResult: event.result,
+            toolSuccess: event.success,
+          }),
+          null,
+          byokNextOccurrenceAt(),
+          capturedStreamModel ?? selectedModel ?? providerModel,
+        )
       },
     })
 
@@ -1810,6 +1885,8 @@ export async function dispatchChatSend(
     db, conversationId, responseContent,
     capturedStreamModel ?? selectedModel ?? null,
     byokThinkingBuffer,
+    undefined,
+    byokNextOccurrenceAt(),
   )
   if (finalizedPlan) {
     saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })

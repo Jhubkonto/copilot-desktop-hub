@@ -1,12 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { NexyIcon } from '../ui/icons/NexyIcon'
 import { useAppStore } from '../../store/app-store'
-import type { SkillConfig } from '../../../shared/types'
 import { PaneSkeleton, PaneEmptyState } from './pane-primitives'
-
-function enabledToolCount(skill: SkillConfig): number {
-  return Number(skill.tools.fileEdit.enabled) + Number(skill.tools.terminal.enabled) + Number(skill.tools.webFetch.enabled)
-}
 
 export function SkillsPane() {
   const skills = useAppStore((s) => s.skills)
@@ -109,10 +104,12 @@ export function SkillsPane() {
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{skill.name}</p>
               <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                {skill.description || `${enabledToolCount(skill)} tool${enabledToolCount(skill) !== 1 ? 's' : ''} enabled`}
+                {skill.description || 'No activation description'}
               </p>
             </div>
-            <NexyIcon name="tool" className="w-3 h-3 text-nexy-muted shrink-0" />
+            <span className={`text-[9px] uppercase ${skill.validationStatus === 'invalid' ? 'text-red-500' : 'text-nexy-muted'}`}>
+              {skill.validationStatus ?? 'valid'}
+            </span>
             <div className="invisible group-hover:visible flex items-center gap-0.5 shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); void duplicateSkill(skill.id) }}
@@ -131,7 +128,7 @@ export function SkillsPane() {
               <button
                 onClick={(e) => { e.stopPropagation(); void exportSkillMarkdown(skill.id) }}
                 className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
-                aria-label={`Export ${skill.name} as SKILL.md`}
+                aria-label={`Export ${skill.name} package`}
               >
                 <NexyIcon name="artifact" className="w-3 h-3" />
               </button>

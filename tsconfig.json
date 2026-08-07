@@ -14,6 +14,8 @@
       "@shared/*": ["./src/shared/*"]
     }
   },
+  "files": [],
+  "include": [],
   "references": [
     { "path": "./tsconfig.main.json" },
     { "path": "./tsconfig.preload.json" },

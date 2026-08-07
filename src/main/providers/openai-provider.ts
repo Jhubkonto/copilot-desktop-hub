@@ -61,13 +61,85 @@ async function chatCompletionsRequest(endpoint: ChatEndpoint, body: string): Pro
   return JSON.parse(data)
 }
 
+/**
+ * Best-effort repair of tool-call argument strings that aren't quite valid JSON. Smaller/OSS
+ * models (common on OpenRouter) frequently emit trailing commas, unquoted output, or concatenated
+ * fragments. We attempt a few tolerant fixes before giving up. Returns the parsed object, or an
+ * `error` string describing why it could not be parsed so the caller can feed it back to the model.
+ */
+export function parseToolArguments(raw: string): { args: Record<string, unknown>; error?: string } {
+  const text = (raw ?? '').trim()
+  if (text === '' || text === '{}') return { args: {} }
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? { args: parsed as Record<string, unknown> }
+      : { args: {}, error: `arguments were valid JSON but not an object: ${text.slice(0, 200)}` }
+  } catch {
+    // Tolerant repair pass: strip trailing commas, and if the model concatenated multiple JSON
+    // objects, keep only the first balanced one.
+    const repaired = repairJsonObject(text)
+    if (repaired) {
+      try {
+        const parsed = JSON.parse(repaired)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return { args: parsed as Record<string, unknown> }
+        }
+      } catch { /* fall through to error */ }
+    }
+    return { args: {}, error: `could not parse arguments as JSON: ${text.slice(0, 200)}` }
+  }
+}
+
+/** Strips trailing commas and extracts the first balanced top-level object, if any. */
+function repairJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        const candidate = text.slice(start, i + 1)
+        return candidate.replace(/,(\s*[}\]])/g, '$1')
+      }
+    }
+  }
+  return null
+}
+
 function extractToolCalls(msg: Record<string, unknown> | undefined): ToolCallResult[] {
   const rawCalls = (msg?.tool_calls ?? []) as Array<{ id: string; function: { name: string; arguments: string } }>
-  return rawCalls.map((tc) => ({
-    id: tc.id,
-    name: tc.function.name,
-    arguments: (() => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })(),
-  }))
+  return rawCalls.map((tc) => {
+    const { args, error } = parseToolArguments(tc.function.arguments)
+    if (error) debugLog('openai', `tool-call arg parse failed: name=${tc.function.name} ${error}`)
+    return {
+      id: tc.id,
+      name: tc.function.name,
+      arguments: args,
+      ...(error ? { argsError: error } : {}),
+    }
+  })
+}
+
+/** Extracts token usage from a non-streaming chat-completions response, if present. */
+function extractUsage(parsed: Record<string, unknown>): { inputTokens: number; outputTokens: number } | undefined {
+  const usage = parsed.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined
+  if (usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number') {
+    return { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
+  }
+  return undefined
 }
 
 function extractMessage(parsed: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -232,7 +304,14 @@ export async function sendOpenAIWithTools(
   messages: ProviderMessage[],
   tools: ToolDefinition[],
   toolChoice: ToolChoice,
-  options: { maxTokens?: number; temperature?: number; thinkingEffort?: string } = {},
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  } = {},
   baseUrl?: string
 ): Promise<ProviderNonStreamResult> {
   const bodyObj: Record<string, unknown> = {
@@ -252,9 +331,21 @@ export async function sendOpenAIWithTools(
 
   const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body)
   const msg = extractMessage(parsed)
+  const usage = extractUsage(parsed)
+  if (usage) options.onUsage?.(usage)
+  // Some OpenAI-compatible endpoints (OpenRouter, etc.) surface non-streamed reasoning as
+  // `message.reasoning` / `message.reasoning_content`. Forward it so reasoning models still show
+  // thinking during agentic tool loops (parity with the streaming path).
+  const reasoning = (msg?.reasoning ?? msg?.reasoning_content)
+  if (typeof reasoning === 'string' && reasoning.trim() && options.onThinkingChunk) {
+    options.onThinkingChunk('reasoning-0', reasoning)
+    options.onThinkingEnd?.('reasoning-0')
+  }
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls: extractToolCalls(msg)
+    toolCalls: extractToolCalls(msg),
+    ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
+    ...(usage ? { usage } : {}),
   }
 }
 
@@ -305,7 +396,11 @@ export async function sendAzureWithTools(
   messages: ProviderMessage[],
   tools: ToolDefinition[],
   toolChoice: ToolChoice,
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: {
+    maxTokens?: number
+    temperature?: number
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  } = {}
 ): Promise<ProviderNonStreamResult> {
   const bodyObj: Record<string, unknown> = {
     messages: toOpenAICompatibleMessages(messages),
@@ -321,8 +416,12 @@ export async function sendAzureWithTools(
 
   const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body)
   const msg = extractMessage(parsed)
+  const usage = extractUsage(parsed)
+  if (usage) options.onUsage?.(usage)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls: extractToolCalls(msg)
+    toolCalls: extractToolCalls(msg),
+    ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
+    ...(usage ? { usage } : {}),
   }
 }

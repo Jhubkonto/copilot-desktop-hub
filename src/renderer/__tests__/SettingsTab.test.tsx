@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SettingsTab } from '../../renderer/components/agent-panel/SettingsTab'
+import { setupMockApi, type MockApi } from '../../test/mocks/api'
 import type { AgentConfig } from '../../shared/types'
 
 function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -128,5 +129,77 @@ describe('SettingsTab — Danger Zone', () => {
     await user.click(toggle)
     expect(onUpdateField).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('SettingsTab — Hermes profile picker', () => {
+  let api: MockApi
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api = setupMockApi()
+  })
+
+  it('relabels the Hermes backend option as ACP (no legacy -z copy)', () => {
+    render(<SettingsTab {...defaultProps(makeConfig())} />)
+    expect(screen.getByRole('option', { name: /Hermes Agent \(ACP\)/i })).toBeInTheDocument()
+    expect(screen.queryByText(/hermes -z/i)).not.toBeInTheDocument()
+  })
+
+  it('renders a dropdown of enumerated profiles when the backend is hermes-cli', async () => {
+    api.listHermesProfiles.mockResolvedValue([
+      { name: 'default', isDefault: true },
+      { name: 'localllm-iso', isDefault: false, model: 'qwen2.5', description: 'Isolated local' },
+    ])
+    render(<SettingsTab {...defaultProps(makeConfig({ backend: 'hermes-cli' }))} />)
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: /localllm-iso.*qwen2\.5.*Isolated local/i })).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('option', { name: /default \(normal Hermes profile\)/i })).toBeInTheDocument()
+  })
+
+  it('selecting a profile stores its name via onUpdateField', async () => {
+    const onUpdateField = vi.fn()
+    api.listHermesProfiles.mockResolvedValue([
+      { name: 'default', isDefault: true },
+      { name: 'localllm', isDefault: false },
+    ])
+    render(<SettingsTab {...defaultProps(makeConfig({ backend: 'hermes-cli' }), onUpdateField)} />)
+    const select = await screen.findByDisplayValue(/default \(normal Hermes profile\)/i)
+    await user.selectOptions(select, 'localllm')
+    expect(onUpdateField).toHaveBeenCalledWith('hermesProfile', 'localllm')
+  })
+
+  it('falls back to a free-text input when no profiles are available', async () => {
+    api.listHermesProfiles.mockResolvedValue([])
+    render(<SettingsTab {...defaultProps(makeConfig({ backend: 'hermes-cli' }))} />)
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/uses the normal Hermes profile/i)).toBeInTheDocument(),
+    )
+  })
+
+  it('shows an unknown-profile warning option when the stored profile is not in the list', async () => {
+    api.listHermesProfiles.mockResolvedValue([{ name: 'default', isDefault: true }])
+    render(<SettingsTab {...defaultProps(makeConfig({ backend: 'hermes-cli', hermesProfile: 'ghost' }))} />)
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: /ghost.*unknown profile.*fall back to default/i })).toBeInTheDocument(),
+    )
+  })
+
+  it('surfaces the profile-inheritance disclosure', async () => {
+    api.listHermesProfiles.mockResolvedValue([{ name: 'default', isDefault: true }])
+    render(<SettingsTab {...defaultProps(makeConfig({ backend: 'hermes-cli' }))} />)
+    await waitFor(() =>
+      expect(screen.getByText(/its memory, skills, and SOUL\.md carry into every session/i)).toBeInTheDocument(),
+    )
+  })
+
+  it('shows a not-ACP-ready warning when readiness probe fails', async () => {
+    api.listHermesProfiles.mockResolvedValue([{ name: 'default', isDefault: true }])
+    api.getHermesAcpReadiness.mockResolvedValue({ ready: false, detail: 'no provider credentials' })
+    render(<SettingsTab {...defaultProps(makeConfig({ backend: 'hermes-cli' }))} />)
+    await waitFor(() =>
+      expect(screen.getByText(/not ACP-ready.*no provider credentials/i)).toBeInTheDocument(),
+    )
   })
 })

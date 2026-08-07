@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Folder, FileText, Plus, ExternalLink, AlertTriangle } from 'lucide-react'
-import type { AgentConfig } from '../../../shared/types'
+import type { AgentConfig, HermesProfileInfo, HermesAcpReadiness } from '../../../shared/types'
+import { isValidHermesProfile } from '../../../shared/hermes'
 import { Button, ToggleSwitch } from '../ui/primitives'
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
@@ -44,6 +45,21 @@ export function SettingsTab({
 }: Props) {
   const contextRules = config.contextRules ?? { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false }
   const [showAutoApproveConfirm, setShowAutoApproveConfirm] = useState(false)
+
+  // Hermes profile enumeration + ACP readiness (fetched only when the Hermes backend is selected).
+  const [hermesProfiles, setHermesProfiles] = useState<HermesProfileInfo[] | null>(null)
+  const [hermesReadiness, setHermesReadiness] = useState<HermesAcpReadiness | null>(null)
+  useEffect(() => {
+    if (config.backend !== 'hermes-cli') return
+    let cancelled = false
+    Promise.resolve(window.api?.listHermesProfiles?.()).then((list) => {
+      if (!cancelled) setHermesProfiles(Array.isArray(list) ? list : [])
+    }).catch(() => { if (!cancelled) setHermesProfiles([]) })
+    Promise.resolve(window.api?.getHermesAcpReadiness?.()).then((r) => {
+      if (!cancelled) setHermesReadiness(r ?? null)
+    }).catch(() => { if (!cancelled) setHermesReadiness(null) })
+    return () => { cancelled = true }
+  }, [config.backend])
 
   return (
     <>
@@ -131,7 +147,7 @@ export function SettingsTab({
           <option value="">Auto (BYOK key, or Claude CLI if no key)</option>
           <option value="claude-cli">Force Claude CLI (claude --print)</option>
           <option value="codex-cli">OpenAI Codex CLI (codex)</option>
-          <option value="hermes-cli">Hermes Agent (hermes -z)</option>
+          <option value="hermes-cli">Hermes Agent (ACP)</option>
         </select>
         {config.backend && (
           <div className="flex items-start justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -149,14 +165,51 @@ export function SettingsTab({
         {config.backend === 'hermes-cli' && (
           <div className="mt-2 space-y-1.5">
             <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Hermes profile</label>
-            <input
-              value={config.hermesProfile ?? ''}
-              onChange={(e) => onUpdateField('hermesProfile', e.target.value.trim() || undefined)}
-              placeholder="default (uses the normal Hermes profile)"
-              pattern="[A-Za-z0-9_-]+"
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            {hermesProfiles && hermesProfiles.length > 0 ? (
+              <select
+                value={config.hermesProfile ?? ''}
+                onChange={(e) => onUpdateField('hermesProfile', e.target.value || undefined)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {hermesProfiles.map((p) => {
+                  const meta = [p.model, p.description].filter(Boolean).join(' · ')
+                  return (
+                    <option key={p.name} value={p.isDefault ? '' : p.name}>
+                      {p.isDefault ? 'default (normal Hermes profile)' : p.name}{meta ? ` — ${meta}` : ''}
+                    </option>
+                  )
+                })}
+                {config.hermesProfile && !hermesProfiles.some((p) => p.name === config.hermesProfile) && (
+                  <option value={config.hermesProfile}>⚠ {config.hermesProfile} — unknown profile, will fall back to default</option>
+                )}
+              </select>
+            ) : (
+              <input
+                value={config.hermesProfile ?? ''}
+                onChange={(e) => onUpdateField('hermesProfile', e.target.value.trim() || undefined)}
+                placeholder="default (uses the normal Hermes profile)"
+                pattern="[a-z0-9][a-z0-9_-]{0,63}"
+                className={`w-full px-3 py-2 text-sm rounded-lg border bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  config.hermesProfile && !isValidHermesProfile(config.hermesProfile)
+                    ? 'border-red-400 dark:border-red-500'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+              />
+            )}
+            {config.hermesProfile && !isValidHermesProfile(config.hermesProfile) && (
+              <p className="text-xs text-red-500">Profile names must be lowercase, start with a letter or digit, and use only a–z, 0–9, _ or - (max 64 chars).</p>
+            )}
             <p className="text-xs text-gray-400">Nexy launches a separate ACP process with this profile; changing it starts a new Hermes session.</p>
+            {/* D1: kept-inheritance disclosure — profiles bring their own home into the session. */}
+            <p className="text-xs text-gray-400">
+              Nexy runs Hermes with this profile&apos;s own home — its memory, skills, and SOUL.md carry into every session. Profiles are managed in the Hermes CLI.
+            </p>
+            {hermesReadiness && !hermesReadiness.ready && (
+              <p className="text-xs text-amber-500 flex items-start gap-1">
+                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>Hermes is installed but not ACP-ready{hermesReadiness.detail ? ` — ${hermesReadiness.detail}` : ' — check credentials'}.</span>
+              </p>
+            )}
           </div>
         )}
       </div>

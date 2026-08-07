@@ -370,6 +370,23 @@ describe('chat handlers', () => {
         result: 'Snapshot captured',
       }),
     })
+
+    // Parity with the CLI path: the completed tool call must be persisted as a durable
+    // renderable 'tool-call' message row so it survives an end-of-turn DB reload (regression
+    // guard for the "toolcalls disappeared from history" bug).
+    const toolCallRow = state.messages.find((message) => message.role === 'tool-call')
+    expect(toolCallRow).toBeDefined()
+    expect(JSON.parse(toolCallRow!.content)).toMatchObject({
+      __type: 'tool-call',
+      toolName: 'browser_snapshot',
+      serverName: 'Browser',
+      toolArgs: { tab: 'active' },
+      toolResult: 'Snapshot captured',
+      toolSuccess: true,
+    })
+    // And it must sort before the final assistant message.
+    const assistantRow = state.messages.find((message) => message.role === 'assistant')
+    expect(toolCallRow!.timestamp).toBeLessThan(assistantRow!.timestamp)
   })
 
   it('CLI path sends conversation:messages before chat:stream-end so Android history is loaded before stream closes', async () => {

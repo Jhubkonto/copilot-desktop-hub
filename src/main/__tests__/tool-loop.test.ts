@@ -639,6 +639,115 @@ describe('runProviderMcpToolLoop', () => {
     expect(finalMessages[0]).toMatchObject({ role: 'system' })
     expect(finalMessages[1]).toMatchObject({ role: 'user', content: 'gather a lot of context' })
   })
+
+  it('streams and preserves interstitial assistant text emitted alongside a tool call', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: 'Let me click that button.',
+        toolCalls: [{ id: 'c1', name: 'server-1__click', arguments: {} }]
+      })
+      .mockImplementationOnce(async (messages) => {
+        // The interstitial text must be preserved as the assistant message content (not null)
+        // so the model retains continuity across rounds.
+        const assistantMsg = messages.find(
+          (m: ProviderMessage) => m.role === 'assistant' && 'tool_calls' in m
+        ) as { content?: unknown } | undefined
+        expect(assistantMsg?.content).toBe('Let me click that button.')
+        return { content: 'All done.', toolCalls: [] }
+      })
+
+    const onChunk = vi.fn()
+    const result = await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click it' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      onChunk
+    )
+
+    // The narration is streamed to the user and included in the persisted full response.
+    expect(onChunk).toHaveBeenCalledWith('Let me click that button.')
+    expect(result).toContain('Let me click that button.')
+    expect(result).toContain('All done.')
+  })
+
+  it('feeds a parse error back instead of running a tool with malformed arguments', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{
+          id: 'c1',
+          name: 'server-1__click',
+          arguments: {},
+          argsError: 'could not parse arguments as JSON: {bad'
+        }]
+      })
+      .mockImplementationOnce(async (messages) => {
+        const toolMsg = messages.find(
+          (m: ProviderMessage) => m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === 'c1'
+        ) as { content: string } | undefined
+        expect(toolMsg?.content).toContain('could not parse arguments as JSON')
+        return { content: 'recovered', toolCalls: [] }
+      })
+
+    const result = await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'do it' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn()
+    )
+
+    expect(result).toBe('recovered')
+    // The tool itself must NOT be invoked with the empty fallback arguments.
+    expect(mockCallMcpTool).not.toHaveBeenCalled()
+  })
+
+  it('forwards provider usage from each round via onUsage', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'c1', name: 'server-1__click', arguments: {} }],
+        usage: { inputTokens: 10, outputTokens: 5 }
+      })
+      .mockResolvedValueOnce({
+        content: 'done',
+        toolCalls: [],
+        usage: { inputTokens: 20, outputTokens: 8 }
+      })
+
+    const onUsage = vi.fn()
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn(),
+      undefined, // onModel
+      undefined, // agenticMode
+      undefined, // inlineHandlers
+      undefined, // toolDirective
+      undefined, // onActivity
+      undefined, // autoApproveTools
+      undefined, // toolPolicy
+      undefined, // onToolFinished
+      undefined, // fullAutoApprove
+      undefined, // forceFirstToolChoice
+      onUsage,
+    )
+
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 10, outputTokens: 5 })
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 20, outputTokens: 8 })
+  })
 })
 
 function randomId() {

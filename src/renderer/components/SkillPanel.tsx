@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { Button } from './ui/primitives'
 import type { SkillConfig } from '../../shared/types'
-
-const TOOL_LABELS = {
-  fileEdit: 'File Edit',
-  terminal: 'Terminal',
-  webFetch: 'Web Fetch',
-} as const
 
 const EMPTY_SKILL: SkillConfig = {
   id: '',
@@ -81,6 +75,9 @@ export function SkillPanel() {
         <div className="flex-1 overflow-y-auto p-4 space-y-5 mr-1.5">
           <section className="space-y-2">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Skill</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Skills are package-backed instructions loaded only when activated. Tool access and approvals stay on the agent.
+            </p>
             <div className="flex items-center gap-2">
               <input
                 value={config.icon}
@@ -117,108 +114,29 @@ export function SkillPanel() {
             />
           </section>
 
-          <section className="space-y-2">
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Built-in tools</p>
-            {(['fileEdit', 'terminal', 'webFetch'] as const).map((key) => {
-              const tool = config.tools[key]
-              const updateEnabled = (enabled: boolean) => update('tools', {
-                ...config.tools,
-                [key]: {
-                  ...tool,
-                  enabled,
-                  approval: enabled && tool.approval === 'disabled' ? 'always-ask' : tool.approval,
-                },
-              })
-              return (
-                <div key={key} className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100">
-                      <input
-                        type="checkbox"
-                        checked={tool.enabled}
-                        onChange={(e) => updateEnabled(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded"
-                      />
-                      {TOOL_LABELS[key]}
-                    </label>
-                    <select
-                      value={tool.approval}
-                      onChange={(e) => update('tools', {
-                        ...config.tools,
-                        [key]: { ...tool, approval: e.target.value as 'auto' | 'always-ask' | 'disabled' },
-                      })}
-                      className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                    >
-                      <option value="always-ask">Always ask</option>
-                      <option value="auto">Auto</option>
-                      <option value="disabled">Disabled</option>
-                    </select>
-                  </div>
-                  <textarea
-                    value={tool.instructions}
-                    onChange={(e) => update('tools', {
-                      ...config.tools,
-                      [key]: { ...tool, instructions: e.target.value },
-                    })}
-                    rows={2}
-                    placeholder={`${TOOL_LABELS[key]} instructions`}
-                    className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                  />
+          {isEditing && (
+            <section className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+              <p className="font-medium text-gray-700 dark:text-gray-200">Package</p>
+              <p className="mt-1 text-gray-500 dark:text-gray-400">
+                {config.validationStatus ?? 'valid'} · {config.source ?? 'nexy'} · {config.contentHash?.slice(0, 12) ?? 'pending hash'}
+              </p>
+              {config.packagePath && <p className="mt-1 break-all font-mono text-[10px] text-gray-400">{config.packagePath}</p>}
+              <div className="mt-3 border-t border-gray-200 pt-2 dark:border-gray-700">
+                <p className="font-medium text-gray-700 dark:text-gray-200">
+                  Files ({config.packageFiles?.length ?? 0})
+                </p>
+                <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto font-mono text-[10px] text-gray-500 dark:text-gray-400">
+                  {(config.packageFiles ?? []).map((file) => (
+                    <div key={file.relativePath} className="flex items-center justify-between gap-3">
+                      <span className="truncate" title={file.relativePath}>{file.relativePath}</span>
+                      <span className="shrink-0">{file.sizeBytes.toLocaleString()} B</span>
+                    </div>
+                  ))}
+                  {(config.packageFiles?.length ?? 0) === 0 && <p className="italic">Package files are still loading.</p>}
                 </div>
-              )
-            })}
-          </section>
-
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Knowledge</p>
-              <button
-                type="button"
-                onClick={() => update('knowledge', [...config.knowledge, { title: '', content: '' }])}
-                className="inline-flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700"
-              >
-                <Plus className="w-3 h-3" />
-                Add
-              </button>
-            </div>
-            {config.knowledge.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500 italic">No skill knowledge notes.</p>
-            ) : config.knowledge.map((item, index) => (
-              <div key={index} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <input
-                    value={item.title}
-                    onChange={(e) => {
-                      const next = [...config.knowledge]
-                      next[index] = { ...item, title: e.target.value }
-                      update('knowledge', next)
-                    }}
-                    placeholder="Title"
-                    className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => update('knowledge', config.knowledge.filter((_, i) => i !== index))}
-                    className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                    aria-label="Remove knowledge note"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-                <textarea
-                  value={item.content}
-                  onChange={(e) => {
-                    const next = [...config.knowledge]
-                    next[index] = { ...item, content: e.target.value }
-                    update('knowledge', next)
-                  }}
-                  rows={3}
-                  placeholder="Content"
-                  className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none resize-none"
-                />
               </div>
-            ))}
-          </section>
+            </section>
+          )}
         </div>
 
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">

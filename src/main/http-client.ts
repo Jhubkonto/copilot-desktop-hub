@@ -76,7 +76,11 @@ export function providerHttpError(label: string, status: number | undefined, dat
     const parsed = JSON.parse(data)
     if (parsed.error?.message) message = parsed.error.message
   } catch { /* use default */ }
-  return new Error(message)
+  const err = new Error(message)
+  // Attach the HTTP status so callers (e.g. the tool loop's retry/backoff) can classify
+  // retryable failures (429/5xx) without brittle string matching on the message.
+  ;(err as Error & { status?: number }).status = status
+  return err
 }
 
 /** Low-level POST returning raw response body */

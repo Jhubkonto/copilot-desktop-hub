@@ -442,29 +442,42 @@ private fun SkillDetailScreen(
                     fontFamily = FontFamily.Monospace,
                 )
                 Spacer(Modifier.height(18.dp))
-                Text("Enabled tools", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text("Package", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    enabledToolsLabel(skill),
+                    "${skill.validationStatus} · ${skill.source} · ${skill.contentHash?.take(12) ?: "pending hash"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (skill.mcpServers.isNotEmpty()) {
-                    Spacer(Modifier.height(18.dp))
-                    Text("MCP servers", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(6.dp))
-                    Text(skill.mcpServers.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (skill.knowledge.isNotEmpty()) {
-                    Spacer(Modifier.height(18.dp))
-                    Text("Knowledge", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(6.dp))
-                    skill.knowledge.forEach { item ->
-                        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        if (item.content.isNotBlank()) {
-                            Text(item.content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Files (${skill.packageFiles.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(6.dp))
+                if (skill.packageFiles.isEmpty()) {
+                    Text(
+                        "Package files are still syncing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    skill.packageFiles.forEach { file ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                file.relativePath,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            Text(
+                                "${file.sizeBytes} B",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                     }
                 }
             }
@@ -569,65 +582,10 @@ private fun SkillFormFields(
     Spacer(Modifier.height(12.dp))
     OutlinedTextField(value = state.editTags, onValueChange = { vm.setEditTags(it) }, label = { Text("Tags (comma-separated)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
     Spacer(Modifier.height(18.dp))
-    Text("Built-in tools", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-    Spacer(Modifier.height(8.dp))
-    SkillToolEditor(
-        title = "File Edit",
-        enabled = state.editFileEditEnabled,
-        approval = state.editFileEditApproval,
-        instructions = state.editFileEditInstructions,
-        onEnabledChange = { vm.setEditFileEditEnabled(it) },
-        onApprovalChange = { vm.setEditFileEditApproval(it) },
-        onInstructionsChange = { vm.setEditFileEditInstructions(it) },
-    )
-    Spacer(Modifier.height(8.dp))
-    SkillToolEditor(
-        title = "Terminal",
-        enabled = state.editTerminalEnabled,
-        approval = state.editTerminalApproval,
-        instructions = state.editTerminalInstructions,
-        onEnabledChange = { vm.setEditTerminalEnabled(it) },
-        onApprovalChange = { vm.setEditTerminalApproval(it) },
-        onInstructionsChange = { vm.setEditTerminalInstructions(it) },
-    )
-    Spacer(Modifier.height(8.dp))
-    SkillToolEditor(
-        title = "Web Fetch",
-        enabled = state.editWebFetchEnabled,
-        approval = state.editWebFetchApproval,
-        instructions = state.editWebFetchInstructions,
-        onEnabledChange = { vm.setEditWebFetchEnabled(it) },
-        onApprovalChange = { vm.setEditWebFetchApproval(it) },
-        onInstructionsChange = { vm.setEditWebFetchInstructions(it) },
-    )
-    Spacer(Modifier.height(18.dp))
-    Text("MCP servers", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-    Spacer(Modifier.height(8.dp))
-    McpServerPicker(
-        servers = state.mcpServers,
-        selectedIds = state.editMcpServerIds,
-        trustByServerId = state.editMcpServerTrust,
-        onToggle = { id, enabled -> vm.toggleMcpServer(id, enabled) },
-        onCycleTrust = { id -> vm.cycleMcpServerTrust(id) },
-    )
-    Spacer(Modifier.height(12.dp))
-    OutlinedTextField(
-        value = state.editMcpToolOverrides,
-        onValueChange = { vm.setEditMcpToolOverrides(it) },
-        label = { Text("MCP tool overrides") },
-        placeholder = { Text("serverId/toolName | enabled | always-ask | Instructions") },
-        modifier = Modifier.fillMaxWidth(),
-        minLines = 3,
-    )
-    Spacer(Modifier.height(18.dp))
-    OutlinedTextField(
-        value = state.editKnowledge,
-        onValueChange = { vm.setEditKnowledge(it) },
-        label = { Text("Knowledge entries") },
-        placeholder = { Text("One per line: Title: Content") },
-        modifier = Modifier.fillMaxWidth(),
-        minLines = 4,
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+    Text(
+        "Skills are loaded only when activated. Configure tools, MCP servers, and approvals on the agent.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 

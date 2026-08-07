@@ -10,8 +10,6 @@ import { Button } from './ui/primitives'
 import { NexyIcon } from './ui/icons/NexyIcon'
 
 function specToSkill(spec: SkillGeneratorSpec): SkillConfig {
-  const approval = spec.approval ?? {}
-  const toolInstructions = spec.toolInstructions ?? {}
   return {
     id: '',
     name: spec.name,
@@ -21,35 +19,26 @@ function specToSkill(spec: SkillGeneratorSpec): SkillConfig {
     tags: spec.tags ?? [],
     tools: {
       fileEdit: {
-        enabled: spec.tools.fileEdit,
-        approval: approval.fileEdit ?? 'always-ask',
-        instructions: toolInstructions.fileEdit ?? '',
+        enabled: false,
+        approval: 'always-ask',
+        instructions: '',
       },
       terminal: {
-        enabled: spec.tools.terminal,
-        approval: approval.terminal ?? 'always-ask',
-        instructions: toolInstructions.terminal ?? '',
+        enabled: false,
+        approval: 'always-ask',
+        instructions: '',
       },
       webFetch: {
-        enabled: spec.tools.webFetch,
-        approval: approval.webFetch ?? 'always-ask',
-        instructions: toolInstructions.webFetch ?? '',
+        enabled: false,
+        approval: 'always-ask',
+        instructions: '',
       },
     },
-    mcpServers: spec.mcpServers ?? [],
+    mcpServers: [],
     mcpServerTrust: [],
     mcpToolOverrides: [],
     knowledge: spec.knowledge ?? [],
   }
-}
-
-function ToolBadge({ label, enabled }: { label: string; enabled: boolean }) {
-  if (!enabled) return null
-  return (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300">
-      {label}
-    </span>
-  )
 }
 
 function DraftPreview({ spec }: { spec: SkillGeneratorSpec | null }) {
@@ -75,17 +64,7 @@ function DraftPreview({ spec }: { spec: SkillGeneratorSpec | null }) {
           <p className="text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{spec.instructions}</p>
         </div>
       )}
-      <div>
-        <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Tools</p>
-        <div className="flex flex-wrap gap-1">
-          <ToolBadge label="File Edit" enabled={spec.tools.fileEdit} />
-          <ToolBadge label="Terminal" enabled={spec.tools.terminal} />
-          <ToolBadge label="Web Fetch" enabled={spec.tools.webFetch} />
-          {!spec.tools.fileEdit && !spec.tools.terminal && !spec.tools.webFetch && (
-            <span className="text-xs text-gray-400 italic">None</span>
-          )}
-        </div>
-      </div>
+      <p className="text-xs text-gray-400">Capabilities and approvals are configured on the agent, not granted by this skill.</p>
       {spec.tags && spec.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {spec.tags.map((tag) => (
@@ -157,20 +136,7 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: {
           <textarea value={spec.instructions} onChange={(e) => set({ instructions: e.target.value })} placeholder="Reusable instructions..." rows={7} className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none" />
           <input value={tagText} onChange={(e) => set({ tags: e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) })} placeholder="Tags, comma separated" className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
         </section>
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Tools</p>
-          <div className="flex flex-wrap gap-3">
-            {(['fileEdit', 'terminal', 'webFetch'] as const).map((key) => {
-              const labels = { fileEdit: 'File Edit', terminal: 'Terminal', webFetch: 'Web Fetch' }
-              return (
-                <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={spec.tools[key]} onChange={(e) => set({ tools: { ...spec.tools, [key]: e.target.checked } })} className="w-3.5 h-3.5 rounded" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{labels[key]}</span>
-                </label>
-              )
-            })}
-          </div>
-        </section>
+        <p className="text-xs text-gray-400">Tool access and approval policy are configured on the agent.</p>
       </div>
       <div className="px-4 pb-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2">
         <Button variant="secondary" onClick={onCancel} className="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-400">Back</Button>

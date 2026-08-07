@@ -16,6 +16,7 @@ import { inferProjectAuditTarget, recordProjectAuditChange } from './project-aud
 import { computeLineDiff } from './remote-edit/fix-agent'
 import { getSkillConfigsForAgent, upsertSkillConfigByName } from './skills'
 import { parseSkillMarkdown } from './skill-markdown'
+import { portableSkillName, readSkillResource, skillEntryMarkdown } from './skill-packages'
 import type { ArtifactKind, SkillConfig } from '../shared/types'
 import { extractKeywords } from './rating-handlers'
 import { findSimilarRatedStrategies } from './rating-retrieval'
@@ -359,14 +360,38 @@ export async function buildChatContext(
     .get(conversationId) as { agent_id: string | null } | undefined
 
   const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
+  const availableSkills = effectiveAgentId ? getSkillConfigsForAgent(effectiveAgentId) : []
+  const activatedSkillIds = new Set<string>()
+  const recordSkillActivation = (skill: SkillConfig, trigger: 'explicit' | 'implicit') => {
+    if (!effectiveAgentId || activatedSkillIds.has(skill.id)) return
+    db.prepare(
+      `INSERT OR IGNORE INTO conversation_skill_invocations
+       (id, conversation_id, skill_id, agent_id, content_hash, trigger, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'activated', ?)`,
+    ).run(randomUUID(), conversationId, skill.id, effectiveAgentId, skill.contentHash ?? null, trigger, Date.now())
+    activatedSkillIds.add(skill.id)
+  }
+  const findAvailableSkill = (name: string) => {
+    const slug = portableSkillName(name)
+    return availableSkills.find((skill) => portableSkillName(String(skill.frontmatter?.name ?? skill.name)) === slug) ?? null
+  }
+
   if (effectiveAgentId) {
-    const invokedSkills = getSkillConfigsForAgent(effectiveAgentId)
-    if (invokedSkills.length > 0) {
-      const insertSkillInvocation = db.prepare(
-        'INSERT OR IGNORE INTO conversation_skill_invocations (id, conversation_id, skill_id, agent_id, created_at) VALUES (?, ?, ?, ?, ?)',
-      )
-      for (const skill of invokedSkills) {
-        insertSkillInvocation.run(randomUUID(), conversationId, skill.id, effectiveAgentId, Date.now())
+    if (availableSkills.length > 0) {
+      const catalog = availableSkills
+        .map((skill) => `- ${portableSkillName(String(skill.frontmatter?.name ?? skill.name))}: ${skill.description}`)
+        .join('\n')
+      augmentedContent = `[Available skills — metadata only. Activate a skill only when its description clearly matches the task:\n${catalog}]\n\n${augmentedContent}`
+
+      const explicit = content.trimStart().match(/^\$([a-z0-9]+(?:-[a-z0-9]+)*)\b/i)
+      if (explicit) {
+        const skill = findAvailableSkill(explicit[1])
+        if (skill) {
+          recordSkillActivation(skill, 'explicit')
+          augmentedContent = `[Explicitly activated skill: ${portableSkillName(String(skill.frontmatter?.name ?? skill.name))}\n\n${skillEntryMarkdown(skill)}]\n\n${augmentedContent}`
+        } else {
+          augmentedContent = `[Skill activation failed: ${explicit[1]} is not available to this agent.]\n\n${augmentedContent}`
+        }
       }
     }
 
@@ -1104,6 +1129,59 @@ export async function buildChatContext(
 
   if (effectiveAgentId) {
     const capturedWebContentsForSkill = webContents
+
+    skillToolDefs.push({
+      type: 'function' as const,
+      function: {
+        name: 'activate_skill',
+        description: 'Load the complete SKILL.md for one available skill when its description clearly matches the current task.',
+        parameters: {
+          type: 'object',
+          properties: { name: { type: 'string', description: 'The exact lowercase skill name from the available-skills catalog' } },
+          required: ['name'],
+        },
+      },
+    })
+
+    skillToolDefs.push({
+      type: 'function' as const,
+      function: {
+        name: 'read_skill_resource',
+        description: 'Read a text reference or script from an already activated skill package. Paths are relative to that package.',
+        parameters: {
+          type: 'object',
+          properties: {
+            skill: { type: 'string', description: 'Activated skill name' },
+            path: { type: 'string', description: 'Relative package path such as references/policy.md' },
+          },
+          required: ['skill', 'path'],
+        },
+      },
+    })
+
+    skillInlineHandlers.set('activate_skill', async (args) => {
+      const name = typeof args.name === 'string' ? args.name : ''
+      const skill = findAvailableSkill(name)
+      if (!skill) return { success: false, error: `Skill "${name}" is not available to this agent` }
+      if (skill.validationStatus === 'invalid') return { success: false, error: `Skill "${name}" has an invalid package` }
+      recordSkillActivation(skill, 'implicit')
+      return { success: true, result: skillEntryMarkdown(skill) }
+    })
+
+    skillInlineHandlers.set('read_skill_resource', async (args) => {
+      const name = typeof args.skill === 'string' ? args.skill : ''
+      const path = typeof args.path === 'string' ? args.path : ''
+      const skill = findAvailableSkill(name)
+      if (!skill || !activatedSkillIds.has(skill.id)) {
+        return { success: false, error: 'Activate the skill before reading its resources' }
+      }
+      if (!skill.packagePath) return { success: false, error: 'This legacy skill has no package resources' }
+      try {
+        return { success: true, result: readSkillResource(skill.packagePath, path) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    })
 
     skillToolDefs.push({
       type: 'function' as const,

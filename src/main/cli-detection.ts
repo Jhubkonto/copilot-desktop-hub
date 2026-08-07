@@ -1,8 +1,9 @@
-import { execSync } from 'child_process'
-import { existsSync, readFileSync } from 'fs'
+import { execSync, spawnSync } from 'child_process'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import type { CliInstallStatus } from '../shared/types'
+import type { CliInstallStatus, HermesProfileInfo, HermesAcpReadiness } from '../shared/types'
+import { HERMES_DEFAULT_PROFILE } from '../shared/hermes'
 import { safeHandle } from './safe-handle'
 import { CODEX_DEFAULT_MODELS } from './cli-adapters/codex'
 import { getCachedAnthropicModels } from './anthropic-models'
@@ -207,6 +208,132 @@ function readHermesConfigModels(): CliModelOption[] {
   }
 }
 
+/** First non-empty, non-heading line of a profile's SOUL.md, as a short description. */
+function readHermesProfileDescription(profileDir: string): string | undefined {
+  try {
+    const soulPath = join(profileDir, 'SOUL.md')
+    const content = readFileSync(soulPath, 'utf8').slice(0, 4096)
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim()
+      if (!line || line.startsWith('#')) continue
+      return line.length > 120 ? `${line.slice(0, 117)}…` : line
+    }
+  } catch {
+    // No SOUL.md or unreadable — description is optional.
+  }
+  return undefined
+}
+
+/** Model/provider recorded in a single profile's config.yaml, if present. */
+function readHermesProfileModel(profileDir: string): { model?: string; provider?: string } {
+  try {
+    const content = readFileSync(join(profileDir, 'config.yaml'), 'utf8')
+    const modelBlock = extractYamlBlock(content, 'model')
+    if (!modelBlock) return {}
+    return {
+      model: readYamlScalar(modelBlock, 'default') ?? undefined,
+      provider: readYamlScalar(modelBlock, 'provider') ?? undefined,
+    }
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Enumerates Hermes profiles by scanning `~/.hermes/profiles/*` (each subdir is a
+ * fully isolated HERMES_HOME). A synthetic `default` entry is always present — it is
+ * the no-`--profile` case and may not correspond to a profiles/ subdirectory.
+ *
+ * Nexy-launched Hermes sessions inherit the selected profile's real home (memory,
+ * skills, SOUL.md) — profiles are consumed, never managed, from here. Dir-scan is used
+ * instead of `hermes profile list` (which has no `--json`) to avoid a subprocess on the
+ * config-UI path. Fully try/catch-guarded → `[default]`-safe, like readHermesConfigModels().
+ */
+export function listHermesProfiles(): HermesProfileInfo[] {
+  const defaultEntry: HermesProfileInfo = { name: HERMES_DEFAULT_PROFILE, isDefault: true }
+  try {
+    const profilesDir = join(homedir(), '.hermes', 'profiles')
+    if (!existsSync(profilesDir)) return [defaultEntry]
+
+    const named: HermesProfileInfo[] = []
+    for (const entry of readdirSync(profilesDir)) {
+      if (entry === HERMES_DEFAULT_PROFILE) continue
+      const profileDir = join(profilesDir, entry)
+      try {
+        if (!statSync(profileDir).isDirectory()) continue
+      } catch {
+        continue
+      }
+      const { model, provider } = readHermesProfileModel(profileDir)
+      named.push({
+        name: entry,
+        isDefault: false,
+        model,
+        provider,
+        description: readHermesProfileDescription(profileDir),
+      })
+    }
+    named.sort((a, b) => a.name.localeCompare(b.name))
+    return [defaultEntry, ...named]
+  } catch {
+    return [defaultEntry]
+  }
+}
+
+let cachedHermesReadiness: HermesAcpReadiness | null = null
+
+/**
+ * Probes whether the installed Hermes CLI can actually serve ACP — "binary present" is
+ * not the same as "ACP-ready" (credentials may be missing). Runs `hermes acp --check`
+ * (readiness) and `hermes acp --version` (version string) with strict short timeouts and
+ * `shell:false`. Result is cached; pass `force` to re-probe on manual recheck.
+ */
+export function hermesAcpReadiness(force = false): HermesAcpReadiness {
+  if (cachedHermesReadiness && !force) return cachedHermesReadiness
+
+  const executable = findCli('hermes').path
+  if (!executable) {
+    cachedHermesReadiness = { ready: false, detail: 'Hermes CLI not found on PATH.' }
+    return cachedHermesReadiness
+  }
+
+  const run = (args: string[]) =>
+    spawnSync(executable, args, { encoding: 'utf8', timeout: 3000, shell: false })
+
+  let version: string | undefined
+  try {
+    const versionResult = run(['acp', '--version'])
+    if (versionResult.status === 0 && typeof versionResult.stdout === 'string') {
+      version = versionResult.stdout.trim().split(/\r?\n/)[0] || undefined
+    }
+  } catch {
+    // Version is best-effort; readiness is decided by --check below.
+  }
+
+  try {
+    const check = run(['acp', '--check'])
+    if (check.error) {
+      cachedHermesReadiness = { ready: false, version, detail: check.error.message }
+    } else if (check.status === 0) {
+      cachedHermesReadiness = { ready: true, version }
+    } else {
+      const detail =
+        (typeof check.stderr === 'string' && check.stderr.trim()) ||
+        (typeof check.stdout === 'string' && check.stdout.trim()) ||
+        `hermes acp --check exited with code ${check.status ?? 'unknown'}`
+      cachedHermesReadiness = { ready: false, version, detail }
+    }
+  } catch (err) {
+    cachedHermesReadiness = {
+      ready: false,
+      version,
+      detail: err instanceof Error ? err.message : String(err),
+    }
+  }
+
+  return cachedHermesReadiness
+}
+
 export function detectAllClis(): Record<string, CliInstallStatus> {
   return {
     copilot: findCopilotCli(),
@@ -262,6 +389,10 @@ export function registerCliHandlers(): void {
   safeHandle('cli:detect-all', () => detectAllClis())
 
   safeHandle('cli:get-models', (_event, backend: string) => getCliModels(backend))
+
+  safeHandle('hermes:list-profiles', () => listHermesProfiles())
+
+  safeHandle('hermes:acp-readiness', (_event, force?: boolean) => hermesAcpReadiness(force ?? false))
 }
 
 export function checkCliOnStartup(): CliInstallStatus {

@@ -441,6 +441,8 @@ const api = {
   getCliStatus: () => typedInvoke('cli:status'),
   detectAllClis: () => typedInvoke('cli:detect-all'),
   getCliModels: (backend: string) => typedInvoke('cli:get-models', backend),
+  listHermesProfiles: () => typedInvoke('hermes:list-profiles'),
+  getHermesAcpReadiness: (force?: boolean) => typedInvoke('hermes:acp-readiness', force),
 
   // Agents
   listAgents: () => typedInvoke('agent:list'),

@@ -63,6 +63,10 @@ export function useCursorPagination<T extends { id: string }>(options: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.resetKey])
 
+  const updateItem = useCallback((id: string, updater: (item: T) => T) => {
+    setItems((existing) => existing.map((item) => (item.id === id ? updater(item) : item)))
+  }, [])
+
   return {
     items,
     totalCount,
@@ -72,5 +76,6 @@ export function useCursorPagination<T extends { id: string }>(options: {
     hasLoaded,
     refresh,
     loadMore: () => request(nextCursor, true),
+    updateItem,
   }
 }

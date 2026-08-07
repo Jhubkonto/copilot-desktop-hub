@@ -201,11 +201,27 @@ fun ScopedChatHistoryScreen(
                             onOpenChat = onOpenChat,
                             isActive = conversation.id in activeConversationIds,
                             hasNewContent = conversation.id in completedWhileAwayIds,
-                            isCompleted = conversation.id in completedConversationIds,
+                            // Derive completion from the conversation's own completed_at (as the
+                            // all-chats list and in-chat header badge both do). The
+                            // completedConversationIds set is only ever hydrated from the *global*
+                            // conversation list, so a project/agent-scoped conversation that isn't on
+                            // that list would never show its checkmark. OR in the set so an optimistic
+                            // mark-complete still reflects immediately before the next page refresh.
+                            isCompleted = conversation.completed_at != null || conversation.id in completedConversationIds,
                             onDelete = { _ -> deletingConversation = conversation },
+                            onTogglePin = { id, pinned ->
+                                WsRepository.setPinnedConversation(id, pinned)
+                                vm.updatePinned(id, pinned)
+                            },
                             onDebrief = if (onOpenDebrief != null) { id -> onOpenDebrief(id) } else null,
-                            onMarkComplete = { id -> WsRepository.markConversationComplete(id) },
-                            onMarkIncomplete = { id -> WsRepository.markConversationIncomplete(id) },
+                            onMarkComplete = { id ->
+                                WsRepository.markConversationComplete(id)
+                                vm.updateCompletedAt(id, System.currentTimeMillis())
+                            },
+                            onMarkIncomplete = { id ->
+                                WsRepository.markConversationIncomplete(id)
+                                vm.updateCompletedAt(id, null)
+                            },
                             onQuiz = if (onOpenQuiz != null) { id -> onOpenQuiz(id) } else null,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

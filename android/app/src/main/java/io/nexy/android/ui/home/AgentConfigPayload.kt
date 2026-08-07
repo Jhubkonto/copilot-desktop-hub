@@ -40,6 +40,7 @@ internal fun buildAgentUpdatePayload(config: AgentFullConfig): Map<String, Any> 
         put("fullAutoApprove", config.fullAutoApprove)
         put("backend", config.backend ?: "")
         put("cliModel", config.cliModel ?: "")
+        put("hermesProfile", config.hermesProfile ?: "")
         put("responseFormat", config.responseFormat)
         put("temperature", config.temperature)
         put("maxTokens", config.maxTokens.coerceIn(256, 128000))

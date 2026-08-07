@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.WsRepository
 import io.nexy.android.navigation.AppNavigator
@@ -185,6 +186,8 @@ private fun ConnectionSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
+    val intentionalRestartExpected by WsRepository.intentionalRestartExpected.collectAsStateWithLifecycle()
     val preferStandaloneMode by WsRepository.preferStandaloneMode.collectAsStateWithLifecycle()
     val profiles by WsRepository.profiles.collectAsStateWithLifecycle()
     val activeProfileId by WsRepository.activeProfileId.collectAsStateWithLifecycle()
@@ -213,6 +216,26 @@ private fun ConnectionSheet(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
+        // Current connectivity status — previously surfaced as the home-screen banner strip, now
+        // read here on the same view the dot opens.
+        val statusPresentation = getEffectiveModePresentation(effectiveMode, intentionalRestartExpected)
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(statusPresentation.color, CircleShape),
+            )
+            Text(
+                statusPresentation.label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
         activeProfile?.let { profile ->
             Text(
                 profile.name,
@@ -270,6 +293,17 @@ private fun ConnectionSheet(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // "Wake it up" nudge, moved here from the banner: only meaningful while we're actively
+            // searching for a desktop that may be asleep.
+            if (effectiveMode == EffectiveConnectionMode.SEARCHING) {
+                FilledTonalButton(
+                    onClick = { WsRepository.wakeDesktop() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text("Wake it up")
+                }
+            }
             FilledTonalButton(
                 onClick = { dismissThen { AppNavigator.navigate("home/add-server") } },
                 modifier = Modifier.fillMaxWidth(),
