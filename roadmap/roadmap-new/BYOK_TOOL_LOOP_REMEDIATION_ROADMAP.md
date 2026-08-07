@@ -1,6 +1,6 @@
 # BYOK Tool-Loop Remediation Roadmap
 
-**Status:** In progress — Findings 1, 2, 3, 5, 6, 7, 8, 9, 12 implemented (2026-08-07). Findings 4, 10, 11 deferred (see Implementation Status).
+**Status:** In progress — Findings 1–10 and 12 implemented (2026-08-07). Finding 11 blocked (see Implementation Status).
 
 ## Implementation Status (2026-08-07)
 
@@ -15,8 +15,8 @@
 | 8 | `required`/`any` rejected by some endpoints | ✅ Done | `callWithResilience` downgrades `required`→`auto` once on rejection |
 | 9 | Usage/cost not recorded for tool-loop turns | ✅ Done | `*WithTools` parse `usage`; `tool-loop.ts` forwards each round's usage via new `onUsage` param → `recordServerUsage` |
 | 12 | `onModel` not wired for Anthropic tool loop | ✅ Done | Anthropic branch now passes `onModel` |
-| 4 | Entire tool loop is non-streaming | ⏳ Deferred | Requires a streaming tool-call parser or a separate streaming final-answer caller across all four dispatch branches; broad surface, higher regression risk. Final text still reaches the UI via `onChunk`, just not incrementally |
-| 10 | Stop can't interrupt in-flight tool round | ⏳ Deferred | Requires registering the non-streaming `httpsRequestUrl` calls with `provider-stream-state` so `abortActiveStream` can cancel them — an http-client/abort-plumbing change. Stop still works between rounds |
+| 4 | Entire tool loop is non-streaming | ✅ Done (final answer) | `runProviderMcpToolLoop` takes a `finalStreamCaller`; the terminal answer streams token-by-token via `sendOpenAIMessage`/`sendAzureMessage`/new `sendAnthropicMessagesStream` (history-aware via `toAnthropicMessages`). Safe fallback to the non-streaming forced-'none' caller when the stream errors *before* emitting. Intra-loop token streaming (a streaming tool-call parser) is still future work |
+| 10 | Stop can't interrupt in-flight tool round | ✅ Done | `httpsRequestUrl` takes an `abortKey` (conversation id) → `requestWithResponse` registers the in-flight non-streaming request in `activeStreamingRequests`, so `abortActiveStream(conversationId)` cancels it. `requestWithResponse` now rejects on close-before-settle so a bare `req.destroy()` never hangs. `conversationId` threaded through `sendOpenAIWithTools`/`sendAzureWithTools`/`sendAnthropicWithTools` and dispatch. The streamed final answer is abortable automatically (it uses `runStreamingRequest`) |
 | 11 | Context budget crude for large-context models | ⏳ Blocked | The model catalog carries no per-model context-window size (the plan itself noted this). Needs catalog data before a per-model budget can be derived; the conservative fixed ceiling remains |
 
 **Tests added:** `tool-loop.test.ts` (interstitial text, malformed-arg feedback, usage forwarding), `openai-tool-args.test.ts` (arg repair/`argsError`), `provider-resilience.test.ts` (retry classification, backoff, `required`→`auto` downgrade), `chat.test.ts` (BYOK `tool-call` row persisted + ordered before the assistant message).

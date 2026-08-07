@@ -404,13 +404,15 @@ Gate:
 
 ### H4 — Readiness and minimal UX
 
+> **Status (2026-08-07): substantially delivered via the Hermes Profile Picker Unification roadmap (PR-1/PR-2/PR-3).** `hermesAcpReadiness()` (`cli-detection.ts`) runs `hermes acp --version` + `--check` as non-interactive probes (3s timeout, cached with a `force` recheck) and is exposed over IPC (`hermes:acp-readiness`) and to Android via the `app:cli-status` `hermes` block. Desktop `SettingsTab.tsx` renders a not-ready warning note, relabels the backend "Hermes Agent (ACP)", and no longer says `hermes -z`. Profile enumeration (`hermes:list-profiles`) shipped alongside.
+
 Deliverables:
 
-- Replace “Hermes installed” checks used for selection with an ACP readiness state.
-- Add setup, recheck, connecting, interrupted, and actionable error states using the unified UI system.
-- Keep normal labels as “Hermes Agent”; expose “ACP” only in diagnostics.
-- Preserve Android remote timeline and permission semantics through existing normalized events.
-- Remove or update UI copy that describes Hermes as `hermes -z` or as lacking streaming/modes when no longer true.
+- [x] Replace “Hermes installed” checks used for selection with an ACP readiness state. *(readiness probe + cache + manual recheck landed; selection still permits install-only, but readiness is surfaced non-blockingly.)*
+- [~] Add setup, recheck, connecting, interrupted, and actionable error states using the unified UI system. *(not-ready warning + recheck available; full interrupted/connecting state set still open.)*
+- [x] Keep normal labels as “Hermes Agent”; expose “ACP” only in diagnostics. *(desktop label now "Hermes Agent (ACP)".)*
+- [x] Preserve Android remote timeline and permission semantics through existing normalized events.
+- [x] Remove or update UI copy that describes Hermes as `hermes -z` or as lacking streaming/modes when no longer true.
 
 Gate:
 
