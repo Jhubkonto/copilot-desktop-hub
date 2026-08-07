@@ -47,6 +47,8 @@ fun ConversationActionsSheet(
     onDismiss: () -> Unit,
     onForkNavigate: (String) -> Unit,
     onImportNavigate: (String) -> Unit,
+    emergencyStopActive: Boolean = false,
+    onEmergencyStopClick: () -> Unit = {},
     vm: ConversationActionsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -266,6 +268,18 @@ fun ConversationActionsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 4.dp))
 
             ActionRow(
+                icon = if (emergencyStopActive) NexyIconName.Play else NexyIconName.Warning,
+                label = if (emergencyStopActive) "Resume conversations" else "Emergency stop all conversations",
+                sublabel = if (emergencyStopActive) "Allow conversations to respond again" else "Immediately cancels every active response",
+                loading = false,
+                onClick = { onDismiss(); onEmergencyStopClick() },
+                tint = MaterialTheme.colorScheme.error,
+                labelColor = MaterialTheme.colorScheme.error,
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 4.dp))
+
+            ActionRow(
                 icon = NexyIconName.Fork,
                 label = "Fork conversation",
                 sublabel = "Continue in a new branch or project",
@@ -296,6 +310,8 @@ private fun ActionRow(
     sublabel: String,
     loading: Boolean,
     onClick: () -> Unit,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    labelColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Row(
         modifier = Modifier
@@ -304,9 +320,9 @@ private fun ActionRow(
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NexyIcon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        NexyIcon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
         Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = labelColor)
             Text(sublabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (loading) {

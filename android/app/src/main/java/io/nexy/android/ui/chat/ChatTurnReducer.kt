@@ -90,6 +90,7 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
             turnId = event.turnId,
             lastSequence = event.sequence,
             status = ChatTurnStatus.Active,
+            generationStartedAt = System.currentTimeMillis(),
         )
     }
 

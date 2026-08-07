@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.FloatingActionButton
@@ -49,7 +48,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -1091,6 +1089,11 @@ fun ChatScreen(
             onImportNavigate = { importedId ->
                 onOpenFork?.invoke(importedId)
             },
+            emergencyStopActive = emergencyStopActive,
+            onEmergencyStopClick = {
+                if (emergencyStopActive) WsRepository.resumeConversations()
+                else showEmergencyStopConfirmation = true
+            },
         )
     }
 
@@ -1429,44 +1432,6 @@ fun ChatScreen(
                 },
                 onBack = onBack,
                 actions = {
-                    TextButton(onClick = {
-                        requestModelList()
-                        WsRepository.getCliStatus()
-                        showModelSheet = true
-                    }) {
-                        Icon(
-                            Icons.Default.Tune,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.size(6.dp))
-                        Column(modifier = Modifier.widthIn(max = 118.dp)) {
-                            Text(
-                                activeModelLabel,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (projectDefaultApplied) {
-                                Text(
-                                    "Project default",
-                                    maxLines = 1,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                    IconButton(onClick = { showModeSheet = true }) {
-                        NexyIcon(
-                            NexyIconName.Settings,
-                            contentDescription = "Chat mode settings",
-                            tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null || chatTerminalSandboxOverride != null || (activeCliBackend != null && chatCliModeOverride != null))
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                     if (assistantBusy) {
                         IconButton(
                             onClick = { vm.stopStream() },
@@ -1474,36 +1439,12 @@ fun ChatScreen(
                             NexyIcon(NexyIconName.Stop, contentDescription = "Stop")
                         }
                     }
-                    IconButton(
-                        onClick = {
-                            if (emergencyStopActive) WsRepository.resumeConversations()
-                            else showEmergencyStopConfirmation = true
-                        },
-                    ) {
+                    IconButton(onClick = { showActionsSheet = true }) {
                         NexyIcon(
-                            if (emergencyStopActive) NexyIconName.Play else NexyIconName.Warning,
-                            contentDescription = if (emergencyStopActive) "Resume conversations" else "Emergency stop all conversations",
+                            NexyIconName.More,
+                            contentDescription = "More actions",
                             tint = if (emergencyStopActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    if (conversation != null) {
-                        IconButton(
-                            onClick = {
-                                WsRepository.setPinnedConversation(conversationId, !conversation.pinned)
-                            },
-                        ) {
-                            NexyIcon(
-                                NexyIconName.Pin,
-                                contentDescription = if (conversation.pinned) "Unpin conversation" else "Pin conversation",
-                                tint = if (conversation.pinned)
-                                    MaterialTheme.colorScheme.secondary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    IconButton(onClick = { showActionsSheet = true }) {
-                        NexyIcon(NexyIconName.More, contentDescription = "More actions")
                     }
                 },
             )
@@ -1544,6 +1485,11 @@ fun ChatScreen(
                 },
                 onShowInspector = { showInspectorSheet = true },
                 isListening = if (usePairedVoice && voiceDockEnabled) voiceDockState.recording else voiceInput.listening,
+                isTranscribing = if (usePairedVoice && voiceDockEnabled) {
+                    voiceDockState.busy && !voiceDockState.recording
+                } else {
+                    voiceInput.processing
+                },
                 onVoiceInput = {
                     val listening = if (usePairedVoice && voiceDockEnabled) voiceDockState.recording else voiceInput.listening
                     if (!listening) {
@@ -1562,6 +1508,14 @@ fun ChatScreen(
                     preferenceStore.setVoiceDockFloating(true)
                 },
                 customSlashCommands = customSlashCommands,
+                modelLabel = activeModelLabel,
+                onModelClick = {
+                    requestModelList()
+                    WsRepository.getCliStatus()
+                    showModelSheet = true
+                },
+                onOpenModeSettings = { showModeSheet = true },
+                modeSettingsActive = chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null || chatTerminalSandboxOverride != null || (activeCliBackend != null && chatCliModeOverride != null),
             )
         },
     ) { padding ->

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +21,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -38,9 +43,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.AgentCustomCommand
 import io.nexy.android.ui.icons.NexyIcon
@@ -60,6 +67,7 @@ fun ChatInputBar(
     onInsertPrompt: () -> Unit = {},
     onShowInspector: () -> Unit = {},
     isListening: Boolean = false,
+    isTranscribing: Boolean = false,
     onVoiceInput: () -> Unit = {},
     voiceDockAvailable: Boolean = false,
     voiceDockFloating: Boolean = false,
@@ -68,6 +76,10 @@ fun ChatInputBar(
     onSetupManually: (() -> Unit)? = null,
     showAttachOptions: Boolean = true,
     customSlashCommands: List<AgentCustomCommand> = emptyList(),
+    modelLabel: String? = null,
+    onModelClick: () -> Unit = {},
+    onOpenModeSettings: () -> Unit = {},
+    modeSettingsActive: Boolean = false,
 ) {
     val attachSheetState = rememberModalBottomSheetState()
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -183,7 +195,7 @@ fun ChatInputBar(
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 12.dp, end = 12.dp, top = 8.dp),
+                            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(attachments, key = { it.id }) { att ->
@@ -244,14 +256,68 @@ fun ChatInputBar(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (modelLabel != null) {
+                        Spacer(Modifier.size(4.dp))
+                        // Model picker pill — mirrors the Claude app's bottom-of-composer model
+                        // selector so the top app bar can be reclaimed for space.
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                            color = Color.Transparent,
+                            modifier = Modifier.clickable(onClick = onModelClick),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                            ) {
+                                Text(
+                                    modelLabel,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 128.dp),
+                                )
+                                Icon(
+                                    Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        // Chat mode settings — kept a separate control from the model pill.
+                        IconButton(
+                            onClick = onOpenModeSettings,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            NexyIcon(
+                                NexyIconName.Settings,
+                                contentDescription = "Chat mode settings",
+                                tint = if (modeSettingsActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     Spacer(Modifier.weight(1f))
                     if (!voiceDockFloating) {
-                        IconButton(onClick = onVoiceInput, modifier = Modifier.size(36.dp)) {
-                            NexyIcon(
-                                NexyIconName.Microphone,
-                                contentDescription = if (isListening) "Stop voice input" else "Start voice input",
-                                tint = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        IconButton(
+                            onClick = onVoiceInput,
+                            enabled = !isTranscribing,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            if (isTranscribing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                NexyIcon(
+                                    NexyIconName.Microphone,
+                                    contentDescription = if (isListening) "Stop voice input" else "Start voice input",
+                                    tint = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     if (voiceDockAvailable && !voiceDockFloating) {

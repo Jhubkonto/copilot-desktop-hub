@@ -14,6 +14,7 @@ import android.speech.ModelDownloadListener
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -24,15 +25,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import io.nexy.android.ui.voice.usableVoiceTranscript
 import java.util.Locale
 
 data class OnDeviceVoiceInput(
     val listening: Boolean,
+    val processing: Boolean,
     val start: () -> Unit,
     val stop: () -> Unit,
     val cancel: () -> Unit,
@@ -79,12 +84,20 @@ fun OnDeviceVoiceButton(onText: (String) -> Unit, enabled: Boolean = true) {
         onText = onText,
         onError = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() },
     )
-    IconButton(onClick = voice.toggle, enabled = enabled) {
-        Icon(
-            Icons.Default.Mic,
-            contentDescription = if (voice.listening) "Stop voice input" else "Start voice input",
-            tint = if (voice.listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    IconButton(onClick = voice.toggle, enabled = enabled && !voice.processing) {
+        if (voice.processing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = if (voice.listening) "Stop voice input" else "Start voice input",
+                tint = if (voice.listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -94,6 +107,7 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
     val currentText by rememberUpdatedState(onText)
     val currentError by rememberUpdatedState(onError)
     var listening by remember { mutableStateOf(false) }
+    var processing by remember { mutableStateOf(false) }
     var recognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
     fun start(isRetry: Boolean = false) {
@@ -103,6 +117,7 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
         }
         recognizer?.destroy()
         recognizer = null
+        processing = false
         val local = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         val recognitionIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -116,9 +131,13 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
             override fun onBeginningOfSpeech() = Unit
             override fun onRmsChanged(rmsdB: Float) = Unit
             override fun onBufferReceived(buffer: ByteArray?) = Unit
-            override fun onEndOfSpeech() { listening = false }
+            override fun onEndOfSpeech() {
+                listening = false
+                processing = true
+            }
             override fun onError(error: Int) {
                 listening = false
+                processing = false
                 if (error == SpeechRecognizer.ERROR_CLIENT && !isRetry) {
                     local.destroy()
                     Handler(Looper.getMainLooper()).postDelayed({ start(true) }, 250)
@@ -151,6 +170,7 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
             }
             override fun onResults(results: Bundle?) {
                 listening = false
+                processing = false
                 local.destroy()
                 if (recognizer === local) recognizer = null
                 results
@@ -178,12 +198,14 @@ fun rememberOnDeviceVoiceInput(onText: (String) -> Unit, onError: (String) -> Un
     val stopVoice = {
         recognizer?.stopListening()
         listening = false
+        processing = true
     }
     val cancelVoice = {
         recognizer?.cancel()
         listening = false
+        processing = false
     }
     val toggle = remember(listening) {{ if (listening) stopVoice() else startVoice() }}
     DisposableEffect(Unit) { onDispose { recognizer?.destroy() } }
-    return OnDeviceVoiceInput(listening, startVoice, stopVoice, cancelVoice, toggle)
+    return OnDeviceVoiceInput(listening, processing, startVoice, stopVoice, cancelVoice, toggle)
 }
