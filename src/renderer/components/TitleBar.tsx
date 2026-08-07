@@ -319,7 +319,7 @@ export function TitleBar() {
         className={`h-7 w-7 inline-flex items-center justify-center rounded transition-colors disabled:cursor-wait disabled:opacity-60 ${
           emergencyStop.active
             ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-900/50'
-            : 'text-gray-500 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-950/40 dark:hover:text-red-400'
+            : 'text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300'
         }`}
         style={NO_DRAG}
         aria-label={emergencyStop.active ? 'Resume conversations' : 'Emergency stop all conversations'}
