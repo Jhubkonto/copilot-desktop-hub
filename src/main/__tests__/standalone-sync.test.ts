@@ -198,6 +198,97 @@ describe('standalone peer synchronization', () => {
     expect(messages.every(m => conversationIds.has(m.conversation_id))).toBe(true)
   })
 
+  it('omits bulk message bodies in shell hydration while keeping conversation previews', () => {
+    state.db!.prepare(
+      "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('shell-chat', 'Shell chat', 1, 100)",
+    ).run()
+    const insert = state.db!.prepare(
+      'INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)',
+    )
+    for (let index = 0; index < 40; index += 1) {
+      insert.run(`shell-msg-${index}`, 'shell-chat', index % 2 === 0 ? 'user' : 'assistant', `body-${index}`, index)
+    }
+
+    const result = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+      hydrationMode: 'shell',
+    })
+
+    expect(result.data.hydrationMode).toBe('shell')
+    // No bulk message bodies travel in the connect frame…
+    expect(result.data.snapshot.messages).toEqual([])
+    expect(result.data.snapshot.versions).not.toHaveProperty('message:shell-msg-39')
+    // …but the conversation row keeps its last-message preview so list rows still render.
+    const conversation = (result.data.snapshot.conversations as Array<{ id: string; last_message: string }>)
+      .find(row => row.id === 'shell-chat')
+    expect(conversation?.last_message).toBe('body-39')
+  })
+
+  it('omits wiki, prompt, and skill bodies in shell hydration (item C)', () => {
+    state.db!.prepare(
+      'INSERT INTO projects (id, name, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('lib-proj', 'Lib project', 'blue', 1, 1)
+    state.db!.prepare(
+      "INSERT INTO project_wiki_entries (id, project_id, title, body, tags, created_at, updated_at) VALUES ('wiki-1', 'lib-proj', 'W', 'wiki body', '[]', 1, 1)",
+    ).run()
+    state.db!.prepare(
+      "INSERT INTO prompt_library_entries (id, title, body, description, category, tags, scope, created_at, updated_at) VALUES ('prompt-1', 'P', 'prompt body', '', 'Custom', '[]', 'global', 1, 1)",
+    ).run()
+    state.db!.prepare(
+      "INSERT INTO skills (id, config_json, created_at, updated_at) VALUES ('skill-1', '{\"name\":\"S\",\"instructions\":\"skill body\"}', 1, 1)",
+    ).run()
+
+    const shell = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+      hydrationMode: 'shell',
+    })
+    // Library bodies are deferred to wiki:list / prompt:list / skill:list on screen entry…
+    expect(shell.data.snapshot.wiki).toEqual([])
+    expect(shell.data.snapshot.prompts).toEqual([])
+    expect(shell.data.snapshot.skills).toEqual([])
+    expect(shell.data.snapshot.versions).not.toHaveProperty('wiki:wiki-1')
+    expect(shell.data.snapshot.versions).not.toHaveProperty('prompt:prompt-1')
+    expect(shell.data.snapshot.versions).not.toHaveProperty('skill:skill-1')
+
+    // …but a full snapshot still carries them, with their sync versions.
+    const full = command('sync:hello', {
+      deviceId: 'android-2',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+      hydrationMode: 'full',
+    })
+    expect((full.data.snapshot.wiki as Array<{ id: string }>).some(r => r.id === 'wiki-1')).toBe(true)
+    expect((full.data.snapshot.prompts as Array<{ id: string }>).some(r => r.id === 'prompt-1')).toBe(true)
+    expect((full.data.snapshot.skills as Array<{ id: string }>).some(r => r.id === 'skill-1')).toBe(true)
+    expect(full.data.snapshot.versions).toHaveProperty('wiki:wiki-1')
+    expect(full.data.snapshot.versions).toHaveProperty('prompt:prompt-1')
+    expect(full.data.snapshot.versions).toHaveProperty('skill:skill-1')
+  })
+
+  it('still returns full message bodies when hydration mode is unspecified', () => {
+    state.db!.prepare(
+      "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('full-chat', 'Full chat', 1, 100)",
+    ).run()
+    state.db!.prepare(
+      "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('full-msg', 'full-chat', 'user', 'kept', 1)",
+    ).run()
+
+    const result = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+    })
+
+    expect(result.data.hydrationMode).toBe('full')
+    expect(result.data.snapshot.messages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'full-msg', content: 'kept' })]),
+    )
+  })
+
   it('applies and acknowledges an idempotent Android operation', () => {
     command('sync:hello', {
       deviceId: 'android-1',
