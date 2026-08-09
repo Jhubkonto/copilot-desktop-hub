@@ -10,9 +10,15 @@ const {
   isAvailableHermes,
   getCliModelsMock,
   isProviderConfiguredMock,
+  getProviderModelIdsMock,
   retrieveApiKeyMock,
   getOpenRouterModelsMock,
+  getCachedProviderModelsMock,
+  getAzureEndpointMock,
   fetchAndCacheOpenRouterModelsMock,
+  fetchAndCacheOpenAIModelsMock,
+  fetchAndCacheGeminiModelsMock,
+  fetchAndCacheAzureModelsMock,
   getCachedAnthropicModelsMock,
   fetchAndCacheAnthropicModelsMock,
 } = vi.hoisted(() => ({
@@ -22,9 +28,15 @@ const {
   isAvailableHermes: vi.fn(),
   getCliModelsMock: vi.fn(),
   isProviderConfiguredMock: vi.fn(),
+  getProviderModelIdsMock: vi.fn((provider: { models: string[] }) => provider.models),
   retrieveApiKeyMock: vi.fn(),
   getOpenRouterModelsMock: vi.fn(),
+  getCachedProviderModelsMock: vi.fn(() => []),
+  getAzureEndpointMock: vi.fn(() => null),
   fetchAndCacheOpenRouterModelsMock: vi.fn(),
+  fetchAndCacheOpenAIModelsMock: vi.fn(),
+  fetchAndCacheGeminiModelsMock: vi.fn(),
+  fetchAndCacheAzureModelsMock: vi.fn(),
   getCachedAnthropicModelsMock: vi.fn(),
   fetchAndCacheAnthropicModelsMock: vi.fn(),
 }))
@@ -41,9 +53,15 @@ vi.mock('../providers', () => ({
     { name: 'azure',     label: 'Azure OpenAI', models: ['gpt-4o'] },
   ],
   isProviderConfigured: isProviderConfiguredMock,
+  getProviderModelIds: getProviderModelIdsMock,
   retrieveApiKey: retrieveApiKeyMock,
   getOpenRouterModels: getOpenRouterModelsMock,
+  getCachedProviderModels: getCachedProviderModelsMock,
+  getAzureEndpoint: getAzureEndpointMock,
   fetchAndCacheOpenRouterModels: fetchAndCacheOpenRouterModelsMock,
+  fetchAndCacheOpenAIModels: fetchAndCacheOpenAIModelsMock,
+  fetchAndCacheGeminiModels: fetchAndCacheGeminiModelsMock,
+  fetchAndCacheAzureModels: fetchAndCacheAzureModelsMock,
 }))
 vi.mock('../anthropic-models', () => ({
   getCachedAnthropicModels: getCachedAnthropicModelsMock,
@@ -60,9 +78,18 @@ afterEach(() => {
   isProviderConfiguredMock.mockReset()
   retrieveApiKeyMock.mockReset()
   getOpenRouterModelsMock.mockReset()
+  getCachedProviderModelsMock.mockReset()
+  getCachedProviderModelsMock.mockReturnValue([])
+  getAzureEndpointMock.mockReset()
+  getAzureEndpointMock.mockReturnValue(null)
   fetchAndCacheOpenRouterModelsMock.mockReset()
+  fetchAndCacheOpenAIModelsMock.mockReset()
+  fetchAndCacheGeminiModelsMock.mockReset()
+  fetchAndCacheAzureModelsMock.mockReset()
   getCachedAnthropicModelsMock.mockReset()
   fetchAndCacheAnthropicModelsMock.mockReset()
+  getProviderModelIdsMock.mockReset()
+  getProviderModelIdsMock.mockImplementation((provider: { models: string[] }) => provider.models)
   safeHandleMock.mockReset()
 })
 

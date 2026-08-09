@@ -1,47 +1,72 @@
 import type { CatalogModel } from './types'
 
-export const MODEL_LABELS: Record<string, string> = {
-  'gpt-5.5':           'GPT-5.5',
-  'gpt-5.4':           'GPT-5.4',
-  'gpt-5.3-codex':     'GPT-5.3-Codex',
-  'gpt-5.2-codex':     'GPT-5.2-Codex',
-  'gpt-5.2':           'GPT-5.2',
-  'gpt-5-mini':        'GPT-5 mini',
-  'gpt-4.1':           'GPT-4.1',
-  'claude-opus-4.8':   'Claude Opus 4.8',
-  'claude-opus-4.7':   'Claude Opus 4.7',
-  'claude-opus-4.6':   'Claude Opus 4.6',
-  'claude-opus-4.5':   'Claude Opus 4.5',
-  'claude-sonnet-4.6': 'Claude Sonnet 4.6',
-  'claude-sonnet-4.5': 'Claude Sonnet 4.5',
-  'claude-sonnet-4':   'Claude Sonnet 4',
-  'claude-haiku-4.5':  'Claude Haiku 4.5',
+/**
+ * Single canonical definition of the models Nexy knows about. Labels, billing
+ * multipliers, and the static catalog seed are all derived from this list so
+ * they cannot drift out of sync. `capabilities` defaults to tool-capable when
+ * omitted (see {@link getStaticCatalogSeed}). Multipliers are sourced from the
+ * GitHub Copilot billing docs.
+ *
+ * This is the label/billing catalog — NOT the per-provider offering list. Which
+ * provider surfaces which model lives in `provider-registry.ts`; entries here
+ * without a matching provider model simply provide labels/multipliers for IDs
+ * that arrive from live provider `/models` fetches.
+ */
+export interface KnownModel {
+  id: string
+  name: string
+  vendor: string
+  capabilities?: string[]
+  multiplier?: number
 }
 
-// Multipliers keyed by model ID — sourced from GitHub Copilot billing docs.
-const MODEL_MULTIPLIERS: Record<string, number> = {
-  'gpt-5.5':           57,
-  'gpt-5.4':            6,
-  'gpt-5.4-mini':       6,
-  'gpt-5.3-codex':      6,
-  'gpt-5.2-codex':      3,
-  'gpt-5.2':            3,
-  'gpt-5.1':            3,
-  'gpt-5.1-codex':      3,
-  'gpt-5.1-codex-mini': 0.33,
-  'gpt-5.1-codex-max':  3,
-  'gpt-5-mini':         0.33,
-  'gpt-4.1':            1,
-  'gpt-4o':             0.33,
-  'gpt-4o-mini':        0.33,
-  'claude-opus-4.8':   27,
-  'claude-opus-4.7':   27,
-  'claude-opus-4.6':   27,
-  'claude-opus-4.5':   15,
-  'claude-sonnet-4.6':  9,
-  'claude-sonnet-4.5':  6,
-  'claude-sonnet-4':    6,
-  'claude-haiku-4.5':   0.33,
+export const KNOWN_MODELS: KnownModel[] = [
+  { id: 'gpt-5.5',            name: 'GPT-5.5',            vendor: 'OpenAI',    multiplier: 57 },
+  { id: 'gpt-5.4',            name: 'GPT-5.4',            vendor: 'OpenAI',    multiplier: 6 },
+  { id: 'gpt-5.4-mini',       name: 'GPT-5.4 mini',       vendor: 'OpenAI',    multiplier: 6 },
+  { id: 'gpt-5.3-codex',      name: 'GPT-5.3-Codex',      vendor: 'OpenAI',    multiplier: 6 },
+  { id: 'gpt-5.2-codex',      name: 'GPT-5.2-Codex',      vendor: 'OpenAI',    multiplier: 3 },
+  { id: 'gpt-5.2',            name: 'GPT-5.2',            vendor: 'OpenAI',    multiplier: 3 },
+  { id: 'gpt-5.1',            name: 'GPT-5.1',            vendor: 'OpenAI',    multiplier: 3 },
+  { id: 'gpt-5.1-codex',      name: 'GPT-5.1-Codex',      vendor: 'OpenAI',    multiplier: 3 },
+  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1-Codex mini', vendor: 'OpenAI',    multiplier: 0.33 },
+  { id: 'gpt-5.1-codex-max',  name: 'GPT-5.1-Codex max',  vendor: 'OpenAI',    multiplier: 3 },
+  { id: 'gpt-5-mini',         name: 'GPT-5 mini',         vendor: 'OpenAI',    multiplier: 0.33 },
+  { id: 'gpt-4.1',            name: 'GPT-4.1',            vendor: 'OpenAI',    multiplier: 1 },
+  { id: 'gpt-4o',             name: 'GPT-4o',             vendor: 'OpenAI',    multiplier: 0.33 },
+  { id: 'gpt-4o-mini',        name: 'GPT-4o mini',        vendor: 'OpenAI',    multiplier: 0.33 },
+  { id: 'claude-opus-4.8',    name: 'Claude Opus 4.8',    vendor: 'Anthropic', multiplier: 27 },
+  { id: 'claude-opus-4.7',    name: 'Claude Opus 4.7',    vendor: 'Anthropic', multiplier: 27 },
+  { id: 'claude-opus-4.6',    name: 'Claude Opus 4.6',    vendor: 'Anthropic', multiplier: 27 },
+  { id: 'claude-opus-4.5',    name: 'Claude Opus 4.5',    vendor: 'Anthropic', multiplier: 15 },
+  { id: 'claude-sonnet-4.6',  name: 'Claude Sonnet 4.6',  vendor: 'Anthropic', multiplier: 9 },
+  { id: 'claude-sonnet-4.5',  name: 'Claude Sonnet 4.5',  vendor: 'Anthropic', multiplier: 6 },
+  { id: 'claude-sonnet-4',    name: 'Claude Sonnet 4',    vendor: 'Anthropic', multiplier: 6 },
+  { id: 'claude-haiku-4.5',   name: 'Claude Haiku 4.5',   vendor: 'Anthropic', multiplier: 0.33 },
+]
+
+export const MODEL_LABELS: Record<string, string> = Object.fromEntries(
+  KNOWN_MODELS.map((m) => [m.id, m.name])
+)
+
+// Multipliers keyed by model ID — derived from KNOWN_MODELS.
+const MODEL_MULTIPLIERS: Record<string, number> = Object.fromEntries(
+  KNOWN_MODELS.filter((m) => m.multiplier !== undefined).map((m) => [m.id, m.multiplier as number])
+)
+
+/**
+ * Static catalog seed derived from {@link KNOWN_MODELS}. Consumed by the
+ * main-process model catalog (`model-catalog.ts`) so the dropdown catalog and
+ * the label/multiplier maps share one source of truth.
+ */
+export function getStaticCatalogSeed(): CatalogModel[] {
+  return KNOWN_MODELS.map((m) => ({
+    id: m.id,
+    name: m.name,
+    vendor: m.vendor,
+    capabilities: m.capabilities ?? ['tool_calls'],
+    ...(m.multiplier !== undefined ? { multiplier: m.multiplier } : {}),
+  }))
 }
 
 // Fallback multipliers keyed by display name for models whose API IDs are not

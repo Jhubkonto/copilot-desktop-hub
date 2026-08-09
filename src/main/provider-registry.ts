@@ -1,9 +1,10 @@
 import type { ProviderName } from './provider-core-types'
-import { getOpenRouterModels, retrieveApiKey } from './provider-secrets'
+import { getOpenRouterModels, getCachedProviderModels, retrieveApiKey } from './provider-secrets'
+import { getCachedAnthropicModels } from './anthropic-models'
 
 export const DEFAULT_PROVIDER_MODEL = 'gpt-5-mini'
 
-interface ProviderConfig {
+export interface ProviderConfig {
   name: ProviderName
   label: string
   apiKeySettingKey: string
@@ -70,6 +71,63 @@ export const PROVIDERS: ProviderConfig[] = [
 const MODEL_TO_PROVIDER = new Map<string, ProviderName>(
   PROVIDERS.flatMap((p) => p.models.map((m) => [m, p.name] as [string, ProviderName]))
 )
+
+// Providers whose live `/models` listing we cache and merge into the dropdowns.
+// (Anthropic and OpenRouter have their own dedicated caches handled below.)
+const PROVIDER_MODEL_CACHE_KEYS: Partial<Record<ProviderName, string>> = {
+  openai: 'openai_models_cache',
+  gemini: 'gemini_models_cache',
+  azure: 'azure_models_cache',
+}
+
+/**
+ * Collapses ID spelling differences so the same model from the static registry
+ * and from a live `/models` fetch dedupes to one entry. Handles Anthropic's
+ * dotted-vs-dashed-vs-dated forms (`claude-opus-4.8` ⇔ `claude-opus-4-8` ⇔
+ * `claude-opus-4-8-20260515`) and `-latest` aliases.
+ */
+function normalizeModelKey(id: string): string {
+  return id
+    .toLowerCase()
+    .replace(/^~+/, '')
+    .replace(/\./g, '-')
+    .replace(/-latest$/, '')
+    .replace(/-\d{8}$/, '')
+}
+
+/**
+ * Merges the hand-maintained static list with live-fetched IDs, keeping the
+ * static entries first (stable, human-readable) and appending any live model
+ * not already represented. Deduped by {@link normalizeModelKey} so a freshly
+ * released model surfaces once while known models keep their curated spelling.
+ */
+function mergeModelIds(staticIds: string[], liveIds: string[]): string[] {
+  const merged = [...staticIds]
+  const seen = new Set(staticIds.map(normalizeModelKey))
+  for (const id of liveIds) {
+    const key = normalizeModelKey(id)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(id)
+  }
+  return merged
+}
+
+/**
+ * The authoritative list of model IDs to surface for a configured provider.
+ * Shared by the desktop dropdowns (`model-availability.ts`) and the Android
+ * companion (`ws-handlers.ts`) so both stay in sync. Merges live provider
+ * `/models` caches into the static registry where available.
+ */
+export function getProviderModelIds(provider: ProviderConfig): string[] {
+  if (provider.name === 'openrouter') return getOpenRouterModels()
+  if (provider.name === 'anthropic') {
+    return mergeModelIds(provider.models, getCachedAnthropicModels().map((m) => m.id))
+  }
+  const cacheKey = PROVIDER_MODEL_CACHE_KEYS[provider.name]
+  if (cacheKey) return mergeModelIds(provider.models, getCachedProviderModels(cacheKey))
+  return provider.models
+}
 
 export function getProviderForAgent(agentModel: string): { provider: ProviderName; model: string } {
   const cleanedModel = (agentModel || '').replace(/^~+/, '')
