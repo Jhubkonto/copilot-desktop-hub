@@ -20,29 +20,6 @@ import { getWorkspaceInfo, startBuildFromMobile, cancelMobileBuild, publishArtif
 import { dbListTasks, dbGetTask, dbCreateTask, dbUpdateTask, dbDeleteTask, dbSetTaskEnabled, dbListRuns, schedulerEngine } from './scheduler-engine'
 import { existsSync as fsExistsSync } from 'fs'
 import pathModule from 'path'
-import { createErrorReport, rowToErrorReport, deleteErrorReport } from './error-report-handlers'
-import { applyStagedPatchToWorkspace, computeActiveCodeChangesByProject, markStagedFileReviewed } from './remote-edit-handlers'
-import { getHistoryEntryForReport, listHistory } from './remote-edit/history'
-import {
-  emitInvestigationEvent,
-  loadInvestigationSettings,
-  runInvestigation,
-  saveInvestigationSettings,
-} from './remote-edit/investigator'
-import { runFix, emitFixEvent } from './remote-edit/fix-agent'
-import { emitVerificationEvent, runVerification } from './remote-edit/verifier'
-import { commitRemoteEditFix, prepareRemoteEditCommit, pushRemoteEditFix } from './remote-edit/git-ops'
-import { getRecoveryRuns, prepareReload, rollbackHeal } from './remote-edit/recovery'
-import {
-  submitDescription,
-  acceptPlanAndExecute,
-  pushCurrentCommit,
-  undoCodeChange,
-  getRevisionHistory,
-  getReportForConversation,
-  getReportSummary,
-  formatPlanMessage,
-} from './code-change/step-flow'
 import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
 import {
   listBranches,
@@ -136,9 +113,9 @@ import {
   updatePromptLibraryEntry,
 } from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
-import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
+import type { ContextInspectorSnapshot } from '../shared/types'
 import { CLAUDE_CLI_MODES, CODEX_CLI_MODES } from '../shared/types'
-import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
+import { getProjectAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
 import {
   ensureLegacyProjectSource,
   listProjectSources,
@@ -147,8 +124,8 @@ import {
   rescanProjectSources,
   setPrimarySourcePath,
 } from './project-sources'
-import { parseProjectConfig, detectProjectWorkspaceMetadata, PROJECT_COLORS } from './project-handlers'
-import { listDirectoryEntriesForRemote, getFsStartRoots } from './file-handlers'
+import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-handlers'
+import { listDirectoryEntriesForRemote, readTextFileForRemote, getFsStartRoots, getFsAuthorizedRoots } from './file-handlers'
 import {
   createSkillConfig,
   deleteSkillConfig,
@@ -365,6 +342,26 @@ export function registerWsHandlers(): void {
     }
     if (command === 'ping') return
 
+    const retiredCodeChangeCommands = new Set([
+      'code-change:submit-description',
+      'code-change:accept-plan',
+      'code-change:get-plan-revisions',
+      'code-change:get-report-for-conversation',
+      'code-change:get-status',
+      'code-change:push',
+      'code-change:undo',
+    ])
+    if (command.startsWith('self-heal:') || command.startsWith('error-report:') || retiredCodeChangeCommands.has(command)) {
+      reply({
+        event: 'code-change:removed',
+        data: {
+          code: 'feature-removed',
+          message: 'Code Changes has been removed. Use a normal project conversation or the Git code panel.',
+        },
+      })
+      return
+    }
+
     if (command.startsWith('conversation-mode:')) {
       reply({
         event: 'conversation-mode:error',
@@ -447,458 +444,48 @@ export function registerWsHandlers(): void {
       return
     }
 
-    if (command === 'error-report:request-capture') {
-      try {
-        const allowedRequestTypes: CodeChangeRequestType[] = ['edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom']
-        const requestType: CodeChangeRequestType = allowedRequestTypes.includes(data.requestType as CodeChangeRequestType)
-          ? (data.requestType as CodeChangeRequestType)
-          : 'edit'
-        const conversationId = typeof data.conversationId === 'string' && data.conversationId ? data.conversationId : undefined
-        const result = createErrorReport({
-          title: typeof data.title === 'string' ? data.title : 'Android edit request',
-          description: typeof data.description === 'string' ? data.description : 'Requested from Android.',
-          includeLog: data.includeLog !== false,
-          includeScreenshot: false,
-          requestType,
-          customTypeLabel: typeof data.customTypeLabel === 'string' ? data.customTypeLabel : null,
-          origin: conversationId ? 'chat' : 'android',
-          projectId: typeof data.projectId === 'string' && data.projectId ? data.projectId : undefined,
-          conversationId,
-          workspaceRoot: (getDatabase()
-            .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
-            .get() as { value: string } | undefined)?.value ?? process.cwd(),
-        })
-        reply({ event: 'error-report:captured', data: result })
-      } catch (error) {
-        reply({
-          event: 'error-report:error',
-          data: { message: error instanceof Error ? error.message : String(error) },
-        })
-      }
-      return
-    }
-
-    if (command === 'self-heal:get-history') {
-      reply({ event: 'self-heal:history', data: { entries: listHistory() } })
-      return
-    }
-
-    if (command === 'self-heal:get-history-for-report') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      reply({ event: 'self-heal:history-for-report', data: { reportId, entry: getHistoryEntryForReport(reportId) } })
-      return
-    }
-
-    if (command === 'self-heal:get-reports') {
-      // projectId is effectively required by both current callers (desktop's own error-report:list
-      // IPC path is unaffected by this handler; Android always has a project in scope now) — kept
-      // optional here only as a safety fallback for older clients, not a maintained path.
-      const projectId = typeof data.projectId === 'string' && data.projectId ? data.projectId : null
-      const rows = projectId
-        ? getDatabase()
-            .prepare('SELECT * FROM error_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 50')
-            .all(projectId) as Record<string, unknown>[]
-        : getDatabase()
-            .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
-            .all() as Record<string, unknown>[]
-      const reports = rows.map(rowToErrorReport)
-      debugLog('ws', `self-heal:get-reports → projectId=${projectId ?? 'none'} returning ${reports.length} reports`)
-      reply({ event: 'self-heal:reports', data: { reports } })
-      return
-    }
-
-    if (command === 'self-heal:get-active-code-changes') {
-      reply({ event: 'self-heal:active-code-changes-changed', data: computeActiveCodeChangesByProject() })
-      return
-    }
-
-    if (command === 'self-heal:set-report-status') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      const status = typeof data.status === 'string' ? data.status : ''
-      if (!reportId || !['open', 'investigating', 'investigated', 'completed', 'rejected'].includes(status)) return
-      const now = Date.now()
-      getDatabase().prepare('UPDATE error_reports SET status = ?, updated_at = ? WHERE id = ?').run(status, now, reportId)
-      const projectId = typeof data.projectId === 'string' && data.projectId ? data.projectId : null
-      const rows = projectId
-        ? getDatabase()
-            .prepare('SELECT * FROM error_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 50')
-            .all(projectId) as Record<string, unknown>[]
-        : getDatabase()
-            .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
-            .all() as Record<string, unknown>[]
-      const reports = rows.map(rowToErrorReport)
-      reply({ event: 'self-heal:reports', data: { reports } })
-      // Other connected clients may be viewing a different project's list — a full unfiltered
-      // resend would silently overwrite whatever they're scoped to. Broadcast just the change and
-      // let each client re-request its own project-scoped list (see self-heal:get-reports).
-      broadcastToMobile({ event: 'self-heal:reports-changed', data: { reportId, status } })
-      return
-    }
-
-    if (command === 'self-heal:get-investigation-settings') {
-      reply({ event: 'self-heal:investigation-settings', data: loadInvestigationSettings() })
-      return
-    }
-
-    if (command === 'self-heal:set-investigation-settings') {
-      const settings = saveInvestigationSettings(data as unknown as RemoteEditInvestigationSettings)
-      reply({ event: 'self-heal:investigation-settings', data: settings })
-      return
-    }
-
-    if (command === 'self-heal:start-investigation') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      const revisionNotes = typeof data.revisionNotes === 'string' ? data.revisionNotes : undefined
-      const win = BrowserWindow.getAllWindows()[0]
-      if (!win) return
-      debugLog('ws', `self-heal:start-investigation reportId=${reportId}`)
-      void runInvestigation(win, reportId, {
-        onChunk: (chunk) => {
-          emitInvestigationEvent(win, 'remote-edit:investigation-chunk', { reportId, chunk })
-        },
-        onActivity: (activity) => {
-          emitInvestigationEvent(win, 'remote-edit:investigation-activity', activity)
-        },
-      }, revisionNotes).then((result) => {
-        emitInvestigationEvent(win, 'remote-edit:investigation-done', result)
-      })
-      return
-    }
-
-    if (command === 'self-heal:start-fix') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      const win = BrowserWindow.getAllWindows()[0]
-      if (!win) return
-      debugLog('ws', `self-heal:start-fix reportId=${reportId}`)
-      void runFix(win, reportId, {
-        onEvent: (event) => {
-          emitFixEvent(win, 'remote-edit:fix-event', event)
-        },
-      }).then((result) => {
-        emitFixEvent(win, 'remote-edit:fix-done', result)
-      })
-      return
-    }
-
-    if (command === 'self-heal:start-verification') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      const win = BrowserWindow.getAllWindows()[0]
-      if (!win) return
-      const runId = `${reportId}-${Date.now()}`
-      debugLog('ws', `self-heal:start-verification reportId=${reportId}`)
-      void runVerification(reportId, (event) => {
-        emitVerificationEvent(win, 'remote-edit:verification-event', event)
-      }, runId).then((result) => {
-        emitVerificationEvent(win, 'remote-edit:verification-done', result)
-      })
-      return
-    }
-
-    if (command === 'self-heal:get-staged-diff') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
-      if (!reportId || !relativePath) return
-      const row = getDatabase()
-        .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
-        .get(reportId, relativePath) as { diff_json: string } | undefined
-      if (!row) {
-        const auditDiff = getRemoteEditAuditDiff(reportId, relativePath)
-        if (auditDiff) {
-          reply({
-            event: 'self-heal:staged-diff',
-            data: { reportId, ...auditDiff },
-          })
-          return
-        }
-        reply({ event: 'self-heal:staged-diff', data: { reportId, relativePath, hunks: null } })
-        return
-      }
-      reply({
-        event: 'self-heal:staged-diff',
-        data: { reportId, relativePath, ...(JSON.parse(row.diff_json) as object) },
-      })
-      return
-    }
-
-    if (command === 'self-heal:list-staged-files') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      const row = getDatabase()
-        .prepare('SELECT fix_staged_files, fix_status FROM error_reports WHERE id = ?')
-        .get(reportId) as { fix_staged_files: string; fix_status: string } | undefined
-      if (!row) return
-      reply({
-        event: 'self-heal:staged-files',
-        data: {
-          reportId,
-          fixStatus: row.fix_status,
-          stagedFiles: JSON.parse(row.fix_staged_files || '[]'),
-        },
-      })
-      return
-    }
-
-    if (command === 'self-heal:mark-file-reviewed') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
-      const reviewed = markStagedFileReviewed(reportId, relativePath)
-      reply({ event: 'self-heal:file-reviewed-result', data: { reportId, relativePath, reviewed } })
-      return
-    }
-
-    if (command === 'self-heal:git-prepare-commit') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      void prepareRemoteEditCommit(reportId).then((result) => {
-        reply({ event: 'self-heal:git-prepare-result', data: result })
-      })
-      return
-    }
-
-    if (command === 'self-heal:git-commit') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      const message = typeof data.message === 'string' ? data.message : ''
-      if (!reportId) return
-      debugLog('ws', `self-heal:git-commit reportId=${reportId}`)
-      void commitRemoteEditFix(reportId, message).then((result) => {
-        reply({ event: 'self-heal:git-commit-result', data: result })
-      })
-      return
-    }
-
-    if (command === 'self-heal:git-push') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      void pushRemoteEditFix(reportId).then((result) => {
-        reply({ event: 'self-heal:git-push-result', data: result })
-      })
-      return
-    }
-
-    if (command === 'self-heal:prepare-reload') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      void prepareReload(reportId).then((result) => {
-        reply({ event: 'self-heal:reload-prepare-result', data: result })
-      })
-      return
-    }
-
-    if (command === 'self-heal:get-recovery-runs') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      reply({ event: 'self-heal:recovery-runs', data: { reportId, runs: getRecoveryRuns(reportId) } })
-      return
-    }
-
-    if (command === 'self-heal:request-rollback') {
-      const recoveryId = typeof data.recoveryId === 'string' ? data.recoveryId : ''
-      if (!recoveryId) return
-      void rollbackHeal(recoveryId, (event) => {
-        broadcastToMobile({ event: 'self-heal:recovery-event', data: event })
-      })
-      return
-    }
-
-    if (command === 'self-heal:delete-report') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      debugLog('ws', `self-heal:delete-report reportId=${reportId}`)
-      try {
-        const deleted = deleteErrorReport(reportId)
-        broadcastToMobile({ event: 'self-heal:report-deleted', data: { reportId, deleted } })
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err)
-        broadcastToMobile({ event: 'self-heal:report-deleted', data: { reportId, deleted: false, error: errorMsg } })
-      }
-      return
-    }
-
-    if (command === 'self-heal:apply-staged-patch') {
-      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-      if (!reportId) return
-      debugLog('ws', `self-heal:apply-staged-patch reportId=${reportId}`)
-      try {
-        const result = applyStagedPatchToWorkspace(reportId)
-        if (!result) {
-          reply({ event: 'self-heal:apply-result', data: { reportId, error: 'Nothing to apply' } })
-          return
-        }
-        if ('error' in result) {
-          reply({ event: 'self-heal:apply-result', data: { reportId, error: result.error } })
-          return
-        }
-        reply({ event: 'self-heal:apply-result', data: { reportId, ...result } })
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err)
-        reply({ event: 'self-heal:apply-result', data: { reportId, error: errorMsg } })
-      }
-      return
-    }
-
-    // Code Changes (independent slash-command actions, no wizard/step gating)
-    if (command === 'code-change:get-report-for-conversation') {
-      try {
-        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
-        if (!conversationId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing conversationId' } })
-          return
-        }
-        const report = getReportForConversation(conversationId)
-        reply({ event: 'code-change:report', data: { report } })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:get-status') {
-      try {
-        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
-        if (!conversationId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing conversationId' } })
-          return
-        }
-        const summary = await getReportSummary(conversationId)
-        reply({ event: 'code-change:status', data: summary })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:submit-description') {
-      try {
-        const win = BrowserWindow.getAllWindows()[0]
-        if (!win) {
-          reply({ event: 'code-change:error', data: { error: 'No active window' } })
-          return
-        }
-        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
-        const projectId = typeof data.projectId === 'string' ? data.projectId : ''
-        const description = typeof data.description === 'string' ? data.description : ''
-        const repoRelativePath = typeof data.repoRelativePath === 'string' ? data.repoRelativePath : undefined
-        if (!conversationId || !projectId || !description) {
-          reply({ event: 'code-change:error', data: { error: 'Missing conversationId, projectId, or description' } })
-          return
-        }
-        debugLog('ws', `code-change:submit-description conversationId=${conversationId}`)
-        submitDescription(win, conversationId, projectId, description, { repoRelativePath }).then((result) => {
-          // Persists the plan as a real message here rather than relying on the Android client
-          // still being connected to react to the 'code-change:submitted' event below — the
-          // investigation can run for minutes, during which the app very plausibly backgrounds
-          // or the user navigates away, and a ChatViewModel instance that isn't alive to catch
-          // that event would otherwise mean the plan is never shown anywhere. Desktop doesn't
-          // need this: its /code-change slash command awaits this same call directly within the
-          // renderer that started it, so it already reliably shows the result itself — adding a
-          // second copy here would just duplicate that message for desktop.
-          const report = getReportForConversation(conversationId)
-          if (report?.investigation_markdown) {
-            const db = getDatabase()
-            const now = Date.now()
-            db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
-              .run(randomUUID(), conversationId, 'system', `**Plan ready:**\n\n${formatPlanMessage(report)}`, now)
-            db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
-            // Covers both live-refresh cases: Android's existing conversation:messages sync, and
-            // any desktop window that has this same conversation open right now (e.g. viewing the
-            // same account from both devices) picking it up via chat:messages-updated instead of
-            // only seeing it after navigating away and back.
-            broadcastConversationMessages(conversationId)
-          }
-          reply({ event: 'code-change:submitted', data: result })
-        }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-        })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:accept-plan') {
-      try {
-        const win = BrowserWindow.getAllWindows()[0]
-        if (!win) {
-          reply({ event: 'code-change:error', data: { error: 'No active window' } })
-          return
-        }
-        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-        if (!reportId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
-          return
-        }
-        debugLog('ws', `code-change:accept-plan reportId=${reportId}`)
-        void acceptPlanAndExecute(win, reportId).then(() => {
-          reply({ event: 'code-change:accepted', data: { reportId } })
-        }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-        })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:get-plan-revisions') {
-      try {
-        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-        if (!reportId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
-          return
-        }
-        const revisions = getRevisionHistory(reportId)
-        reply({ event: 'code-change:revisions', data: { reportId, revisions } })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:list-repos') {
+    if (command === 'project-git:list-repos') {
       try {
         const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : ''
         if (!workspaceRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing workspaceRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing workspaceRoot' } })
           return
         }
-        debugLog('ws', `code-change:list-repos workspaceRoot=${workspaceRoot}`)
+        debugLog('ws', `project-git:list-repos workspaceRoot=${workspaceRoot}`)
         void discoverReposInWorkspace(workspaceRoot).then((repos) => {
           reply({
-            event: 'code-change:repos',
+            event: 'project-git:repos',
             data: { repos: repos.map(r => ({ relativePath: r.relativePath, branch: r.branch, dirty: r.dirty })) },
           })
         }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+          reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:list-repo-files') {
+    if (command === 'project-git:list-repo-files') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
-        debugLog('ws', `code-change:list-repo-files repoRoot=${repoRoot}`)
+        debugLog('ws', `project-git:list-repo-files repoRoot=${repoRoot}`)
         void listRepoFiles(repoRoot).then((files) => {
-          reply({ event: 'code-change:files', data: { files } })
+          reply({ event: 'project-git:files', data: { files } })
         }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+          reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:list-changed-files') {
+    if (command === 'project-git:list-changed-files') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         // Echoed back verbatim — the WS protocol has no built-in request/reply correlation, so
@@ -908,346 +495,309 @@ export function registerWsHandlers(): void {
         // slow stale reply clobber fresher state.
         const seq = typeof data.seq === 'number' ? data.seq : 0
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         void getChangedFiles(repoRoot).then((files) => {
-          reply({ event: 'code-change:changed-files', data: { files, seq } })
+          reply({ event: 'project-git:changed-files', data: { files, seq } })
         }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+          reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:push') {
-      try {
-        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-        if (!reportId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
-          return
-        }
-        debugLog('ws', `code-change:push reportId=${reportId}`)
-        void pushCurrentCommit(reportId).then(() => {
-          reply({ event: 'code-change:pushed', data: { reportId } })
-        }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-        })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:undo') {
-      try {
-        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-        if (!reportId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
-          return
-        }
-        void undoCodeChange(reportId).then((result) => {
-          reply({ event: 'code-change:undone', data: result })
-        }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-        })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
     // --- Git housekeeping (backs the Android /code panel) ---
 
-    if (command === 'code-change:list-branches') {
+    if (command === 'project-git:list-branches') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
-        // See the matching comment on 'code-change:list-changed-files' — same stale-reply guard.
+        // See the matching comment on 'project-git:list-changed-files' — same stale-reply guard.
         const seq = typeof data.seq === 'number' ? data.seq : 0
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const branches = await listBranches(repoRoot)
-        reply({ event: 'code-change:branches', data: { ...branches, seq } })
+        reply({ event: 'project-git:branches', data: { ...branches, seq } })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:checkout-branch') {
+    if (command === 'project-git:checkout-branch') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const branchName = typeof data.branchName === 'string' ? data.branchName : ''
         if (!repoRoot || !branchName) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or branchName' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or branchName' } })
           return
         }
         const result = await checkoutBranch(repoRoot, branchName)
-        reply({ event: 'code-change:checked-out', data: result })
+        reply({ event: 'project-git:checked-out', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:new-branch') {
+    if (command === 'project-git:new-branch') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const branchName = typeof data.branchName === 'string' ? data.branchName : ''
         const fromRef = typeof data.fromRef === 'string' ? data.fromRef : undefined
         if (!repoRoot || !branchName) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or branchName' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or branchName' } })
           return
         }
         const result = await createBranch(repoRoot, branchName, fromRef)
-        reply({ event: 'code-change:branch-created', data: result })
+        reply({ event: 'project-git:branch-created', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:fetch') {
+    if (command === 'project-git:fetch') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const remote = typeof data.remote === 'string' ? data.remote : undefined
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const result = await fetchRepo(repoRoot, remote)
-        reply({ event: 'code-change:fetched', data: result })
+        reply({ event: 'project-git:fetched', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:merge-branch') {
+    if (command === 'project-git:merge-branch') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const sourceBranch = typeof data.sourceBranch === 'string' ? data.sourceBranch : ''
         if (!repoRoot || !sourceBranch) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or sourceBranch' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or sourceBranch' } })
           return
         }
         const result = await mergeBranch(repoRoot, sourceBranch)
-        reply({ event: 'code-change:merged', data: result })
+        reply({ event: 'project-git:merged', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:init-repo') {
+    if (command === 'project-git:init-repo') {
       try {
         const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : ''
         const relativePath = typeof data.relativePath === 'string' ? data.relativePath : undefined
         if (!workspaceRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing workspaceRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing workspaceRoot' } })
           return
         }
         const targetDir = relativePath ? pathModule.join(workspaceRoot, relativePath) : workspaceRoot
         const result = await initRepo(targetDir)
-        reply({ event: 'code-change:repo-initialized', data: result })
+        reply({ event: 'project-git:repo-initialized', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:detect-credentials') {
+    if (command === 'project-git:detect-credentials') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const result = await detectGitCredentials(repoRoot)
-        reply({ event: 'code-change:credentials', data: result })
+        reply({ event: 'project-git:credentials', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:pull') {
+    if (command === 'project-git:pull') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const remote = typeof data.remote === 'string' ? data.remote : undefined
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const result = await pullRepo(repoRoot, remote)
-        reply({ event: 'code-change:pulled', data: result })
+        reply({ event: 'project-git:pulled', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:push-branch') {
+    if (command === 'project-git:push-branch') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const result = await pushRepo(repoRoot)
-        reply({ event: 'code-change:branch-pushed', data: result })
+        reply({ event: 'project-git:branch-pushed', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:commit') {
+    if (command === 'project-git:commit') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const message = typeof data.message === 'string' ? data.message : ''
         if (!repoRoot || !message) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or message' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or message' } })
           return
         }
         const result = await commitChanges(repoRoot, message)
-        reply({ event: 'code-change:committed', data: result })
+        reply({ event: 'project-git:committed', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:discard-file') {
+    if (command === 'project-git:discard-file') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
         if (!repoRoot || !relativePath) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePath' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or relativePath' } })
           return
         }
         const result = await discardFileChanges(repoRoot, relativePath)
-        reply({ event: 'code-change:file-discarded', data: { ...result, relativePath } })
+        reply({ event: 'project-git:file-discarded', data: { ...result, relativePath } })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:stash') {
+    if (command === 'project-git:stash') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const message = typeof data.message === 'string' ? data.message : undefined
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const result = await stashChanges(repoRoot, message)
-        reply({ event: 'code-change:stashed', data: result })
+        reply({ event: 'project-git:stashed', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:stash-pop') {
+    if (command === 'project-git:stash-pop') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const result = await stashPop(repoRoot)
-        reply({ event: 'code-change:stash-popped', data: result })
+        reply({ event: 'project-git:stash-popped', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:stash-count') {
+    if (command === 'project-git:stash-count') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         if (!repoRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const count = await getStashCount(repoRoot)
-        reply({ event: 'code-change:stash-count', data: { count } })
+        reply({ event: 'project-git:stash-count', data: { count } })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:delete-branch') {
+    if (command === 'project-git:delete-branch') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const branchName = typeof data.branchName === 'string' ? data.branchName : ''
         const deleteRemote = data.deleteRemote === true
         const force = data.force === true
         if (!repoRoot || !branchName) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or branchName' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or branchName' } })
           return
         }
         const result = await deleteBranch(repoRoot, branchName, { deleteRemote, force })
-        reply({ event: 'code-change:branch-deleted', data: { ...result, branchName } })
+        reply({ event: 'project-git:branch-deleted', data: { ...result, branchName } })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:file-diff') {
+    if (command === 'project-git:file-diff') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
-        // See the matching comment on 'code-change:list-changed-files' — same stale-reply guard.
+        // See the matching comment on 'project-git:list-changed-files' — same stale-reply guard.
         const seq = typeof data.seq === 'number' ? data.seq : 0
         if (!repoRoot || !relativePath) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePath' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or relativePath' } })
           return
         }
         const result = await getFileDiff(repoRoot, relativePath)
-        reply({ event: 'code-change:file-diff', data: { ...result, relativePath, seq } })
+        reply({ event: 'project-git:file-diff', data: { ...result, relativePath, seq } })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:stage-files') {
+    if (command === 'project-git:stage-files') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const relativePaths = Array.isArray(data.relativePaths) ? data.relativePaths.filter((p): p is string => typeof p === 'string') : []
         if (!repoRoot || relativePaths.length === 0) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePaths' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or relativePaths' } })
           return
         }
         const result = await stageFiles(repoRoot, relativePaths)
-        reply({ event: 'code-change:staged', data: result })
+        reply({ event: 'project-git:staged', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
 
-    if (command === 'code-change:unstage-files') {
+    if (command === 'project-git:unstage-files') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const relativePaths = Array.isArray(data.relativePaths) ? data.relativePaths.filter((p): p is string => typeof p === 'string') : []
         if (!repoRoot || relativePaths.length === 0) {
-          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePaths' } })
+          reply({ event: 'project-git:error', data: { error: 'Missing repoRoot or relativePaths' } })
           return
         }
         const result = await unstageFiles(repoRoot, relativePaths)
-        reply({ event: 'code-change:unstaged', data: result })
+        reply({ event: 'project-git:unstaged', data: result })
       } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }
@@ -1953,8 +1503,16 @@ export function registerWsHandlers(): void {
 
     if (command === 'fs:list-directory') {
       const path = typeof data.path === 'string' ? data.path : ''
-      const result = listDirectoryEntriesForRemote(path)
+      const result = listDirectoryEntriesForRemote(path, getFsAuthorizedRoots())
       reply({ event: 'fs:list-directory', data: { path, ...result } })
+      return
+    }
+
+    if (command === 'fs:read-file') {
+      const path = typeof data.path === 'string' ? data.path : ''
+      const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
+      const result = readTextFileForRemote(path, getFsAuthorizedRoots())
+      reply({ event: 'fs:file-content', data: { ...result, requestId } })
       return
     }
 

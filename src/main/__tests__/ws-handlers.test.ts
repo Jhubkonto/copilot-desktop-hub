@@ -5,7 +5,7 @@ import type {
   ConversationRatingStats,
   ProjectEditSession,
   ProjectTouchedFile,
-  RemoteEditStagedFileDiff,
+  ProjectFileDiff,
 } from '../../shared/types'
 
 const state = vi.hoisted(() => {
@@ -19,18 +19,11 @@ const state = vi.hoisted(() => {
   const approveConversationApprovals = vi.fn()
   const listProjectAuditSessions = vi.fn<(projectId?: string | null) => ProjectEditSession[]>(() => [])
   const listProjectAuditFiles = vi.fn<(sessionId: string) => ProjectTouchedFile[]>(() => [])
-  const getProjectAuditDiff = vi.fn<(sessionId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
-  const getRemoteEditAuditDiff = vi.fn<(reportId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
+  const getProjectAuditDiff = vi.fn<(sessionId: string, relativePath: string) => ProjectFileDiff | null>(() => null)
   let projectConfigJson: string | null = null
-  let errorReportRows: Record<string, unknown>[] = []
   const runAutomatedWorkflowGeneratorChatForAndroid = vi.fn()
   const getAutomatedWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
   const setAutomatedWorkflowGeneratorModel = vi.fn()
-  const deleteErrorReport = vi.fn<(reportId: string) => boolean>(() => true)
-  const applyStagedPatchToWorkspace = vi.fn<
-    (reportId: string) => { appliedFiles: string[]; backupPaths: string[] } | { error: string } | null
-  >(() => null)
-  const markStagedFileReviewed = vi.fn<(reportId: string, relativePath: string) => boolean>(() => false)
   const submitRatingForConversation = vi.fn<(conversationId: string, rating: number, note?: string | null) => ConversationRating>()
   const getRatingForConversation = vi.fn<(conversationId: string) => ConversationRating | null>()
   const deleteRatingForConversation = vi.fn<(conversationId: string) => boolean>()
@@ -52,13 +45,9 @@ const state = vi.hoisted(() => {
     listProjectAuditSessions,
     listProjectAuditFiles,
     getProjectAuditDiff,
-    getRemoteEditAuditDiff,
     runAutomatedWorkflowGeneratorChatForAndroid,
     getAutomatedWorkflowGeneratorModel,
     setAutomatedWorkflowGeneratorModel,
-    deleteErrorReport,
-    applyStagedPatchToWorkspace,
-    markStagedFileReviewed,
     submitRatingForConversation,
     getRatingForConversation,
     deleteRatingForConversation,
@@ -66,8 +55,6 @@ const state = vi.hoisted(() => {
     getRatingStats,
     get projectConfigJson() { return projectConfigJson },
     set projectConfigJson(value) { projectConfigJson = value },
-    get errorReportRows() { return errorReportRows },
-    set errorReportRows(value) { errorReportRows = value },
   }
 })
 
@@ -78,17 +65,11 @@ vi.mock('../safe-handle', () => ({
 vi.mock('../database', () => ({
   getDatabase: () => ({
     prepare: (sql: string) => ({
-      all: (...args: unknown[]) => {
+      all: (..._args: unknown[]) => {
         if (sql.includes('FROM conversations c')) return [{ id: 'conv-1', title: 'Chat 1' }]
         if (sql.includes('FROM projects p')) return [{ id: 'proj-1', name: 'Project 1' }]
         if (sql.includes('FROM messages')) return [{ id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 }]
         if (sql.includes('FROM agents')) return [{ id: 'agent-1', name: 'Codex', icon: 'C', backend: 'codex-cli', cli_model: 'gpt-5.5' }]
-        if (sql.includes('FROM error_reports')) {
-          if (sql.includes('WHERE project_id = ?')) {
-            return state.errorReportRows.filter((row) => row.project_id === args[0])
-          }
-          return state.errorReportRows
-        }
         return []
       },
       get: (..._args: unknown[]) => {
@@ -135,7 +116,6 @@ vi.mock('../project-audit', () => ({
   listProjectAuditSessions: state.listProjectAuditSessions,
   listProjectAuditFiles: state.listProjectAuditFiles,
   getProjectAuditDiff: state.getProjectAuditDiff,
-  getRemoteEditAuditDiff: state.getRemoteEditAuditDiff,
 }))
 
 vi.mock('../cli-detection', () => ({
@@ -197,19 +177,6 @@ vi.mock('../automated-workflow-generator', () => ({
   normalizeAutomatedWorkflowSpec: (raw: Record<string, unknown>) => raw,
 }))
 
-vi.mock('../error-report-handlers', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../error-report-handlers')>()
-  return {
-    ...actual,
-    deleteErrorReport: state.deleteErrorReport,
-  }
-})
-
-vi.mock('../remote-edit-handlers', () => ({
-  applyStagedPatchToWorkspace: state.applyStagedPatchToWorkspace,
-  markStagedFileReviewed: state.markStagedFileReviewed,
-}))
-
 vi.mock('../rating-handlers', () => ({
   submitRatingForConversation: state.submitRatingForConversation,
   getRatingForConversation: state.getRatingForConversation,
@@ -259,6 +226,18 @@ describe('ws handlers', () => {
     })
   })
 
+  it('returns a compatibility tombstone for retired Code Changes commands', () => {
+    const reply = sendCommand('code-change:submit-description', { projectId: 'project-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'code-change:removed',
+      data: {
+        code: 'feature-removed',
+        message: 'Code Changes has been removed. Use a normal project conversation or the Git code panel.',
+      },
+    })
+  })
+
   beforeEach(() => {
     state.replies.length = 0
     state.runs.length = 0
@@ -275,18 +254,11 @@ describe('ws handlers', () => {
     state.listProjectAuditFiles.mockReturnValue([])
     state.getProjectAuditDiff.mockReset()
     state.getProjectAuditDiff.mockReturnValue(null)
-    state.getRemoteEditAuditDiff.mockReset()
-    state.getRemoteEditAuditDiff.mockReturnValue(null)
     state.runAutomatedWorkflowGeneratorChatForAndroid.mockReset()
     state.runAutomatedWorkflowGeneratorChatForAndroid.mockResolvedValue(undefined)
     state.getAutomatedWorkflowGeneratorModel.mockReset()
     state.getAutomatedWorkflowGeneratorModel.mockReturnValue('gpt-5.5')
     state.setAutomatedWorkflowGeneratorModel.mockReset()
-    state.deleteErrorReport.mockReset()
-    state.deleteErrorReport.mockReturnValue(true)
-    state.applyStagedPatchToWorkspace.mockReset()
-    state.applyStagedPatchToWorkspace.mockReturnValue(null)
-    state.markStagedFileReviewed.mockReset()
     state.submitRatingForConversation.mockReset()
     state.getRatingForConversation.mockReset()
     state.deleteRatingForConversation.mockReset()
@@ -296,8 +268,6 @@ describe('ws handlers', () => {
     state.getRatingStats.mockReturnValue({
       averageByAgent: [], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [],
     })
-    state.markStagedFileReviewed.mockReturnValue(true)
-    state.errorReportRows = []
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
@@ -651,195 +621,6 @@ describe('ws handlers', () => {
         diff: { relativePath: 'src/example.ts', hunks: [] },
       },
     })
-  })
-
-  it('falls back to shared project audit diffs for mobile self-heal staged diff requests', () => {
-    state.getRemoteEditAuditDiff.mockReturnValue({
-      relativePath: 'src/example.ts',
-      hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
-    })
-
-    const reply = sendCommand('self-heal:get-staged-diff', { reportId: 'report-1', relativePath: 'src/example.ts' })
-
-    expect(state.getRemoteEditAuditDiff).toHaveBeenCalledWith('report-1', 'src/example.ts')
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:staged-diff',
-      data: {
-        reportId: 'report-1',
-        relativePath: 'src/example.ts',
-        hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
-      },
-    })
-  })
-
-  it('marks a staged file reviewed for mobile self-heal requests, mirroring the desktop IPC path', () => {
-    const reply = sendCommand('self-heal:mark-file-reviewed', { reportId: 'report-1', relativePath: 'src/example.ts' })
-
-    expect(state.markStagedFileReviewed).toHaveBeenCalledWith('report-1', 'src/example.ts')
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:file-reviewed-result',
-      data: { reportId: 'report-1', relativePath: 'src/example.ts', reviewed: true },
-    })
-  })
-
-  it('replies with the persisted history entry for a report, the source of truth for the Committed phase on mobile', () => {
-    // getHistoryEntryForReport runs against the real (mocked-DB) history.ts module here — the
-    // mocked getDatabase() has no matching handler for remote_edit_history SELECTs, so it
-    // resolves to no row / entry: null. This exercises the WS command's wiring and reply shape,
-    // not the SQL itself (covered with a real DB in remote-edit-history.test.ts).
-    const reply = sendCommand('self-heal:get-history-for-report', { reportId: 'report-1' })
-
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:history-for-report',
-      data: { reportId: 'report-1', entry: null },
-    })
-  })
-
-  it('filters self-heal:get-reports by projectId when provided', () => {
-    state.errorReportRows = [
-      { id: 'report-1', title: 'Report 1', status: 'open', created_at: 1, updated_at: 1, project_id: 'proj-1' },
-      { id: 'report-2', title: 'Report 2', status: 'open', created_at: 2, updated_at: 2, project_id: 'proj-2' },
-    ]
-
-    const reply = sendCommand('self-heal:get-reports', { projectId: 'proj-1' })
-
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:reports',
-      data: { reports: expect.arrayContaining([expect.objectContaining({ id: 'report-1' })]) },
-    })
-    const [[sentEvent]] = reply.mock.calls
-    expect((sentEvent as { data: { reports: unknown[] } }).data.reports).toHaveLength(1)
-  })
-
-  it('returns all reports for self-heal:get-reports when projectId is omitted', () => {
-    state.errorReportRows = [
-      { id: 'report-1', title: 'Report 1', status: 'open', created_at: 1, updated_at: 1, project_id: 'proj-1' },
-      { id: 'report-2', title: 'Report 2', status: 'open', created_at: 2, updated_at: 2, project_id: 'proj-2' },
-    ]
-
-    const reply = sendCommand('self-heal:get-reports', {})
-
-    const [[sentEvent]] = reply.mock.calls
-    expect((sentEvent as { data: { reports: unknown[] } }).data.reports).toHaveLength(2)
-  })
-
-  it('scopes the direct reply for self-heal:set-report-status by projectId and broadcasts a lightweight change signal', () => {
-    state.errorReportRows = [
-      { id: 'report-1', title: 'Report 1', status: 'open', created_at: 1, updated_at: 1, project_id: 'proj-1' },
-      { id: 'report-2', title: 'Report 2', status: 'open', created_at: 2, updated_at: 2, project_id: 'proj-2' },
-    ]
-
-    const reply = sendCommand('self-heal:set-report-status', { reportId: 'report-1', status: 'investigated', projectId: 'proj-1' })
-
-    const [[sentEvent]] = reply.mock.calls
-    expect((sentEvent as { data: { reports: unknown[] } }).data.reports).toHaveLength(1)
-    expect(state.broadcastToMobile).toHaveBeenCalledWith({
-      event: 'self-heal:reports-changed',
-      data: { reportId: 'report-1', status: 'investigated' },
-    })
-  })
-
-  it('broadcasts a successful delete for self-heal:delete-report', () => {
-    state.deleteErrorReport.mockReturnValue(true)
-
-    sendCommand('self-heal:delete-report', { reportId: 'report-1' })
-
-    expect(state.deleteErrorReport).toHaveBeenCalledWith('report-1')
-    expect(state.broadcastToMobile).toHaveBeenCalledWith({
-      event: 'self-heal:report-deleted',
-      data: { reportId: 'report-1', deleted: true },
-    })
-  })
-
-  it('broadcasts an unambiguous failure for self-heal:delete-report when nothing was deleted', () => {
-    state.deleteErrorReport.mockReturnValue(false)
-
-    sendCommand('self-heal:delete-report', { reportId: 'missing-report' })
-
-    expect(state.broadcastToMobile).toHaveBeenCalledWith({
-      event: 'self-heal:report-deleted',
-      data: { reportId: 'missing-report', deleted: false },
-    })
-  })
-
-  it('broadcasts an error for self-heal:delete-report when the handler throws', () => {
-    state.deleteErrorReport.mockImplementation(() => {
-      throw new Error('database is locked')
-    })
-
-    sendCommand('self-heal:delete-report', { reportId: 'report-1' })
-
-    expect(state.broadcastToMobile).toHaveBeenCalledWith({
-      event: 'self-heal:report-deleted',
-      data: { reportId: 'report-1', deleted: false, error: 'database is locked' },
-    })
-  })
-
-  it('ignores self-heal:delete-report with no reportId', () => {
-    sendCommand('self-heal:delete-report', {})
-
-    expect(state.deleteErrorReport).not.toHaveBeenCalled()
-    expect(state.broadcastToMobile).not.toHaveBeenCalled()
-  })
-
-  it('replies with applied files for self-heal:apply-staged-patch on success', () => {
-    state.applyStagedPatchToWorkspace.mockReturnValue({
-      appliedFiles: ['src/App.tsx'],
-      backupPaths: ['/backups/report-1/src/App.tsx'],
-    })
-
-    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
-
-    expect(state.applyStagedPatchToWorkspace).toHaveBeenCalledWith('report-1')
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:apply-result',
-      data: {
-        reportId: 'report-1',
-        appliedFiles: ['src/App.tsx'],
-        backupPaths: ['/backups/report-1/src/App.tsx'],
-      },
-    })
-  })
-
-  it('replies with an error for self-heal:apply-staged-patch when there is nothing staged', () => {
-    state.applyStagedPatchToWorkspace.mockReturnValue(null)
-
-    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
-
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:apply-result',
-      data: { reportId: 'report-1', error: 'Nothing to apply' },
-    })
-  })
-
-  it('replies with an error for self-heal:apply-staged-patch when applying fails', () => {
-    state.applyStagedPatchToWorkspace.mockReturnValue({ error: 'permission denied' })
-
-    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
-
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:apply-result',
-      data: { reportId: 'report-1', error: 'permission denied' },
-    })
-  })
-
-  it('replies with an error for self-heal:apply-staged-patch when the handler throws', () => {
-    state.applyStagedPatchToWorkspace.mockImplementation(() => {
-      throw new Error('disk full')
-    })
-
-    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
-
-    expect(reply).toHaveBeenCalledWith({
-      event: 'self-heal:apply-result',
-      data: { reportId: 'report-1', error: 'disk full' },
-    })
-  })
-
-  it('ignores self-heal:apply-staged-patch with no reportId', () => {
-    sendCommand('self-heal:apply-staged-patch', {})
-
-    expect(state.applyStagedPatchToWorkspace).not.toHaveBeenCalled()
   })
 
   it('normalizes project:get-config workflow mode for mobile consumers, self-healing the pre-rename value', () => {

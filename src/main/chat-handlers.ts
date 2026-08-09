@@ -37,7 +37,7 @@ import { buildChatContext, buildStoredAttachments } from './chat-context-builder
 import { parseProjectConfig } from './project-handlers'
 import { getWorkingDirectory } from './file-handlers'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
-import { computeLineDiff } from './remote-edit/fix-agent'
+import { computeLineDiff } from './diff-utils'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
