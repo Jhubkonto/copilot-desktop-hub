@@ -22,7 +22,8 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => fakeHome }
 })
 
-import { listHermesProfiles, hermesAcpReadiness } from '../cli-detection'
+import { listHermesProfiles, hermesAcpReadiness, getCliModels } from '../cli-detection'
+import { clearCliPathCache } from '../cli-adapters/utils'
 
 function writeProfile(name: string, files: Record<string, string>): void {
   const dir = join(fakeHome, '.hermes', 'profiles', name)
@@ -33,12 +34,20 @@ function writeProfile(name: string, files: Record<string, string>): void {
 }
 
 describe('listHermesProfiles', () => {
+  // The dev machine sets HERMES_HOME to a real path (%LOCALAPPDATA%\hermes) and on Windows
+  // the platform default is not ~/.hermes — both would make resolveHermesRoot() escape the
+  // fixture. Pin HERMES_HOME to the fixture root so enumeration is hermetic on every platform.
+  const savedHermesHome = process.env['HERMES_HOME']
+
   beforeEach(() => {
     fakeHome = mkdtempSync(join(tmpdir(), 'nexy-hermes-'))
+    process.env['HERMES_HOME'] = join(fakeHome, '.hermes')
   })
 
   afterEach(() => {
     rmSync(fakeHome, { recursive: true, force: true })
+    if (savedHermesHome === undefined) delete process.env['HERMES_HOME']
+    else process.env['HERMES_HOME'] = savedHermesHome
     execSyncMock.mockReset()
     spawnSyncMock.mockReset()
   })
@@ -87,6 +96,91 @@ describe('listHermesProfiles', () => {
     // The synthetic default carries no model from the on-disk default/ dir.
     expect(profiles.find((p) => p.name === 'default')!.model).toBeUndefined()
   })
+
+  it('honors a relocated HERMES_HOME instead of hardcoding ~/.hermes', () => {
+    // Regression: HERMES_HOME points at a custom root (as on native Windows,
+    // %LOCALAPPDATA%\hermes). Profiles there must still be found.
+    const customRoot = join(fakeHome, 'AppData', 'Local', 'hermes')
+    mkdirSync(join(customRoot, 'profiles', 'localllm'), { recursive: true })
+    writeFileSync(
+      join(customRoot, 'profiles', 'localllm', 'config.yaml'),
+      'model:\n  provider: ollama\n  default: qwen3\n',
+    )
+    process.env['HERMES_HOME'] = customRoot
+
+    const profiles = listHermesProfiles()
+    expect(profiles.map((p) => p.name)).toEqual(['default', 'localllm'])
+  })
+
+  it('climbs from a profile-mode HERMES_HOME to enumerate sibling profiles', () => {
+    // HERMES_HOME may point at a specific profile dir (<root>/profiles/<name>); the
+    // enumerator should still see all siblings under <root>/profiles.
+    const root = join(fakeHome, 'AppData', 'Local', 'hermes')
+    for (const name of ['localllm', 'localllm-iso']) {
+      mkdirSync(join(root, 'profiles', name), { recursive: true })
+    }
+    process.env['HERMES_HOME'] = join(root, 'profiles', 'localllm')
+
+    const profiles = listHermesProfiles()
+    expect(profiles.map((p) => p.name)).toEqual(['default', 'localllm', 'localllm-iso'])
+  })
+})
+
+describe('getCliModels(hermes-cli) profile scoping', () => {
+  const savedHermesHome = process.env['HERMES_HOME']
+
+  beforeEach(() => {
+    fakeHome = mkdtempSync(join(tmpdir(), 'nexy-hermes-models-'))
+    process.env['HERMES_HOME'] = join(fakeHome, '.hermes')
+    // Root/default config points at a distinct model (not one of the hardcoded HERMES_DEFAULT_MODELS,
+    // so a leak from the default config is unambiguously detectable); a named profile points at a local model.
+    mkdirSync(join(fakeHome, '.hermes'), { recursive: true })
+    writeFileSync(
+      join(fakeHome, '.hermes', 'config.yaml'),
+      'model:\n  provider: anthropic\n  default: claude-root-only\n',
+    )
+    writeProfile('localllm', {
+      'config.yaml': 'model:\n  provider: openai-api\n  default: Qwen3.6-35B-A3B-AWQ-4bit\n',
+    })
+  })
+
+  afterEach(() => {
+    rmSync(fakeHome, { recursive: true, force: true })
+    if (savedHermesHome === undefined) delete process.env['HERMES_HOME']
+    else process.env['HERMES_HOME'] = savedHermesHome
+  })
+
+  it('reads the named profile config, not the default, when a profile is passed', () => {
+    const models = getCliModels('hermes-cli', 'localllm')
+    expect(models[0]).toEqual({
+      id: 'openai-api/Qwen3.6-35B-A3B-AWQ-4bit',
+      label: 'Qwen3.6-35B-A3B-AWQ-4bit (openai-api)',
+    })
+    // The default profile's Anthropic model must not leak into a profile-scoped list.
+    expect(models.some((m) => m.id === 'anthropic/claude-root-only')).toBe(false)
+  })
+
+  it('parses a CRLF-terminated profile config (Hermes writes CRLF on Windows)', () => {
+    // Regression: config.yaml written with CRLF made the YAML block regex miss `model:\r\n`,
+    // so the profile reported no models and the picker fell back to the hardcoded defaults.
+    writeProfile('crlf', {
+      'config.yaml': 'model:\r\n  provider: openai-api\r\n  default: Qwen3.6-35B-A3B-AWQ-4bit\r\n',
+    })
+    const models = getCliModels('hermes-cli', 'crlf')
+    expect(models[0]).toEqual({
+      id: 'openai-api/Qwen3.6-35B-A3B-AWQ-4bit',
+      label: 'Qwen3.6-35B-A3B-AWQ-4bit (openai-api)',
+    })
+  })
+
+  it('reads the root config for the default (or omitted) profile', () => {
+    for (const models of [getCliModels('hermes-cli'), getCliModels('hermes-cli', 'default')]) {
+      expect(models[0]).toEqual({
+        id: 'anthropic/claude-root-only',
+        label: 'claude-root-only (anthropic)',
+      })
+    }
+  })
 })
 
 describe('hermesAcpReadiness', () => {
@@ -95,6 +189,9 @@ describe('hermesAcpReadiness', () => {
   beforeEach(() => {
     execSyncMock.mockReset()
     spawnSyncMock.mockReset()
+    // findCli('hermes') now resolves through the shared resolveCliPath cache; clear it so a
+    // negative from the "binary absent" case doesn't leak (within its 15s TTL) into the next.
+    clearCliPathCache()
     // findCli('hermes') resolves via where/which then verifies existsSync(path),
     // so point it at a real temp file that stands in for the hermes binary.
     const dir = mkdtempSync(join(tmpdir(), 'nexy-hermes-bin-'))
@@ -149,5 +246,21 @@ describe('hermesAcpReadiness', () => {
     expect(spawnSyncMock.mock.calls.length).toBe(callsAfterForce)
     hermesAcpReadiness(true) // force — re-probes
     expect(spawnSyncMock.mock.calls.length).toBeGreaterThan(callsAfterForce)
+  })
+
+  it('re-probes automatically once the cache TTL lapses, without an explicit force', () => {
+    vi.useFakeTimers()
+    try {
+      spawnSyncMock.mockReturnValue({ status: 0, stdout: '', stderr: '' })
+      hermesAcpReadiness(true)
+      const baseline = spawnSyncMock.mock.calls.length
+      hermesAcpReadiness() // still within TTL — served from cache
+      expect(spawnSyncMock.mock.calls.length).toBe(baseline)
+      vi.advanceTimersByTime(31_000) // past the 30s readiness TTL
+      hermesAcpReadiness() // stale — re-probes even without force (e.g. credentials since added)
+      expect(spawnSyncMock.mock.calls.length).toBeGreaterThan(baseline)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

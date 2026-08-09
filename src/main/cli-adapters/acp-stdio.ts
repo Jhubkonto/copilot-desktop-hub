@@ -59,13 +59,20 @@ export class AcpStdioConnection {
     })
   }
 
+  /** Recent stderr tail from the Hermes process — surfaced in diagnostics so a timeout is not a
+   *  bare "timed out" with no explanation of what the agent was doing when it stalled. */
+  recentStderr(): string {
+    return this.stderr.trim()
+  }
+
   request(method: string, params: Record<string, unknown>, timeoutMs = 30000): Promise<unknown> {
     if (this.closed || this.process.stdin.destroyed) return Promise.reject(new Error('Hermes ACP connection is closed'))
     const id = this.nextId++
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`Hermes ACP request timed out: ${method}`))
+        const tail = this.stderr.trim().slice(-800)
+        reject(new Error(`Hermes ACP request timed out: ${method}${tail ? ` — recent output: ${tail}` : ''}`))
       }, timeoutMs)
       this.pending.set(id, { resolve, reject, timer })
       this.write({ jsonrpc: '2.0', id, method, params })
@@ -102,7 +109,10 @@ export class AcpStdioConnection {
     try {
       message = JSON.parse(line) as JsonRpcMessage
     } catch {
-      this.fail(new Error('Hermes ACP emitted invalid JSON'))
+      // A single non-JSON line (a stray warning/banner a library wrote to stdout instead
+      // of stderr) must not tear down the whole connection — the JSONL adapters tolerate
+      // junk lines the same way. Skip it; genuine protocol failures still surface via
+      // request timeouts, the frame-size cap, and process exit.
       return
     }
     if (message.id !== undefined && (message.result !== undefined || message.error !== undefined)) {
@@ -132,6 +142,8 @@ export class AcpStdioConnection {
       pending.reject(error)
     }
     this.pending.clear()
-    try { this.process.kill() } catch { /* already exited */ }
+    // Tree-kill (not bare process.kill) so that if Hermes ever spawns tool subprocesses of
+    // its own, the failure path reaps the whole tree on Windows — matching close()'s cleanup.
+    try { killProcess(this.process) } catch { /* already exited */ }
   }
 }

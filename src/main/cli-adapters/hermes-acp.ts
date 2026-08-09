@@ -1,9 +1,29 @@
 import type { BrowserWindow } from 'electron'
 import { AcpStdioConnection } from './acp-stdio'
 import type { CliAdapterRequest, CliAgentAdapter, CliStreamEvent } from './types'
-import { createOpenBlockTracker, resolveCliPath } from './utils'
+import { buildCliChildEnv, createOpenBlockTracker, resolveCliPath } from './utils'
 import { debugLog } from '../debug-mode'
+import { recordErrorLogEntry } from '../error-log-handlers'
 import { listHermesProfiles } from '../cli-detection'
+
+// Local-model Hermes profiles run vision/aux capability probes against the configured endpoint
+// during session bootstrap, so `session/new` legitimately takes tens of seconds (observed ~28s
+// against a local vLLM). The stdio default of 30s is far too tight for that and produces spurious
+// "Hermes ACP request timed out: session/new" failures. Give bootstrap a generous ceiling; the
+// actual turn (`session/prompt`) keeps its own 10-minute budget below.
+const HERMES_INITIALIZE_TIMEOUT_MS = 60 * 1000
+const HERMES_SESSION_NEW_TIMEOUT_MS = 5 * 60 * 1000
+
+/**
+ * Always-on persistent diagnostic for the Hermes ACP lifecycle. Unlike {@link debugLog} (gated
+ * behind debug mode and lost on restart), this writes to the `error_log` table so a user reporting
+ * "Hermes does nothing" has a durable, retention-pruned trail of spawn/handshake/timeout events —
+ * on desktop and, via the relayed error message, visible on the Android companion too.
+ */
+function logHermes(level: 'info' | 'error', message: string): void {
+  debugLog('cli', message)
+  recordErrorLogEntry({ source: 'main', level, message: `[hermes-acp] ${message}` })
+}
 
 type Session = {
   id: string
@@ -68,7 +88,7 @@ export class HermesAcpAdapter implements CliAgentAdapter {
     let session = this.sessions.get(key)
     if (!session) {
       const args = useProfileFlag ? ['--profile', profile, 'acp'] : ['acp']
-      debugLog('cli', `hermes ACP spawn: ${executable} ${args.join(' ')}`)
+      logHermes('info', `spawn ${executable} ${args.join(' ')} (profile=${profile}, cwd=${req.cwd})`)
       // Assigned once at line ~91 after `session` exists, but captured by the
       // notification callback below (which only fires later) — so it must be a
       // forward-declared `let`; the const suggestion is unfollowable here.
@@ -80,35 +100,43 @@ export class HermesAcpAdapter implements CliAgentAdapter {
         req.cwd,
         (message) => this.handleNotification(message, activeSession),
         (message) => this.handleRequest(message, req),
-        { ...process.env, HERMES_ACP_SKIP_CONFIGURED_MCP: '1' },
+        buildCliChildEnv({ HERMES_ACP_SKIP_CONFIGURED_MCP: '1' }),
       )
-      const init = await connection.request('initialize', {
-        protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        clientInfo: { name: 'nexy', title: 'Nexy', version: '1.0.0' },
-      }) as { protocolVersion?: number }
-      if (init.protocolVersion !== 1) {
+      const bootstrapStartedAt = Date.now()
+      try {
+        const init = await connection.request('initialize', {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+          clientInfo: { name: 'nexy', title: 'Nexy', version: '1.0.0' },
+        }, HERMES_INITIALIZE_TIMEOUT_MS) as { protocolVersion?: number }
+        if (init.protocolVersion !== 1) {
+          throw new Error(`Hermes ACP protocol version ${init.protocolVersion ?? 'unknown'} is unsupported`)
+        }
+        const mcpServers = (req.mcpServers ?? []).map((server) => ({
+          name: server.key || server.id,
+          command: server.command,
+          args: server.args,
+          env: Object.entries(server.env ?? {}).map(([name, value]) => ({ name, value })),
+        }))
+        const created = await connection.request('session/new', {
+          cwd: req.cwd,
+          mcpServers,
+          ...(req.extraAllowedDirs?.length ? { additionalDirectories: req.extraAllowedDirs } : {}),
+        }, HERMES_SESSION_NEW_TIMEOUT_MS) as { sessionId?: string }
+        if (!created.sessionId) {
+          throw new Error('Hermes ACP did not return a session ID')
+        }
+        logHermes('info', `session/new ok in ${Date.now() - bootstrapStartedAt}ms (profile=${profile}, id=${created.sessionId})`)
+        session = { id: created.sessionId, cwd: req.cwd, model: req.model, profile, connection, chunks: [] }
+        activeSession = session
+        this.sessions.set(key, session)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        const stderr = connection.recentStderr()
+        logHermes('error', `session bootstrap failed after ${Date.now() - bootstrapStartedAt}ms (profile=${profile}): ${detail}${stderr ? ` | stderr: ${stderr.slice(-1500)}` : ''}`)
         connection.close()
-        throw new Error(`Hermes ACP protocol version ${init.protocolVersion ?? 'unknown'} is unsupported`)
+        throw error
       }
-      const mcpServers = (req.mcpServers ?? []).map((server) => ({
-        name: server.key || server.id,
-        command: server.command,
-        args: server.args,
-        env: Object.entries(server.env ?? {}).map(([name, value]) => ({ name, value })),
-      }))
-      const created = await connection.request('session/new', {
-        cwd: req.cwd,
-        mcpServers,
-        ...(req.extraAllowedDirs?.length ? { additionalDirectories: req.extraAllowedDirs } : {}),
-      }) as { sessionId?: string }
-      if (!created.sessionId) {
-        connection.close()
-        throw new Error('Hermes ACP did not return a session ID')
-      }
-      session = { id: created.sessionId, cwd: req.cwd, model: req.model, profile, connection, chunks: [] }
-      activeSession = session
-      this.sessions.set(key, session)
     }
 
     const text = this.promptText(req)
@@ -130,6 +158,9 @@ export class HermesAcpAdapter implements CliAgentAdapter {
       if (session.lastThinkingBlockId) session.onEvent?.({ type: 'thinking_end', blockId: session.lastThinkingBlockId })
       return session.chunks.join('')
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const stderr = session.connection.recentStderr()
+      logHermes('error', `session/prompt failed (profile=${profile}): ${detail}${stderr ? ` | stderr: ${stderr.slice(-1500)}` : ''}`)
       this.sessions.delete(key)
       session.connection.close()
       throw error

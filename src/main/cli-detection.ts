@@ -1,11 +1,12 @@
 import { execSync, spawnSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { basename, dirname, isAbsolute, join, relative } from 'path'
 import { homedir } from 'os'
 import type { CliInstallStatus, HermesProfileInfo, HermesAcpReadiness } from '../shared/types'
 import { HERMES_DEFAULT_PROFILE } from '../shared/hermes'
 import { safeHandle } from './safe-handle'
 import { CODEX_DEFAULT_MODELS } from './cli-adapters/codex'
+import { resolveCliPath } from './cli-adapters/utils'
 import { getCachedAnthropicModels } from './anthropic-models'
 import { getCachedClaudeCliPtyModels } from './cli-adapters/claude-model-probe'
 
@@ -71,29 +72,20 @@ function findCopilotCli(): CliInstallStatus {
   const isWindows = process.platform === 'win32'
 
   for (const name of cliNames) {
-    try {
-      const whichCmd = isWindows ? `where ${name}` : `which ${name}`
-      const cliPath = execSync(whichCmd, {
-        encoding: 'utf-8',
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim().split('\n')[0]
-
-      if (cliPath && existsSync(cliPath)) {
-        let version: string | null = null
-        try {
-          version = execSync(`${name} --version`, {
-            encoding: 'utf-8',
-            timeout: 5000,
-            stdio: ['pipe', 'pipe', 'pipe']
-          }).trim()
-        } catch {
-          // Version command may not be supported
-        }
-        return { installed: true, path: cliPath, version }
+    // Shared resolver: capped timeout, CRLF-safe splitting, TTL-cached negatives.
+    const cliPath = resolveCliPath(name)
+    if (cliPath && existsSync(cliPath)) {
+      let version: string | null = null
+      try {
+        version = execSync(`${name} --version`, {
+          encoding: 'utf-8',
+          timeout: 5000,
+          stdio: ['pipe', 'pipe', 'pipe']
+        }).trim()
+      } catch {
+        // Version command may not be supported
       }
-    } catch {
-      // Not found, try next name
+      return { installed: true, path: cliPath, version }
     }
   }
 
@@ -119,34 +111,27 @@ function findCopilotCli(): CliInstallStatus {
 }
 
 function findCli(command: string): CliInstallStatus {
-  const whichCmd = process.platform === 'win32' ? `where ${command}` : `which ${command}`
+  // Single source of truth for "where is this CLI" — the same resolver the adapters spawn
+  // through, so the install badge can never disagree with what a spawn will actually find.
+  // resolveCliPath already caps the probe timeout, splits CRLF safely, and TTL-caches
+  // negatives; the existsSync guard still catches a CLI removed after a positive was cached.
+  const cliPath = resolveCliPath(command)
+  if (!cliPath || !existsSync(cliPath)) {
+    return { installed: false, path: null, version: null }
+  }
 
+  let version: string | null = null
   try {
-    const cliPath = execSync(whichCmd, {
+    version = execSync(`${command} --version`, {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe']
-    }).trim().split(/\r?\n/)[0]
-
-    if (!cliPath || !existsSync(cliPath)) {
-      return { installed: false, path: null, version: null }
-    }
-
-    let version: string | null = null
-    try {
-      version = execSync(`${command} --version`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim().split(/\r?\n/)[0] || null
-    } catch {
-      // Version command may not be supported
-    }
-
-    return { installed: true, path: cliPath, version }
+    }).trim().split(/\r?\n/)[0] || null
   } catch {
-    return { installed: false, path: null, version: null }
+    // Version command may not be supported
   }
+
+  return { installed: true, path: cliPath, version }
 }
 
 const HERMES_DEFAULT_MODELS: CliModelOption[] = [
@@ -156,12 +141,52 @@ const HERMES_DEFAULT_MODELS: CliModelOption[] = [
 ]
 
 /**
+ * Platform-native default Hermes home — `%LOCALAPPDATA%\hermes` on Windows,
+ * `~/.hermes` on POSIX. Mirrors Hermes's `_get_platform_default_hermes_home()`.
+ * `~/.hermes` is NOT the default on Windows, so hardcoding it there finds nothing.
+ */
+function platformDefaultHermesHome(): string {
+  if (process.platform === 'win32') {
+    const localAppData = (process.env['LOCALAPPDATA'] ?? '').trim()
+    const base = localAppData || join(homedir(), 'AppData', 'Local')
+    return join(base, 'hermes')
+  }
+  return join(homedir(), '.hermes')
+}
+
+/**
+ * Resolve the Hermes root — the directory under which named profiles live
+ * (`<root>/profiles/<name>`) and the default profile's `config.yaml` sits.
+ * Mirrors Hermes's `get_default_hermes_root()`:
+ *   - honors the `HERMES_HOME` env var (the user may relocate their whole home);
+ *   - if `HERMES_HOME` is itself a profile dir (`<root>/profiles/<name>`), climbs
+ *     back to `<root>` so all sibling profiles are still enumerable;
+ *   - otherwise falls back to the platform-native default.
+ */
+function resolveHermesRoot(): string {
+  const nativeHome = platformDefaultHermesHome()
+  const envHome = (process.env['HERMES_HOME'] ?? '').trim()
+  if (!envHome) return nativeHome
+  // HERMES_HOME is the native home itself or a subdir of it (normal or profile mode).
+  const rel = relative(nativeHome, envHome)
+  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return nativeHome
+  // Docker/custom relocation: if HERMES_HOME is `<root>/profiles/<name>`, root is the grandparent.
+  if (basename(dirname(envHome)) === 'profiles') return dirname(dirname(envHome))
+  // Otherwise HERMES_HOME itself is the root.
+  return envHome
+}
+
+/**
  * Extracts a top-level YAML block's raw text (from `key:` up to the next line starting at
  * column 0) without a full YAML parser — Hermes's config.yaml nests `default`/`provider` under
  * `model:`, `auxiliary:`, etc. and a flat regex over the whole file would grab the wrong section.
+ *
+ * `content` is normalized to LF first: Hermes writes `config.yaml` with CRLF line endings on
+ * Windows, and a `\r`-agnostic `^${key}:\\n` would never match `model:\r\n`, silently yielding
+ * no models → the picker falls back to the hardcoded defaults for the wrong profile.
  */
 function extractYamlBlock(content: string, key: string): string | null {
-  const match = new RegExp(`^${key}:\\n((?:[ \\t]+.*\\n?)*)`, 'm').exec(content)
+  const match = new RegExp(`^${key}:\\n((?:[ \\t]+.*\\n?)*)`, 'm').exec(content.replace(/\r\n/g, '\n'))
   return match?.[1] ?? null
 }
 
@@ -171,14 +196,28 @@ function readYamlScalar(block: string, key: string): string | null {
 }
 
 /**
- * Hermes has no model-listing command (unlike Claude's PTY probe or Codex's models_cache.json) —
- * `~/.hermes/config.yaml`'s `model.default`/`model.provider` and `fallback_providers` chain are
- * the only on-disk signal of what the user actually has configured, so this is the closest
- * equivalent to `readCodexConfigModel()`/`readCodexCachedModels()`.
+ * Resolves the `config.yaml` for a given Hermes profile. The synthetic `default`
+ * profile (the no-`--profile` case) reads the root config; a named profile reads
+ * its own isolated `<root>/profiles/<name>/config.yaml`. Mirrors how a
+ * Nexy-launched `hermes --profile <name>` session resolves its own home.
  */
-function readHermesConfigModels(): CliModelOption[] {
+function hermesProfileConfigPath(profile?: string): string {
+  const root = resolveHermesRoot()
+  if (!profile || profile === HERMES_DEFAULT_PROFILE) return join(root, 'config.yaml')
+  return join(root, 'profiles', profile, 'config.yaml')
+}
+
+/**
+ * Hermes has no model-listing command (unlike Claude's PTY probe or Codex's models_cache.json) —
+ * `config.yaml`'s `model.default`/`model.provider` and `fallback_providers` chain are the only
+ * on-disk signal of what the user actually has configured, so this is the closest equivalent to
+ * `readCodexConfigModel()`/`readCodexCachedModels()`. When a named profile is passed, its own
+ * isolated `profiles/<name>/config.yaml` is read instead of the root/default config — otherwise a
+ * profile-scoped agent shows the default profile's models (wrong provider/model in the picker).
+ */
+function readHermesConfigModels(profile?: string): CliModelOption[] {
   try {
-    const yamlPath = join(homedir(), '.hermes', 'config.yaml')
+    const yamlPath = hermesProfileConfigPath(profile)
     const content = readFileSync(yamlPath, 'utf8')
     const models: CliModelOption[] = []
     const seen = new Set<string>()
@@ -240,9 +279,12 @@ function readHermesProfileModel(profileDir: string): { model?: string; provider?
 }
 
 /**
- * Enumerates Hermes profiles by scanning `~/.hermes/profiles/*` (each subdir is a
- * fully isolated HERMES_HOME). A synthetic `default` entry is always present — it is
- * the no-`--profile` case and may not correspond to a profiles/ subdirectory.
+ * Enumerates Hermes profiles by scanning `<hermes-root>/profiles/*` (each subdir is a
+ * fully isolated HERMES_HOME). The root is resolved via {@link resolveHermesRoot} so the
+ * platform-native location (`%LOCALAPPDATA%\hermes` on Windows) and a relocated
+ * `HERMES_HOME` are both honored — hardcoding `~/.hermes` silently found nothing on
+ * Windows. A synthetic `default` entry is always present — it is the no-`--profile` case
+ * and may not correspond to a profiles/ subdirectory.
  *
  * Nexy-launched Hermes sessions inherit the selected profile's real home (memory,
  * skills, SOUL.md) — profiles are consumed, never managed, from here. Dir-scan is used
@@ -252,7 +294,7 @@ function readHermesProfileModel(profileDir: string): { model?: string; provider?
 export function listHermesProfiles(): HermesProfileInfo[] {
   const defaultEntry: HermesProfileInfo = { name: HERMES_DEFAULT_PROFILE, isDefault: true }
   try {
-    const profilesDir = join(homedir(), '.hermes', 'profiles')
+    const profilesDir = join(resolveHermesRoot(), 'profiles')
     if (!existsSync(profilesDir)) return [defaultEntry]
 
     const named: HermesProfileInfo[] = []
@@ -281,15 +323,26 @@ export function listHermesProfiles(): HermesProfileInfo[] {
 }
 
 let cachedHermesReadiness: HermesAcpReadiness | null = null
+let cachedHermesReadinessAt = 0
+
+// Readiness reflects mutable state (credentials can be added, or expire, mid-session), so the
+// cache is only trusted briefly. Without a TTL the first verdict stuck until an app restart or
+// an explicit recheck — a user who logs in after launch would keep seeing "not ready". Two short
+// spawnSync probes are cheap enough to re-run at this cadence; `force` still bypasses it entirely.
+const HERMES_READINESS_TTL_MS = 30_000
 
 /**
  * Probes whether the installed Hermes CLI can actually serve ACP — "binary present" is
  * not the same as "ACP-ready" (credentials may be missing). Runs `hermes acp --check`
  * (readiness) and `hermes acp --version` (version string) with strict short timeouts and
- * `shell:false`. Result is cached; pass `force` to re-probe on manual recheck.
+ * `shell:false`. Result is cached for {@link HERMES_READINESS_TTL_MS}; pass `force` to
+ * re-probe immediately on manual recheck.
  */
 export function hermesAcpReadiness(force = false): HermesAcpReadiness {
-  if (cachedHermesReadiness && !force) return cachedHermesReadiness
+  if (cachedHermesReadiness && !force && Date.now() - cachedHermesReadinessAt < HERMES_READINESS_TTL_MS) {
+    return cachedHermesReadiness
+  }
+  cachedHermesReadinessAt = Date.now()
 
   const executable = findCli('hermes').path
   if (!executable) {
@@ -345,7 +398,7 @@ export function detectAllClis(): Record<string, CliInstallStatus> {
   }
 }
 
-export function getCliModels(backend: string): CliModelOption[] {
+export function getCliModels(backend: string, hermesProfile?: string): CliModelOption[] {
   if (backend === 'codex-cli') {
     const cachedModels = readCodexCachedModels()
     if (cachedModels.length > 0) {
@@ -364,7 +417,7 @@ export function getCliModels(backend: string): CliModelOption[] {
     return CLAUDE_DEFAULT_MODELS
   }
   if (backend === 'hermes-cli') {
-    const configuredModels = readHermesConfigModels()
+    const configuredModels = readHermesConfigModels(hermesProfile)
     if (configuredModels.length === 0) return HERMES_DEFAULT_MODELS
     return [...configuredModels, ...HERMES_DEFAULT_MODELS.filter((m) => !configuredModels.some((c) => c.id === m.id))]
   }
@@ -388,7 +441,9 @@ export function registerCliHandlers(): void {
 
   safeHandle('cli:detect-all', () => detectAllClis())
 
-  safeHandle('cli:get-models', (_event, backend: string) => getCliModels(backend))
+  safeHandle('cli:get-models', (_event, backend: string, hermesProfile?: string) =>
+    getCliModels(backend, hermesProfile),
+  )
 
   safeHandle('hermes:list-profiles', () => listHermesProfiles())
 

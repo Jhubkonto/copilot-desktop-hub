@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }))
-vi.mock('child_process', () => ({ spawn: spawnMock }))
+vi.mock('child_process', () => ({ spawn: spawnMock, exec: vi.fn(), execFile: vi.fn(), execSync: vi.fn(), spawnSync: vi.fn() }))
 vi.mock('../cli-adapters/utils', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../cli-adapters/utils')>()),
   resolveCliPath: () => '/usr/local/bin/claude',

@@ -23,7 +23,11 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('child_process', () => ({
-  execSync: mockExecSync
+  execSync: mockExecSync,
+  exec: vi.fn(),
+  execFile: vi.fn(),
+  spawn: vi.fn(),
+  spawnSync: vi.fn()
 }))
 
 vi.mock('fs', () => ({
@@ -40,6 +44,7 @@ vi.mock('../cli-adapters/claude-model-probe', () => ({
 }))
 
 import { registerCliHandlers, checkCliOnStartup, detectAllClis, getCliModels } from '../cli-detection'
+import { clearCliPathCache } from '../cli-adapters/utils'
 
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
@@ -50,6 +55,9 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // findCli now resolves paths through the shared resolveCliPath cache (utils.ts), which is
+  // module-level and would otherwise leak positive/negative entries across these fast cases.
+  clearCliPathCache()
   mockReadFileSync.mockImplementation(() => {
     throw new Error('no file')
   })

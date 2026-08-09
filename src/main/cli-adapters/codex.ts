@@ -5,7 +5,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath, killProcess, stripAnsi, createLineBuffer } from './utils'
+import { resolveCliPath, killProcess, stripAnsi, createLineBuffer, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
 
 type TextResult = { text: string; isDelta: boolean; blockId?: string; done?: boolean }
 type ThinkingResult = { text: string; done?: boolean; isDelta: boolean }
@@ -480,7 +480,7 @@ function sendCodexPlanViaAppServer(
       cwd: req.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
-      env: process.env,
+      env: buildCliChildEnv(),
     })
 
     let stderrText = ''
@@ -719,7 +719,7 @@ function sendCodexPlanViaAppServer(
     })
 
     proc.stdout?.on('data', (chunk: Buffer) => { touchActivity(); lineBuffer.push(chunk) })
-    proc.stderr?.on('data', (chunk: Buffer) => { stderrText += chunk.toString('utf8') })
+    proc.stderr?.on('data', (chunk: Buffer) => { stderrText = (stderrText + chunk.toString('utf8')).slice(-16384) })
     proc.on('error', (error) => finish(error))
     proc.on('close', (code) => {
       if (lineBuffer.remainder().trim()) {
@@ -890,9 +890,18 @@ export const CodexAdapter: CliAgentAdapter = {
         cwd: req.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
-        env: process.env,
+        env: buildCliChildEnv(),
       })
       proc.stdin?.end(prompt, 'utf8')
+
+      // `codex exec --json` has no heartbeat: if it wedges (network stall, deadlocked tool)
+      // it emits nothing and the turn would hang forever. Settle it after a long total
+      // silence — long enough that an honest slow tool run is never mistaken for a hang.
+      const watchdog = createInactivityWatchdog(CLI_INACTIVITY_TIMEOUT_MS, () => {
+        onEvent?.({ type: 'activity', label: 'Codex CLI timed out (no output).' })
+        killProcess(proc)
+        settle(null, new Error(`Codex produced no output for ${Math.round(CLI_INACTIVITY_TIMEOUT_MS / 60000)} minutes and was stopped`))
+      })
 
       if (signal) {
         signal.addEventListener('abort', () => { killProcess(proc) }, { once: true })
@@ -960,7 +969,7 @@ export const CodexAdapter: CliAgentAdapter = {
       onEvent?.({ type: 'activity', label: 'Starting Codex CLI.' })
 
       proc.stderr?.on('data', (chunk: Buffer) => {
-        stderrText += chunk.toString('utf8')
+        stderrText = (stderrText + chunk.toString('utf8')).slice(-16384)
       })
 
       const parseLine = (line: string) => {
@@ -1069,6 +1078,7 @@ export const CodexAdapter: CliAgentAdapter = {
       const settle = (code: number | null, spawnError?: Error) => {
         if (settled) return
         settled = true
+        watchdog.clear()
         cleanup()
 
         if (openReasoningBlockId) {
@@ -1114,7 +1124,12 @@ export const CodexAdapter: CliAgentAdapter = {
         if (terminal) settle(terminal === 'completed' ? 0 : 1)
       })
       proc.stdout.on('data', (chunk: Buffer) => {
-        rawStdout += chunk.toString('utf8')
+        watchdog.touch()
+        // rawStdout only feeds the raw-text fallback used when the stream never produced
+        // any JSON. Once JSON has parsed it is dead weight, so stop accumulating then —
+        // that naturally bounds it to the (small) pre-JSON preamble instead of a full copy
+        // of every byte the CLI emits.
+        if (!parsedAnyJson) rawStdout = (rawStdout + chunk.toString('utf8')).slice(-65536)
         lineBuffer.push(chunk)
       })
 

@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { createServer } from 'http'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker } from './utils'
+import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
 
 type ClaudeContentBlock =
   | { type: 'text'; text?: string }
@@ -255,11 +255,31 @@ export const ClaudeAdapter: CliAgentAdapter = {
           cwd: req.cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: false,
+          env: buildCliChildEnv(),
         })
       } catch (error) {
         permissionHook?.close()
         reject(error)
         return
+      }
+
+      // Single-settle plumbing: the watchdog, abort, spawn error and close paths can all
+      // race to end the turn. Guard so the promise resolves/rejects once and the permission
+      // hook server (and its port) is reclaimed exactly once — a hung turn must not orphan it.
+      let settled = false
+      let hookClosed = false
+      const closeHook = () => { if (!hookClosed) { hookClosed = true; permissionHook?.close() } }
+      const watchdog = createInactivityWatchdog(CLI_INACTIVITY_TIMEOUT_MS, () => {
+        onEvent?.({ type: 'activity', label: 'Claude CLI timed out (no output).' })
+        killProcess(proc)
+        settle(() => reject(new Error(`claude produced no output for ${Math.round(CLI_INACTIVITY_TIMEOUT_MS / 60000)} minutes and was stopped`)))
+      })
+      function settle(run: () => void): void {
+        if (settled) return
+        settled = true
+        watchdog.clear()
+        closeHook()
+        run()
       }
 
       const stdinContent = useJsonInput ? buildConversationJson(req) : buildConversationText(req)
@@ -308,7 +328,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
 
       proc.stderr?.on('data', (chunk: Buffer) => {
-        stderrText += chunk.toString('utf8')
+        // Keep only the tail — stderr is used for error detail, not accumulated wholesale,
+        // so a chatty CLI cannot grow this without bound.
+        stderrText = (stderrText + chunk.toString('utf8')).slice(-16384)
       })
 
       const parseLine = (line: string) => {
@@ -441,14 +463,16 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
 
       const lineBuffer = createLineBuffer(parseLine)
-      proc.stdout!.on('data', (chunk: Buffer) => lineBuffer.push(chunk))
+      proc.stdout!.on('data', (chunk: Buffer) => {
+        watchdog.touch()
+        lineBuffer.push(chunk)
+      })
 
       proc.on('error', (error) => {
-        permissionHook?.close()
-        reject(error)
+        settle(() => reject(error))
       })
       proc.on('close', (code) => {
-        permissionHook?.close()
+        if (settled) return
         if (lineBuffer.remainder().trim()) {
           const trimmed = lineBuffer.remainder().trim()
           try {
@@ -477,9 +501,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
         if (fullText === '') {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
           const codeNote = code !== 0 ? ` (exit ${code})` : ''
-          reject(new Error(`claude returned an empty response${codeNote}${detail}`))
+          settle(() => reject(new Error(`claude returned an empty response${codeNote}${detail}`)))
         } else {
-          resolve(fullText)
+          settle(() => resolve(fullText))
         }
       })
     })

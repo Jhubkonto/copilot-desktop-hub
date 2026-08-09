@@ -2,7 +2,7 @@ import { createRequire } from 'module'
 import type { IPty, spawn as ptySpawnType } from 'node-pty'
 import type { Terminal as TerminalType } from '@xterm/headless'
 import { app } from 'electron'
-import { resolveCliPath } from './utils'
+import { buildCliChildEnv, resolveCliPath } from './utils'
 import { getDatabase } from '../database'
 
 // Loaded via createRequire rather than a native ESM import: Electron's embedded Node ESM loader
@@ -114,7 +114,7 @@ async function runProbe(): Promise<CliModelOption[]> {
         cols: COLS,
         rows: ROWS,
         cwd: app.getPath('temp'),
-        env: process.env as Record<string, string>,
+        env: buildCliChildEnv() as Record<string, string>,
       })
 
       let lastDataAt = Date.now()

@@ -68,6 +68,28 @@ describe('Hermes ACP adapter', () => {
     expect(mockSpawn).toHaveBeenCalledTimes(1)
   })
 
+  it('tolerates a stray non-JSON stdout line instead of failing the whole turn', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const adapter = new HermesAcpAdapter()
+    const chunks: string[] = []
+    const request = adapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }], cwd: 'C:\\workspace', model: 'default', conversationId: 'c4',
+    }, (chunk) => chunks.push(chunk), () => {})
+
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(1))
+    sendResponse(proc, 1, { protocolVersion: 1 })
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(2))
+    sendResponse(proc, 2, { sessionId: 's4' })
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(3))
+    // A library banner written to stdout instead of stderr — must not tear down the turn.
+    proc.stdout.emit('data', 'WARNING: something noisy\n')
+    proc.stdout.emit('data', JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: 'Hi' } } } }) + '\n')
+    sendResponse(proc, 3, { stopReason: 'end_turn' })
+    await expect(request).resolves.toBe('Hi')
+    expect(chunks).toEqual(['Hi'])
+  })
+
   it('falls back to default (no --profile) and warns when the stored profile is gone', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
