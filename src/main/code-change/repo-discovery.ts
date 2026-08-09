@@ -43,7 +43,6 @@ export async function discoverReposInWorkspace(rootDirectory: string): Promise<R
         // Check if this is a .git file or directory
         if (entry.name === '.git') {
           try {
-            const gitPath = path.join(fullPath)
             const isDir = entry.isDirectory()
 
             if (isDir || entry.isFile()) {
@@ -51,7 +50,7 @@ export async function discoverReposInWorkspace(rootDirectory: string): Promise<R
               // entry itself — `path.relative(rootDirectory, fullPath)` would incorrectly include
               // the trailing "/.git" component (e.g. "frontend/.git" instead of "frontend"), which
               // callers that round-trip this value back through `path.join(workspaceRoot, ...)`
-              // (resolving which repo a code-change/git command targets) would resolve to a path
+              // (resolving which repo a project Git command targets) would resolve to a path
               // inside the git internals directory instead of the repo root.
               const repoRelativePath = path.relative(rootDirectory, dir)
               // Resolve the actual repo info
@@ -86,7 +85,7 @@ export async function discoverReposInWorkspace(rootDirectory: string): Promise<R
             // .claude/worktrees/* are real git worktrees (each with its own .git file), but
             // they're internal session scratch space, not a repo of the user's project. Without
             // this exclusion, a lingering agent worktree makes an otherwise single-repo workspace
-            // look ambiguous and blocks /code-change with a disambiguation prompt the user has no
+            // look ambiguous and blocks Git commands with a disambiguation prompt the user has no
             // real way to resolve (worktree paths aren't something they'd ever intentionally target).
             '.claude',
           ]

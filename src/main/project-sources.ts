@@ -11,7 +11,7 @@ type SourceRow = {
 type RepositoryRow = {
   id: string; project_id: string; source_id: string; label: string; relative_path: string
   remote_url: string | null; branch: string | null; dirty: number | null; enabled: number
-  available: number; verify_commands_json: string | null; created_at: number; updated_at: number
+  available: number; created_at: number; updated_at: number
 }
 
 function canonicalPath(value: string): string {
@@ -27,15 +27,11 @@ function mapSource(row: SourceRow): ProjectSource {
 }
 
 function mapRepository(row: RepositoryRow): ProjectRepository {
-  let verifyCommands: ProjectRepository['verifyCommands'] = null
-  if (row.verify_commands_json) {
-    try { verifyCommands = JSON.parse(row.verify_commands_json) as ProjectRepository['verifyCommands'] } catch { verifyCommands = null }
-  }
   return {
     id: row.id, projectId: row.project_id, sourceId: row.source_id, label: row.label,
     relativePath: row.relative_path, remoteUrl: row.remote_url, branch: row.branch,
     dirty: row.dirty === null ? null : row.dirty === 1, enabled: row.enabled === 1,
-    available: row.available === 1, verifyCommands, createdAt: row.created_at, updatedAt: row.updated_at,
+    available: row.available === 1, createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
 

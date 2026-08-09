@@ -7,7 +7,7 @@ import type {
   ProjectEditSource,
   ProjectTouchedFile,
   ProjectTouchedFileStatus,
-  RemoteEditStagedFileDiff,
+  ProjectFileDiff,
 } from '../shared/types'
 
 type RecordProjectAuditChangeInput = {
@@ -167,6 +167,9 @@ export function recordProjectAuditChange(input: RecordProjectAuditChangeInput): 
   const now = Date.now()
   const sessionId = input.sessionId ?? randomUUID()
 
+  // Session and touched-file rows are written atomically: if the file insert throws, the
+  // session insert is rolled back too, so a failed record never leaves an orphan 0-file session.
+  db.transaction(() => {
   db.prepare(
     `INSERT INTO project_edit_sessions (id, project_id, conversation_id, agent_id, title, source, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -227,11 +230,15 @@ export function recordProjectAuditChange(input: RecordProjectAuditChangeInput): 
     input.lastOperation,
     input.branch ?? null,
     input.commitHash ?? null,
-    input.legacyRepositoryUnknown ?? (!input.repositoryId && !input.sourceId),
+    // better-sqlite3 rejects boolean binds ("can only bind numbers, strings, bigints,
+    // buffers, and null"), so coerce to 0/1. Binding the raw boolean here threw and, because
+    // the session row is inserted first, silently produced 0-file audit sessions.
+    (input.legacyRepositoryUnknown ?? (!input.repositoryId && !input.sourceId)) ? 1 : 0,
     existing?.first_touched_at ?? now,
     now,
     input.diff ? JSON.stringify(input.diff) : null,
   )
+  })()
 
   return sessionId
 }
@@ -374,7 +381,7 @@ export function listProjectAuditFiles(sessionId: string): ProjectTouchedFile[] {
   return rows.map(mapTouchedFileRow)
 }
 
-export function getProjectAuditDiff(sessionId: string, relativePath: string, fileId?: string | null): RemoteEditStagedFileDiff | null {
+export function getProjectAuditDiff(sessionId: string, relativePath: string, fileId?: string | null): ProjectFileDiff | null {
   const db = getDatabase()
   const row = (fileId
     ? db.prepare('SELECT diff_json FROM project_touched_files WHERE id = ? AND session_id = ?').get(fileId, sessionId)
@@ -384,12 +391,7 @@ export function getProjectAuditDiff(sessionId: string, relativePath: string, fil
   return {
     relativePath,
     ...(JSON.parse(row.diff_json) as { hunks: unknown[] }),
-  } as RemoteEditStagedFileDiff
-}
-
-export function getRemoteEditAuditDiff(reportId: string, relativePath: string): RemoteEditStagedFileDiff | null {
-  if (!reportId || !relativePath) return null
-  return getProjectAuditDiff(`remote-edit:${reportId}`, relativePath)
+  } as ProjectFileDiff
 }
 
 export function registerProjectAuditHandlers(): void {

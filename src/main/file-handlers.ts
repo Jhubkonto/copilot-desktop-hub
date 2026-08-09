@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { randomUUID } from "crypto";
-import { readFileSync, statSync, existsSync, readdirSync } from "fs";
+import { readFileSync, statSync, existsSync, readdirSync, openSync, readSync, closeSync, realpathSync } from "fs";
 import { readdir } from "fs/promises";
-import { basename, isAbsolute, join, resolve } from "path";
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from "path";
+import { TextDecoder } from "util";
 import { exec } from "child_process";
 import { promisify } from "util";
 
@@ -211,9 +212,35 @@ const FS_REMOTE_LIST_LIMIT = 2000
 // Depth-1 only (unlike the local `fs:list-directory` IPC channel's depth=3 default) — this
 // is called over the WebSocket by the Android remote workspace explorer, which lazily
 // re-requests on each folder tap rather than pre-fetching a deep tree over the network.
-export function listDirectoryEntriesForRemote(path: string): FsRemoteListResult {
+function pathIsWithinRoot(candidate: string, root: string): boolean {
+  const rel = relative(root, candidate)
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+/** Remote file access is limited to locations the desktop exposes in its explorer. */
+export function isRemotePathAuthorized(filePath: string, authorizedRoots: string[]): boolean {
+  if (!filePath || authorizedRoots.length === 0) return false
+  try {
+    const candidate = resolve(realpathSync(filePath))
+    return authorizedRoots.some((root) => {
+      try { return pathIsWithinRoot(candidate, resolve(realpathSync(root))) } catch { return false }
+    })
+  } catch {
+    return false
+  }
+}
+
+export function getFsAuthorizedRoots(): string[] {
+  const { home, recents } = getFsStartRoots()
+  return [home, getWorkingDirectory(), ...recents].filter((root, index, roots) => root && roots.indexOf(root) === index)
+}
+
+export function listDirectoryEntriesForRemote(path: string, authorizedRoots?: string[]): FsRemoteListResult {
   if (!path || !existsSync(path)) {
     return { entries: [], truncated: false, error: 'Directory not found' }
+  }
+  if (authorizedRoots && !isRemotePathAuthorized(path, authorizedRoots)) {
+    return { entries: [], truncated: false, error: 'This location is not available through the remote explorer' }
   }
   try {
     if (!statSync(path).isDirectory()) {
@@ -228,6 +255,50 @@ export function listDirectoryEntriesForRemote(path: string): FsRemoteListResult 
   const entries = listDirectoryEntries(path, 1, '').map((entry) => ({ ...entry, fullPath: join(path, entry.relativePath) }))
   const truncated = entries.length > FS_REMOTE_LIST_LIMIT
   return { entries: entries.slice(0, FS_REMOTE_LIST_LIMIT), truncated }
+}
+
+const FS_REMOTE_READ_LIMIT = 512_000
+
+/** Read a bounded UTF-8 text file for the remote Android document viewer. */
+export function readTextFileForRemote(filePath: string, authorizedRoots?: string[]): { path: string; content: string; truncated: boolean; error?: string } {
+  if (!filePath || !existsSync(filePath)) return { path: filePath, content: '', truncated: false, error: 'File not found' }
+  if (authorizedRoots && !isRemotePathAuthorized(filePath, authorizedRoots)) {
+    return { path: filePath, content: '', truncated: false, error: 'This file is not available through the remote explorer' }
+  }
+  if (extname(filePath).toLowerCase() !== '.md') {
+    return { path: filePath, content: '', truncated: false, error: 'Only Markdown files can be viewed' }
+  }
+  let descriptor: number | undefined
+  try {
+    if (!statSync(filePath).isFile()) return { path: filePath, content: '', truncated: false, error: 'Not a file' }
+    descriptor = openSync(filePath, 'r')
+    const buffer = Buffer.alloc(FS_REMOTE_READ_LIMIT + 1)
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0)
+    const truncated = bytesRead > FS_REMOTE_READ_LIMIT
+    const byteLimit = truncated ? FS_REMOTE_READ_LIMIT : bytesRead
+    let content: string
+    if (!truncated) {
+      content = buffer.subarray(0, byteLimit).toString('utf-8')
+    } else {
+      // Decode strictly and back up at most four bytes so a multibyte code point is never
+      // split at the bounded-read boundary.
+      const decoder = new TextDecoder('utf-8', { fatal: true })
+      let end = byteLimit
+      while (end > byteLimit - 4) {
+        try { content = decoder.decode(buffer.subarray(0, end)); break } catch { end -= 1 }
+      }
+      content ??= buffer.subarray(0, byteLimit).toString('utf-8')
+    }
+    return {
+      path: filePath,
+      content: truncated ? `${content}\n\n...[truncated]` : content,
+      truncated,
+    }
+  } catch {
+    return { path: filePath, content: '', truncated: false, error: 'Could not read this file' }
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
 }
 
 export function getFsStartRoots(): { home: string; recents: string[] } {
