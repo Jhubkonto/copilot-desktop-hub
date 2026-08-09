@@ -2,12 +2,6 @@ package io.nexy.android.data.model
 
 import org.json.JSONObject
 
-data class RemoteEditStagedFileEntry(
-    val relativePath: String,
-    val diffLineCount: Int,
-    val reviewed: Boolean,
-)
-
 /** One child of a remotely-browsed desktop directory (see WsEvent.FsDirectoryListing).
  *  [fullPath] is joined server-side with the desktop's own path separator — never construct
  *  it client-side, since Android has no idea whether the desktop is Windows or POSIX. */
@@ -225,122 +219,10 @@ sealed class WsEvent {
     data class ProjectList(val projects: List<Project>) : WsEvent()
     data class ModelList(val models: List<ModelOption>, val source: ModelListSource?) : WsEvent()
     data class AndroidUpdateManifestResult(val manifest: AndroidUpdateManifest?) : WsEvent()
-    data class ErrorReportCaptured(val reportId: String) : WsEvent()
-    data class ErrorReportError(val message: String) : WsEvent()
-    data class RemoteEditInvestigationActivity(val reportId: String, val label: String, val type: String) : WsEvent()
-    data class RemoteEditInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
-    data class RemoteEditInvestigationDone(val reportId: String, val status: String, val error: String?) : WsEvent()
-    data class RemoteEditVerificationEvent(
-        val reportId: String,
-        val runId: String,
-        val command: String?,
-        val status: String,
-        val label: String,
-        val line: String?,
-    ) : WsEvent()
-    data class RemoteEditVerificationDone(
-        val reportId: String,
-        val runId: String,
-        val status: String,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditFixDone(
-        val reportId: String,
-        val status: String,
-        val stagedFiles: List<RemoteEditStagedFileEntry>,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditStagedFiles(
-        val reportId: String,
-        val fixStatus: String,
-        val stagedFiles: List<RemoteEditStagedFileEntry>,
-    ) : WsEvent()
-    data class RemoteEditStagedDiff(
-        val reportId: String,
-        val relativePath: String,
-        val hunksJson: String?,
-    ) : WsEvent()
-    data class RemoteEditFileReviewed(
-        val reportId: String,
-        val relativePath: String,
-        val reviewed: Boolean,
-    ) : WsEvent()
-    data class RemoteEditHistoryForReport(
-        val reportId: String,
-        val committed: Boolean,
-        val commitSha: String?,
-    ) : WsEvent()
-    data class RemoteEditGitCommitResult(
-        val reportId: String,
-        val sha: String?,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditGitEvent(
-        val reportId: String,
-        val type: String,
-        val label: String,
-        val commitSha: String?,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditRecoveryEvent(
-        val reportId: String,
-        val recoveryId: String?,
-        val type: String,
-        val label: String,
-        val status: String?,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditReportDeleted(
-        val reportId: String,
-        val deleted: Boolean,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditApplyResult(
-        val reportId: String,
-        val appliedFiles: List<String>,
-        val backupPaths: List<String>,
-        val error: String?,
-    ) : WsEvent()
-    data class RemoteEditActiveCodeChangesChanged(val countsByProjectId: Map<String, Int>) : WsEvent()
     data class CodeChangeError(val reportId: String?, val error: String) : WsEvent()
     data class CodeChangeRepoWire(val relativePath: String, val branch: String, val dirty: Boolean = false)
     data class CodeChangeRepos(val repos: List<CodeChangeRepoWire>) : WsEvent()
     data class CodeChangeFiles(val files: List<String>) : WsEvent()
-    /** Fires for the code-change:submitted/accepted/pushed/completed replies — every one of the
-     *  independent slash commands (/code-change, /code-execute, /code-push) resolves to one of
-     *  these "kind" values rather than its own class, mirroring how the backend collapsed the old
-     *  step-machine into flat one-shot replies. */
-    data class CodeChangeAck(val reportId: String, val kind: String) : WsEvent()
-    data class CodeChangeReport(
-        val reportId: String?,
-        val step: String?,
-        val repoRelativePath: String?,
-        val plan: String?,
-        val title: String?,
-        val description: String?,
-        val confidence: String?,
-        val rootCause: String?,
-        val affectedFiles: List<String> = emptyList(),
-    ) : WsEvent()
-    data class CodeChangeReloadPrepareResult(val reportId: String, val recoveryId: String?, val canReload: Boolean, val reason: String?) : WsEvent()
-    data class CodeChangeUndone(val rolledBack: Boolean, val error: String?) : WsEvent()
-    /** code-change:status is overloaded server-side: it's both a lightweight execute/verify/commit
-     *  progress broadcast ({reportId, status}) and the reply to code-change:get-status
-     *  ({report, gitRepo}). WsEventParser disambiguates on the presence of a "report" key and
-     *  emits one of these two distinct events so callers never have to re-derive which shape it is. */
-    data class CodeChangeStatusProgress(val reportId: String, val status: String) : WsEvent()
-    data class CodeChangeStatusResult(
-        val reportId: String?,
-        val step: String?,
-        val repoRelativePath: String?,
-        val title: String?,
-        val gitRepoOk: Boolean,
-        val gitRepoRelativePath: String?,
-        val gitRepoReason: String?,
-    ) : WsEvent()
-    data class CodeChangeWarning(val reportId: String, val warning: String) : WsEvent()
-    data class CodeChangeInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
-    data class CodeChangeInvestigationActivity(val reportId: String, val type: String, val label: String) : WsEvent()
     data class ChangedFileInfo(val relativePath: String, val staged: Boolean)
     data class CodeChangeChangedFiles(val files: List<ChangedFileInfo>, val seq: Int = 0) : WsEvent()
     data class CodeChangeBranches(val current: String, val local: List<String>, val remote: List<String>, val seq: Int = 0) : WsEvent()
@@ -399,9 +281,6 @@ sealed class WsEvent {
     data class ConversationDeleted(val id: String) : WsEvent()
     data class ConversationSearchResults(val conversations: List<Conversation>) : WsEvent()
     data class MessageDeleted(val id: String) : WsEvent()
-    data class RemoteEditReports(val reports: List<ErrorReport>) : WsEvent()
-    data class RemoteEditReportsChanged(val reportId: String, val status: String) : WsEvent()
-    data class RemoteEditInvestigationSettingsLoaded(val settings: RemoteEditInvestigationSettings) : WsEvent()
     data class ProjectCreated(val project: Project) : WsEvent()
     data class ProjectRenamed(val id: String, val name: String, val color: String? = null) : WsEvent()
     data class ProjectDeleted(val id: String) : WsEvent()
@@ -640,6 +519,13 @@ sealed class WsEvent {
         val error: String?,
     ) : WsEvent()
     data class FsStartRoots(val home: String, val recents: List<String>) : WsEvent()
+    data class FsFileContent(
+        val requestId: String?,
+        val path: String,
+        val content: String,
+        val truncated: Boolean,
+        val error: String?,
+    ) : WsEvent()
 }
 
 data class BuildRecord(
@@ -770,41 +656,6 @@ data class ProjectAgentEntry(
     val agentIcon: String,
     val isPrimary: Boolean,
     val sortOrder: Int,
-)
-
-data class ErrorReport(
-    val id: String,
-    val title: String,
-    val description: String,
-    val status: String,
-    val fixStatus: String,
-    val investigationConfidence: String?,
-    val investigationRootCause: String?,
-    val investigationMarkdown: String?,
-    val investigationAffectedFiles: List<String> = emptyList(),
-    val createdAt: Long,
-    val projectId: String? = null,
-    val requestType: String = "edit",
-    val customTypeLabel: String? = null,
-)
-
-data class RemoteEditVerificationRun(
-    val runId: String,
-    val status: String,
-    val error: String?,
-)
-
-data class RemoteEditInvestigationSettings(
-    val backend: String,
-    val model: String,
-    val retryLimit: Int,
-    val autoApproveTools: Boolean,
-)
-
-data class RemoteEditRecoveryRun(
-    val recoveryId: String,
-    val status: String,
-    val error: String?,
 )
 
 data class HistoryMessage(

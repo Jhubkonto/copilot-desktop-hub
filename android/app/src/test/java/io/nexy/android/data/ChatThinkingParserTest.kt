@@ -6,7 +6,6 @@ import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.Conversation
-import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
@@ -94,7 +93,6 @@ class ChatThinkingParserTest {
             models = MutableStateFlow<List<ModelOption>>(emptyList()),
             modelSource = MutableStateFlow<ModelListSource?>(null),
             androidUpdateManifest = MutableStateFlow<AndroidUpdateManifest?>(null),
-            errorReports = MutableStateFlow<List<ErrorReport>>(emptyList()),
             providers = MutableStateFlow<List<ProviderInfo>>(emptyList()),
             mcpServers = MutableStateFlow<List<McpServerInfo>>(emptyList()),
             skills = MutableStateFlow<List<SkillConfig>>(emptyList()),

@@ -25,7 +25,7 @@ data class Conversation(
     val cli_mode_override: String? = null,
     val codex_execution_mode_override: String? = null,
     val rating: Int? = null,
-    val kind: String? = null, // 'chat', 'code-change', or 'project-conversation-mode'
+    val kind: String? = null, // 'chat' or 'project-conversation-mode'
 )
 
 data class ModelOption(

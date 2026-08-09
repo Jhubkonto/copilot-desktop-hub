@@ -18,14 +18,10 @@ import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.HermesCliInfo
-import io.nexy.android.data.model.CodeChangeRequestType
-import io.nexy.android.data.model.codeChangeRequestTypeWireValue
 import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.NewContentConversation
-import io.nexy.android.data.model.ErrorReport
-import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WikiExtractionCandidate
@@ -224,14 +220,6 @@ object WsRepository : WsClient {
     private val _androidUpdateManifest = MutableStateFlow<AndroidUpdateManifest?>(null)
     val androidUpdateManifest: StateFlow<AndroidUpdateManifest?> = _androidUpdateManifest
 
-    private val _errorReports = MutableStateFlow<List<ErrorReport>>(emptyList())
-    val errorReports: StateFlow<List<ErrorReport>> = _errorReports
-
-    // Count of active Code Changes runs (investigation/fix/verification) per project, so the
-    // Projects list can show a running indicator even when no Code Changes screen is open —
-    // previously desktop-initiated activity was invisible on Android entirely.
-    private val _activeCodeChangesByProject = MutableStateFlow<Map<String, Int>>(emptyMap())
-    val activeCodeChangesByProject: StateFlow<Map<String, Int>> = _activeCodeChangesByProject
 
     data class DebugLogEntry(val tag: String, val message: String, val ts: Long)
     // Diagnostics persist for one week, then are swept on the next startup (parity with desktop).
@@ -337,13 +325,6 @@ object WsRepository : WsClient {
     val activeChatSnapshots: StateFlow<Map<String, ActiveChatSnapshot>> = _activeChatSnapshots
 
     val activelyViewedConversationId = MutableStateFlow<String?>(null)
-
-    /** Text to drop into the composer of whichever conversation screen mounts next — used by
-     * entry points outside chat (the /code panel's "Resolve with AI in chat" action) that
-     * navigate to a brand-new conversation and want the user's own /code-change send to run
-     * there, rather than firing the WS command themselves before any ChatViewModel exists to
-     * react to its completion. Mirrors desktop's pendingComposerPrefill store field. */
-    var pendingComposerPrefill: String? = null
 
     private val _completedWhileAwayIds = MutableStateFlow<Set<String>>(emptySet())
     val completedWhileAwayIds: StateFlow<Set<String>> = _completedWhileAwayIds
@@ -920,9 +901,6 @@ object WsRepository : WsClient {
                             }
                         }
                     }
-                    is WsEvent.RemoteEditActiveCodeChangesChanged -> {
-                        _activeCodeChangesByProject.value = event.countsByProjectId
-                    }
                     is WsEvent.ProjectAgents -> {
                         // Cache the inheritable agent for this project so project draft chats can
                         // show it before the first send. Resolve primary-first, else lowest sort
@@ -1363,7 +1341,6 @@ object WsRepository : WsClient {
             models = _models,
             modelSource = _modelSource,
             androidUpdateManifest = _androidUpdateManifest,
-            errorReports = _errorReports,
             providers = _providers,
             mcpServers = _mcpServers,
             skills = _skills,
@@ -1806,8 +1783,6 @@ object WsRepository : WsClient {
         _androidUpdateManifest.value = null
         _serverVersion.value = null
         _desktopIsPackaged.value = null
-        _errorReports.value = emptyList()
-        _activeCodeChangesByProject.value = emptyMap()
         _providers.value = standaloneProviders?.providers?.value.orEmpty()
         _mcpServers.value = emptyList()
         _skillAgentUsage.value = emptyMap()
@@ -2500,229 +2475,105 @@ object WsRepository : WsClient {
             if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
         }
     }
-    fun refreshReports(projectId: String) {
-        sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports projectId=$projectId")
-        send("self-heal:get-reports", mapOf("projectId" to projectId))
-    }
-    fun refreshActiveCodeChanges() {
-        send("self-heal:get-active-code-changes", emptyMap())
-    }
-
-    // --- Code Changes: independent slash-command actions (no wizard/step gating) ---
-    // Mirrors desktop's collapsed step-flow — each of these is a standalone request against
-    // whatever report is attached to the current conversation, not a step in a forced sequence.
-    fun submitCodeChangeDescription(
-        conversationId: String,
-        projectId: String,
-        description: String,
-        repoRelativePath: String? = null,
-    ) {
-        sendLog("CodeChange", "submitCodeChangeDescription: conversationId=$conversationId projectId=$projectId")
-        val payload = mutableMapOf<String, Any>(
-            "conversationId" to conversationId,
-            "projectId" to projectId,
-            "description" to description,
-        )
-        if (!repoRelativePath.isNullOrBlank()) payload["repoRelativePath"] = repoRelativePath
-        send("code-change:submit-description", payload)
-    }
-    fun acceptCodeChangePlan(reportId: String) {
-        sendLog("CodeChange", "acceptCodeChangePlan: reportId=$reportId")
-        send("code-change:accept-plan", mapOf("reportId" to reportId))
-    }
-    fun pushCodeChange(reportId: String) {
-        sendLog("CodeChange", "pushCodeChange: reportId=$reportId")
-        send("code-change:push", mapOf("reportId" to reportId))
-    }
-    fun undoCodeChange(reportId: String) {
-        sendLog("CodeChange", "undoCodeChange: reportId=$reportId")
-        send("code-change:undo", mapOf("reportId" to reportId))
-    }
-    fun getCodeChangeReportForConversation(conversationId: String) {
-        send("code-change:get-report-for-conversation", mapOf("conversationId" to conversationId))
-    }
-    fun getCodeChangeStatus(conversationId: String) {
-        send("code-change:get-status", mapOf("conversationId" to conversationId))
-    }
-
-    // --- Code Changes: git housekeeping (backs the Android /code panel) ---
+    // --- Project Git workbench (backs the Android /code panel) ---
     fun listCodeChangeRepos(workspaceRoot: String) {
-        send("code-change:list-repos", mapOf("workspaceRoot" to workspaceRoot))
+        send("project-git:list-repos", mapOf("workspaceRoot" to workspaceRoot))
     }
     fun listCodeChangeChangedFiles(repoRoot: String, seq: Int = 0) {
-        send("code-change:list-changed-files", mapOf("repoRoot" to repoRoot, "seq" to seq))
+        send("project-git:list-changed-files", mapOf("repoRoot" to repoRoot, "seq" to seq))
     }
     fun listCodeChangeBranches(repoRoot: String, seq: Int = 0) {
-        send("code-change:list-branches", mapOf("repoRoot" to repoRoot, "seq" to seq))
+        send("project-git:list-branches", mapOf("repoRoot" to repoRoot, "seq" to seq))
     }
     fun checkoutCodeChangeBranch(repoRoot: String, branchName: String) {
-        send("code-change:checkout-branch", mapOf("repoRoot" to repoRoot, "branchName" to branchName))
+        send("project-git:checkout-branch", mapOf("repoRoot" to repoRoot, "branchName" to branchName))
     }
     fun createCodeChangeBranch(repoRoot: String, branchName: String, fromRef: String? = null) {
         val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot, "branchName" to branchName)
         if (!fromRef.isNullOrBlank()) payload["fromRef"] = fromRef
-        send("code-change:new-branch", payload)
+        send("project-git:new-branch", payload)
     }
     fun fetchCodeChangeRepo(repoRoot: String, remote: String? = null) {
         val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot)
         if (!remote.isNullOrBlank()) payload["remote"] = remote
-        send("code-change:fetch", payload)
+        send("project-git:fetch", payload)
     }
     fun mergeCodeChangeBranch(repoRoot: String, sourceBranch: String) {
-        send("code-change:merge-branch", mapOf("repoRoot" to repoRoot, "sourceBranch" to sourceBranch))
+        send("project-git:merge-branch", mapOf("repoRoot" to repoRoot, "sourceBranch" to sourceBranch))
     }
     fun initCodeChangeRepo(workspaceRoot: String, relativePath: String? = null) {
         val payload = mutableMapOf<String, Any>("workspaceRoot" to workspaceRoot)
         if (!relativePath.isNullOrBlank()) payload["relativePath"] = relativePath
-        send("code-change:init-repo", payload)
+        send("project-git:init-repo", payload)
     }
     fun detectCodeChangeCredentials(repoRoot: String) {
-        send("code-change:detect-credentials", mapOf("repoRoot" to repoRoot))
+        send("project-git:detect-credentials", mapOf("repoRoot" to repoRoot))
     }
     fun pullCodeChangeRepo(repoRoot: String, remote: String? = null) {
         val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot)
         if (!remote.isNullOrBlank()) payload["remote"] = remote
-        send("code-change:pull", payload)
+        send("project-git:pull", payload)
     }
     fun pushCodeChangeBranch(repoRoot: String) {
-        send("code-change:push-branch", mapOf("repoRoot" to repoRoot))
+        send("project-git:push-branch", mapOf("repoRoot" to repoRoot))
     }
     fun commitCodeChangeFiles(repoRoot: String, message: String) {
-        send("code-change:commit", mapOf("repoRoot" to repoRoot, "message" to message))
+        send("project-git:commit", mapOf("repoRoot" to repoRoot, "message" to message))
     }
     fun discardCodeChangeFile(repoRoot: String, relativePath: String) {
-        send("code-change:discard-file", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath))
+        send("project-git:discard-file", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath))
     }
     fun stashCodeChanges(repoRoot: String, message: String? = null) {
         val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot)
         if (!message.isNullOrBlank()) payload["message"] = message
-        send("code-change:stash", payload)
+        send("project-git:stash", payload)
     }
     fun stashPopCodeChanges(repoRoot: String) {
-        send("code-change:stash-pop", mapOf("repoRoot" to repoRoot))
+        send("project-git:stash-pop", mapOf("repoRoot" to repoRoot))
     }
     fun getCodeChangeStashCount(repoRoot: String) {
-        send("code-change:stash-count", mapOf("repoRoot" to repoRoot))
+        send("project-git:stash-count", mapOf("repoRoot" to repoRoot))
     }
     fun deleteCodeChangeBranch(repoRoot: String, branchName: String, deleteRemote: Boolean = false, force: Boolean = false) {
         send(
-            "code-change:delete-branch",
+            "project-git:delete-branch",
             mapOf("repoRoot" to repoRoot, "branchName" to branchName, "deleteRemote" to deleteRemote, "force" to force),
         )
     }
     fun getCodeChangeFileDiff(repoRoot: String, relativePath: String, seq: Int = 0) {
-        send("code-change:file-diff", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath, "seq" to seq))
+        send("project-git:file-diff", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath, "seq" to seq))
     }
     fun stageCodeChangeFiles(repoRoot: String, relativePaths: List<String>) {
-        send("code-change:stage-files", mapOf("repoRoot" to repoRoot, "relativePaths" to relativePaths))
+        send("project-git:stage-files", mapOf("repoRoot" to repoRoot, "relativePaths" to relativePaths))
     }
     fun unstageCodeChangeFiles(repoRoot: String, relativePaths: List<String>) {
-        send("code-change:unstage-files", mapOf("repoRoot" to repoRoot, "relativePaths" to relativePaths))
+        send("project-git:unstage-files", mapOf("repoRoot" to repoRoot, "relativePaths" to relativePaths))
     }
 
-    fun createRemoteEditReport(
-        title: String,
-        description: String,
-        projectId: String,
-        requestType: CodeChangeRequestType = CodeChangeRequestType.EDIT,
-        customTypeLabel: String? = null,
-        conversationId: String? = null,
-    ) {
-        sendLog("RemoteEdit", "createRemoteEditReport: title=$title projectId=$projectId")
-        val payload = mutableMapOf<String, Any>(
-            "title" to title,
-            "description" to description,
-            "includeLog" to true,
-            "requestType" to codeChangeRequestTypeWireValue(requestType),
-            "projectId" to projectId,
-        )
-        if (!customTypeLabel.isNullOrBlank()) payload["customTypeLabel"] = customTypeLabel
-        if (!conversationId.isNullOrBlank()) payload["conversationId"] = conversationId
-        send("error-report:request-capture", payload)
-    }
-    fun startRemoteEditInvestigation(reportId: String, revisionNotes: String? = null) {
-        sendLog("RemoteEdit", "startRemoteEditInvestigation: reportId=$reportId")
-        val payload = mutableMapOf<String, Any>("reportId" to reportId)
-        if (!revisionNotes.isNullOrBlank()) payload["revisionNotes"] = revisionNotes
-        send("self-heal:start-investigation", payload)
-    }
-    fun setRemoteEditReportStatus(reportId: String, status: String, projectId: String) {
-        sendLog("RemoteEdit", "setRemoteEditReportStatus: reportId=$reportId status=$status projectId=$projectId")
-        send("self-heal:set-report-status", mapOf("reportId" to reportId, "status" to status, "projectId" to projectId))
-    }
-    fun getInvestigationSettings() {
-        send("self-heal:get-investigation-settings", emptyMap())
-    }
-    fun setInvestigationSettings(settings: RemoteEditInvestigationSettings) {
-        sendLog("RemoteEdit", "setInvestigationSettings: backend=${settings.backend} model=${settings.model}")
-        send(
-            "self-heal:set-investigation-settings",
-            mapOf(
-                "backend" to settings.backend,
-                "model" to settings.model,
-                "retryLimit" to settings.retryLimit,
-                "autoApproveTools" to settings.autoApproveTools,
-            ),
-        )
-    }
-    fun startRemoteEditFix(reportId: String) {
-        sendLog("RemoteEdit", "startRemoteEditFix: reportId=$reportId")
-        send("self-heal:start-fix", mapOf("reportId" to reportId))
-    }
-    fun listStagedFiles(reportId: String) {
-        send("self-heal:list-staged-files", mapOf("reportId" to reportId))
-    }
-    fun getStagedDiff(reportId: String, relativePath: String) {
-        send("self-heal:get-staged-diff", mapOf("reportId" to reportId, "relativePath" to relativePath))
-    }
-    fun markFileReviewed(reportId: String, relativePath: String) {
-        send("self-heal:mark-file-reviewed", mapOf("reportId" to reportId, "relativePath" to relativePath))
-    }
-    fun getRemoteEditHistoryForReport(reportId: String) {
-        send("self-heal:get-history-for-report", mapOf("reportId" to reportId))
-    }
-    fun remoteEditGitCommit(reportId: String, message: String) {
-        send("self-heal:git-commit", mapOf("reportId" to reportId, "message" to message))
-    }
-    fun deleteRemoteEditReport(reportId: String) {
-        sendLog("RemoteEdit", "deleteRemoteEditReport: reportId=$reportId")
-        send("self-heal:delete-report", mapOf("reportId" to reportId))
-    }
-    fun applyStagedPatch(reportId: String) {
-        sendLog("RemoteEdit", "applyStagedPatch: reportId=$reportId")
-        send("self-heal:apply-staged-patch", mapOf("reportId" to reportId))
-    }
-    fun startVerification(reportId: String) {
-        sendLog("RemoteEdit", "startVerification: reportId=$reportId")
-        send("self-heal:start-verification", mapOf("reportId" to reportId))
-    }
-    fun pushRemoteEditFix(reportId: String) {
-        sendLog("RemoteEdit", "pushRemoteEditFix: reportId=$reportId")
-        send("self-heal:git-push", mapOf("reportId" to reportId))
-    }
-    fun requestRemoteEditRollback(recoveryId: String) {
-        sendLog("RemoteEdit", "requestRemoteEditRollback: recoveryId=$recoveryId")
-        send("self-heal:request-rollback", mapOf("recoveryId" to recoveryId))
-    }
-    fun prepareRemoteEditReload(reportId: String) {
-        sendLog("RemoteEdit", "prepareRemoteEditReload: reportId=$reportId")
-        send("self-heal:prepare-reload", mapOf("reportId" to reportId))
-    }
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
     fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
-    fun updateProjectColor(id: String, name: String, color: String) { send("project:rename", mapOf("id" to id, "name" to name, "color" to color)) }
-    fun deleteProject(id: String, deleteChats: Boolean = false) { send("project:delete", mapOf("id" to id, "deleteChats" to deleteChats)) }
+    fun updateProjectColor(id: String, name: String, color: String) {
+        send("project:rename", mapOf("id" to id, "name" to name, "color" to color))
+    }
+    fun deleteProject(id: String, deleteChats: Boolean = false) {
+        send("project:delete", mapOf("id" to id, "deleteChats" to deleteChats))
+    }
     fun createAgent(name: String, icon: String) { send("agent:create", mapOf("name" to name, "icon" to icon)) }
-    fun updateAgent(id: String, name: String, icon: String) { send("agent:update", mapOf("id" to id, "name" to name, "icon" to icon)) }
+    fun updateAgent(id: String, name: String, icon: String) {
+        send("agent:update", mapOf("id" to id, "name" to name, "icon" to icon))
+    }
     fun deleteAgent(id: String) { send("agent:delete", mapOf("id" to id)) }
     fun requestAgentFull(id: String) { send("agent:get-full", mapOf("id" to id)) }
     fun getProviders() { send("provider:get-configured", emptyMap()) }
-    fun setProviderKey(provider: String, key: String) { send("provider:set-key", mapOf("provider" to provider, "key" to key)) }
+    fun setProviderKey(provider: String, key: String) {
+        send("provider:set-key", mapOf("provider" to provider, "key" to key))
+    }
     fun removeProviderKey(provider: String) { send("provider:remove-key", mapOf("provider" to provider)) }
     fun getCliStatus() { send("app:cli-status", emptyMap()) }
     fun getSetting(key: String) { send("app:get-setting", mapOf("key" to key)) }
     fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
     fun getMcpServers() { send("mcp:list", emptyMap()) }
+
     private fun skillPayload(
         name: String,
         icon: String,
@@ -2735,27 +2586,27 @@ object WsRepository : WsClient {
         mcpToolOverrides: List<Map<String, Any>>,
         knowledge: List<Map<String, String>>,
         packageFiles: List<SkillPackageFile> = emptyList(),
-    ): Map<String, Any> =
-        mapOf(
-            "name" to name,
-            "icon" to icon,
-            "description" to description,
-            "instructions" to instructions,
-            "tags" to tags,
-            "tools" to tools,
-            "mcpServers" to mcpServers,
-            "mcpServerTrust" to mcpServerTrust,
-            "mcpToolOverrides" to mcpToolOverrides,
-            "knowledge" to knowledge,
-            "packageFiles" to packageFiles.map { file ->
-                mapOf(
-                    "relativePath" to file.relativePath,
-                    "encoding" to file.encoding,
-                    "content" to file.content,
-                    "sizeBytes" to file.sizeBytes,
-                )
-            },
-        )
+    ): Map<String, Any> = mapOf(
+        "name" to name,
+        "icon" to icon,
+        "description" to description,
+        "instructions" to instructions,
+        "tags" to tags,
+        "tools" to tools,
+        "mcpServers" to mcpServers,
+        "mcpServerTrust" to mcpServerTrust,
+        "mcpToolOverrides" to mcpToolOverrides,
+        "knowledge" to knowledge,
+        "packageFiles" to packageFiles.map { file ->
+            mapOf(
+                "relativePath" to file.relativePath,
+                "encoding" to file.encoding,
+                "content" to file.content,
+                "sizeBytes" to file.sizeBytes,
+            )
+        },
+    )
+
     fun listSkills() { send("skill:list", emptyMap()) }
     fun getSkill(id: String) { send("skill:get", mapOf("id" to id)) }
     fun createSkill(
@@ -2835,6 +2686,7 @@ object WsRepository : WsClient {
     fun exportArtifact(versionId: String) { send("artifact:export", mapOf("versionId" to versionId)) }
 
     fun listDirectory(path: String) { send("fs:list-directory", mapOf("path" to path)) }
+    fun readFile(path: String, requestId: String) { send("fs:read-file", mapOf("path" to path, "requestId" to requestId)) }
     fun getFsStartRoots() { send("fs:get-start-roots", emptyMap()) }
 
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }

@@ -49,8 +49,6 @@ import io.nexy.android.data.model.ContextInspectorRefSnapshot
 import io.nexy.android.data.model.ContextInspectorSnapshot
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.NewContentConversation
-import io.nexy.android.data.model.ErrorReport
-import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.McpServerInfo
@@ -80,7 +78,6 @@ import io.nexy.android.data.model.SkillToolConfig
 import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.SkillTools
-import io.nexy.android.data.model.RemoteEditStagedFileEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.ConversationDebrief
 import io.nexy.android.data.model.ConversationRating
@@ -128,7 +125,6 @@ fun parseWsEvent(
     models: MutableStateFlow<List<ModelOption>>,
     modelSource: MutableStateFlow<ModelListSource?>,
     androidUpdateManifest: MutableStateFlow<AndroidUpdateManifest?>,
-    errorReports: MutableStateFlow<List<ErrorReport>>,
     providers: MutableStateFlow<List<ProviderInfo>>,
     mcpServers: MutableStateFlow<List<McpServerInfo>>,
     skills: MutableStateFlow<List<SkillConfig>>,
@@ -470,16 +466,12 @@ fun parseWsEvent(
                 WsEvent.AndroidUpdateManifestResult(manifest)
             }
 
-            "error-report:captured" -> WsEvent.ErrorReportCaptured(
-                reportId = data?.optString("reportId") ?: "",
-            )
-
-            "code-change:error" -> WsEvent.CodeChangeError(
+            "project-git:error" -> WsEvent.CodeChangeError(
                 reportId = data?.nullableString("reportId"),
                 error = data?.optString("error") ?: "Unknown error",
             )
 
-            "code-change:repos" -> {
+            "project-git:repos" -> {
                 val reposArr = data?.optJSONArray("repos")
                 val repos = if (reposArr != null) (0 until reposArr.length()).mapNotNull { i ->
                     val row = reposArr.optJSONObject(i) ?: return@mapNotNull null
@@ -492,13 +484,13 @@ fun parseWsEvent(
                 WsEvent.CodeChangeRepos(repos)
             }
 
-            "code-change:files" -> {
+            "project-git:files" -> {
                 val filesArr = data?.optJSONArray("files")
                 val files = if (filesArr != null) (0 until filesArr.length()).map { filesArr.optString(it) } else emptyList()
                 WsEvent.CodeChangeFiles(files)
             }
 
-            "code-change:changed-files" -> {
+            "project-git:changed-files" -> {
                 val filesArr = data?.optJSONArray("files")
                 val files = if (filesArr != null) (0 until filesArr.length()).mapNotNull { i ->
                     val row = filesArr.optJSONObject(i) ?: return@mapNotNull null
@@ -510,78 +502,7 @@ fun parseWsEvent(
                 WsEvent.CodeChangeChangedFiles(files, seq = data?.optInt("seq", 0) ?: 0)
             }
 
-            "code-change:submitted", "code-change:accepted", "code-change:pushed", "code-change:completed" -> WsEvent.CodeChangeAck(
-                reportId = data?.optString("reportId") ?: "",
-                kind = event,
-            )
-
-            "code-change:undone" -> WsEvent.CodeChangeUndone(
-                rolledBack = data?.optBoolean("rolledBack", false) ?: false,
-                error = data?.nullableString("error"),
-            )
-
-            "code-change:report" -> {
-                val report = data?.optJSONObject("report")
-                val affectedFiles = report?.nullableString("investigation_affected_files")?.let { raw ->
-                    runCatching { JSONArray(raw) }.getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }
-                } ?: emptyList()
-                WsEvent.CodeChangeReport(
-                    reportId = report?.nullableString("id"),
-                    step = report?.nullableString("step"),
-                    repoRelativePath = report?.nullableString("repo_relative_path"),
-                    plan = report?.nullableString("investigation_markdown"),
-                    title = report?.nullableString("title"),
-                    description = report?.nullableString("description"),
-                    confidence = report?.nullableString("investigation_confidence"),
-                    rootCause = report?.nullableString("investigation_root_cause"),
-                    affectedFiles = affectedFiles,
-                )
-            }
-
-            // Overloaded server-side: an execute/verify/commit progress tick ({reportId, status})
-            // or the code-change:get-status reply ({report, gitRepo}) — disambiguated by the
-            // presence of a "report" key so callers get a single unambiguous event type each.
-            "code-change:status" -> {
-                if (data?.has("report") == true) {
-                    val report = data.optJSONObject("report")
-                    val gitRepo = data.optJSONObject("gitRepo")
-                    WsEvent.CodeChangeStatusResult(
-                        reportId = report?.nullableString("id"),
-                        step = report?.nullableString("step"),
-                        repoRelativePath = report?.nullableString("repo_relative_path"),
-                        title = report?.nullableString("title"),
-                        gitRepoOk = gitRepo?.optBoolean("ok", false) ?: false,
-                        gitRepoRelativePath = gitRepo?.nullableString("relativePath"),
-                        gitRepoReason = gitRepo?.nullableString("reason"),
-                    )
-                } else {
-                    WsEvent.CodeChangeStatusProgress(
-                        reportId = data?.optString("reportId") ?: "",
-                        status = data?.optString("status") ?: "",
-                    )
-                }
-            }
-
-            "code-change:warning" -> WsEvent.CodeChangeWarning(
-                reportId = data?.optString("reportId") ?: "",
-                warning = data?.optString("warning") ?: "",
-            )
-
-            "code-change:investigation-chunk" -> WsEvent.CodeChangeInvestigationChunk(
-                reportId = data?.optString("reportId") ?: "",
-                chunk = data?.optString("chunk") ?: "",
-            )
-
-            "code-change:investigation-activity" -> {
-                val activity = data?.optJSONObject("activity")
-                WsEvent.CodeChangeInvestigationActivity(
-                    reportId = data?.optString("reportId") ?: "",
-                    type = activity?.optString("type") ?: "status",
-                    label = activity?.optString("label") ?: "",
-                )
-            }
-
-            "code-change:branches" -> {
+            "project-git:branches" -> {
                 val localArr = data?.optJSONArray("local")
                 val remoteArr = data?.optJSONArray("remote")
                 WsEvent.CodeChangeBranches(
@@ -592,22 +513,22 @@ fun parseWsEvent(
                 )
             }
 
-            "code-change:checked-out" -> WsEvent.CodeChangeCheckedOut(
+            "project-git:checked-out" -> WsEvent.CodeChangeCheckedOut(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:branch-created" -> WsEvent.CodeChangeBranchCreated(
+            "project-git:branch-created" -> WsEvent.CodeChangeBranchCreated(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:fetched" -> WsEvent.CodeChangeFetched(
+            "project-git:fetched" -> WsEvent.CodeChangeFetched(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:merged" -> {
+            "project-git:merged" -> {
                 val filesArr = data?.optJSONArray("conflictedFiles")
                 val files = if (filesArr != null) (0 until filesArr.length()).mapNotNull { i ->
                     val row = filesArr.optJSONObject(i) ?: return@mapNotNull null
@@ -625,12 +546,12 @@ fun parseWsEvent(
                 )
             }
 
-            "code-change:repo-initialized" -> WsEvent.CodeChangeRepoInitialized(
+            "project-git:repo-initialized" -> WsEvent.CodeChangeRepoInitialized(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:credentials" -> {
+            "project-git:credentials" -> {
                 val methodsArr = data?.optJSONArray("methods")
                 val methods = if (methodsArr != null) (0 until methodsArr.length()).mapNotNull { i ->
                     val row = methodsArr.optJSONObject(i) ?: return@mapNotNull null
@@ -646,7 +567,7 @@ fun parseWsEvent(
                 )
             }
 
-            "code-change:pulled" -> {
+            "project-git:pulled" -> {
                 val filesArr = data?.optJSONArray("conflictedFiles")
                 val files = if (filesArr != null) (0 until filesArr.length()).mapNotNull { i ->
                     val row = filesArr.optJSONObject(i) ?: return@mapNotNull null
@@ -664,240 +585,58 @@ fun parseWsEvent(
                 )
             }
 
-            "code-change:branch-pushed" -> WsEvent.CodeChangeBranchPushed(
+            "project-git:branch-pushed" -> WsEvent.CodeChangeBranchPushed(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:committed" -> WsEvent.CodeChangeCommitted(
+            "project-git:committed" -> WsEvent.CodeChangeCommitted(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:file-discarded" -> WsEvent.CodeChangeFileDiscarded(
+            "project-git:file-discarded" -> WsEvent.CodeChangeFileDiscarded(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
                 relativePath = data?.optString("relativePath") ?: "",
             )
 
-            "code-change:stashed" -> WsEvent.CodeChangeStashed(
+            "project-git:stashed" -> WsEvent.CodeChangeStashed(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:stash-popped" -> WsEvent.CodeChangeStashPopped(
+            "project-git:stash-popped" -> WsEvent.CodeChangeStashPopped(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:stash-count" -> WsEvent.CodeChangeStashCount(
+            "project-git:stash-count" -> WsEvent.CodeChangeStashCount(
                 count = data?.optInt("count", 0) ?: 0,
             )
 
-            "code-change:branch-deleted" -> WsEvent.CodeChangeBranchDeleted(
+            "project-git:branch-deleted" -> WsEvent.CodeChangeBranchDeleted(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
                 branchName = data?.optString("branchName") ?: "",
             )
 
-            "code-change:file-diff" -> WsEvent.CodeChangeFileDiff(
+            "project-git:file-diff" -> WsEvent.CodeChangeFileDiff(
                 diff = data?.optString("diff") ?: "",
                 binary = data?.optBoolean("binary", false) ?: false,
                 relativePath = data?.optString("relativePath") ?: "",
                 seq = data?.optInt("seq", 0) ?: 0,
             )
 
-            "code-change:staged" -> WsEvent.CodeChangeStaged(
+            "project-git:staged" -> WsEvent.CodeChangeStaged(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
 
-            "code-change:unstaged" -> WsEvent.CodeChangeUnstaged(
+            "project-git:unstaged" -> WsEvent.CodeChangeUnstaged(
                 ok = data?.optBoolean("ok", false) ?: false,
                 error = data?.nullableString("error"),
             )
-
-            "error-report:error" -> WsEvent.ErrorReportError(
-                message = data?.optString("message") ?: "Unable to capture report",
-            )
-
-            "self-heal:investigation-activity" -> WsEvent.RemoteEditInvestigationActivity(
-                reportId = data?.optString("reportId") ?: "",
-                label = data?.optString("label") ?: "",
-                type = data?.optString("type") ?: "status",
-            )
-
-            "self-heal:investigation-chunk" -> WsEvent.RemoteEditInvestigationChunk(
-                reportId = data?.optString("reportId") ?: "",
-                chunk = data?.optString("chunk") ?: "",
-            )
-
-            "self-heal:investigation-done" -> WsEvent.RemoteEditInvestigationDone(
-                reportId = data?.optString("reportId") ?: "",
-                status = data?.optString("status") ?: "",
-                error = data?.nullableString("error"),
-            )
-
-            "self-heal:active-code-changes-changed" -> {
-                val counts = mutableMapOf<String, Int>()
-                data?.keys()?.forEach { projectId ->
-                    counts[projectId] = data.optInt(projectId, 0)
-                }
-                WsEvent.RemoteEditActiveCodeChangesChanged(counts)
-            }
-
-            "self-heal:verification-event" -> WsEvent.RemoteEditVerificationEvent(
-                reportId = data?.optString("reportId") ?: "",
-                runId = data?.optString("runId") ?: "",
-                command = data?.nullableString("command"),
-                status = data?.optString("status") ?: "",
-                label = data?.optString("label") ?: "",
-                line = data?.nullableString("line"),
-            )
-
-            "self-heal:verification-done" -> WsEvent.RemoteEditVerificationDone(
-                reportId = data?.optString("reportId") ?: "",
-                runId = data?.optString("runId") ?: "",
-                status = data?.optString("status") ?: "",
-                error = data?.nullableString("error"),
-            )
-
-            "self-heal:git-event" -> WsEvent.RemoteEditGitEvent(
-                reportId = data?.optString("reportId") ?: "",
-                type = data?.optString("type") ?: "",
-                label = data?.optString("label") ?: "",
-                commitSha = data?.nullableString("commitSha"),
-                error = data?.nullableString("error"),
-            )
-
-            "self-heal:reload-prepare-result" -> WsEvent.CodeChangeReloadPrepareResult(
-                reportId = data?.optString("reportId") ?: "",
-                recoveryId = data?.optJSONObject("recovery")?.nullableString("id"),
-                canReload = data?.optBoolean("canReload", false) ?: false,
-                reason = data?.nullableString("reason"),
-            )
-
-            "self-heal:recovery-event" -> WsEvent.RemoteEditRecoveryEvent(
-                reportId = data?.optString("reportId") ?: "",
-                recoveryId = data?.nullableString("recoveryId"),
-                type = data?.optString("type") ?: "",
-                label = data?.optString("label") ?: "",
-                status = data?.nullableString("status"),
-                error = data?.nullableString("error"),
-            )
-
-            "self-heal:report-deleted" -> {
-                val reportId = data?.optString("reportId") ?: ""
-                val deleted = data?.optBoolean("deleted", false) ?: false
-                if (deleted) {
-                    errorReports.value = errorReports.value.filter { it.id != reportId }
-                }
-                WsEvent.RemoteEditReportDeleted(
-                    reportId = reportId,
-                    deleted = deleted,
-                    error = data?.nullableString("error"),
-                )
-            }
-
-            "self-heal:apply-result" -> {
-                val filesArr = data?.optJSONArray("appliedFiles")
-                val appliedFiles = if (filesArr != null) {
-                    (0 until filesArr.length()).map { i -> filesArr.optString(i) ?: "" }.filter { it.isNotEmpty() }
-                } else emptyList()
-                val backupsArr = data?.optJSONArray("backupPaths")
-                val backupPaths = if (backupsArr != null) {
-                    (0 until backupsArr.length()).map { i -> backupsArr.optString(i) ?: "" }.filter { it.isNotEmpty() }
-                } else emptyList()
-                WsEvent.RemoteEditApplyResult(
-                    reportId = data?.optString("reportId") ?: "",
-                    appliedFiles = appliedFiles,
-                    backupPaths = backupPaths,
-                    error = data?.nullableString("error"),
-                )
-            }
-
-            "self-heal:fix-done" -> {
-                val filesArr = data?.optJSONArray("stagedFiles")
-                val files = if (filesArr != null) {
-                    (0 until filesArr.length()).map { i ->
-                        val f = filesArr.optJSONObject(i)
-                        if (f != null) {
-                            RemoteEditStagedFileEntry(
-                                relativePath = f.optString("relativePath"),
-                                diffLineCount = f.optInt("diffLineCount", 0),
-                                reviewed = f.optBoolean("reviewed", false),
-                            )
-                        } else {
-                            RemoteEditStagedFileEntry(
-                                relativePath = filesArr.optString(i, ""),
-                                diffLineCount = 0,
-                                reviewed = false,
-                            )
-                        }
-                    }.filter { it.relativePath.isNotEmpty() }
-                } else emptyList()
-                WsEvent.RemoteEditFixDone(
-                    reportId = data?.optString("reportId") ?: "",
-                    status = data?.optString("status") ?: "",
-                    stagedFiles = files,
-                    error = data?.nullableString("error"),
-                )
-            }
-
-            "self-heal:staged-files" -> {
-                val filesArr = data?.optJSONArray("stagedFiles")
-                val files = if (filesArr != null) {
-                    (0 until filesArr.length()).map { i ->
-                        val f = filesArr.optJSONObject(i)
-                        if (f != null) {
-                            RemoteEditStagedFileEntry(
-                                relativePath = f.optString("relativePath"),
-                                diffLineCount = f.optInt("diffLineCount", 0),
-                                reviewed = f.optBoolean("reviewed", false),
-                            )
-                        } else {
-                            RemoteEditStagedFileEntry(
-                                relativePath = filesArr.optString(i, ""),
-                                diffLineCount = 0,
-                                reviewed = false,
-                            )
-                        }
-                    }.filter { it.relativePath.isNotEmpty() }
-                } else emptyList()
-                WsEvent.RemoteEditStagedFiles(
-                    reportId = data?.optString("reportId") ?: "",
-                    fixStatus = data?.optString("fixStatus") ?: "",
-                    stagedFiles = files,
-                )
-            }
-
-            "self-heal:staged-diff" -> WsEvent.RemoteEditStagedDiff(
-                reportId = data?.optString("reportId") ?: "",
-                relativePath = data?.optString("relativePath") ?: "",
-                hunksJson = data?.optJSONArray("hunks")?.toString(),
-            )
-
-            "self-heal:file-reviewed-result" -> WsEvent.RemoteEditFileReviewed(
-                reportId = data?.optString("reportId") ?: "",
-                relativePath = data?.optString("relativePath") ?: "",
-                reviewed = data?.optBoolean("reviewed", false) ?: false,
-            )
-
-            "self-heal:history-for-report" -> {
-                val entry = data?.optJSONObject("entry")
-                WsEvent.RemoteEditHistoryForReport(
-                    reportId = data?.optString("reportId") ?: "",
-                    committed = entry?.optBoolean("committed", false) ?: false,
-                    commitSha = entry?.nullableString("commitSha"),
-                )
-            }
-
-            "self-heal:git-commit-result" -> WsEvent.RemoteEditGitCommitResult(
-                reportId = data?.optString("reportId") ?: "",
-                sha = data?.nullableString("sha"),
-                error = data?.nullableString("error"),
-            )
-
             "conversation:model-updated" -> {
                 val conversationId = data?.optString("conversationId") ?: ""
                 val model = data?.nullableString("model")
@@ -1175,56 +914,6 @@ fun parseWsEvent(
             }
 
             "context:inspector-snapshot-error" -> WsEvent.InspectorSnapshotError(data?.optString("message") ?: "Unable to load context inspector")
-
-            "self-heal:reports" -> {
-                val reportsArray = data?.optJSONArray("reports") ?: JSONArray()
-                val list = (0 until reportsArray.length()).map { i ->
-                    val r = reportsArray.getJSONObject(i)
-                    val affectedFilesJson = r.optString("investigation_affected_files", "[]")
-                    val affectedFiles = try {
-                        val arr = JSONArray(affectedFilesJson)
-                        (0 until arr.length()).map { j -> arr.optString(j) }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                    ErrorReport(
-                        id = r.optString("id"),
-                        title = r.optString("title"),
-                        description = r.optString("description"),
-                        status = r.optString("status", "open"),
-                        fixStatus = r.optString("fix_status", "none"),
-                        investigationConfidence = r.nullableString("investigation_confidence"),
-                        investigationRootCause = r.nullableString("investigation_root_cause"),
-                        investigationMarkdown = r.nullableString("investigation_markdown"),
-                        investigationAffectedFiles = affectedFiles,
-                        createdAt = r.optLong("created_at", 0L),
-                        projectId = r.nullableString("project_id"),
-                        requestType = r.optString("request_type", "edit"),
-                        customTypeLabel = r.nullableString("custom_type_label"),
-                    )
-                }
-                WsRepository.sendLog("RemoteEdit", "self-heal:reports received: ${list.size} reports; ids=${list.take(5).map { it.id }}")
-                errorReports.value = list
-                WsEvent.RemoteEditReports(list)
-            }
-
-            "self-heal:reports-changed" -> WsEvent.RemoteEditReportsChanged(
-                reportId = data?.optString("reportId") ?: "",
-                status = data?.optString("status") ?: "",
-            )
-
-            "self-heal:investigation-settings" -> {
-                val d = data ?: return
-                WsEvent.RemoteEditInvestigationSettingsLoaded(
-                    RemoteEditInvestigationSettings(
-                        backend = d.optString("backend", "byok"),
-                        model = d.optString("model", "gpt-5-mini"),
-                        retryLimit = d.optInt("retryLimit", 1),
-                        autoApproveTools = d.optBoolean("autoApproveTools", false),
-                    ),
-                )
-            }
-
             "project:created" -> {
                 val p = data?.optJSONObject("project") ?: return
                 val project = Project(
@@ -2677,6 +2366,14 @@ fun parseWsEvent(
                 val recents = (0 until recentsArray.length()).map { recentsArray.getString(it) }
                 WsEvent.FsStartRoots(home, recents)
             }
+
+            "fs:file-content" -> WsEvent.FsFileContent(
+                requestId = data?.nullableString("requestId"),
+                path = data?.optString("path") ?: "",
+                content = data?.optString("content") ?: "",
+                truncated = data?.optBoolean("truncated", false) ?: false,
+                error = data?.nullableString("error"),
+            )
 
             else -> return
         }
