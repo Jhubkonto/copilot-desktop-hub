@@ -1,7 +1,8 @@
 # Hermes Profile Picker — Cross-Client Unification Roadmap
 
+**Status:** Complete — delivered through PR-4; legacy `-z` developer-flag hiding was explicitly out of scope.
 **Milestone:** UI Unification (standardize UX across desktop + Android)
-**Depends on:** `ACP_AGENT_RUNTIME_IMPLEMENTATION_ROADMAP.md` (H4 — Readiness & minimal UX). This plan *is* the concrete H4 delivery for profiles + readiness.
+**Depends on:** [`ACP_AGENT_RUNTIME_IMPLEMENTATION_ROADMAP.md`](../roadmap-new/ACP_AGENT_RUNTIME_IMPLEMENTATION_ROADMAP.md) (H4 — Readiness & minimal UX). This plan *is* the concrete H4 delivery for profiles + readiness.
 **Author basis:** grounded assessment of the live ACP adapter (`src/main/cli-adapters/hermes-acp.ts`), desktop config UI (`SettingsTab.tsx`), Android config UI (`AgentConfigScreen.kt`), WS sync (`ws-handlers.ts`), CLI detection (`cli-detection.ts`), and the Hermes source repo v0.17.0.
 
 ---

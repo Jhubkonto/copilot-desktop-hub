@@ -1,6 +1,6 @@
 # Roadmap: UI Unification — 8-Bit Visual Restyle
 
-Drafted 2026-07-31. **Status: IN PROGRESS.**
+Drafted 2026-07-31. **Status: IN PROGRESS.** This is the active UI Unification milestone.
 
 ## Implementation progress
 

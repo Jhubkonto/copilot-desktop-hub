@@ -1,4 +1,6 @@
-# Code Changes Compatibility
+# Code Changes Compatibility (Historical)
+
+> Removed in schema version 89. This document is retained only as implementation history; the Git code panel remains supported independently.
 
 ## Current architecture
 

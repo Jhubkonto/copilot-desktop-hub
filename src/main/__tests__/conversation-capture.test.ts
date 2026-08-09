@@ -37,7 +37,7 @@ vi.mock('../project-audit', () => ({
   inferProjectAuditTarget: vi.fn(() => null),
   recordProjectAuditChange: vi.fn(),
 }))
-vi.mock('../remote-edit/fix-agent', () => ({ computeLineDiff: vi.fn(() => []) }))
+vi.mock('../diff-utils', () => ({ computeLineDiff: vi.fn(() => []) }))
 vi.mock('../debug-mode', () => ({ debugLog: vi.fn() }))
 
 import { initializeBaseSchema, runMigrations } from '../database-migrations'

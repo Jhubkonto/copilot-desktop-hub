@@ -26,11 +26,11 @@ behaviour.
 | --- | --- | --- |
 | `README.md` | Living entry point | Keep supported features, commands, prerequisites, and links current. Do not leave release placeholders. |
 | `src/docs/ARCHITECTURE.md`, `src/docs/MODEL_CATALOG.md` | Living technical references | Update whenever process boundaries, provider catalog ownership, or persistence/IPC conventions change. Avoid fixed migration-version claims. |
-| `docs/android-standalone*.md`, `docs/MOBILE_WEBSOCKET.md` | Living Android/peer contract | Validate against `WsRepository`, `WsEventParser`, WS handlers, and Android navigation before changing capability claims. |
+| `docs/android-standalone*.md`, `docs/MOBILE_WEBSOCKET.md`, `docs/resumable-chat-animation.md` | Living Android/peer contract | Validate against `WsRepository`, `WsEventParser`, WS handlers, Android navigation, and the matching migration before changing capability claims. |
 | `docs/ui/8bit-baseline/README.md`, `design/` | Living UI baseline | Treat geometry, touch targets, and theme tokens as cross-platform acceptance criteria. |
 | `docs/adr/` | Historical decisions | Append a new ADR when a decision changes; do not edit an accepted decision to hide history. |
-| `roadmap/roadmap-in-progress/` | Active planning | Every open item must be explicitly implemented, blocked, or awaiting manual/device validation. |
-| `roadmap/roadmap-new/` | Proposed or deferred planning | Promote only after its decision gate and scope are confirmed. |
+| `roadmap/roadmap-in-progress/` | Active planning | Every open item must be explicitly implemented, blocked, or awaiting manual/device validation. The UI Unification roadmap is the active milestone. |
+| `roadmap/roadmap-new/` | Proposed or deferred planning | A document here must declare `Proposed`, `Deferred`, or `Superseded` status. Promote active work before implementation begins. |
 | `roadmap/roadmap-complete/` | Historical record | Keep completion evidence and links intact. |
 | `roadmap/bugs/` | Issue tracking record | Move or mark an item only after its fix and verification are recorded. |
 
@@ -54,3 +54,5 @@ behaviour.
 4. Preserve ADRs and completed roadmaps; update their status or add a successor instead of
    rewriting history.
 5. Run `npm run check:ui-theme` after changing theme data or its generated outputs.
+6. Move a roadmap when its declared status changes: proposed/deferred → `roadmap-new`, active or
+   device-validation pending → `roadmap-in-progress`, complete/superseded → `roadmap-complete`.

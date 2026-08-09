@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -82,18 +82,6 @@ describe('database migrations', () => {
     expect(getColumnNames(db, 'error_log')).toEqual(
       expect.arrayContaining(['source', 'level', 'message', 'stack', 'timestamp'])
     )
-    expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['title', 'description', 'screenshot_path', 'log_snapshot', 'status', 'created_at', 'updated_at'])
-    )
-    expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['investigation_markdown', 'investigation_confidence', 'investigation_root_cause', 'investigation_affected_files'])
-    )
-    expect(getColumnNames(db, 'remote_edit_verification_runs')).toEqual(
-      expect.arrayContaining(['report_id', 'status', 'steps_json', 'retry_count', 'error'])
-    )
-    expect(getColumnNames(db, 'remote_edit_recovery_runs')).toEqual(
-      expect.arrayContaining(['report_id', 'status', 'target_commit_sha', 'backup_manifest_json', 'pre_reload_state_json'])
-    )
     expect(getColumnNames(db, 'skills')).toEqual(
       expect.arrayContaining(['id', 'config_json', 'created_at', 'updated_at'])
     )
@@ -112,9 +100,6 @@ describe('database migrations', () => {
     expect(
       (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name),
     ).not.toContain('conversation_quiz_attempts')
-    expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'conversation_id', 'step', 'repo_relative_path']),
-    )
     expect(getColumnNames(db, 'project_edit_sessions')).toEqual(
       expect.arrayContaining(['project_id', 'conversation_id', 'agent_id', 'title', 'source', 'created_at', 'updated_at'])
     )
@@ -233,7 +218,7 @@ describe('database migrations', () => {
     expect(() => db.prepare('SELECT * FROM conversation_mode_sessions').all()).toThrow()
 
     runMigrations(db)
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
     expect(db.prepare('SELECT content FROM messages WHERE id = ?').get('legacy-message'))
       .toEqual({ content: 'Preserve me' })
 
@@ -280,7 +265,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
     expect(db.prepare('SELECT project_id FROM automated_workflow_runs WHERE id = ?').get('run-1'))
       .toEqual({ project_id: 'proj-1' })
     expect(() => {
@@ -327,7 +312,7 @@ describe('database migrations', () => {
     expect(() => runMigrations(db)).not.toThrow()
 
     expect(getColumnNames(db, 'automated_workflow_runs')).toContain('template_id')
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
   })
 
   it('describes automated_workflow_templates and the widened automated_workflow_runs identically on a fresh install vs. an incrementally-migrated install (migration 75)', () => {
@@ -395,7 +380,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -403,14 +388,10 @@ describe('database migrations', () => {
     expect(tableNames).not.toContain('self_heal_verification_runs')
     expect(tableNames).not.toContain('self_heal_recovery_runs')
     expect(tableNames).not.toContain('self_heal_history')
-    expect(tableNames).toEqual(expect.arrayContaining([
-      'remote_edit_diffs', 'remote_edit_verification_runs', 'remote_edit_recovery_runs', 'remote_edit_history',
-    ]))
-    // migration 50 (a one-time wipe of Code Changes test data, run right after this rename)
-    // intentionally clears remote_edit_history along with the rest of the Code Changes tables,
-    // so the renamed row from the legacy self_heal_history table does not survive to the end
-    // of the migration chain — only the rename itself (verified above) is under test here.
-    expect(db.prepare('SELECT * FROM remote_edit_history WHERE id = ?').get('hist-1')).toBeUndefined()
+    expect(tableNames).not.toContain('remote_edit_diffs')
+    expect(tableNames).not.toContain('remote_edit_verification_runs')
+    expect(tableNames).not.toContain('remote_edit_recovery_runs')
+    expect(tableNames).not.toContain('remote_edit_history')
   })
 
   it('allows persisted tool call messages on a fresh DB', () => {
@@ -432,7 +413,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -486,7 +467,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -503,12 +484,6 @@ describe('database migrations', () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_conversations_project')
     ).toBeTruthy()
-    expect(getColumnNames(db, 'remote_edit_verification_runs')).toEqual(
-      expect.arrayContaining(['report_id', 'status', 'steps_json'])
-    )
-    expect(getColumnNames(db, 'remote_edit_recovery_runs')).toEqual(
-      expect.arrayContaining(['report_id', 'status', 'backup_manifest_json'])
-    )
     expect(getColumnNames(db, 'agent_skills')).toEqual(
       expect.arrayContaining(['agent_id', 'skill_id', 'sort_order'])
     )
@@ -549,7 +524,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -646,16 +621,15 @@ describe('database migrations', () => {
     ).toBeTruthy()
   })
 
-  it('fresh install via initializeBaseSchema includes all necessary columns on code_changes table', () => {
-    // Verifies that initializeBaseSchema includes all columns that migrations add gradually,
-    // including those from migration 65 (request_type, etc.) and migration 72 (step, repo_relative_path).
+  it('fresh install does not retain retired Code Changes tables', () => {
     const db = createDatabase()
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(88)
-    expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label', 'step', 'repo_relative_path']),
-    )
+    expect(db.pragma('user_version', { simple: true })).toBe(89)
+    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name)
+    expect(tables).not.toContain('error_reports')
+    expect(tables.some((name) => name.startsWith('remote_edit_'))).toBe(false)
+    expect(tables).not.toContain('code_change_plan_revisions')
   })
 })

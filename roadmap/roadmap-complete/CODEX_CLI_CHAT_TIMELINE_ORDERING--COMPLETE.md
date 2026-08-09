@@ -1,5 +1,7 @@
 # Codex CLI Chat Timeline Ordering Investigation and Fix
 
+**Status:** Complete — stable timeline ordering shipped; the current cross-platform behavior is documented in [`docs/resumable-chat-animation.md`](../../docs/resumable-chat-animation.md).
+
 ## Summary
 
 Create `roadmap/roadmap-new/CODEX_CLI_CHAT_TIMELINE_ORDERING_ROADMAP.md` and a matching Nexy artifact titled **“Codex CLI Chat Timeline Ordering”**. Both copies must contain this roadmap unchanged.

@@ -8,7 +8,7 @@ Every persisted desktop message receives a per-conversation `timeline_order` val
 Migration 81 deterministically backfills existing rows by timestamp and insertion
 order; a database trigger assigns the next ordinal for new legacy insert paths. All
 desktop history consumers order by this ordinal, then timestamp and ID. Android Room
-schema 8 stores the same optional `timelineOrder`, with timestamp and ID fallback for
+schema 9 stores the same optional `timelineOrder`, with timestamp and ID fallback for
 older desktop peers and standalone-local rows.
 
 The active-turn registry retains a bounded, lossless sequence-ordered event replay.

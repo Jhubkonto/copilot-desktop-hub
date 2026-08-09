@@ -54,13 +54,13 @@ Verification for the completed pass: `npm run typecheck`, `npm run lint` (2 pre-
 
 | Deferred item | Document |
 |---|---|
-| `emitToAll` / `mapRow` full sweeps across all call sites | [REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md](REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md) |
-| Generator modals / panels → `ModalShell`; pane header/search adoption | [REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md](REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md) |
-| `registerWsCommand` wrapper; empty-catch triage + ESLint ratchet | [REFACTOR_PHASE3_ERRORS_AND_STATE.md](REFACTOR_PHASE3_ERRORS_AND_STATE.md) |
-| `reportError` helper for renderer silent catches; `uiSlice` split | [REFACTOR_PHASE3_ERRORS_AND_STATE.md](REFACTOR_PHASE3_ERRORS_AND_STATE.md) |
-| Motion tokens; framer-motion removal; Android `NexyMotion` | [REFACTOR_PHASE4_UI_SMOOTHNESS_MOTION.md](REFACTOR_PHASE4_UI_SMOOTHNESS_MOTION.md) |
-| `WsEvent`/`WsEventParser` codegen; WsRepository decomposition/DI; ws-handlers registry | [DEFERRED_WS_PROTOCOL_CODEGEN.md](DEFERRED_WS_PROTOCOL_CODEGEN.md) |
-| Chat list virtualization; Android bespoke-screen rewrites | [DEFERRED_DEEP_UI_REWRITES.md](DEFERRED_DEEP_UI_REWRITES.md) |
+| `emitToAll` / `mapRow` full sweeps across all call sites | [REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md](../roadmap-new/REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md) |
+| Generator modals / panels → `ModalShell`; pane header/search adoption | [REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md](../roadmap-new/REFACTOR_PHASE2_ADOPTION_MIGRATIONS.md) |
+| `registerWsCommand` wrapper; empty-catch triage + ESLint ratchet | [REFACTOR_PHASE3_ERRORS_AND_STATE.md](../roadmap-new/REFACTOR_PHASE3_ERRORS_AND_STATE.md) |
+| `reportError` helper for renderer silent catches; `uiSlice` split | [REFACTOR_PHASE3_ERRORS_AND_STATE.md](../roadmap-new/REFACTOR_PHASE3_ERRORS_AND_STATE.md) |
+| Motion tokens; framer-motion removal; Android `NexyMotion` | [REFACTOR_PHASE4_UI_SMOOTHNESS_MOTION.md](../roadmap-new/REFACTOR_PHASE4_UI_SMOOTHNESS_MOTION.md) |
+| `WsEvent`/`WsEventParser` codegen; WsRepository decomposition/DI; ws-handlers registry | [DEFERRED_WS_PROTOCOL_CODEGEN.md](../roadmap-new/DEFERRED_WS_PROTOCOL_CODEGEN.md) |
+| Chat list virtualization; Android bespoke-screen rewrites | [DEFERRED_DEEP_UI_REWRITES.md](../roadmap-new/DEFERRED_DEEP_UI_REWRITES.md) |
 
 ## Common verification gates
 

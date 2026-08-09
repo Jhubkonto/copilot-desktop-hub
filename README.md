@@ -54,17 +54,12 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 
 - Artifact generator: create multi-file documents, code, UI, data, prompts, and plans with version history and export (markdown, raw files)
 
-### Code Changes
+### Project Git workbench
 
-Slash-command-driven, project-scoped repository editing from inside any normal chat conversation —
-no separate screen or wizard. Requires the conversation to be attached to a Project whose workspace
-contains a real git repository.
-
-- `/code-change [repo] <description>` investigates the repository and proposes a plan; `/code-plan` shows it, `/code-execute` applies and verifies it, `/code-push` pushes it, `/code-undo` rolls back the most recent change, and `/code-status` reports progress and repository state
-- Git housekeeping commands support branching, checkout, fetch, merge, and related repository operations. Desktop uses typed `/code-*` commands; Android also provides a tap-driven `/code` panel
-- These commands use Nexy's Code Changes workflow. They do not imply that every chat has generic filesystem or shell tools available; CLI-backed conversations and configured MCP servers expose their own capabilities
-- A failed step in the Developer settings build dashboard (typecheck/test/build/package) can open a prefilled `/code-change` request in a new chat
-- Per-project audit log of edit sessions (from chat tools, code changes, or CLI) with per-file, per-hunk diff inspection (Project Settings → Changes tab)
+- Git housekeeping supports repository discovery, branches, checkout, fetch, pull, merge, diff, staging, commit, push, stash, and discard operations
+- Desktop exposes typed `/code-*` Git commands; Android provides the tap-driven `/code` panel
+- AI-assisted coding remains available through normal CLI-backed project conversations and configured MCP tools
+- Per-project audit history keeps prior edit sessions readable with per-file, per-hunk diff inspection (Project Settings → Changes tab)
 
 ### Build & Deployment Pipelines
 
@@ -78,7 +73,7 @@ contains a real git repository.
 Local-first Kotlin + Jetpack Compose app that works independently and synchronizes with a paired
 desktop over the authenticated WebSocket connection:
 
-- Pairing via QR code scan or manual token entry (mDNS/Bonjour auto-discovery, optional TLS with self-signed cert)
+- Pairing via QR code scan or manual token entry (mDNS/Bonjour auto-discovery, TLS with a QR-pinned local certificate, or a trusted external `wss://` endpoint)
 - Standalone launch, Room-backed cached data, durable drafts, and an idempotent synchronization outbox
 - Direct Anthropic, OpenAI, and OpenRouter chat with encrypted Android-local credentials
 - Versioned peer synchronization with snapshots, incremental batches, tombstones, and conflict review
@@ -92,7 +87,7 @@ desktop over the authenticated WebSocket connection:
 - MCP server and CLI management
 - Global and per-agent settings, model browser, provider configuration
 - Connection diagnostics, notification diagnostics, and model availability checks
-- Code Changes: tap-driven `/code` git panel and edit-request browser with detail navigation
+- Tap-driven `/code` Git panel with repository, branch, diff, staging, commit, push, and stash actions
 - OTA update installer: receives builds from the desktop local feed server
 - Android build dashboard
 - Appearance settings (theme)
@@ -189,7 +184,7 @@ Packaged distributable files are written to the `release/` directory. The unpack
 .
 ├── src/
 │   ├── main/             # Main process: IPC handlers, database, providers, MCP, tools,
-│   │                     #   self-heal, build/android pipelines, WS server, local feed
+│   │                     #   project Git, build/android pipelines, WS server, local feed
 │   ├── preload/          # Secure contextBridge preload (window.api)
 │   ├── renderer/         # React SPA: components, hooks, Zustand store, slash commands
 │   │   ├── components/   # UI panels (Chat, Sidebar, AgentPanel, SkillPanel, SelfHealPanel, …)

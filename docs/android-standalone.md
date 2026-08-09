@@ -14,7 +14,7 @@ direct cloud chat.
 | Cloud chat | Draft only | Anthropic, OpenAI, or OpenRouter direct from Android | Direct Android chat or desktop chat |
 | Resolve synchronization conflicts | Review cached conflicts | Review cached conflicts | Choose Android or desktop value and synchronize |
 | Builds, shell, Git, CLI models, stdio MCP, workspace changes, automation | Unavailable | Unavailable | Available through desktop |
-| Code Changes / remote edit reports | Unavailable | Unavailable | Available through desktop |
+| Project Git workbench | Unavailable | Unavailable | Available through desktop |
 | Generators that write workspace files | Unavailable | Unavailable | Available through desktop |
 
 An internet connection alone never grants access to desktop files or processes. API credentials
@@ -85,12 +85,12 @@ deterministic, trims old turns to the configured budget, and stores a rolling su
 compression is needed. Usage comes from the provider response. Cost is labeled as an estimate and
 is zero/unknown when the bundled pricing catalog has no matching entry.
 
-## Code Changes and desktop-only work
+## Project Git and desktop-only work
 
-Code Changes operates on the desktop workspace and therefore requires an active desktop
-connection. In standalone mode, Android hides or disables Code Changes entry points where possible;
-if a stale deep link or screen is opened while disconnected, it shows a "Not connected to desktop"
-state instead of starting a request or refresh that can never complete.
+The Android code panel operates on the desktop workspace and therefore requires an active desktop
+connection. In standalone mode, Android keeps the panel unavailable; reconnecting restores branch,
+diff, staging, commit, pull, push, stash, and conflict-management operations. AI coding work belongs
+in an ordinary project conversation and does not use a separate report workflow.
 
 Manual Workflow planning can still be used for generating and inspecting a delegation plan. The
 new execution model is a prompt-chaining runner: steps are ordered by `dependsOnStepIds` when
