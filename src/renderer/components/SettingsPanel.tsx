@@ -45,44 +45,6 @@ function inputToTags(value: string): string[] {
   return value.split(',').map((tag) => tag.trim()).filter(Boolean)
 }
 
-function formatBuildFailureReport(record: BuildRecord): { title: string; description: string } {
-  const duration = record.finishedAt
-    ? `${Math.round((record.finishedAt - record.startedAt) / 1000)}s`
-    : 'unknown'
-  const artifacts = record.artifactPaths.length > 0
-    ? record.artifactPaths.map((artifact) => `- ${artifact}`).join('\n')
-    : 'None'
-  const logTail = record.logTail?.trim() || 'No build output was captured.'
-
-  return {
-    title: `Build failed: ${record.command}`,
-    description: [
-      'A Developer build command failed and was added to Code Changes.',
-      '',
-      '## Build context',
-      `- Source: developer-build`,
-      `- Build record: ${record.id}`,
-      `- Command: ${record.command}`,
-      `- Status: ${record.status}`,
-      `- Exit code: ${record.exitCode ?? 'unknown'}`,
-      `- Duration: ${duration}`,
-      `- Workspace: ${record.workspacePath}`,
-      `- Branch: ${record.branch ?? 'unknown'}`,
-      `- Commit: ${record.commitSha ?? 'unknown'}`,
-      `- Version: ${record.version ?? 'unknown'}`,
-      `- Platform: ${record.platform}`,
-      '',
-      '## Artifacts',
-      artifacts,
-      '',
-      '## Build output tail',
-      '```text',
-      logTail,
-      '```',
-    ].join('\n'),
-  }
-}
-
 export function SettingsPanel() {
   const visible = useAppStore((s) => s.showSettings)
   const theme = useAppStore((s) => s.theme)
@@ -96,9 +58,6 @@ export function SettingsPanel() {
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const addToast = useAppStore((s) => s.addToast)
-  const newChat = useAppStore((s) => s.newChat)
-  const setPendingComposerPrefill = useAppStore((s) => s.setPendingComposerPrefill)
-  const projectConfigs = useAppStore((s) => s.projectConfigs)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
   const availableModelGroups = useAppStore((s) => s.availableModelGroups)
@@ -179,7 +138,6 @@ export function SettingsPanel() {
   const [preflightRunning, setPreflightRunning] = useState(false)
   const [lastBuildStatus, setLastBuildStatus] = useState<BuildStatus | null>(null)
   const [launchDevError, setLaunchDevError] = useState<string | null>(null)
-  const [remoteEditReportingBuildId, setRemoteEditReportingBuildId] = useState<string | null>(null)
   const [runtimeInfo, setRuntimeInfo] = useState<{ isPackaged: boolean } | null>(null)
   // Local update feed state
   const [feedInfo, setFeedInfo] = useState<LocalUpdateFeed | null>(null)
@@ -634,29 +592,6 @@ export function SettingsPanel() {
     setActiveBuildId(null)
     setActiveBuildCommand(null)
     window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
-  }
-
-  const handleFixBuildWithRemoteEdit = async (record: BuildRecord) => {
-    setRemoteEditReportingBuildId(record.id)
-    try {
-      const report = formatBuildFailureReport(record)
-
-      const projectId = Object.entries(projectConfigs)
-        .find(([, config]) => config.rootDirectory?.trim() === record.workspacePath)?.[0]
-      if (!projectId) {
-        addToast("This build's workspace isn't linked to a known project — the request wasn't opened.", 'error')
-        return
-      }
-
-      newChat({ projectId })
-      const plainDescription = `${report.title}\n\n${report.description}`.replace(/\s+/g, ' ').trim()
-      setPendingComposerPrefill(`/code-change ${plainDescription}`)
-      setShowSettings(false)
-    } catch {
-      addToast('Failed to open a code change request from build failure', 'error')
-    } finally {
-      setRemoteEditReportingBuildId(null)
-    }
   }
 
   const handleRunPreflight = async () => {
@@ -1239,9 +1174,7 @@ export function SettingsPanel() {
             onAndroidRestoreVersion={(vc) => void handleAndroidRestoreVersion(vc)}
             debugLogging={debugLogging}
             onToggleDebugLogging={() => setDebugLogging(!debugLogging)}
-            remoteEditReportingBuildId={remoteEditReportingBuildId}
             desktopPackagingBlocked={runtimeInfo?.isPackaged === false}
-            onFixBuildWithRemoteEdit={(record) => void handleFixBuildWithRemoteEdit(record)}
             initialDeveloperTab={developerInitialSubTab}
           />
         )}

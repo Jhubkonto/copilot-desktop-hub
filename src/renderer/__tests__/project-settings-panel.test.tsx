@@ -26,7 +26,6 @@ const BASE_CONFIG: ProjectConfig = {
   inScope: [],
   outOfScope: [],
   milestones: [],
-  verifyCommands: null,
   strategyRetrievalEnabled: false,
   terminalSandboxBypass: false,
 }
@@ -97,21 +96,6 @@ describe('ProjectSettingsPanel — tabs', () => {
     render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
     await user.click(screen.getByRole('tab', { name: /milestones/i }))
     expect(screen.getByRole('button', { name: /add milestone/i })).toBeInTheDocument()
-  })
-
-  it('k-6: Verify tab shows the default npm commands and persists an edit', async () => {
-    render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: /verify/i }))
-    expect(screen.getByDisplayValue('npm run typecheck')).toBeInTheDocument()
-
-    const commandInput = screen.getByLabelText('Verify command shell command 1')
-    await user.clear(commandInput)
-    await user.type(commandInput, 'pnpm typecheck')
-
-    expect(mockStore.updateProjectConfig).toHaveBeenLastCalledWith(
-      'proj-1',
-      expect.objectContaining({ verifyCommands: expect.arrayContaining([expect.objectContaining({ command: 'pnpm typecheck' })]) }),
-    )
   })
 
   it('k-7: toggling "Surface similar past strategies" persists the change', async () => {

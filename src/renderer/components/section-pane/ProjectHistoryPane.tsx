@@ -65,9 +65,6 @@ export function ProjectHistoryPane() {
         }`}
       >
         {isPinned(conv) && <NexyIcon name="pin" className="w-3 h-3 text-nexy-muted shrink-0 mt-0.5" />}
-        {conv.kind === 'code-change' && (
-          <span title="Code change"><NexyIcon name="workflow" className="w-3 h-3 text-nexy-accent shrink-0 mt-0.5" /></span>
-        )}
         {isGenerating ? (
           <span title="Generating…"><Loader2 className="w-4 h-4 mt-0.5 text-blue-500 animate-spin shrink-0" /></span>
         ) : isCompleted ? (

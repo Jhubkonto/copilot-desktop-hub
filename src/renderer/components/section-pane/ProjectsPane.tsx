@@ -25,8 +25,6 @@ export function ProjectsPane() {
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
   const agents = useAppStore((s) => s.agents)
   const addToast = useAppStore((s) => s.addToast)
-  const activeCodeChangesByProject = useAppStore((s) => s.activeCodeChangesByProject)
-  const loadActiveCodeChanges = useAppStore((s) => s.loadActiveCodeChanges)
 
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -47,14 +45,6 @@ export function ProjectsPane() {
     openEditProject(pendingSettingsProjectId)
     clearPendingSettingsProject()
   }, [pendingSettingsProjectId, openEditProject, clearPendingSettingsProject])
-
-  useEffect(() => {
-    void loadActiveCodeChanges()
-    if (typeof window.api.onActiveCodeChangesChanged !== 'function') return
-    return window.api.onActiveCodeChangesChanged(() => {
-      void loadActiveCodeChanges()
-    })
-  }, [loadActiveCodeChanges])
 
   const chatCountMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -131,7 +121,6 @@ export function ProjectsPane() {
           const isRenaming = renamingId === project.id
           const members: ProjectAgent[] = projectAgents[project.id] ?? []
           const isDragTarget = dragOverProjectId === project.id
-          const activeCodeChanges = activeCodeChangesByProject[project.id] ?? 0
 
           return (
             <div
@@ -197,15 +186,6 @@ export function ProjectsPane() {
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{project.name}</p>
-                    {activeCodeChanges > 0 && (
-                      <span
-                        className="nexy-font-status flex shrink-0 items-center gap-1 border border-nexy-activity bg-nexy-recessed px-1.5 py-0.5 text-nexy-activity"
-                        title={`${activeCodeChanges} Code Changes request${activeCodeChanges !== 1 ? 's' : ''} in progress`}
-                      >
-                        <NexyIcon name="busy" motion="pulse" className="h-2.5 w-2.5 shrink-0" />
-                        {activeCodeChanges}
-                      </span>
-                    )}
                   </div>
                 )}
                 <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">

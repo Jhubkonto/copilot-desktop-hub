@@ -4,7 +4,7 @@ import type {
   ProjectRepository,
   ProjectWorkspaceMetadata,
   ProjectTouchedFile,
-  RemoteEditStagedFileDiff,
+  ProjectFileDiff,
 } from '@shared/types'
 
 interface AuditTabProps {
@@ -29,7 +29,7 @@ export function AuditTab({ projectId, workspaceInfo, repositories = [] }: AuditT
   const [sessions, setSessions] = useState<ProjectEditSession[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [filesBySession, setFilesBySession] = useState<Record<string, ProjectTouchedFile[]>>({})
-  const [diffs, setDiffs] = useState<Record<string, RemoteEditStagedFileDiff | null>>({})
+  const [diffs, setDiffs] = useState<Record<string, ProjectFileDiff | null>>({})
   const [expandedDiffKey, setExpandedDiffKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [repositoryFilter, setRepositoryFilter] = useState('all')
