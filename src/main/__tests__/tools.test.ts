@@ -73,7 +73,7 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 }
 
 /* ── Import & Register ─────────────────────────────────────── */
-import { registerToolHandlers, requestApproval, drainPendingApprovals, approvePendingApprovalsForConversation } from '../tools'
+import { registerToolHandlers, requestApproval, drainPendingApprovals, approvePendingApprovalsForConversation, denyPendingApprovalsForConversation } from '../tools'
 
 beforeEach(() => {
   mockDb._store.clear()
@@ -246,6 +246,57 @@ describe('approvePendingApprovalsForConversation', () => {
     expect(escalated).toBe(true)
     expect(other).toBeUndefined()
     expect(send).toHaveBeenCalledWith('tool:approval-resolved', expect.any(String))
+    approvePendingApprovalsForConversation('conv-2')
+  })
+})
+
+describe('requestApproval mobile broadcast', () => {
+  it('includes the conversationId so the in-chat Android dialog can scope by conversation', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    mockBroadcastToMobile.mockClear()
+
+    let resolved: boolean | undefined
+    void requestApproval(wc, 'Edit', {}, 'desc', { conversationId: 'conv-scope' }).then((v) => { resolved = v })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const requestCall = mockBroadcastToMobile.mock.calls.find(
+      (c: unknown[]) => (c[0] as { event: string }).event === 'tool:approval-request'
+    )!
+    expect((requestCall[0] as { data: { conversationId?: string } }).data.conversationId).toBe('conv-scope')
+
+    denyPendingApprovalsForConversation('conv-scope')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(resolved).toBe(false)
+  })
+})
+
+describe('denyPendingApprovalsForConversation', () => {
+  it('denies the matching conversation only and dismisses it on every surface by requestId', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+
+    let denied: boolean | undefined
+    let other: boolean | undefined
+    void requestApproval(wc, 'Edit', {}, 'desc', { conversationId: 'conv-1' }).then((value) => { denied = value })
+    void requestApproval(wc, 'Edit', {}, 'desc', { conversationId: 'conv-2' }).then((value) => { other = value })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const requestId = send.mock.calls.find((c: unknown[]) => c[0] === 'tool:request-approval')![1].requestId
+    mockBroadcastToMobile.mockClear()
+
+    denyPendingApprovalsForConversation('conv-1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(denied).toBe(false)
+    expect(other).toBeUndefined()
+    // Desktop bar dismissed and Android told to drop exactly this requestId.
+    expect(send).toHaveBeenCalledWith('tool:approval-resolved', requestId)
+    expect(mockBroadcastToMobile).toHaveBeenCalledWith({
+      event: 'tool:approval-cancel',
+      data: { requestId },
+    })
+
     approvePendingApprovalsForConversation('conv-2')
   })
 })

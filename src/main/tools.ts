@@ -49,7 +49,7 @@ export async function requestApproval(
     // that answer is treated as stale and the request later times out as a false denial.
     pendingApprovals.set(requestId, { toolName, resolve, webContents, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
     webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
-    broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
+    broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description, conversationId: options?.conversationId } })
     recordUnseenDestination(`approval:${requestId}`)
     if (!isMobileInForeground()) {
       sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
@@ -65,10 +65,24 @@ export async function requestApproval(
 }
 
 /**
+ * Tells every surface showing this request to drop it. Without this, a server-side denial only
+ * unblocks the permission hook — the desktop approval bar and the Android approval dialog/queue
+ * keep showing the now-dead request until an unrelated tool-call/activity event happens to clear
+ * it, so approving it there is a silent no-op. Correlating by requestId dismisses exactly the
+ * stale request (see roadmap/bugs/bug-in-progress/cli-approval-relay-concurrent-turns.md).
+ */
+function notifyApprovalCancelled(requestId: string, webContents: Electron.WebContents): void {
+  if (!webContents.isDestroyed()) {
+    webContents.send('tool:approval-resolved', requestId)
+  }
+  broadcastToMobile({ event: 'tool:approval-cancel', data: { requestId } })
+}
+
+/**
  * Denies and clears any approval requests still pending for a conversation. Called when a
  * conversation's in-flight CLI turn is aborted/replaced by a new send, so the previous turn's
- * permission-hook request doesn't sit invisible in Android's single-slot approval UI until its
- * 60s timeout — see roadmap/bugs/bug-new/cli-approval-relay-concurrent-turns.md.
+ * permission-hook request doesn't sit invisible in the desktop/Android approval UI until its
+ * 60s timeout — see roadmap/bugs/bug-in-progress/cli-approval-relay-concurrent-turns.md.
  */
 export function denyPendingApprovalsForConversation(conversationId: string): void {
   for (const [requestId, pending] of pendingApprovals) {
@@ -76,6 +90,7 @@ export function denyPendingApprovalsForConversation(conversationId: string): voi
       pending.resolve(false)
       pendingApprovals.delete(requestId)
       clearUnseenDestination(`approval:${requestId}`)
+      notifyApprovalCancelled(requestId, pending.webContents)
     }
   }
 }
@@ -85,6 +100,7 @@ export function denyAllPendingApprovals(): void {
     pending.resolve(false)
     pendingApprovals.delete(requestId)
     clearUnseenDestination(`approval:${requestId}`)
+    notifyApprovalCancelled(requestId, pending.webContents)
   }
 }
 

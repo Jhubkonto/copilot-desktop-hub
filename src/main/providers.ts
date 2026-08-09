@@ -7,12 +7,16 @@ import {
   removeApiKey,
   retrieveApiKey,
   fetchAndCacheOpenRouterModels,
+  fetchAndCacheOpenAIModels,
+  fetchAndCacheGeminiModels,
+  fetchAndCacheAzureModels,
+  getCachedProviderModels,
   getAzureEndpoint,
   setAzureEndpoint,
 } from './provider-secrets'
 import { fetchAndCacheAnthropicModels } from './anthropic-models'
 import { debugLog } from './debug-mode'
-import { PROVIDERS, getProviderForAgent, isProviderConfigured, DEFAULT_PROVIDER_MODEL } from './provider-registry'
+import { PROVIDERS, getProviderForAgent, getProviderModelIds, isProviderConfigured, DEFAULT_PROVIDER_MODEL } from './provider-registry'
 import { abortActiveStream, activeStreamingRequests } from './provider-stream-state'
 
 // ---- public types (re-exported from core-types for consumers that import from 'providers') ----
@@ -31,6 +35,7 @@ export {
   DEFAULT_PROVIDER_MODEL,
   PROVIDERS,
   getProviderForAgent,
+  getProviderModelIds,
   isProviderConfigured,
   abortActiveStream,
   activeStreamingRequests,
@@ -38,8 +43,13 @@ export {
   getAzureEndpoint,
   setAzureEndpoint,
   fetchAndCacheOpenRouterModels,
+  fetchAndCacheOpenAIModels,
+  fetchAndCacheGeminiModels,
+  fetchAndCacheAzureModels,
+  getCachedProviderModels,
 }
 export { getOpenRouterModels } from './provider-secrets'
+export type { ProviderConfig } from './provider-registry'
 export { toAnthropicMessages, toOpenAICompatibleMessages } from './provider-messages'
 export { toAnthropicTools } from './providers/anthropic-provider'
 export {
@@ -110,6 +120,13 @@ export function registerProviderHandlers(): void {
       await fetchAndCacheOpenRouterModels(key)
     } else if (provider === 'anthropic') {
       await fetchAndCacheAnthropicModels(key)
+    } else if (provider === 'openai') {
+      await fetchAndCacheOpenAIModels(key)
+    } else if (provider === 'gemini') {
+      await fetchAndCacheGeminiModels(key)
+    } else if (provider === 'azure') {
+      const endpoint = getAzureEndpoint()
+      if (endpoint) await fetchAndCacheAzureModels(key, endpoint)
     }
     return true
   })
@@ -133,6 +150,9 @@ export function registerProviderHandlers(): void {
 
   safeHandle('provider:set-azure-endpoint', (_event, endpoint: string) => {
     setAzureEndpoint(endpoint)
+    // Endpoint is required to list Azure deployments; refresh the cache now that we have it.
+    const key = retrieveApiKey('azure')
+    if (key && endpoint) fetchAndCacheAzureModels(key, endpoint).catch(() => {})
     return true
   })
 
@@ -161,6 +181,10 @@ export async function testProviderKey(provider: string, key: string, endpoint?: 
           { method: 'GET', headers: { Authorization: `Bearer ${key}`, 'Content-Length': '0' } },
           ''
         )
+        if (result.status === 200) {
+          fetchAndCacheOpenAIModels(key).catch((err: Error) =>
+            debugLog('provider', `openai model-catalog refresh failed: ${err.message}`))
+        }
         return { valid: result.status === 200 }
       } else if (provider === 'anthropic') {
         const result = await httpsRequest(
@@ -194,6 +218,10 @@ export async function testProviderKey(provider: string, key: string, endpoint?: 
           { method: 'GET', headers: { 'api-key': key, 'Content-Length': '0' } },
           ''
         )
+        if (result.status === 200) {
+          fetchAndCacheAzureModels(key, endpoint).catch((err: Error) =>
+            debugLog('provider', `azure model-catalog refresh failed: ${err.message}`))
+        }
         return { valid: result.status === 200 }
       }
       const providerCfg = PROVIDERS.find((p) => p.name === provider)
@@ -203,8 +231,13 @@ export async function testProviderKey(provider: string, key: string, endpoint?: 
           { method: 'GET', headers: { Authorization: `Bearer ${key}`, 'Content-Length': '0' } },
           ''
         )
-        if (result.status === 200 && provider === 'openrouter') {
-          await fetchAndCacheOpenRouterModels(key)
+        if (result.status === 200) {
+          if (provider === 'openrouter') {
+            await fetchAndCacheOpenRouterModels(key)
+          } else if (provider === 'gemini') {
+            fetchAndCacheGeminiModels(key).catch((err: Error) =>
+              debugLog('provider', `gemini model-catalog refresh failed: ${err.message}`))
+          }
         }
         return { valid: result.status === 200 }
       }
