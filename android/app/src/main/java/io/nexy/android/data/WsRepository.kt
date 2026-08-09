@@ -192,6 +192,17 @@ object WsRepository : WsClient {
     val projects: StateFlow<List<Project>> = _projects
 
     /**
+     * Project id → the agent id a new chat in that project should inherit: the primary agent, or
+     * the first by sort order if none is flagged primary. Mirrors desktop's `newChat()` resolution
+     * (`find(isPrimary) ?? agents[0]`). Populated lazily from `project:list-agents` responses so a
+     * freshly-opened project draft chat can display its inherited agent — and its chat backend —
+     * *before* the first message is sent (the server binds the same agent on send). A project with
+     * no agents maps to `null`.
+     */
+    private val _projectPrimaryAgents = MutableStateFlow<Map<String, String?>>(emptyMap())
+    val projectPrimaryAgents: StateFlow<Map<String, String?>> = _projectPrimaryAgents
+
+    /**
      * True once the Room cache holds any user content (conversations, agents, or projects). Sync UI
      * uses this to tell a first-time bulk load apart from a routine reconnect: with content already
      * cached, a delta-sync is applied silently over what's on screen, so surfacing a "N of M"
@@ -223,6 +234,8 @@ object WsRepository : WsClient {
     val activeCodeChangesByProject: StateFlow<Map<String, Int>> = _activeCodeChangesByProject
 
     data class DebugLogEntry(val tag: String, val message: String, val ts: Long)
+    // Diagnostics persist for one week, then are swept on the next startup (parity with desktop).
+    private const val DIAGNOSTIC_RETENTION_MS = 7L * 24 * 60 * 60 * 1000
     private val _debugLog = MutableStateFlow<List<DebugLogEntry>>(emptyList())
     val debugLog: StateFlow<List<DebugLogEntry>> = _debugLog
 
@@ -910,6 +923,15 @@ object WsRepository : WsClient {
                     is WsEvent.RemoteEditActiveCodeChangesChanged -> {
                         _activeCodeChangesByProject.value = event.countsByProjectId
                     }
+                    is WsEvent.ProjectAgents -> {
+                        // Cache the inheritable agent for this project so project draft chats can
+                        // show it before the first send. Resolve primary-first, else lowest sort
+                        // order, matching desktop's newChat() (`find(isPrimary) ?? agents[0]`).
+                        val resolved = event.agents.firstOrNull { it.isPrimary }
+                            ?: event.agents.minByOrNull { it.sortOrder }
+                        _projectPrimaryAgents.value = _projectPrimaryAgents.value +
+                            (event.id to resolved?.agentId)
+                    }
                     is WsEvent.ProjectGeneratorTurnComplete,
                     is WsEvent.ProjectGeneratorSpecReady,
                     is WsEvent.ProjectGeneratorCreated,
@@ -1046,6 +1068,7 @@ object WsRepository : WsClient {
         app = application
         settingsStore = LocalSettingsStore(application)
         localData = LocalDataRepository.get(application).also { local ->
+            loadPersistedDiagnostics(local)
             scope.launch { local.recoverInterruptedTurns() }
             scope.launch { local.conversations.collect { _conversations.value = it } }
             scope.launch { local.agents.collect { _agents.value = it } }
@@ -2357,6 +2380,7 @@ object WsRepository : WsClient {
         val entry = DebugLogEntry(tag = tag, message = safeMessage, ts = System.currentTimeMillis())
         val current = _debugLog.value
         _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
+        persistDiagnostic(entry)
         send("android:log", mapOf("tag" to tag, "message" to safeMessage, "ts" to entry.ts))
     }
 
@@ -2366,9 +2390,32 @@ object WsRepository : WsClient {
         val entry = DebugLogEntry(tag = tag, message = safeMessage, ts = System.currentTimeMillis())
         val current = _debugLog.value
         _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
+        persistDiagnostic(entry)
     }
 
-    fun clearDebugLog() { _debugLog.value = emptyList() }
+    fun clearDebugLog() {
+        _debugLog.value = emptyList()
+        localData?.let { local -> scope.launch { local.clearDiagnostics() } }
+    }
+
+    /** Mirror an in-memory debug entry into the persistent, retention-pruned diagnostic log. */
+    private fun persistDiagnostic(entry: DebugLogEntry) {
+        val local = localData ?: return
+        scope.launch { local.recordDiagnostic(entry.tag, entry.message, entry.ts) }
+    }
+
+    /** Sweep diagnostics past the one-week window, then hydrate the debug log with what survives. */
+    private fun loadPersistedDiagnostics(local: LocalDataRepository) {
+        scope.launch {
+            local.pruneDiagnostics(System.currentTimeMillis() - DIAGNOSTIC_RETENTION_MS)
+            val persisted = local.recentDiagnostics(500)
+                .map { DebugLogEntry(tag = it.tag, message = it.message, ts = it.ts) }
+                .sortedBy { it.ts }
+            if (persisted.isEmpty()) return@launch
+            // Merge persisted history ahead of anything logged during this startup, dedupe, keep the cap.
+            _debugLog.value = (persisted + _debugLog.value).distinct().takeLast(500)
+        }
+    }
 
     private fun redactDiagnostic(message: String): String = message
         .replace(Regex("(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s,}]+"), "${'$'}1[redacted]")

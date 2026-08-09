@@ -101,6 +101,12 @@ sealed class WsEvent {
         val toolName: String,
         val args: Map<String, Any>,
         val description: String = "",
+        /** Conversation whose turn requested this approval; null for legacy desktops that don't send it. */
+        val conversationId: String? = null,
+    ) : WsEvent()
+    /** Desktop denied/replaced this request (e.g. a new turn superseded it); drop it from the UI. */
+    data class ToolApprovalCancel(
+        val requestId: String,
     ) : WsEvent()
     data class ChatToolCallEvent(
         val conversationId: String,

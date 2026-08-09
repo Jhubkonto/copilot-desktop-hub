@@ -303,6 +303,11 @@ fun parseWsEvent(
                 toolName = data?.optString("toolName") ?: "",
                 args = jsonObjectToMap(data?.optJSONObject("args")),
                 description = data?.optString("description") ?: "",
+                conversationId = data?.optString("conversationId")?.takeIf { it.isNotEmpty() },
+            )
+
+            "tool:approval-cancel" -> WsEvent.ToolApprovalCancel(
+                requestId = data?.optString("requestId") ?: "",
             )
 
             "chat:tool-call-event" -> WsEvent.ChatToolCallEvent(

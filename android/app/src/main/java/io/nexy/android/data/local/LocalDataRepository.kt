@@ -78,6 +78,23 @@ class LocalDataRepository private constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val deviceId: String = identityStore.deviceId()
 
+    /** Appends one persistent diagnostic-log row. Best-effort — a logging failure never propagates. */
+    suspend fun recordDiagnostic(tag: String, message: String, ts: Long) {
+        runCatching { database.diagnostics().insert(DiagnosticLogEntity(tag = tag, message = message, ts = ts)) }
+    }
+
+    /** Most-recent persisted diagnostics, newest first, capped at [limit]. */
+    suspend fun recentDiagnostics(limit: Int = 500): List<DiagnosticLogEntity> =
+        runCatching { database.diagnostics().recent(limit) }.getOrDefault(emptyList())
+
+    /** Deletes diagnostics older than [cutoff] (epoch millis); returns rows removed. */
+    suspend fun pruneDiagnostics(cutoff: Long): Int =
+        runCatching { database.diagnostics().pruneOlderThan(cutoff) }.getOrDefault(0)
+
+    suspend fun clearDiagnostics() {
+        runCatching { database.diagnostics().clear() }
+    }
+
     fun historyVersion(conversationId: String): String? =
         identityStore.historyVersion(conversationId)
 

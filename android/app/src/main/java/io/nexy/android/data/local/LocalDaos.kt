@@ -285,6 +285,21 @@ interface SyncDao {
 }
 
 @Dao
+interface DiagnosticLogDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: DiagnosticLogEntity)
+
+    @Query("SELECT * FROM diagnostic_logs ORDER BY ts DESC LIMIT :limit")
+    suspend fun recent(limit: Int): List<DiagnosticLogEntity>
+
+    @Query("DELETE FROM diagnostic_logs WHERE ts < :cutoff")
+    suspend fun pruneOlderThan(cutoff: Long): Int
+
+    @Query("DELETE FROM diagnostic_logs")
+    suspend fun clear()
+}
+
+@Dao
 interface AttachmentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: AttachmentEntity)

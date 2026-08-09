@@ -209,6 +209,20 @@ data class ConflictEntity(
     val resolution: String? = null,
 )
 
+/**
+ * Persistent diagnostic log — the durable backing for the in-memory debug log surfaced in
+ * Settings → Debug Log. Survives app restarts so an intermittent failure (e.g. a relayed
+ * "Hermes ACP request timed out") can be investigated after the fact. Swept to a one-week
+ * retention window on startup so it never grows unbounded.
+ */
+@Entity(tableName = "diagnostic_logs", indices = [Index("ts")])
+data class DiagnosticLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val tag: String,
+    val message: String,
+    val ts: Long,
+)
+
 @Entity(tableName = "local_attachments", indices = [Index("messageId"), Index("contentHash")])
 data class AttachmentEntity(
     @PrimaryKey val id: String,

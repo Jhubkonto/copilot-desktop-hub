@@ -66,6 +66,20 @@ class ChatThinkingParserTest {
         assertTrue(event.payloadJson.contains("\"chunk\":\"Hello\""))
     }
 
+    @Test
+    fun parsesToolApprovalRequestConversationId() = runTest {
+        val scoped = parseEvent(
+            """{"event":"tool:approval-request","data":{"requestId":"r1","toolName":"Edit","args":{},"description":"d","conversationId":"conv-1"}}"""
+        )
+        val legacy = parseEvent(
+            """{"event":"tool:approval-request","data":{"requestId":"r2","toolName":"Edit","args":{},"description":"d"}}"""
+        )
+
+        assertEquals("conv-1", (scoped as WsEvent.ToolApprovalRequest).conversationId)
+        // Legacy desktops omit conversationId — must parse as null so the in-chat dialog still shows it.
+        assertEquals(null, (legacy as WsEvent.ToolApprovalRequest).conversationId)
+    }
+
     private suspend fun TestScope.parseEvent(raw: String): WsEvent {
         val events = MutableSharedFlow<WsEvent>(replay = 1, extraBufferCapacity = 8)
         parseWsEvent(
