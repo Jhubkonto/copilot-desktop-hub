@@ -78,8 +78,7 @@ import kotlin.math.roundToInt
  * merge, discard, delete, changed-file diffs) for every repo discovered under a project's
  * workspace. Typing the desktop equivalents (`/code-branch`, `/code-pull`, etc.) is fine on a
  * keyboard but awkward on a phone, so this trades typed commands for taps. The AI workflow itself
- * (/code-change, /code-execute, ...) stays in normal chat on both platforms — this screen is
- * purely for git bookkeeping and to kick off "resolve with AI" when a merge conflicts.
+ * This screen is purely for Git bookkeeping; AI-driven Code Changes are intentionally absent.
  *
  * Built from the same shared components other screens use (NexyListRow, NexyStatusBadge,
  * NexyPrimaryButton/NexySecondaryButton/NexyGhostButton/NexyDangerButton, NexyConfirmDialog,
@@ -91,7 +90,6 @@ import kotlin.math.roundToInt
 fun CodePanelScreen(
     projectId: String,
     onBack: () -> Unit,
-    onOpenChatForConflictResolution: (conversationId: String, projectId: String) -> Unit,
     vm: CodePanelViewModel = viewModel(factory = remember(projectId) { CodePanelViewModelFactory(projectId) }),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -153,15 +151,7 @@ fun CodePanelScreen(
                     onSelectRepo = vm::selectRepo,
                     onInitRepo = { vm.initRepo() },
                 )
-                else -> RepoDetailSection(
-                    vm = vm,
-                    state = state,
-                    onResolveWithAi = {
-                        vm.resolveConflictsWithAi()?.let { (conversationId, pid) ->
-                            onOpenChatForConflictResolution(conversationId, pid)
-                        }
-                    },
-                )
+                else -> RepoDetailSection(vm = vm, state = state)
             }
         }
     }
@@ -307,7 +297,6 @@ private fun RepoRow(repo: CodePanelRepo, onClick: () -> Unit) {
 private fun RepoDetailSection(
     vm: CodePanelViewModel,
     state: CodePanelState,
-    onResolveWithAi: () -> Unit,
 ) {
     var newBranchDialogOpen by remember { mutableStateOf(false) }
     var mergeDialogOpen by remember { mutableStateOf(false) }
@@ -415,12 +404,10 @@ private fun RepoDetailSection(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "No automatic resolution runs here — send these files to chat and the AI will propose a fix you review, same as /code-change.",
+                            "Resolve these files in the code panel or a normal CLI-backed project conversation, then retry the Git operation.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        NexyPrimaryButton(text = "Resolve with AI in chat", onClick = onResolveWithAi)
                     }
                 }
             }

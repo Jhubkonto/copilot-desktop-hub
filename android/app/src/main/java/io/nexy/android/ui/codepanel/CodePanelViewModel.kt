@@ -23,9 +23,7 @@ data class CodePanelBranches(
     val remote: List<String>,
 )
 
-/** A merge that landed with conflicts — no automatic AI resolution is wired up server-side (see
- *  git-manager.ts's mergeBranch), so this just surfaces the conflicted paths and offers "Resolve
- *  with AI in chat", which reuses the normal /code-change chat flow rather than a bespoke pipeline. */
+/** A merge that landed with conflicts; the code panel surfaces the paths for manual resolution. */
 data class CodePanelConflict(
     val conflictedFiles: List<String>,
     val error: String?,
@@ -70,7 +68,7 @@ data class CodePanelState(
 /**
  * Backs the Android-only `/code` git panel (branches/checkout/fetch/merge/changed-files) — the
  * mobile-only replacement for typing raw `/code-branch`, `/code-checkout`, etc. on desktop. Hits
- * the exact same `code-change:*` git-housekeeping channels desktop's slash commands use.
+ * the same `project-git:*` channels as the desktop Git commands.
  */
 class CodePanelViewModel(
     private val projectId: String,
@@ -493,25 +491,6 @@ class CodePanelViewModel(
 
     fun closeDiff() {
         _state.value = _state.value.copy(diffFile = null, diffText = null, diffBinary = false, isLoadingDiff = false)
-    }
-
-    /** "Resolve with AI in chat": navigates to a brand-new conversation with "/code-change
-     *  <description>" prefilled in its composer, rather than firing the WS command here directly.
-     *  A freshly-navigated conversation's ChatViewModel starts with awaitingCodeChangeSubmit =
-     *  false, so submitting the description from here (before that ViewModel exists to react to
-     *  the eventual code-change:submitted event) would silently swallow the completion — the
-     *  investigation would still run, but the user would see nothing happen. Prefilling and
-     *  letting the user's own send go through ChatViewModel.trySlashCommand's normal /code-change
-     *  path avoids that, at the cost of one extra tap to confirm the send. */
-    fun resolveConflictsWithAi(): Pair<String, String>? {
-        if (workspaceRoot == null) return null
-        val conflict = _state.value.conflict ?: return null
-        val relativePath = _state.value.selectedRepoRelativePath
-        val conversationId = UUID.randomUUID().toString()
-        val description = "Resolve git merge conflicts in: ${conflict.conflictedFiles.joinToString(", ")}" +
-            (relativePath?.takeIf { it.isNotBlank() }?.let { " (repo: $it)" } ?: "")
-        wsRepository.pendingComposerPrefill = "/code-change $description"
-        return conversationId to projectId
     }
 
     fun consumeActionMessage() { _state.value = _state.value.copy(actionMessage = null) }
