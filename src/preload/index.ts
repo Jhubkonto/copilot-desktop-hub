@@ -441,7 +441,7 @@ const api = {
   checkCli: () => typedInvoke('cli:check'),
   getCliStatus: () => typedInvoke('cli:status'),
   detectAllClis: () => typedInvoke('cli:detect-all'),
-  getCliModels: (backend: string) => typedInvoke('cli:get-models', backend),
+  getCliModels: (backend: string, hermesProfile?: string) => typedInvoke('cli:get-models', backend, hermesProfile),
   listHermesProfiles: () => typedInvoke('hermes:list-profiles'),
   getHermesAcpReadiness: (force?: boolean) => typedInvoke('hermes:acp-readiness', force),
 
@@ -530,7 +530,7 @@ const api = {
 
   // Models
   listModelCatalog: () => typedInvoke('model:list-catalog'),
-  listAvailableModels: (): Promise<AvailableModelGroup[]> => typedInvoke('model:list-available'),
+  listAvailableModels: (hermesProfile?: string): Promise<AvailableModelGroup[]> => typedInvoke('model:list-available', hermesProfile),
   onCatalogUpdated: (
     callback: (data: { models: CatalogModel[]; changeSummary?: string }) => void
   ) => {

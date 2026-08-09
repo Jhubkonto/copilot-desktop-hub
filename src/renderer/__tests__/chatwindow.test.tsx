@@ -698,8 +698,8 @@ describe("ChatWindow — File Attachments", () => {
 
     render(<ChatWindow />);
 
-    const attachBtn = screen.getByRole("button", { name: /attach/i });
-    await user.click(attachBtn);
+    await user.click(screen.getByRole("button", { name: "More message actions" }));
+    await user.click(screen.getByRole("menuitem", { name: /attach files/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/test\.ts/)).toBeInTheDocument();
@@ -714,7 +714,8 @@ describe("ChatWindow — File Attachments", () => {
 
     render(<ChatWindow />);
 
-    await user.click(screen.getByRole("button", { name: /attach/i }));
+    await user.click(screen.getByRole("button", { name: "More message actions" }));
+    await user.click(screen.getByRole("menuitem", { name: /attach files/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/test\.ts/)).toBeInTheDocument();
@@ -1599,19 +1600,21 @@ describe("ChatWindow — Full Auto-Approve", () => {
 describe("ChatWindow — Resizable Input Panel (P.1)", () => {
   it("p1-1: resize handle is present in the DOM", () => {
     render(<ChatWindow />);
-    expect(screen.getByLabelText("Resize input panel")).toBeInTheDocument();
+    expect(screen.getByTestId("resize-handle")).toBeInTheDocument();
   });
 
   it("p1-2: dragging the handle upward increases textarea height", () => {
     render(<ChatWindow />);
-    const handle = screen.getByLabelText("Resize input panel");
+    const handle = screen.getByTestId("resize-handle");
     const textarea = screen.getByRole("textbox", { name: /message input/i });
 
     act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { clientY: 500, bubbles: true, cancelable: true }));
+      handle.dispatchEvent(new PointerEvent("pointerdown", { clientY: 0, bubbles: true, cancelable: true }));
     });
     act(() => {
-      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 450, bubbles: true }));
+      // The panel's bottom edge anchors at 0 in the test DOM, so moving the
+      // cursor above it (negative clientY) grows the textarea upward.
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: -100, bubbles: true }));
     });
 
     const heightStr = (textarea as HTMLTextAreaElement).style.height;
@@ -1620,7 +1623,7 @@ describe("ChatWindow — Resizable Input Panel (P.1)", () => {
 
   it("p1-3: height is clamped to the minimum (40px)", () => {
     render(<ChatWindow />);
-    const handle = screen.getByLabelText("Resize input panel");
+    const handle = screen.getByTestId("resize-handle");
     const textarea = screen.getByRole("textbox", { name: /message input/i });
 
     act(() => {
@@ -1636,7 +1639,7 @@ describe("ChatWindow — Resizable Input Panel (P.1)", () => {
 
   it("p1-4: height is clamped to the maximum (400px)", () => {
     render(<ChatWindow />);
-    const handle = screen.getByLabelText("Resize input panel");
+    const handle = screen.getByTestId("resize-handle");
     const textarea = screen.getByRole("textbox", { name: /message input/i });
 
     act(() => {
@@ -1652,7 +1655,7 @@ describe("ChatWindow — Resizable Input Panel (P.1)", () => {
 
   it("p1-5: pointerup stops further resize updates", () => {
     render(<ChatWindow />);
-    const handle = screen.getByLabelText("Resize input panel");
+    const handle = screen.getByTestId("resize-handle");
     const textarea = screen.getByRole("textbox", { name: /message input/i });
 
     act(() => {

@@ -86,12 +86,14 @@ describe('QuizArtifactCard learning history', () => {
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.getByText('0%')).toBeInTheDocument()
 
+    // "Regenerate" now opens a spec picker; confirming it kicks off generation.
     await user.click(screen.getByRole('button', { name: 'Regenerate' }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
     expect(api.startQuizGeneration).toHaveBeenCalledWith(
       'conv-1',
       'project-1',
       undefined,
-      {},
+      { source: 'conversation', difficulty: 'medium', topic: undefined, questionCount: undefined },
       'quiz-artifact-1',
     )
   })

@@ -52,13 +52,17 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const schedulerTasks = useAppStore((s) => s.schedulerTasks ?? [])
 
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
-  useEffect(() => {
-    window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
-  }, [])
 
   const agent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
   const [tab, setTab] = useState<'settings' | 'skills' | 'knowledge' | 'json'>('settings')
   const [config, setConfig] = useState<AgentConfig>(() => ({ id: '', ...EMPTY_AGENT, ...agent }))
+
+  // The Hermes model list is per-profile — scope it to the edited agent's profile so a
+  // profile-scoped agent's picker shows its own config's model, not the default profile's.
+  const hermesProfileForModels = config.backend === 'hermes-cli' ? config.hermesProfile : undefined
+  useEffect(() => {
+    window.api.listAvailableModels(hermesProfileForModels).then(setAvailableGroups).catch(() => {})
+  }, [hermesProfileForModels])
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
 

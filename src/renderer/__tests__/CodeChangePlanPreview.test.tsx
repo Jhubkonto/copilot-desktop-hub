@@ -13,7 +13,7 @@ describe('PlanCard confidence badge', () => {
       <PlanCard report={makeReport({ investigation_confidence: '80' })} affectedFiles={[]} body="Body" />
     )
     const badge = getByText('80% confidence')
-    expect(badge.className).toContain('bg-green-100')
+    expect(badge.className).toContain('text-nexy-success')
   })
 
   it('renders a low numeric confidence with a red style', () => {
@@ -21,7 +21,7 @@ describe('PlanCard confidence badge', () => {
       <PlanCard report={makeReport({ investigation_confidence: '10' })} affectedFiles={[]} body="Body" />
     )
     const badge = getByText('10% confidence')
-    expect(badge.className).toContain('bg-red-100')
+    expect(badge.className).toContain('text-nexy-error')
   })
 
   it('renders a mid-range numeric confidence with an amber style', () => {
@@ -29,7 +29,7 @@ describe('PlanCard confidence badge', () => {
       <PlanCard report={makeReport({ investigation_confidence: '45' })} affectedFiles={[]} body="Body" />
     )
     const badge = getByText('45% confidence')
-    expect(badge.className).toContain('bg-amber-100')
+    expect(badge.className).toContain('text-nexy-warning')
   })
 
   it('still renders legacy qualitative confidence values with their own color', () => {
@@ -37,7 +37,7 @@ describe('PlanCard confidence badge', () => {
       <PlanCard report={makeReport({ investigation_confidence: 'high' })} affectedFiles={[]} body="Body" />
     )
     const badge = getByText('high confidence')
-    expect(badge.className).toContain('bg-green-100')
+    expect(badge.className).toContain('text-nexy-success')
   })
 
   it('hides the badge entirely for unknown/none confidence', () => {

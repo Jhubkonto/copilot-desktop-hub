@@ -1071,9 +1071,12 @@ export function ChatWindow() {
 
     const backend = continueBackend
     const fallbackModels = backend === 'codex-cli' ? FALLBACK_CODEX_MODELS : backend === 'hermes-cli' ? FALLBACK_HERMES_MODELS : FALLBACK_CLAUDE_MODELS
+    // Hermes model lists are per-profile — scope the lookup to the agent's profile so a
+    // localllm-scoped agent shows its own config's model, not the default profile's.
+    const hermesProfile = backend === 'hermes-cli' ? continueAgent?.hermesProfile : undefined
     let cancelled = false
     setContinueCliModels(fallbackModels)
-    window.api.getCliModels(backend)
+    window.api.getCliModels(backend, hermesProfile)
       .then((models) => {
         if (!cancelled) setContinueCliModels(models.length > 0 ? models : fallbackModels)
       })
@@ -1083,7 +1086,7 @@ export function ChatWindow() {
     return () => {
       cancelled = true
     }
-  }, [continueBackend, menuContinueOpen])
+  }, [continueAgent?.hermesProfile, continueBackend, menuContinueOpen])
 
   useEffect(() => {
     if (!menuContinueOpen) return
