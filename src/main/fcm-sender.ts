@@ -89,61 +89,6 @@ export async function generateSpokenSummary(db: Database.Database, conversationI
   }
 }
 
-export async function sendRemoteEditNotification(
-  db: Database.Database,
-  payload: { type: string; reportId: string; title: string; failedStep?: string | null },
-): Promise<void> {
-  const saJson = loadFcmServiceAccountJson(db)
-  if (!saJson) return
-
-  let parsed: ServiceAccountJson
-  try {
-    parsed = parseSaJson(saJson)
-  } catch {
-    return
-  }
-
-  const tokens = (db.prepare('SELECT device_id, fcm_token FROM mobile_clients').all() as { device_id: string; fcm_token: string }[])
-  if (tokens.length === 0) return
-
-  const auth = getAuth(saJson)
-  const client = await auth.getClient()
-  const tokenResponse = await client.getAccessToken()
-  const accessToken = tokenResponse.token
-  if (!accessToken) return
-
-  const projectId = parsed.project_id
-
-  await Promise.allSettled(
-    tokens.map(async ({ device_id, fcm_token }) => {
-      const body = JSON.stringify({
-        message: {
-          token: fcm_token,
-          data: {
-            type: `remote-edit:${payload.type}`,
-            reportId: payload.reportId,
-            title: payload.title,
-            ...(payload.failedStep ? { failedStep: payload.failedStep } : {}),
-          },
-        },
-      })
-
-      const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body,
-      })
-
-      if (res.status === 404 || res.status === 410) {
-        db.prepare('DELETE FROM mobile_clients WHERE device_id = ?').run(device_id)
-      }
-    })
-  )
-}
-
 export async function sendSchedulerRunNotification(
   db: Database.Database,
   payload: { type: 'run-completed' | 'run-failed'; taskId: string; taskName: string; status: string; conversationId: string | null },

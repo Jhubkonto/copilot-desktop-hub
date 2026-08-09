@@ -133,4 +133,57 @@ describe('Hermes ACP adapter', () => {
     proc.emit('close', null, 'SIGTERM')
     await expect(request).rejects.toThrow()
   })
+
+  it('selects Hermes supplied deny option when Nexy declines permission', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const adapter = new HermesAcpAdapter()
+    const request = adapter.send({} as never, {
+      messages: [{ role: 'user', content: 'run it' }], cwd: 'C:\\workspace', model: 'default', conversationId: 'c-deny', requestPermission: async () => false,
+    }, () => {})
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(1))
+    sendResponse(proc, 1, { protocolVersion: 1 })
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(2))
+    sendResponse(proc, 2, { sessionId: 's-deny' })
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(3))
+    proc.stdout.emit('data', JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'session/request_permission', params: {
+      toolCall: { title: 'terminal', rawInput: { command: 'rm -rf' } },
+      options: [{ optionId: 'allow-session', kind: 'allow_session' }, { optionId: 'deny', kind: 'deny' }],
+    } }) + '\n')
+    await vi.waitFor(() => expect(proc.stdin.write).toHaveBeenCalledTimes(4))
+    expect(JSON.parse(proc.stdin.write.mock.calls[3][0])).toMatchObject({ id: 9, result: { outcome: { outcome: 'selected', optionId: 'deny' } } })
+    sendResponse(proc, 3, { stopReason: 'end_turn' })
+    await expect(request).resolves.toBe('')
+  })
+
+  it('recreates instead of retaining a session after its security context changes', async () => {
+    const first = makeProc()
+    const second = makeProc()
+    mockSpawn.mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const adapter = new HermesAcpAdapter()
+    const firstTurn = adapter.send({} as never, {
+      messages: [{ role: 'user', content: 'one' }], cwd: 'C:\\workspace', model: 'default', conversationId: 'c-boundary', systemPrompt: 'safe', mcpServers: [],
+    }, () => {})
+    await vi.waitFor(() => expect(first.stdin.write).toHaveBeenCalledTimes(1))
+    sendResponse(first, 1, { protocolVersion: 1 })
+    await vi.waitFor(() => expect(first.stdin.write).toHaveBeenCalledTimes(2))
+    sendResponse(first, 2, { sessionId: 's-first' })
+    await vi.waitFor(() => expect(first.stdin.write).toHaveBeenCalledTimes(3))
+    sendResponse(first, 3, { stopReason: 'end_turn' })
+    await firstTurn
+
+    const secondTurn = adapter.send({} as never, {
+      messages: [{ role: 'user', content: 'two' }], cwd: 'C:\\workspace', model: 'default', conversationId: 'c-boundary', systemPrompt: 'changed', mcpServers: [],
+    }, () => {})
+    await vi.waitFor(() => expect(second.stdin.write).toHaveBeenCalledTimes(1))
+    expect(first.stdin.end).toHaveBeenCalled()
+    sendResponse(second, 1, { protocolVersion: 1 })
+    await vi.waitFor(() => expect(second.stdin.write).toHaveBeenCalledTimes(2))
+    const sessionNew = JSON.parse(second.stdin.write.mock.calls[1][0])
+    expect(sessionNew.params).toMatchObject({ cwd: 'C:\\workspace', model: 'default' })
+    sendResponse(second, 2, { sessionId: 's-second' })
+    await vi.waitFor(() => expect(second.stdin.write).toHaveBeenCalledTimes(3))
+    sendResponse(second, 3, { stopReason: 'end_turn' })
+    await expect(secondTurn).resolves.toBe('')
+  })
 })

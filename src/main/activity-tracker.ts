@@ -14,7 +14,7 @@ import {
 
 /**
  * Cross-device "ongoing activity" registry — the main-process source of truth so activity
- * started on either desktop or Android (generation, chat streaming, builds, remote-edit,
+ * started on either desktop or Android (generation, chat streaming, builds,
  * orchestration, and the project/agent/skill/scheduler/automated-workflow generators) is visible
  * on both. Mirrors the round-trip pattern used for conversation complete/incomplete: every
  * mutation pushes the full snapshot to all desktop windows and to connected mobile clients.
@@ -164,7 +164,6 @@ const ACTIVITY_DONE_TITLES: Record<BackgroundActivityKind, string> = {
   'teachback-generation': 'Teach-back ready',
   chat: 'Response ready',
   build: 'Build finished',
-  'remote-edit': 'Code changes ready',
   orchestration: 'Orchestration finished',
 }
 

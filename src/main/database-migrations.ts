@@ -1741,6 +1741,22 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE conversation_skill_invocations ADD COLUMN status TEXT NOT NULL DEFAULT 'activated';
     `,
   },
+  {
+    // Retire the report-driven Code Changes workflow while preserving ordinary conversations
+    // and immutable project audit history. The Git workbench has no dependency on these tables.
+    version: 89,
+    sql: `
+      UPDATE conversations SET kind = 'chat' WHERE kind = 'code-change';
+      UPDATE project_edit_sessions SET source = 'manual-apply' WHERE source IN ('remote-edit', 'self-heal', 'code-changes');
+      DELETE FROM messages WHERE role = 'system' AND content GLOB '__code-change-ref:*';
+      DROP TABLE IF EXISTS code_change_plan_revisions;
+      DROP TABLE IF EXISTS remote_edit_diffs;
+      DROP TABLE IF EXISTS remote_edit_verification_runs;
+      DROP TABLE IF EXISTS remote_edit_recovery_runs;
+      DROP TABLE IF EXISTS remote_edit_history;
+      DROP TABLE IF EXISTS error_reports;
+    `,
+  },
 ];
 
 
@@ -1797,121 +1813,6 @@ export function initializeBaseSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_error_log_timestamp
       ON error_log(timestamp);
-
-    CREATE TABLE IF NOT EXISTS error_reports (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      screenshot_path TEXT,
-      log_snapshot TEXT,
-      status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'completed', 'rejected')) DEFAULT 'open',
-      app_version TEXT,
-      platform TEXT,
-      os_version TEXT,
-      investigation_markdown TEXT,
-      investigation_confidence TEXT,
-      investigation_root_cause TEXT,
-      investigation_affected_files TEXT NOT NULL DEFAULT '[]',
-      investigation_revision_notes TEXT,
-      investigation_started_at INTEGER,
-      investigation_completed_at INTEGER,
-      fix_status TEXT NOT NULL DEFAULT 'none',
-      fix_staged_files TEXT NOT NULL DEFAULT '[]',
-      fix_started_at INTEGER,
-      fix_completed_at INTEGER,
-      fix_error TEXT,
-      request_type TEXT CHECK (request_type IN ('edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom')),
-      request_origin TEXT CHECK (request_origin IN ('chat', 'android', 'manual', 'build-failure', 'legacy-bug-report')),
-      workspace_root TEXT,
-      project_id TEXT,
-      custom_type_label TEXT,
-      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
-      step TEXT NOT NULL DEFAULT 'describe' CHECK (step IN ('describe', 'plan-review', 'executing', 'verifying', 'final-review', 'attention')),
-      repo_relative_path TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
-      ON error_reports(status, created_at);
-    CREATE INDEX IF NOT EXISTS idx_error_reports_conversation
-      ON error_reports(conversation_id);
-
-    CREATE TABLE IF NOT EXISTS remote_edit_diffs (
-      report_id     TEXT NOT NULL,
-      relative_path TEXT NOT NULL,
-      diff_json     TEXT NOT NULL,
-      created_at    INTEGER NOT NULL,
-      PRIMARY KEY (report_id, relative_path)
-    );
-
-    CREATE TABLE IF NOT EXISTS remote_edit_verification_runs (
-      id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
-      steps_json TEXT NOT NULL DEFAULT '[]',
-      started_at INTEGER NOT NULL,
-      completed_at INTEGER,
-      retry_count INTEGER NOT NULL DEFAULT 0,
-      error TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_remote_edit_verification_report
-      ON remote_edit_verification_runs(report_id, started_at);
-
-    CREATE TABLE IF NOT EXISTS remote_edit_recovery_runs (
-      id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('prepared', 'reloading', 'confirmed', 'rollback-required', 'rolled-back', 'failed')),
-      target_commit_sha TEXT,
-      target_version TEXT,
-      backup_manifest_json TEXT NOT NULL DEFAULT '[]',
-      pre_reload_state_json TEXT NOT NULL DEFAULT '{}',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      confirmed_at INTEGER,
-      rollback_at INTEGER,
-      error TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_remote_edit_recovery_report
-      ON remote_edit_recovery_runs(report_id, created_at);
-
-    CREATE TABLE IF NOT EXISTS remote_edit_history (
-      id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      report_title TEXT NOT NULL DEFAULT '',
-      investigation_model TEXT,
-      investigation_backend TEXT,
-      investigation_rounds INTEGER NOT NULL DEFAULT 0,
-      fix_applied_at INTEGER,
-      verification_passed INTEGER NOT NULL DEFAULT 0,
-      verification_failed_step TEXT,
-      committed INTEGER NOT NULL DEFAULT 0,
-      commit_sha TEXT,
-      pushed INTEGER NOT NULL DEFAULT 0,
-      reloaded INTEGER NOT NULL DEFAULT 0,
-      rolled_back INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'investigating',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_remote_edit_history_created
-      ON remote_edit_history(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_remote_edit_history_report
-      ON remote_edit_history(report_id);
-
-    CREATE TABLE IF NOT EXISTS code_change_plan_revisions (
-      id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      revision_number INTEGER NOT NULL,
-      revision_notes TEXT,
-      plan_markdown TEXT NOT NULL,
-      affected_files TEXT NOT NULL DEFAULT '[]',
-      outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'superseded', 'execution-failed', 'verification-failed')),
-      created_at INTEGER NOT NULL
-    );
 
     CREATE TABLE IF NOT EXISTS automated_workflow_runs (
       id TEXT PRIMARY KEY,

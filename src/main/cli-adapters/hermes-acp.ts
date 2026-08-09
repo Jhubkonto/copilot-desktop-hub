@@ -13,6 +13,7 @@ import { listHermesProfiles } from '../cli-detection'
 // actual turn (`session/prompt`) keeps its own 10-minute budget below.
 const HERMES_INITIALIZE_TIMEOUT_MS = 60 * 1000
 const HERMES_SESSION_NEW_TIMEOUT_MS = 5 * 60 * 1000
+const HERMES_CANCEL_GRACE_MS = 1_000
 
 /**
  * Always-on persistent diagnostic for the Hermes ACP lifecycle. Unlike {@link debugLog} (gated
@@ -36,6 +37,7 @@ type Session = {
   chunks: string[]
   lastTextBlockId?: string
   lastThinkingBlockId?: string
+  trackers: Map<string, ReturnType<typeof createOpenBlockTracker>>
 }
 type ContentBlock = { type?: string; text?: string; data?: string; mimeType?: string }
 
@@ -57,6 +59,7 @@ function imageContent(dataUrl: string): ContentBlock | null {
 export class HermesAcpAdapter implements CliAgentAdapter {
   readonly name = 'hermes-cli'
   private readonly sessions = new Map<string, Session>()
+  private readonly conversationKeys = new Map<string, string>()
 
   isAvailable(): boolean { return resolveCliPath('hermes') !== null }
 
@@ -84,7 +87,16 @@ export class HermesAcpAdapter implements CliAgentAdapter {
       }
     }
     const useProfileFlag = profile !== 'default'
-    const key = `${req.conversationId}:${profile}:${req.cwd}:${req.model}`
+    const fingerprint = this.sessionFingerprint(req, profile)
+    const key = `${req.conversationId}:${fingerprint}`
+    // A conversation may have only one live Hermes process.  Closing the old one here is
+    // important: a changed system prompt, MCP set, or approval mode is a hard boundary,
+    // not merely a different cache key that can leave privileged state running in the back.
+    const previousKey = this.conversationKeys.get(req.conversationId)
+    if (previousKey && previousKey !== key) {
+      const previous = this.sessions.get(previousKey)
+      if (previous) this.invalidateSession(previousKey, previous)
+    }
     let session = this.sessions.get(key)
     if (!session) {
       const args = useProfileFlag ? ['--profile', profile, 'acp'] : ['acp']
@@ -120,6 +132,7 @@ export class HermesAcpAdapter implements CliAgentAdapter {
         }))
         const created = await connection.request('session/new', {
           cwd: req.cwd,
+          model: req.model,
           mcpServers,
           ...(req.extraAllowedDirs?.length ? { additionalDirectories: req.extraAllowedDirs } : {}),
         }, HERMES_SESSION_NEW_TIMEOUT_MS) as { sessionId?: string }
@@ -127,9 +140,10 @@ export class HermesAcpAdapter implements CliAgentAdapter {
           throw new Error('Hermes ACP did not return a session ID')
         }
         logHermes('info', `session/new ok in ${Date.now() - bootstrapStartedAt}ms (profile=${profile}, id=${created.sessionId})`)
-        session = { id: created.sessionId, cwd: req.cwd, model: req.model, profile, connection, chunks: [] }
+        session = { id: created.sessionId, cwd: req.cwd, model: req.model, profile, connection, chunks: [], trackers: new Map() }
         activeSession = session
         this.sessions.set(key, session)
+        this.conversationKeys.set(req.conversationId, key)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         const stderr = connection.recentStderr()
@@ -149,11 +163,20 @@ export class HermesAcpAdapter implements CliAgentAdapter {
     session.onEvent = onEvent
     session.chunks = []
     const sessionConnection = session.connection
-    const abort = () => sessionConnection.notify('session/cancel', { sessionId: session!.id })
+    let cancelTimer: NodeJS.Timeout | undefined
+    const abort = () => {
+      // ACP cancellation is cooperative.  If Hermes (or a tool it launched) ignores it,
+      // force-close the process tree and make this session permanently unusable.
+      sessionConnection.notify('session/cancel', { sessionId: session!.id })
+      this.detachSession(key, session!)
+      cancelTimer = setTimeout(() => sessionConnection.close(), HERMES_CANCEL_GRACE_MS)
+      if (typeof cancelTimer.unref === 'function') cancelTimer.unref()
+    }
     if (signal?.aborted) throw new Error('Hermes ACP turn cancelled')
     signal?.addEventListener('abort', abort, { once: true })
     try {
       await sessionConnection.request('session/prompt', { sessionId: session.id, prompt }, 10 * 60 * 1000)
+      if (signal?.aborted) throw new Error('Hermes ACP turn cancelled')
       if (session.lastTextBlockId) session.onEvent?.({ type: 'text_end', blockId: session.lastTextBlockId })
       if (session.lastThinkingBlockId) session.onEvent?.({ type: 'thinking_end', blockId: session.lastThinkingBlockId })
       return session.chunks.join('')
@@ -161,10 +184,10 @@ export class HermesAcpAdapter implements CliAgentAdapter {
       const detail = error instanceof Error ? error.message : String(error)
       const stderr = session.connection.recentStderr()
       logHermes('error', `session/prompt failed (profile=${profile}): ${detail}${stderr ? ` | stderr: ${stderr.slice(-1500)}` : ''}`)
-      this.sessions.delete(key)
-      session.connection.close()
+      this.invalidateSession(key, session)
       throw error
     } finally {
+      if (cancelTimer) clearTimeout(cancelTimer)
       signal?.removeEventListener('abort', abort)
       session.onChunk = undefined
       session.onEvent = undefined
@@ -174,6 +197,7 @@ export class HermesAcpAdapter implements CliAgentAdapter {
   closeAll(): void {
     for (const session of this.sessions.values()) session.connection.close()
     this.sessions.clear()
+    this.conversationKeys.clear()
   }
 
   private promptText(req: CliAdapterRequest): string {
@@ -190,10 +214,10 @@ export class HermesAcpAdapter implements CliAgentAdapter {
     const update = message.params?.update as Record<string, unknown> | undefined
     if (!update) return
     const kind = update.sessionUpdate
-    const tracker = this.getTracker(update)
+    const tracker = session ? this.getTracker(session, update) : undefined
     if (kind === 'agent_message_chunk') {
       const text = textFromContent(update.content)
-      if (text && session?.onChunk) {
+      if (text && session?.onChunk && tracker) {
         const blockId = tracker.next()
         session.chunks.push(text)
         session.lastTextBlockId = blockId
@@ -201,13 +225,13 @@ export class HermesAcpAdapter implements CliAgentAdapter {
       }
     } else if (kind === 'agent_thought_chunk') {
       const text = textFromContent(update.content)
-      if (text && session) {
+      if (text && session && tracker) {
         const blockId = tracker.next()
         session.lastThinkingBlockId = blockId
         session.onEvent?.({ type: 'thinking_chunk', blockId, chunk: text })
       }
     } else if (kind === 'tool_call') {
-      tracker.interrupt()
+      tracker?.interrupt()
       session?.onEvent?.({ type: 'tool_start', id: String(update.toolCallId ?? `tool-${Date.now()}`), name: String(update.title ?? 'Hermes tool'), input: (update.rawInput as Record<string, unknown>) ?? {} })
     } else if (kind === 'tool_call_update') {
       const content = textFromContent(update.content)
@@ -220,12 +244,39 @@ export class HermesAcpAdapter implements CliAgentAdapter {
     }
   }
 
-  private readonly trackers = new Map<string, ReturnType<typeof createOpenBlockTracker>>()
-  private getTracker(update: Record<string, unknown>) {
+  private getTracker(session: Session, update: Record<string, unknown>) {
     const id = String(update.messageId ?? update.toolCallId ?? 'turn')
-    let tracker = this.trackers.get(id)
-    if (!tracker) { tracker = createOpenBlockTracker(`hermes-${id}`); this.trackers.set(id, tracker) }
+    let tracker = session.trackers.get(id)
+    if (!tracker) { tracker = createOpenBlockTracker(`hermes-${id}`); session.trackers.set(id, tracker) }
     return tracker
+  }
+
+  private sessionFingerprint(req: CliAdapterRequest, profile: string): string {
+    // Do not use this value for logs: it can contain MCP environment values. It only becomes an
+    // in-memory map key that prevents state crossing a changed security/context boundary.
+    return JSON.stringify({
+      profile,
+      cwd: req.cwd,
+      model: req.model,
+      systemPrompt: req.systemPrompt ?? '',
+      permissionMode: req.permissionMode ?? '',
+      skipPermissions: Boolean(req.skipPermissions),
+      extraAllowedDirs: req.extraAllowedDirs ?? [],
+      mcpServers: (req.mcpServers ?? []).map(({ id, key: serverKey, command, args, env, cwd }) => ({ id, serverKey, command, args, env, cwd })),
+    })
+  }
+
+  private invalidateSession(key: string, session: Session): void {
+    this.detachSession(key, session)
+    session.connection.close()
+  }
+
+  private detachSession(key: string, session: Session): void {
+    if (this.sessions.get(key) === session) this.sessions.delete(key)
+    // Session IDs are vendor-opaque, not conversation IDs. Clear the owner by map value.
+    for (const [conversationId, conversationKey] of this.conversationKeys) {
+      if (conversationKey === key) this.conversationKeys.delete(conversationId)
+    }
   }
 
   private async handleRequest(message: { method?: string; params?: Record<string, unknown> }, req: CliAdapterRequest): Promise<unknown> {
@@ -233,12 +284,17 @@ export class HermesAcpAdapter implements CliAgentAdapter {
     const params = message.params ?? {}
     const toolCall = (params.toolCall ?? {}) as Record<string, unknown>
     const options = Array.isArray(params.options) ? params.options as Array<Record<string, unknown>> : []
-    const allow = options.find((option) => String(option.kind ?? '').startsWith('allow_'))
+    const allow = options.find((option) => String(option.kind ?? '') === 'allow_once')
+    const deny = options.find((option) => String(option.kind ?? '') === 'deny')
     const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
     const allowed = req.skipPermissions
       ? true
       : req.requestPermission ? await req.requestPermission(String(toolCall.title ?? 'Hermes tool'), input) : false
-    return { outcome: allowed && allow ? { outcome: 'selected', optionId: String(allow.optionId) } : { outcome: 'cancelled' } }
+    // A boolean Nexy approval can grant a single action only. Never widen it to an
+    // allow-session/allow-always option supplied by an agent.
+    if (allowed && allow) return { outcome: { outcome: 'selected', optionId: String(allow.optionId) } }
+    if (deny) return { outcome: { outcome: 'selected', optionId: String(deny.optionId) } }
+    return { outcome: { outcome: 'cancelled' } }
   }
 }
 
