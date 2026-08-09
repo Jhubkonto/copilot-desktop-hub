@@ -90,7 +90,11 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
             turnId = event.turnId,
             lastSequence = event.sequence,
             status = ChatTurnStatus.Active,
-            generationStartedAt = System.currentTimeMillis(),
+            // Anchor to the event's own emission time (the real turn start), not `now`. On a
+            // mid-turn re-entry the desktop replays this same `turn_started` from its persisted
+            // log; using `now` would restart the "Thinking · Ns" counter from zero on every
+            // reconnect/snapshot instead of holding the elapsed value.
+            generationStartedAt = event.timestamp.takeIf { it > 0L } ?: System.currentTimeMillis(),
         )
     }
 

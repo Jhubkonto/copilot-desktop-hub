@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.animation.Crossfade
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -502,14 +503,19 @@ fun ChatStartHeader() {
  */
 @Composable
 fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null) {
-    var elapsedSec by remember { mutableIntStateOf(0) }
+    // Seed from the start time so a recomposition (e.g. the activity flipping tool↔thinking, or a
+    // mid-turn re-entry) resumes at the true elapsed value instead of flashing back to 0.
+    fun elapsedFrom(start: Long?): Int =
+        if (start == null || start == 0L) 0
+        else ((System.currentTimeMillis() - start) / 1000L).toInt().coerceAtLeast(0)
+    var elapsedSec by remember(generationStartedAt) { mutableIntStateOf(elapsedFrom(generationStartedAt)) }
     LaunchedEffect(generationStartedAt) {
         if (generationStartedAt == null || generationStartedAt == 0L) {
             elapsedSec = 0
             return@LaunchedEffect
         }
         while (true) {
-            elapsedSec = ((System.currentTimeMillis() - generationStartedAt) / 1000L).toInt().coerceAtLeast(0)
+            elapsedSec = elapsedFrom(generationStartedAt)
             delay(250L)
         }
     }
@@ -533,11 +539,12 @@ fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null
                     tint = blue,
                 )
             } else {
-                NexyIcon(
-                    NexyIconName.Busy,
-                    contentDescription = null,
+                // A determinate-looking loading spinner — not the rotating arrow (Busy/Refresh),
+                // which reads as "restarting/retrying" rather than "working".
+                CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
-                    tint = textColor,
+                    strokeWidth = 2.dp,
+                    color = textColor,
                 )
             }
             if (isTool) {
@@ -816,7 +823,6 @@ fun MessageBubble(
     onResumeSpeech: (() -> Unit)? = null,
     onStopSpeech: (() -> Unit)? = null,
     onReplaySpeech: (() -> Unit)? = null,
-    onInvestigateWithAi: (() -> Unit)? = null,
     isHighlighted: Boolean = false,
 ) {
     val isUser = msg.isUser
@@ -853,7 +859,6 @@ fun MessageBubble(
                     if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
                     if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { menuExpanded = false; onAddToProject() })
                     if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
-                    if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
                     if (onDeleteAfter != null) DropdownMenuItem(text = { Text("Delete from here") }, onClick = { menuExpanded = false; onDeleteAfter() })
                 }
@@ -1042,7 +1047,6 @@ fun MessageBubble(
                             if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { overflowExpanded = false; onBranch() })
                             if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { overflowExpanded = false; onAddToProject() })
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
-                            if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
                         }
                     }

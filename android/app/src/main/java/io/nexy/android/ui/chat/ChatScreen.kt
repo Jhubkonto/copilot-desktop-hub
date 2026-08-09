@@ -225,7 +225,6 @@ fun ChatScreen(
     onOpenQuiz: ((String, String) -> Unit)? = null,
     onOpenTeachback: ((String, String) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
-    onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodePanel: ((String) -> Unit)? = null,
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
     onOpenDesktopPathPicker: (() -> Unit)? = null,
@@ -356,16 +355,6 @@ fun ChatScreen(
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(draftFromVm) {
         if (input.isBlank() && draftFromVm.isNotBlank()) input = draftFromVm
-    }
-    // Consumes a prefill left by an entry point outside chat (e.g. the /code panel's "Resolve
-    // with AI in chat" action) that navigated here wanting a command prefilled rather than
-    // firing it itself before this screen — and this screen's ChatViewModel — existed.
-    LaunchedEffect(conversationId) {
-        WsRepository.pendingComposerPrefill?.let { prefill ->
-            WsRepository.pendingComposerPrefill = null
-            input = prefill
-            vm.setDraft(prefill)
-        }
     }
     val restoredViewState = remember(conversationId) { ChatHistoryMemoryCache.getViewState(conversationId) }
     val listState = rememberLazyListState(
@@ -541,7 +530,6 @@ fun ChatScreen(
     var addToProjectMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var addToProjectTitle by remember { mutableStateOf("") }
     var branchPending by remember { mutableStateOf(false) }
-    var investigateMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var promoteArtifactMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var promoteArtifactTitle by remember { mutableStateOf("") }
     var promoteArtifactKind by remember { mutableStateOf("document") }
@@ -994,25 +982,6 @@ fun ChatScreen(
     }
 
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(investigateMessage) {
-        val msg = investigateMessage ?: return@LaunchedEffect
-        investigateMessage = null
-        val chatProjectId = conversation?.project_id ?: projectId
-        if (connectionState != ConnectionState.CONNECTED) {
-            scope.launch { snackbarHostState.showSnackbar("Not connected to desktop") }
-        } else if (chatProjectId.isNullOrBlank()) {
-            // no-op: entry point is already hidden when there's no project
-        } else if (projects.find { it.id == chatProjectId }?.rootDirectory.isNullOrBlank()) {
-            scope.launch { snackbarHostState.showSnackbar("Code changes require this project to have a configured workspace") }
-        } else {
-            // Prefill in place rather than navigating away — /code-change now runs against
-            // whichever conversation the user is already in, there's no separate screen to open.
-            val plainContent = msg.text.replace(Regex("\\s+"), " ").trim()
-            input = "/code-change $plainContent"
-            vm.setDraft(input)
-        }
-    }
 
     DisposableEffect(conversationId) {
         WsRepository.activelyViewedConversationId.value = conversationId
@@ -1864,7 +1833,6 @@ fun ChatScreen(
                                     onEditAssistant = null,
                                     onBranch = null,
                                     onAddToProject = null,
-                                    onInvestigateWithAi = null,
                                     onShare = null,
                                     onReadAloud = null,
                                 )
@@ -1965,15 +1933,6 @@ fun ChatScreen(
                                                 savePromptTags = ""
                                                 savePromptScope = if (!chatProjectId.isNullOrBlank()) "project" else "global"
                                             }
-                                        } else null,
-                                        onInvestigateWithAi = if (
-                                            msg.text.isNotBlank() &&
-                                            onOpenRemoteEditWithPrefill != null &&
-                                            !chatProjectId.isNullOrBlank() &&
-                                            !projects.find { it.id == chatProjectId }?.rootDirectory.isNullOrBlank() &&
-                                            connectionState == ConnectionState.CONNECTED
-                                        ) {
-                                            { investigateMessage = msg }
                                         } else null,
                                         onShare = if (msg.text.isNotBlank()) {
                                             {

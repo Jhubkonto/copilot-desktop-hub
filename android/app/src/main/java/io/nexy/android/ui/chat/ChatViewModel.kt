@@ -231,27 +231,11 @@ class ChatViewModel(
     val slashCommandMessage: StateFlow<String?> = _slashCommandMessage
     fun consumeSlashCommandMessage() { _slashCommandMessage.value = null }
 
-    // Quiz and code-change WS replies (quiz:ready, error-report:captured) don't carry a
-    // conversationId, unlike debrief:ready — these flags scope the resulting sentinel-insert to
-    // "the last /quiz or /code-change issued from this open chat", matching this codebase's
+    // Quiz replies do not carry a conversationId, unlike debrief:ready — this flag scopes the
+    // resulting sentinel insert to the last /quiz issued from this open chat, matching the
     // existing best-effort WS correlation elsewhere (no request/response ids on this protocol).
     private var awaitingQuizInsert = false
     private var awaitingTeachbackInsert = false
-
-    // /code-change, /code-plan, /code-execute, /code-push, /code-undo, /code-status: independent
-    // slash commands (no wizard/step gating) following the same "awaiting flag + ephemeral status,
-    // real result via a normal event" pattern as /debrief and /quiz above. codeChangeReportId caches
-    // the report resolved for this conversation so /code-execute etc. don't need a round trip to
-    // look it up every time; pendingCodeChangeAction remembers which action to run once that
-    // lookup round trip (for the cache-miss case) comes back.
-    private var codeChangeReportId: String? = null
-    private var pendingCodeChangeAction: String? = null
-    private var awaitingCodeChangeSubmit = false
-    private var awaitingCodeChangePlan = false
-    private var awaitingCodeChangeAccept = false
-    private var awaitingCodeChangePush = false
-    private var awaitingCodeChangeUndo = false
-    private var awaitingCodeChangeStatus = false
 
     // True until we have an authoritative answer about whether this conversation already has
     // content: the in-memory cache restore, the Room cache read, or the first server
@@ -1024,9 +1008,8 @@ class ChatViewModel(
                             }
                         }
                     }
-                    // /debrief, /quiz, and /code-change insert a durable, specially-rendered
-                    // system message (the __artifact-ref:/__code-change-ref: sentinel convention
-                    // shared with desktop) rather than streaming a normal reply — surface it here
+                    // Learning-artifact generation inserts a durable, specially-rendered
+                    // __artifact-ref system message rather than streaming a normal reply — surface it here
                     // the same way a normal history refresh would, without waiting on one.
                     event is WsEvent.MessageInserted && event.conversationId == conversationId -> {
                         if (_messages.value.none { it.id == event.messageId }) {
@@ -1104,91 +1087,6 @@ class ChatViewModel(
                         awaitingTeachbackInsert = false
                         removePendingArtifactRefMessage("teachback")
                         _slashCommandMessage.value = "Failed to generate teach-back: ${event.message}"
-                    }
-                    event is WsEvent.CodeChangeReport -> {
-                        val pending = pendingCodeChangeAction
-                        if (awaitingCodeChangePlan) {
-                            awaitingCodeChangePlan = false
-                            if (event.reportId != null) codeChangeReportId = event.reportId
-                            when {
-                                event.reportId == null ->
-                                    _slashCommandMessage.value = "No code change plan found for this conversation. Run /code-change <description> first."
-                                event.plan.isNullOrBlank() ->
-                                    _slashCommandMessage.value = "No plan yet for this code change — investigation may still be running."
-                                else ->
-                                    // A generated plan can run to several paragraphs — a Snackbar would
-                                    // truncate/auto-dismiss it before it's readable, so this goes into
-                                    // the transcript as a normal message instead of _slashCommandMessage.
-                                    WsRepository.insertMessage(conversationId, "system", formatCodeChangePlan(event))
-                            }
-                        }
-                        if (pending != null) {
-                            pendingCodeChangeAction = null
-                            if (event.reportId == null) {
-                                _slashCommandMessage.value = "No code change found for this conversation. Run /code-change <description> first."
-                            } else {
-                                codeChangeReportId = event.reportId
-                                dispatchCodeChangeAction(pending, event.reportId)
-                            }
-                        }
-                    }
-                    event is WsEvent.CodeChangeAck -> {
-                        when (event.kind) {
-                            "code-change:submitted" -> if (awaitingCodeChangeSubmit) {
-                                awaitingCodeChangeSubmit = false
-                                codeChangeReportId = event.reportId
-                                // The plan itself is persisted as a message server-side (see
-                                // ws-handlers.ts's code-change:submit-description handler) rather
-                                // than sent only via this event — the investigation can run for
-                                // minutes, during which this ViewModel instance may no longer be
-                                // alive to react (app backgrounded, user navigated away), so this
-                                // Snackbar is just a best-effort nudge for whoever's still
-                                // watching, not the only place the result appears. Run /code-plan
-                                // to re-view it later if needed.
-                                _slashCommandMessage.value = "Plan ready — run /code-execute to apply it."
-                            }
-                            "code-change:accepted", "code-change:completed" -> if (awaitingCodeChangeAccept) {
-                                awaitingCodeChangeAccept = false
-                                codeChangeReportId = event.reportId
-                                _slashCommandMessage.value = "Code change executed, verified, and committed."
-                            }
-                            "code-change:pushed" -> if (awaitingCodeChangePush) {
-                                awaitingCodeChangePush = false
-                                _slashCommandMessage.value = "Changes pushed."
-                            }
-                        }
-                    }
-                    event is WsEvent.CodeChangeUndone -> {
-                        if (awaitingCodeChangeUndo) {
-                            awaitingCodeChangeUndo = false
-                            _slashCommandMessage.value = if (event.rolledBack) {
-                                "Code change undone."
-                            } else {
-                                "Nothing to undo: ${event.error ?: "no rollback available"}"
-                            }
-                        }
-                    }
-                    event is WsEvent.CodeChangeStatusResult && awaitingCodeChangeStatus -> {
-                        awaitingCodeChangeStatus = false
-                        // Multi-line summary — same reasoning as the plan above, a real message
-                        // rather than a Snackbar so it stays readable and on-screen.
-                        WsRepository.insertMessage(conversationId, "system", formatCodeChangeStatus(event))
-                    }
-                    event is WsEvent.CodeChangeError -> {
-                        if (
-                            awaitingCodeChangeSubmit || awaitingCodeChangePlan || awaitingCodeChangeAccept ||
-                            awaitingCodeChangePush || awaitingCodeChangeUndo || awaitingCodeChangeStatus ||
-                            pendingCodeChangeAction != null
-                        ) {
-                            awaitingCodeChangeSubmit = false
-                            awaitingCodeChangePlan = false
-                            awaitingCodeChangeAccept = false
-                            awaitingCodeChangePush = false
-                            awaitingCodeChangeUndo = false
-                            awaitingCodeChangeStatus = false
-                            pendingCodeChangeAction = null
-                            _slashCommandMessage.value = "Code change error: ${event.error}"
-                        }
                     }
                     event is WsEvent.ConversationModeUpdated && event.conversationId == conversationId -> {
                         if (confirmModeOverride("thinkingEffortOverride", event.thinkingEffortOverride)) {
@@ -1293,79 +1191,6 @@ class ChatViewModel(
         WsRepository.insertMessage(conversationId, "system", content)
     }
 
-    /**
-     * `plan` is generated with a leading YAML front-matter block (confidence, root_cause,
-     * affected_files) per the backend's investigation prompt — showing it raw in chat is exactly
-     * the "clunky, raw YAML dumped into the UI" complaint that motivated retiring the old wizard.
-     * The same three values already arrive parsed on this event, so this formats a clean summary
-     * from those instead of re-displaying the YAML block.
-     */
-    private fun formatCodeChangePlan(event: WsEvent.CodeChangeReport): String {
-        val body = event.plan.orEmpty().replace(Regex("^---\\n[\\s\\S]*?\\n---\\n?"), "").trim()
-        val metaLines = buildList {
-            event.confidence?.takeIf { it.isNotBlank() }?.let { add("Confidence: $it") }
-            event.rootCause?.takeIf { it.isNotBlank() }?.let { add("Root cause: $it") }
-            if (event.affectedFiles.isNotEmpty()) add("Affected files: ${event.affectedFiles.joinToString(", ")}")
-        }
-        val meta = if (metaLines.isNotEmpty()) metaLines.joinToString("\n") { "- $it" } else ""
-        return listOf(meta, body).filter { it.isNotBlank() }.joinToString("\n\n")
-    }
-
-    /** Formats the code-change:get-status reply into a short chat-friendly summary for /code-status. */
-    private fun formatCodeChangeStatus(event: WsEvent.CodeChangeStatusResult): String {
-        if (event.reportId == null) {
-            return "No code change in progress for this conversation."
-        }
-        val stepLine = "Step: ${event.step ?: "unknown"}"
-        val titleLine = event.title?.takeIf { it.isNotBlank() }?.let { "Title: $it" }
-        val gitLine = if (event.gitRepoOk) {
-            "Git repo: ${event.gitRepoRelativePath?.takeIf { it.isNotBlank() } ?: "(workspace root)"}"
-        } else {
-            "Git repo: not found${event.gitRepoReason?.let { " ($it)" } ?: ""}"
-        }
-        return listOfNotNull(stepLine, titleLine, gitLine).joinToString("\n")
-    }
-
-    /** Unlike normal chat sends, the composer has no isStreaming/isAwaitingResponse-driven block
-     *  on re-sending while a code-change command is in flight — without this guard the user could
-     *  fire e.g. /code-execute twice concurrently and race two accept-plan requests against the
-     *  same report. */
-    private fun isCodeChangeBusy(): Boolean =
-        awaitingCodeChangeSubmit || awaitingCodeChangePlan || awaitingCodeChangeAccept ||
-            awaitingCodeChangePush || awaitingCodeChangeUndo || awaitingCodeChangeStatus ||
-            pendingCodeChangeAction != null
-
-    /** Runs [action] ("execute"/"push"/"undo") against the cached report id for this
-     *  conversation, looking it up via code-change:get-report-for-conversation first if it isn't
-     *  cached yet (e.g. app was restarted, or /code-change hasn't been run this session). */
-    private fun runWithCodeChangeReportId(action: String) {
-        val cached = codeChangeReportId
-        if (cached != null) {
-            dispatchCodeChangeAction(action, cached)
-        } else {
-            pendingCodeChangeAction = action
-            WsRepository.getCodeChangeReportForConversation(conversationId)
-        }
-    }
-
-    private fun dispatchCodeChangeAction(action: String, reportId: String) {
-        when (action) {
-            "execute" -> {
-                awaitingCodeChangeAccept = true
-                _slashCommandMessage.value = "Running the plan: applying the fix, verifying, and committing…"
-                WsRepository.acceptCodeChangePlan(reportId)
-            }
-            "push" -> {
-                awaitingCodeChangePush = true
-                WsRepository.pushCodeChange(reportId)
-            }
-            "undo" -> {
-                awaitingCodeChangeUndo = true
-                WsRepository.undoCodeChange(reportId)
-            }
-        }
-    }
-
     private fun pendingArtifactMessageId(kind: String) = "pending-$kind-$conversationId"
 
     /** Shows an immediate, local-only placeholder card (spinner, no chevron) while a debrief/quiz
@@ -1464,63 +1289,6 @@ class ChatViewModel(
                 insertPendingArtifactRefMessage("teachback")
                 val topic = argText.replace(Regex("^(on|about|regarding)\\s+", RegexOption.IGNORE_CASE), "").ifBlank { null }
                 WsRepository.generateTeachback(conversationId, projectId, topic, _selectedModel.value)
-            }
-            "/code-change" -> {
-                // A trailing "[repo]" (as the git-housekeeping commands use) would be ambiguous
-                // against free-form description text that happens to end in brackets, so the
-                // optional repo hint — only needed when the workspace has more than one git repo
-                // — goes in brackets at the START instead: "/code-change [repo] <description>".
-                val repoMatch = Regex("^\\[([^\\]]+)\\]\\s*(.*)$", RegexOption.DOT_MATCHES_ALL).find(argText)
-                val description = repoMatch?.groupValues?.get(2)?.trim() ?: argText
-                val repoArg = repoMatch?.groupValues?.get(1)?.trim()
-                if (isCodeChangeBusy()) {
-                    _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
-                } else if (projectId.isNullOrBlank()) {
-                    _slashCommandMessage.value = "Code changes require this conversation to be in a project."
-                } else if (description.isBlank()) {
-                    _slashCommandMessage.value = "Usage: /code-change [repo] <description of the change you want>"
-                } else {
-                    awaitingCodeChangeSubmit = true
-                    _slashCommandMessage.value = "Investigating code change…"
-                    WsRepository.submitCodeChangeDescription(conversationId, projectId, description, repoArg)
-                }
-            }
-            "/code-plan" -> {
-                if (isCodeChangeBusy()) {
-                    _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
-                } else {
-                    awaitingCodeChangePlan = true
-                    WsRepository.getCodeChangeReportForConversation(conversationId)
-                }
-            }
-            "/code-execute" -> {
-                if (isCodeChangeBusy()) {
-                    _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
-                } else {
-                    runWithCodeChangeReportId("execute")
-                }
-            }
-            "/code-push" -> {
-                if (isCodeChangeBusy()) {
-                    _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
-                } else {
-                    runWithCodeChangeReportId("push")
-                }
-            }
-            "/code-undo" -> {
-                if (isCodeChangeBusy()) {
-                    _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
-                } else {
-                    runWithCodeChangeReportId("undo")
-                }
-            }
-            "/code-status" -> {
-                if (isCodeChangeBusy()) {
-                    _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
-                } else {
-                    awaitingCodeChangeStatus = true
-                    WsRepository.getCodeChangeStatus(conversationId)
-                }
             }
             "/code" -> {
                 if (projectId.isNullOrBlank()) {
