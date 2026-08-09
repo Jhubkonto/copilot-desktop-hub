@@ -96,6 +96,32 @@ describe('error log handlers', () => {
     }))
   })
 
+  it('prunes entries older than the one-week retention window', async () => {
+    const { recordErrorLogEntry, pruneErrorLog } = await import('../error-log-handlers')
+    const now = 30 * 24 * 60 * 60 * 1000
+    const weekMs = 7 * 24 * 60 * 60 * 1000
+    recordErrorLogEntry({ source: 'main', level: 'info', message: 'stale', timestamp: now - weekMs - 1 })
+    recordErrorLogEntry({ source: 'main', level: 'info', message: 'fresh', timestamp: now - 1000 })
+
+    const deleted = pruneErrorLog(now)
+
+    expect(deleted).toBe(1)
+    const rows = db.prepare('SELECT message FROM error_log').all() as { message: string }[]
+    expect(rows).toEqual([{ message: 'fresh' }])
+  })
+
+  it('sweeps expired entries when error-log capture initializes', async () => {
+    const { recordErrorLogEntry, initErrorLogCapture } = await import('../error-log-handlers')
+    const staleTs = Date.now() - (8 * 24 * 60 * 60 * 1000)
+    recordErrorLogEntry({ source: 'main', level: 'info', message: 'ancient', timestamp: staleTs })
+    const webContents = new EventEmitter() as EventEmitter & { send: ReturnType<typeof vi.fn> }
+    webContents.send = vi.fn()
+
+    initErrorLogCapture({ isDestroyed: () => false, webContents } as never)
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM error_log').get()).toEqual({ count: 0 })
+  })
+
   it('clears persisted and renderer-buffer entries', async () => {
     const { initErrorLogCapture, registerErrorLogHandlers } = await import('../error-log-handlers')
     const webContents = new EventEmitter() as EventEmitter & { send: ReturnType<typeof vi.fn> }

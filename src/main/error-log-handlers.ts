@@ -12,6 +12,25 @@ let mainWindow: BrowserWindow | null = null
 let childProcessCaptureInstalled = false
 const rendererRecoveryAttempts: number[] = []
 
+// Persistent diagnostics are kept for one week, then swept. Long enough to investigate an
+// intermittent failure a user reports "the other day", short enough that the log never grows
+// unbounded. The sweep runs on startup and periodically thereafter.
+const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const LOG_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
+let logRetentionTimer: NodeJS.Timeout | null = null
+
+/** Deletes error-log rows older than the retention window. Best-effort — never throws. */
+export function pruneErrorLog(now: number = Date.now()): number {
+  try {
+    const result = getDatabase()
+      .prepare('DELETE FROM error_log WHERE timestamp < ?')
+      .run(now - LOG_RETENTION_MS)
+    return Number(result.changes ?? 0)
+  } catch {
+    return 0
+  }
+}
+
 function normalizeLevel(level: unknown): ErrorLogLevel {
   if (level === 'error' || level === 3) return 'error'
   if (level === 'warn' || level === 'warning' || level === 2) return 'warn'
@@ -80,6 +99,13 @@ export function recordErrorLogEntry(input: {
 
 export function initErrorLogCapture(win: BrowserWindow): void {
   mainWindow = win
+
+  // Sweep expired entries immediately, then on a slow interval for long-running sessions.
+  pruneErrorLog()
+  if (!logRetentionTimer) {
+    logRetentionTimer = setInterval(() => pruneErrorLog(), LOG_PRUNE_INTERVAL_MS)
+    if (typeof logRetentionTimer.unref === 'function') logRetentionTimer.unref()
+  }
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     const levelName = normalizeLevel(level)
     if (levelName !== 'error' && levelName !== 'warn') return
