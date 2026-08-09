@@ -55,7 +55,7 @@ Tests: `RemoteEditViewModelTest.kt` (6 cases, solid coverage of delete/apply/ver
 
 This is the most impactful finding. `RemoteEditReportsScreen` (the list of all Code Changes for a project) is registered as a nav route but **nothing in the current codebase navigates to it**. Verified directly:
 
-- `grep` for `project-code-changes` in `NavGraph.kt` shows the route registered at [NavGraph.kt:594](android/app/src/main/java/io/nexy/android/navigation/NavGraph.kt#L594), with exactly one call site — line 602, which is the list screen's own "new request" FAB navigating *within itself*. No external screen calls into it.
+- `grep` for `project-code-changes` in `NavGraph.kt` showed the route registered in [NavGraph.kt](../../android/app/src/main/java/io/nexy/android/navigation/NavGraph.kt), with exactly one call site — the list screen's own "new request" FAB navigating *within itself*. No external screen called into it when this analysis was written.
 - The only two ways to reach *any* Code Changes screen today are: (1) chat's "create code change" action, which prefills and jumps straight to the **new-request** form, bypassing the list entirely; (2) tapping an inline `CodeChangeRefBubble` chat card that deep-links to one already-known report's detail screen.
 - Once created, a request's detail screen has no "back to list" affordance either — a user who navigates away has no way back except re-finding the same chat message.
 

@@ -21,8 +21,8 @@ Nexy is a cross-platform desktop application built with Electron, React 19, and 
 │  Main process  (full Node / Electron access)                    │
 │                                                                 │
 │  IPC handlers ──► Auth ──► BYOK providers / CLI backends        │
-│               ──► Providers (OpenAI / Anthropic / Azure)        │
-│               ──► CLI adapters (Claude CLI / Codex CLI)         │
+│               ──► Providers (native and OpenAI-compatible APIs) │
+│               ──► CLI adapters (Claude / Codex / Hermes)        │
 │               ──► Orchestrator (multi-agent delegation)         │
 │               ──► Agents / Knowledge / Tools                    │
 │               ──► MCP servers (stdio child processes)           │
@@ -67,7 +67,7 @@ src/
 │   ├── database-migrations.ts    # Versioned migration runner (PRAGMA user_version)
 │   ├── auth.ts                   # BYOK auth mode persistence
 │   ├── http-client.ts            # Shared HTTPS helpers: httpsPost, httpsGet, parseSseStream
-│   ├── providers.ts              # Multi-provider streaming (OpenAI, Anthropic, Azure)
+│   ├── providers.ts              # Multi-provider streaming and capability routing
 │   ├── orchestrator.ts           # Multi-agent delegation (leader + team via delegate_to_agent tool)
 │   ├── chat-handlers.ts          # Chat IPC: send message, regenerate, edit, stop
 │   ├── conversation-handlers.ts  # Conversation + message CRUD
@@ -274,13 +274,13 @@ The `hydrate` action in `app-store.ts` loads all persistent state from the main 
 
 ### Migrations
 
-Schema changes are applied via a **versioned migration runner** in `database-migrations.ts`. The current schema version is tracked with SQLite's `PRAGMA user_version`. Each migration runs exactly once, in order, and is idempotent. Currently at version 11.
+Schema changes are applied via a **versioned migration runner** in `database-migrations.ts`. The current schema version is tracked with SQLite's `PRAGMA user_version`. Each migration runs exactly once, in order, and is idempotent. The current version is the last entry in `MIGRATIONS`; it is intentionally not duplicated here because migrations are append-only.
 
 ---
 
 ## IPC Channel Model
 
-All renderer ↔ main communication uses `ipcMain.handle` / `ipcRenderer.invoke` (request-response) or `webContents.send` / `ipcRenderer.on` (main-to-renderer push for streaming events and tool approval requests).
+All renderer ↔ main communication uses typed request-response or push channels. Main-process request handlers are registered through `safeHandle`, which validates the sender and converts failures to structured error results; new handlers must not call `ipcMain.handle` directly.
 
 The full channel surface is typed in `src/shared/types.ts` as the `IpcChannels` union. Handler registration is split into domain modules and aggregated in `ipc-handlers.ts`.
 
@@ -298,11 +298,13 @@ Nexy supports BYOK API providers and local CLI backends. Provider API keys are s
 
 | Provider | Endpoint |
 |---|---|
-| `openai` | `https://api.openai.com/v1/chat/completions` |
-| `anthropic` | `https://api.anthropic.com/v1/messages` |
-| `azure` | `https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions` |
+| `openai` | OpenAI API |
+| `anthropic` | Anthropic Messages API |
+| `azure` | Azure OpenAI deployment API |
+| `gemini` | Gemini API / configured compatibility route |
+| `mistral`, `groq`, `xai`, `openrouter` | Provider-specific OpenAI-compatible APIs |
 
-CLI backends are implemented in `src/main/cli-adapters/`. Active streaming requests are tracked so per-conversation abort works across provider paths.
+The authoritative provider configuration and fallback-model ownership live in `src/main/provider-registry.ts`; the model-catalog guide explains the live-cache and fallback order. CLI backends (Claude, Codex, and Hermes) are implemented in `src/main/cli-adapters/`. Active streaming requests are tracked so per-conversation abort works across provider paths.
 
 ---
 

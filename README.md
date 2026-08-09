@@ -2,8 +2,6 @@
 
 A provider-agnostic native AI workspace — locally-first, with custom agents, multi-provider LLM support (BYOK or CLI), MCP server integration, built-in tools, project-scoped workspaces, and a full-featured Android companion app.
 
-<!-- TODO: add screenshot -->
-
 ## Features
 
 ### Chat & Composition
@@ -62,8 +60,9 @@ Slash-command-driven, project-scoped repository editing from inside any normal c
 no separate screen or wizard. Requires the conversation to be attached to a Project whose workspace
 contains a real git repository.
 
-- `/code-change [repo] <description>` investigates the codebase (via an MCP tool loop: file reads, directory listing, git operations, grep) and proposes a plan; `/code-plan` shows it, `/code-execute` stages the fix (multi-file diff and hunk inspection), verifies it (typecheck/lint/test/build as applicable, with rollback on failure), and commits it, `/code-push` pushes, `/code-undo` rolls back the most recent applied change, `/code-status` shows current step and repo status
-- Git housekeeping commands for branching, checkout, fetch, merge/pull with AI-proposed conflict resolution, stash, commit, discard, and credential inspection — desktop via typed `/code-*` commands, Android via a tap-driven `/code` panel
+- `/code-change [repo] <description>` investigates the repository and proposes a plan; `/code-plan` shows it, `/code-execute` applies and verifies it, `/code-push` pushes it, `/code-undo` rolls back the most recent change, and `/code-status` reports progress and repository state
+- Git housekeeping commands support branching, checkout, fetch, merge, and related repository operations. Desktop uses typed `/code-*` commands; Android also provides a tap-driven `/code` panel
+- These commands use Nexy's Code Changes workflow. They do not imply that every chat has generic filesystem or shell tools available; CLI-backed conversations and configured MCP servers expose their own capabilities
 - A failed step in the Developer settings build dashboard (typecheck/test/build/package) can open a prefilled `/code-change` request in a new chat
 - Per-project audit log of edit sessions (from chat tools, code changes, or CLI) with per-file, per-hunk diff inspection (Project Settings → Changes tab)
 
@@ -212,6 +211,7 @@ Packaged distributable files are written to the `release/` directory. The unpack
 ```
 
 For a detailed breakdown of modules, data flows, database schema, IPC model, and security model, see [ARCHITECTURE.md](src/docs/ARCHITECTURE.md).
+For the current documentation map and the status of historical roadmaps, see [Documentation maintenance](docs/DOCUMENTATION_MAINTENANCE.md).
 
 ## Troubleshooting
 
