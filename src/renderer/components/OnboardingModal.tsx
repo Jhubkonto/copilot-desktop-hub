@@ -15,7 +15,7 @@ const featureRecords: Array<{ icon: NexyIconName; label: string }> = [
   { icon: 'agent', label: 'Create custom agents with unique personalities' },
   { icon: 'external', label: 'Connect MCP servers for extended capabilities' },
   { icon: 'tool', label: 'Use built-in tools (file editing, terminal, web fetch)' },
-  { icon: 'check', label: 'Code Changes: connect a repo, review staged patches, verify, and commit (sidebar)' },
+  { icon: 'check', label: 'Project Git: inspect branches, diffs, staging, commits, and remotes' },
   { icon: 'spark', label: 'Project Generator: scaffold projects, roles, and milestones from a guided prompt (sidebar)' },
   { icon: 'artifact', label: 'Artifacts: save, browse, and export reusable docs, code, prompts, and plans (sidebar)' },
 ]

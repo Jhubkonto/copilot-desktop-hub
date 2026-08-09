@@ -216,7 +216,6 @@ describe('MessageBubble', () => {
         role="assistant"
         onSaveToWiki={vi.fn()}
         onSaveAsArtifact={vi.fn()}
-        onCreateCodeChange={vi.fn()}
       />
     )
 
@@ -228,7 +227,6 @@ describe('MessageBubble', () => {
     expect(screen.getByRole('menu', { name: 'Message actions' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Save to wiki' })).toHaveAttribute('title', 'Save to wiki')
     expect(screen.getByRole('menuitem', { name: 'Save as artifact' })).toHaveAttribute('title', 'Save as artifact')
-    expect(screen.getByRole('menuitem', { name: 'Create code change' })).toHaveAttribute('title', 'Create code change')
     expect(screen.getByRole('menuitem', { name: 'Save to wiki' }).querySelector('svg')).toHaveClass('lucide-book-open')
     expect(screen.getByRole('menuitem', { name: 'Save as artifact' }).querySelector('svg')).toHaveClass('lucide-package')
   })

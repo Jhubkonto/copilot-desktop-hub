@@ -557,12 +557,6 @@ export function ChatWindow() {
     })
   }, [chatProjectId, currentConversation?.title])
 
-  const handleCreateCodeChange = useCallback((_messageId: string, content: string) => {
-    const plainContent = content.replace(/\s+/g, ' ').trim()
-    setInput(`/code-change ${plainContent}`)
-    inputRef.current?.focus()
-  }, [setInput])
-
   const handleConfirmArtifactPromotion = useCallback(async () => {
     if (!conversationId || !artifactPromotion) return
     const scope = artifactPromotion.scopeType === 'project'
@@ -1959,8 +1953,6 @@ export function ChatWindow() {
           }}
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}
-          onCreateCodeChange={(messageId, content) => void handleCreateCodeChange(messageId, content)}
-          canCreateCodeChange={Boolean(chatProjectId && chatProjectId !== '__none__')}
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}

@@ -27,7 +27,6 @@ const activityLabels: Record<BackgroundActivityKind, string> = {
   'teachback-generation': 'Generating teach-back…',
   chat: 'Assistant is responding…',
   build: 'Building…',
-  'remote-edit': 'Investigating code change…',
   orchestration: 'Delegating to agent…',
 }
 

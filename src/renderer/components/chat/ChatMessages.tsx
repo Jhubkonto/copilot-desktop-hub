@@ -41,8 +41,6 @@ interface ChatMessagesProps {
   onSaveAsPrompt?: (content: string) => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onPromoteArtifact?: (messageId: string, content: string) => void
-  onCreateCodeChange?: (messageId: string, content: string) => void
-  canCreateCodeChange?: boolean
   wikiMessageIds: Set<string>
   onRegenerate: (modelOverride?: string) => void | Promise<void>
   onEdit: (index: number) => void
@@ -209,8 +207,6 @@ export function ChatMessagesBase({
   onSaveAsPrompt,
   onSaveToWiki,
   onPromoteArtifact,
-  onCreateCodeChange,
-  canCreateCodeChange = true,
   wikiMessageIds,
   onRegenerate,
   onEdit,
@@ -670,8 +666,6 @@ export function ChatMessagesBase({
                 onSaveAsPrompt={main.role === 'system' ? undefined : onSaveAsPrompt}
                 onSaveToWiki={main.role === 'assistant' ? onSaveToWiki : undefined}
                 onSaveAsArtifact={main.role === 'assistant' ? onPromoteArtifact : undefined}
-                onCreateCodeChange={onCreateCodeChange}
-                canCreateCodeChange={canCreateCodeChange}
                 hasWikiEntry={wikiMessageIds.has(main.id)}
                 onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
                 onEdit={main.role === 'user' ? onEdit : undefined}

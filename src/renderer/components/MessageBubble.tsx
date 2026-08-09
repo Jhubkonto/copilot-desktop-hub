@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench, BookmarkPlus, Volume2, Sparkles, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, BookmarkPlus, Volume2, Sparkles, MoreHorizontal, Trash2 } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -115,8 +115,6 @@ interface MessageBubbleProps {
   onDeleteAfter?: () => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onSaveAsArtifact?: (messageId: string, content: string) => void
-  onCreateCodeChange?: (messageId: string, content: string) => void
-  canCreateCodeChange?: boolean
   hasWikiEntry?: boolean
   timestamp?: number
   isHighlighted?: boolean
@@ -171,8 +169,6 @@ export function MessageBubbleBase({
   onDeleteAfter,
   onSaveToWiki,
   onSaveAsArtifact,
-  onCreateCodeChange,
-  canCreateCodeChange = true,
   hasWikiEntry,
   onRetry,
   onSignIn,
@@ -217,7 +213,6 @@ export function MessageBubbleBase({
     onSaveAsPrompt
     || onSaveToWiki
     || (onSaveAsArtifact && !isDocumentLike)
-    || onCreateCodeChange
     || onDeleteAfter
     || (isLastAssistant && onRegenerate)
   )
@@ -381,18 +376,6 @@ export function MessageBubbleBase({
                         setAssistantMenuOpen(false)
                         onSaveAsArtifact(id, content)
                       }} />
-                    )}
-                    {onCreateCodeChange && (
-                      <MessageMenuItem
-                        icon={Wrench}
-                        label="Create code change"
-                        title={canCreateCodeChange ? 'Create code change' : 'Switch to a project to create a code change'}
-                        onClick={() => {
-                          setAssistantMenuOpen(false)
-                          onCreateCodeChange(id, content)
-                        }}
-                        disabled={!canCreateCodeChange}
-                      />
                     )}
                     {onDeleteAfter && (
                       <MessageMenuItem icon={Trash2} label="Delete from here" onClick={() => {
