@@ -23,11 +23,7 @@ import { registerAndroidHandlers } from './android-handlers'
 import { registerModelAvailabilityHandlers } from './model-availability'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 import { registerErrorLogHandlers } from './error-log-handlers'
-import { registerErrorReportHandlers } from './error-report-handlers'
-import { registerRemoteEditHandlers } from './remote-edit-handlers'
-import { registerRemoteEditGitHandlers } from './remote-edit/git-ops'
-import { registerRemoteEditRecoveryHandlers } from './remote-edit/recovery'
-import { registerCodeChangeHandlers } from './code-change-handlers'
+import { registerProjectGitHandlers } from './project-git-handlers'
 import { registerProjectGeneratorHandlers } from './project-generator'
 import { registerAgentGeneratorHandlers } from './agent-generator'
 import { registerArtifactHandlers } from './artifacts'
@@ -76,11 +72,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerModelCatalogHandlers()
   registerModelAvailabilityHandlers()
   registerErrorLogHandlers()
-  registerErrorReportHandlers()
-  registerRemoteEditHandlers(mainWindow)
-  registerRemoteEditGitHandlers(mainWindow)
-  registerRemoteEditRecoveryHandlers(mainWindow)
-  registerCodeChangeHandlers(mainWindow)
+  registerProjectGitHandlers()
   registerSystemHandlers()
   registerBuildHandlers(mainWindow)
   registerAndroidHandlers(mainWindow)

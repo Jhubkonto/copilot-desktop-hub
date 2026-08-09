@@ -39,7 +39,7 @@ export interface Conversation {
   id: string
   agentId: string | null
   title: string
-  kind?: 'chat' | 'code-change' | 'project-conversation-mode'
+  kind?: 'chat' | 'project-conversation-mode'
   createdAt: number
   updatedAt: number
   completedAt: number | null
@@ -227,7 +227,6 @@ export type BackgroundActivityKind =
   | 'teachback-generation'
   | 'chat'
   | 'build'
-  | 'remote-edit'
   | 'orchestration'
 
 export interface BackgroundActivity {
@@ -513,7 +512,6 @@ export interface ProjectRepository {
   dirty?: boolean | null
   enabled: boolean
   available: boolean
-  verifyCommands?: RemoteEditVerifyCommandConfig[] | null
   createdAt: number
   updatedAt: number
 }
@@ -545,33 +543,6 @@ export interface ProjectWorkspaceMetadata {
 
 export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply' | 'code-changes' | 'cli-tool'
 export type ProjectTouchedFileStatus = 'modified' | 'created' | 'deleted'
-
-export type CodeChangeRequestType = 'edit' | 'refactor' | 'bugfix' | 'feature' | 'investigation' | 'custom'
-export type CodeChangeRequestOrigin = 'chat' | 'android' | 'manual' | 'build-failure' | 'legacy-bug-report'
-export interface CodeChangesWorkspaceBinding {
-  rootDirectory: string
-  isGitRepo: boolean
-  repoRoot: string | null
-  branch: string | null
-  dirty: boolean
-  isConnected: boolean
-  lastValidatedAt: number | null
-}
-
-export interface CodeChangeRequest {
-  id: string
-  title: string
-  description: string
-  requestType: CodeChangeRequestType
-  customTypeLabel: string | null
-  workspaceRoot: string | null
-  projectId: string | null
-  origin: CodeChangeRequestOrigin
-  status: ErrorReportStatus
-  createdAt: number
-  updatedAt: number
-  legacyReport: ErrorReportEntry
-}
 
 export interface ProjectEditSession {
   id: string
@@ -619,9 +590,6 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
   inScope: ScopeRule[]
   outOfScope: ScopeRule[]
   milestones: Milestone[]
-  // null means "use the built-in npm typecheck/lint/test/build default" — see
-  // DEFAULT_VERIFY_COMMANDS in shared/code-changes.ts.
-  verifyCommands: RemoteEditVerifyCommandConfig[] | null
   // Opt-in, off by default: surfaces past highly-rated conversations from this project as an
   // additive "similar past strategies" context block (conversation-rating-system-roadmap.md §3.4).
   strategyRetrievalEnabled: boolean
@@ -648,7 +616,6 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   inScope: [],
   outOfScope: [],
   milestones: [],
-  verifyCommands: null,
   strategyRetrievalEnabled: false,
   terminalSandboxBypass: false,
 }
@@ -705,78 +672,6 @@ export interface ErrorLogEntry {
   stack: string | null
   timestamp: number
 }
-
-export type ErrorReportStatus = 'open' | 'investigating' | 'investigated' | 'completed' | 'rejected'
-
-export interface ErrorReportCaptureInput {
-  title: string
-  description?: string
-  includeScreenshot?: boolean
-  includeLog?: boolean
-  screenshotDataUrl?: string | null
-  requestType?: CodeChangeRequestType
-  customTypeLabel?: string | null
-  origin?: CodeChangeRequestOrigin
-  workspaceRoot?: string | null
-  projectId?: string | null
-  conversationId?: string | null
-}
-
-export interface ErrorReportCaptureResult {
-  reportId: string
-  screenshotPath: string | null
-  createdAt: number
-}
-
-export type RemoteEditBackend = 'byok' | 'claude-cli' | 'codex-cli'
-export type InvestigationStatus = 'idle' | 'running' | 'done' | 'error'
-
-export interface RemoteEditInvestigationSettings {
-  backend: RemoteEditBackend
-  model: string
-  retryLimit: number
-  autoApproveTools: boolean
-}
-
-export interface RemoteEditInvestigationActivity {
-  reportId: string
-  type: 'thinking' | 'tool' | 'status'
-  label: string
-  toolName?: string
-}
-
-export interface RemoteEditInvestigationChunk {
-  reportId: string
-  chunk: string
-}
-
-export interface RemoteEditActiveInvestigation {
-  running: boolean
-  activity: RemoteEditInvestigationActivity[]
-  output: string
-}
-
-export interface RemoteEditInvestigationResult {
-  reportId: string
-  status: 'done' | 'error'
-  markdown: string
-  confidence: string
-  rootCause: string
-  affectedFiles: string[]
-  error?: string
-  completedAt: number
-}
-
-export type RemoteEditFixStatus = 'none' | 'staging' | 'staged' | 'applying' | 'applied' | 'failed'
-
-export interface RemoteEditStagedFileEntry {
-  relativePath: string
-  stagingPath: string
-  backupPath: string | null
-  diffLineCount: number
-  reviewed: boolean
-}
-
 export interface DiffLine {
   type: 'context' | 'added' | 'removed'
   lineNumber: { before: number | null; after: number | null }
@@ -788,238 +683,9 @@ export interface DiffHunk {
   lines: DiffLine[]
 }
 
-export interface RemoteEditStagedFileDiff {
+export interface ProjectFileDiff {
   relativePath: string
   hunks: DiffHunk[]
-}
-
-export interface RemoteEditFixEvent {
-  reportId: string
-  type: 'file-patched' | 'file-error' | 'status'
-  relativePath?: string
-  error?: string
-  label: string
-}
-
-export interface RemoteEditFixDone {
-  reportId: string
-  status: 'done' | 'error'
-  stagedFiles: RemoteEditStagedFileEntry[]
-  error?: string
-  completedAt: number
-}
-
-// A stable identifier for a verification step (e.g. 'typecheck'), not the shell command itself —
-// see RemoteEditVerifyCommandConfig.command for what actually gets executed.
-export type RemoteEditVerificationCommand = string
-export type RemoteEditVerificationStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
-
-// Per-project override for what verification runs. Stored on ProjectConfig.verifyCommands; when
-// unset, DEFAULT_VERIFY_COMMANDS (shared/code-changes.ts) reproduces today's hardcoded
-// npm run typecheck/lint/test/build behavior.
-export interface RemoteEditVerifyCommandConfig {
-  id: string
-  label: string
-  command: string
-}
-
-export interface RemoteEditVerificationStep {
-  command: RemoteEditVerificationCommand
-  status: RemoteEditVerificationStepStatus
-  exitCode: number | null
-  log: string
-  startedAt: number | null
-  completedAt: number | null
-}
-
-export interface RemoteEditVerificationRun {
-  id: string
-  reportId: string
-  status: 'running' | 'success' | 'failed'
-  steps: RemoteEditVerificationStep[]
-  startedAt: number
-  completedAt: number | null
-  retryCount: number
-  error?: string
-}
-
-export interface RemoteEditVerificationEvent {
-  reportId: string
-  runId: string
-  command?: RemoteEditVerificationCommand
-  status: RemoteEditVerificationStepStatus | 'running' | 'success' | 'failed'
-  line?: string
-  exitCode?: number | null
-  label: string
-}
-
-export interface RemoteEditVerificationDone {
-  reportId: string
-  runId: string
-  status: 'success' | 'failed'
-  steps: RemoteEditVerificationStep[]
-  retryCount: number
-  error?: string
-  completedAt: number
-}
-
-export type RemoteEditGitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'unknown'
-
-export interface RemoteEditGitFile {
-  path: string
-  indexStatus: string
-  worktreeStatus: string
-  status: RemoteEditGitFileStatus
-}
-
-export interface RemoteEditGitStatus {
-  reportId?: string
-  isRepo: boolean
-  branch: string | null
-  commitSha: string | null
-  dirty: boolean
-  ahead: number
-  behind: number
-  files: RemoteEditGitFile[]
-  error?: string
-}
-
-export interface RemoteEditGitPrepareResult {
-  reportId: string
-  status: RemoteEditGitStatus
-  suggestedMessage: string
-  files: string[]
-  canCommit: boolean
-  reason?: string
-  authRequired?: boolean
-  authHelp?: string
-}
-
-export interface RemoteEditGitCommitResult {
-  reportId: string
-  committed: boolean
-  commitSha: string | null
-  status: RemoteEditGitStatus
-  error?: string
-  authRequired?: boolean
-  authHelp?: string
-}
-
-export interface RemoteEditGitPushResult {
-  reportId: string
-  pushed: boolean
-  status: RemoteEditGitStatus
-  error?: string
-  authRequired?: boolean
-  authHelp?: string
-}
-
-export interface RemoteEditGitEvent {
-  reportId: string
-  type: 'status' | 'prepare' | 'commit' | 'push'
-  label: string
-  status?: RemoteEditGitStatus
-  commitSha?: string | null
-  error?: string
-  authRequired?: boolean
-  authHelp?: string
-}
-
-export interface RemoteEditRecoveryBackupFile {
-  relativePath: string
-  backupPath: string | null
-}
-
-export interface RemoteEditRecoveryPreReloadState {
-  branch: string | null
-  commitSha: string | null
-  dirty: boolean
-  version: string | null
-}
-
-export interface RemoteEditRecoveryRun {
-  id: string
-  reportId: string
-  status: 'prepared' | 'reloading' | 'confirmed' | 'rollback-required' | 'rolled-back' | 'failed'
-  targetCommitSha: string | null
-  targetVersion: string | null
-  backupManifest: RemoteEditRecoveryBackupFile[]
-  preReloadState: RemoteEditRecoveryPreReloadState
-  createdAt: number
-  updatedAt: number
-  confirmedAt: number | null
-  rollbackAt: number | null
-  error?: string
-}
-
-export interface RemoteEditReloadPrepareResult {
-  reportId: string
-  recovery: RemoteEditRecoveryRun | null
-  canReload: boolean
-  reason?: string
-}
-
-export interface RemoteEditRecoveryEvent {
-  reportId: string
-  recoveryId?: string
-  type: 'prepare' | 'rollback'
-  label: string
-  status?: RemoteEditRecoveryRun['status']
-  error?: string
-}
-
-export interface RemoteEditHistoryEntry {
-  id: string
-  reportId: string
-  reportTitle: string
-  investigationModel: string | null
-  investigationBackend: string | null
-  investigationRounds: number
-  fixAppliedAt: number | null
-  verificationPassed: boolean
-  verificationFailedStep: string | null
-  committed: boolean
-  commitSha: string | null
-  pushed: boolean
-  reloaded: boolean
-  rolledBack: boolean
-  status: string
-  createdAt: number
-  updatedAt: number
-}
-
-export interface ErrorReportEntry {
-  id: string
-  title: string
-  description: string
-  screenshot_path: string | null
-  log_snapshot: string | null
-  status: ErrorReportStatus
-  app_version: string | null
-  platform: string | null
-  os_version: string | null
-  investigation_markdown: string | null
-  investigation_confidence: string | null
-  investigation_root_cause: string | null
-  investigation_affected_files: string
-  investigation_revision_notes: string | null
-  investigation_started_at: number | null
-  investigation_completed_at: number | null
-  fix_status: RemoteEditFixStatus
-  fix_staged_files: string
-  fix_started_at: number | null
-  fix_completed_at: number | null
-  fix_error: string | null
-  created_at: number
-  updated_at: number
-  request_type?: CodeChangeRequestType | null
-  request_origin?: CodeChangeRequestOrigin | null
-  workspace_root?: string | null
-  project_id?: string | null
-  custom_type_label?: string | null
-  conversation_id?: string | null
-  step?: 'describe' | 'plan-review' | 'executing' | 'verifying' | 'final-review' | 'attention'
-  repo_relative_path?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -1399,7 +1065,7 @@ export interface ConversationRow {
   cli_mode_override: CliModeOverride | null
   codex_execution_mode_override: CodexExecutionModeOverride | null
   rating: number | null
-  kind: 'chat' | 'code-change' | 'project-conversation-mode'
+  kind: 'chat' | 'project-conversation-mode'
 }
 
 // ---------------------------------------------------------------------------
@@ -2284,82 +1950,28 @@ export type IpcReturnMap = {
   'errors:get-renderer-console': ErrorLogEntry[]
   'errors:record-renderer': ErrorLogEntry
   'errors:new': void
-  // Error reports
-  'error-report:capture': ErrorReportCaptureResult
-  'error-report:delete': boolean | ApiError
-  'error-report:get': ErrorReportEntry | null
-  'error-report:list': ErrorReportEntry[]
-  // Self-heal investigation
-  'remote-edit:get-investigation-settings': RemoteEditInvestigationSettings
-  'remote-edit:set-report-status': ErrorReportEntry | null
-  'remote-edit:set-investigation-settings': RemoteEditInvestigationSettings
-  'remote-edit:start-investigation': { reportId: string }
-  'remote-edit:investigation-activity': void
-  'remote-edit:investigation-chunk': void
-  'remote-edit:investigation-done': void
-  'remote-edit:get-active-investigation': RemoteEditActiveInvestigation
-  'remote-edit:get-active-code-changes': Record<string, number>
-  'remote-edit:active-code-changes-changed': void
-  // Pushed when a conversation's messages changed from outside the renderer that has it open
-  // (e.g. a code-change plan landing while the investigation was running in the background) —
-  // the renderer re-fetches from the DB rather than the payload carrying the messages itself.
+  // Pushed when a conversation's messages changed outside the renderer that has it open.
   'chat:messages-updated': void
-  // Self-heal fix staging
-  'remote-edit:get-staged-diff': RemoteEditStagedFileDiff | null
-  'remote-edit:fix-event': void
-  'remote-edit:fix-done': void
-  // Self-heal verification
-  'remote-edit:get-verification-runs': RemoteEditVerificationRun[]
-  'remote-edit:verification-event': void
-  'remote-edit:verification-done': void
-  // Self-heal git flow
-  'remote-edit:git-status': RemoteEditGitStatus
-  'remote-edit:git-push': RemoteEditGitPushResult
-  'remote-edit:git-event': void
-  // Self-heal recovery/reload
-  'remote-edit:prepare-reload': RemoteEditReloadPrepareResult
-  'remote-edit:get-recovery-runs': RemoteEditRecoveryRun[]
-  'remote-edit:rollback': { rolledBack: boolean; error?: string }
-  'remote-edit:recovery-event': void
-  'remote-edit:get-history': RemoteEditHistoryEntry[]
-  'remote-edit:get-history-for-report': RemoteEditHistoryEntry | null
-  // Code Changes (independent slash-command actions, no wizard/step gating)
-  'code-change:submit-description': { reportId: string }
-  'code-change:accept-plan': void
-  'code-change:get-plan-revisions': Array<{
-    revision_number: number
-    revision_notes: string | null
-    plan_markdown: string
-    outcome: string
-    created_at: number
-  }>
-  'code-change:list-repos': Array<{ relativePath: string; branch: string; dirty: boolean }>
-  'code-change:list-repo-files': string[]
-  'code-change:list-changed-files': Array<{ relativePath: string; staged: boolean }>
-  'code-change:git-push': void
-  'code-change:undo': { rolledBack: boolean; error?: string }
-  'code-change:get-report': ErrorReportEntry | null
-  'code-change:get-report-for-conversation': ErrorReportEntry | null
-  'code-change:get-status': {
-    report: ErrorReportEntry | null
-    gitRepo: { ok: boolean; relativePath?: string; reason?: string }
-  }
-  'code-change:resolve-repo':
+  // Project Git workbench (independent of the retired Code Changes workflow)
+  'project-git:list-repos': Array<{ relativePath: string; branch: string; dirty: boolean }>
+  'project-git:list-repo-files': string[]
+  'project-git:list-changed-files': Array<{ relativePath: string; staged: boolean }>
+  'project-git:resolve-repo':
     | { ok: true; repoRoot: string; relativePath: string }
     | { ok: false; reason: 'no-repo' | 'ambiguous'; candidates?: string[] }
-  'code-change:list-branches': { current: string; local: string[]; remote: string[] }
-  'code-change:checkout-branch': { ok: boolean; error?: string }
-  'code-change:new-branch': { ok: boolean; error?: string }
-  'code-change:fetch': { ok: boolean; error?: string }
-  'code-change:merge-branch': {
+  'project-git:list-branches': { current: string; local: string[]; remote: string[] }
+  'project-git:checkout-branch': { ok: boolean; error?: string }
+  'project-git:new-branch': { ok: boolean; error?: string }
+  'project-git:fetch': { ok: boolean; error?: string }
+  'project-git:merge-branch': {
     ok: boolean
     conflicted: boolean
     conflictedFiles?: Array<{ relativePath: string; content: string }>
     error?: string
     summary?: string
   }
-  'code-change:init-repo': { ok: boolean; error?: string }
-  'code-change:detect-credentials': {
+  'project-git:init-repo': { ok: boolean; error?: string }
+  'project-git:detect-credentials': {
     remoteUrl: string | null
     host: string | null
     protocol: 'ssh' | 'https' | null
@@ -2370,23 +1982,23 @@ export type IpcReturnMap = {
       available: boolean
     }>
   }
-  'code-change:pull': {
+  'project-git:pull': {
     ok: boolean
     conflicted: boolean
     conflictedFiles?: Array<{ relativePath: string; content: string }>
     error?: string
     summary?: string
   }
-  'code-change:push-branch': { ok: boolean; error?: string }
-  'code-change:commit': { ok: boolean; error?: string }
-  'code-change:discard-file': { ok: boolean; error?: string }
-  'code-change:stage-files': { ok: boolean; error?: string }
-  'code-change:unstage-files': { ok: boolean; error?: string }
-  'code-change:stash': { ok: boolean; error?: string }
-  'code-change:stash-pop': { ok: boolean; error?: string }
-  'code-change:stash-count': number
-  'code-change:delete-branch': { ok: boolean; error?: string }
-  'code-change:file-diff': { diff: string; binary: boolean }
+  'project-git:push': { ok: boolean; error?: string }
+  'project-git:commit': { ok: boolean; error?: string }
+  'project-git:discard-file': { ok: boolean; error?: string }
+  'project-git:stage-files': { ok: boolean; error?: string }
+  'project-git:unstage-files': { ok: boolean; error?: string }
+  'project-git:stash': { ok: boolean; error?: string }
+  'project-git:stash-pop': { ok: boolean; error?: string }
+  'project-git:stash-count': number
+  'project-git:delete-branch': { ok: boolean; error?: string }
+  'project-git:file-diff': { diff: string; binary: boolean }
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -2444,7 +2056,7 @@ export type IpcReturnMap = {
   'project:update-config': boolean
   'project-audit:list-sessions': ProjectEditSession[]
   'project-audit:list-files': ProjectTouchedFile[]
-  'project-audit:get-diff': RemoteEditStagedFileDiff | null
+  'project-audit:get-diff': ProjectFileDiff | null
   'automated-workflow-generator:chat': { started: boolean }
   'automated-workflow-generator:token': void
   'automated-workflow-generator:spec-ready': void
@@ -2801,66 +2413,29 @@ export type IpcChannels =
   | 'errors:get-renderer-console'
   | 'errors:record-renderer'
   | 'errors:new'
-  | 'error-report:capture'
-  | 'error-report:delete'
-  | 'error-report:get'
-  | 'error-report:list'
-  | 'remote-edit:get-investigation-settings'
-  | 'remote-edit:set-report-status'
-  | 'remote-edit:set-investigation-settings'
-  | 'remote-edit:start-investigation'
-  | 'remote-edit:investigation-activity'
-  | 'remote-edit:investigation-chunk'
-  | 'remote-edit:investigation-done'
-  | 'remote-edit:get-active-investigation'
-  | 'remote-edit:get-active-code-changes'
-  | 'remote-edit:active-code-changes-changed'
   | 'chat:messages-updated'
-  | 'remote-edit:get-staged-diff'
-  | 'remote-edit:fix-event'
-  | 'remote-edit:fix-done'
-  | 'remote-edit:get-verification-runs'
-  | 'remote-edit:verification-event'
-  | 'remote-edit:verification-done'
-  | 'remote-edit:git-status'
-  | 'remote-edit:git-push'
-  | 'remote-edit:git-event'
-  | 'remote-edit:prepare-reload'
-  | 'remote-edit:get-recovery-runs'
-  | 'remote-edit:rollback'
-  | 'remote-edit:recovery-event'
-  | 'remote-edit:get-history'
-  | 'remote-edit:get-history-for-report'
-  | 'code-change:submit-description'
-  | 'code-change:accept-plan'
-  | 'code-change:get-plan-revisions'
-  | 'code-change:list-repos'
-  | 'code-change:list-repo-files'
-  | 'code-change:list-changed-files'
-  | 'code-change:git-push'
-  | 'code-change:undo'
-  | 'code-change:get-report'
-  | 'code-change:get-report-for-conversation'
-  | 'code-change:get-status'
-  | 'code-change:resolve-repo'
-  | 'code-change:list-branches'
-  | 'code-change:checkout-branch'
-  | 'code-change:new-branch'
-  | 'code-change:fetch'
-  | 'code-change:merge-branch'
-  | 'code-change:init-repo'
-  | 'code-change:detect-credentials'
-  | 'code-change:pull'
-  | 'code-change:push-branch'
-  | 'code-change:commit'
-  | 'code-change:discard-file'
-  | 'code-change:stage-files'
-  | 'code-change:unstage-files'
-  | 'code-change:stash'
-  | 'code-change:stash-pop'
-  | 'code-change:stash-count'
-  | 'code-change:delete-branch'
-  | 'code-change:file-diff'
+  | 'project-git:list-repos'
+  | 'project-git:list-repo-files'
+  | 'project-git:list-changed-files'
+  | 'project-git:resolve-repo'
+  | 'project-git:list-branches'
+  | 'project-git:checkout-branch'
+  | 'project-git:new-branch'
+  | 'project-git:fetch'
+  | 'project-git:merge-branch'
+  | 'project-git:init-repo'
+  | 'project-git:detect-credentials'
+  | 'project-git:pull'
+  | 'project-git:push'
+  | 'project-git:commit'
+  | 'project-git:discard-file'
+  | 'project-git:stage-files'
+  | 'project-git:unstage-files'
+  | 'project-git:stash'
+  | 'project-git:stash-pop'
+  | 'project-git:stash-count'
+  | 'project-git:delete-branch'
+  | 'project-git:file-diff'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'

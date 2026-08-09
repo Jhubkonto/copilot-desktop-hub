@@ -11,17 +11,6 @@ import type {
   ConversationCompressionSaveInput,
   ConversationPageRequest,
   ContextInspectorSnapshot,
-  ErrorReportCaptureInput,
-  RemoteEditInvestigationActivity,
-  RemoteEditInvestigationChunk,
-  RemoteEditInvestigationResult,
-  RemoteEditInvestigationSettings,
-  RemoteEditVerificationDone,
-  RemoteEditVerificationEvent,
-  RemoteEditGitEvent,
-  RemoteEditRecoveryEvent,
-  RemoteEditFixEvent,
-  RemoteEditFixDone,
   ErrorLogEntry,
   RendererErrorInput,
   IpcChannels,
@@ -112,132 +101,41 @@ const api = {
   getRendererConsoleErrors: () => typedInvoke('errors:get-renderer-console'),
   recordRendererError: (input: RendererErrorInput) => typedInvoke('errors:record-renderer', input),
   clearErrors: () => typedInvoke('errors:clear'),
-  captureErrorReport: (input: ErrorReportCaptureInput) => typedInvoke('error-report:capture', input),
-  deleteErrorReport: (id: string) => typedInvoke('error-report:delete', id),
-  getErrorReport: (id: string) => typedInvoke('error-report:get', id),
-  listErrorReports: (limit?: number, projectId?: string) => typedInvoke('error-report:list', limit, projectId),
-  getInvestigationSettings: () => typedInvoke('remote-edit:get-investigation-settings'),
-  setInvestigationSettings: (input: RemoteEditInvestigationSettings) => typedInvoke('remote-edit:set-investigation-settings', input),
-  setRemoteEditReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'completed' | 'rejected') =>
-    typedInvoke('remote-edit:set-report-status', reportId, status),
-  startInvestigation: (reportId: string, revisionNotes?: string) =>
-    typedInvoke('remote-edit:start-investigation', reportId, revisionNotes),
-  getActiveInvestigation: (reportId: string) => typedInvoke('remote-edit:get-active-investigation', reportId),
-  getActiveCodeChanges: () => typedInvoke('remote-edit:get-active-code-changes'),
-  onActiveCodeChangesChanged: (callback: (counts: Record<string, number>) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, counts: Record<string, number>) => callback(counts)
-    typedOn('remote-edit:active-code-changes-changed', handler)
-    return () => typedOff('remote-edit:active-code-changes-changed', handler)
-  },
   onMessagesUpdated: (callback: (payload: { conversationId: string }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { conversationId: string }) => callback(payload)
     typedOn('chat:messages-updated', handler)
     return () => typedOff('chat:messages-updated', handler)
   },
-  onInvestigationActivity: (callback: (activity: RemoteEditInvestigationActivity) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, activity: RemoteEditInvestigationActivity) => callback(activity)
-    typedOn('remote-edit:investigation-activity', handler)
-    return () => typedOff('remote-edit:investigation-activity', handler)
-  },
-  onInvestigationChunk: (callback: (chunk: RemoteEditInvestigationChunk) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, chunk: RemoteEditInvestigationChunk) => callback(chunk)
-    typedOn('remote-edit:investigation-chunk', handler)
-    return () => typedOff('remote-edit:investigation-chunk', handler)
-  },
-  onInvestigationDone: (callback: (result: RemoteEditInvestigationResult) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, result: RemoteEditInvestigationResult) => callback(result)
-    typedOn('remote-edit:investigation-done', handler)
-    return () => typedOff('remote-edit:investigation-done', handler)
-  },
-  getStagedDiff: (reportId: string, relativePath: string) =>
-    typedInvoke('remote-edit:get-staged-diff', reportId, relativePath),
-  onFixEvent: (callback: (event: RemoteEditFixEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditFixEvent) => callback(data)
-    typedOn('remote-edit:fix-event', handler)
-    return () => typedOff('remote-edit:fix-event', handler)
-  },
-  onFixDone: (callback: (result: RemoteEditFixDone) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditFixDone) => callback(data)
-    typedOn('remote-edit:fix-done', handler)
-    return () => typedOff('remote-edit:fix-done', handler)
-  },
-  getVerificationRuns: (reportId: string) => typedInvoke('remote-edit:get-verification-runs', reportId),
-  onVerificationEvent: (callback: (event: RemoteEditVerificationEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditVerificationEvent) => callback(data)
-    typedOn('remote-edit:verification-event', handler)
-    return () => typedOff('remote-edit:verification-event', handler)
-  },
-  onVerificationDone: (callback: (result: RemoteEditVerificationDone) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditVerificationDone) => callback(data)
-    typedOn('remote-edit:verification-done', handler)
-    return () => typedOff('remote-edit:verification-done', handler)
-  },
-  getRemoteEditGitStatus: (reportId?: string) => typedInvoke('remote-edit:git-status', reportId),
-  pushRemoteEditFix: (reportId: string) => typedInvoke('remote-edit:git-push', reportId),
-  onRemoteEditGitEvent: (callback: (event: RemoteEditGitEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditGitEvent) => callback(data)
-    typedOn('remote-edit:git-event', handler)
-    return () => typedOff('remote-edit:git-event', handler)
-  },
-  prepareRemoteEditReload: (reportId: string) => typedInvoke('remote-edit:prepare-reload', reportId),
-  getRemoteEditRecoveryRuns: (reportId: string) => typedInvoke('remote-edit:get-recovery-runs', reportId),
-  rollbackRemoteEdit: (recoveryId: string) => typedInvoke('remote-edit:rollback', recoveryId),
-  getRemoteEditHistory: () => typedInvoke('remote-edit:get-history'),
-  getRemoteEditHistoryForReport: (reportId: string) => typedInvoke('remote-edit:get-history-for-report', reportId),
-  onRemoteEditRecoveryEvent: (callback: (event: RemoteEditRecoveryEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditRecoveryEvent) => callback(data)
-    typedOn('remote-edit:recovery-event', handler)
-    return () => typedOff('remote-edit:recovery-event', handler)
-  },
-
-  // Code Changes (independent slash-command actions)
-  submitCodeChangeDescription: (
-    conversationId: string,
-    projectId: string,
-    description: string,
-    repoRelativePath?: string,
-  ) => typedInvoke('code-change:submit-description', conversationId, projectId, description, repoRelativePath),
-  acceptCodeChangePlan: (reportId: string) => typedInvoke('code-change:accept-plan', reportId),
-  getCodeChangePlanRevisions: (reportId: string) => typedInvoke('code-change:get-plan-revisions', reportId),
-  listCodeChangeRepos: (workspaceRoot: string) => typedInvoke('code-change:list-repos', workspaceRoot),
-  listCodeChangeRepoFiles: (repoRoot: string) => typedInvoke('code-change:list-repo-files', repoRoot),
-  listCodeChangeChangedFiles: (repoRoot: string) => typedInvoke('code-change:list-changed-files', repoRoot),
-  pushCodeChange: (reportId: string) => typedInvoke('code-change:git-push', reportId),
-  undoCodeChange: (reportId: string) => typedInvoke('code-change:undo', reportId),
-  getCodeChangeReport: (reportId: string) => typedInvoke('code-change:get-report', reportId),
-  getCodeChangeReportForConversation: (conversationId: string) =>
-    typedInvoke('code-change:get-report-for-conversation', conversationId),
-  getCodeChangeStatus: (conversationId: string) => typedInvoke('code-change:get-status', conversationId),
   resolveCodeChangeRepo: (projectId: string, repoRelativePath?: string) =>
-    typedInvoke('code-change:resolve-repo', projectId, repoRelativePath),
-  listCodeChangeBranches: (repoRoot: string) => typedInvoke('code-change:list-branches', repoRoot),
+    typedInvoke('project-git:resolve-repo', projectId, repoRelativePath),
+  listCodeChangeBranches: (repoRoot: string) => typedInvoke('project-git:list-branches', repoRoot),
   checkoutCodeChangeBranch: (repoRoot: string, branchName: string) =>
-    typedInvoke('code-change:checkout-branch', repoRoot, branchName),
+    typedInvoke('project-git:checkout-branch', repoRoot, branchName),
   newCodeChangeBranch: (repoRoot: string, branchName: string, fromRef?: string) =>
-    typedInvoke('code-change:new-branch', repoRoot, branchName, fromRef),
-  fetchCodeChangeRepo: (repoRoot: string, remote?: string) => typedInvoke('code-change:fetch', repoRoot, remote),
+    typedInvoke('project-git:new-branch', repoRoot, branchName, fromRef),
+  fetchCodeChangeRepo: (repoRoot: string, remote?: string) => typedInvoke('project-git:fetch', repoRoot, remote),
   mergeCodeChangeBranch: (repoRoot: string, sourceBranch: string) =>
-    typedInvoke('code-change:merge-branch', repoRoot, sourceBranch),
+    typedInvoke('project-git:merge-branch', repoRoot, sourceBranch),
   initCodeChangeRepo: (projectId: string, relativePath?: string) =>
-    typedInvoke('code-change:init-repo', projectId, relativePath),
-  detectCodeChangeCredentials: (repoRoot: string) => typedInvoke('code-change:detect-credentials', repoRoot),
-  pullCodeChangeRepo: (repoRoot: string, remote?: string) => typedInvoke('code-change:pull', repoRoot, remote),
-  pushCodeChangeBranch: (repoRoot: string) => typedInvoke('code-change:push-branch', repoRoot),
+    typedInvoke('project-git:init-repo', projectId, relativePath),
+  detectCodeChangeCredentials: (repoRoot: string) => typedInvoke('project-git:detect-credentials', repoRoot),
+  pullCodeChangeRepo: (repoRoot: string, remote?: string) => typedInvoke('project-git:pull', repoRoot, remote),
+  pushCodeChangeBranch: (repoRoot: string) => typedInvoke('project-git:push', repoRoot),
   commitCodeChangeFiles: (repoRoot: string, message: string, files?: string[]) =>
-    typedInvoke('code-change:commit', repoRoot, message, files),
+    typedInvoke('project-git:commit', repoRoot, message, files),
   discardCodeChangeFile: (repoRoot: string, relativePath: string) =>
-    typedInvoke('code-change:discard-file', repoRoot, relativePath),
+    typedInvoke('project-git:discard-file', repoRoot, relativePath),
   stageCodeChangeFiles: (repoRoot: string, relativePaths: string[]) =>
-    typedInvoke('code-change:stage-files', repoRoot, relativePaths),
+    typedInvoke('project-git:stage-files', repoRoot, relativePaths),
   unstageCodeChangeFiles: (repoRoot: string, relativePaths: string[]) =>
-    typedInvoke('code-change:unstage-files', repoRoot, relativePaths),
-  stashCodeChanges: (repoRoot: string, message?: string) => typedInvoke('code-change:stash', repoRoot, message),
-  stashPopCodeChanges: (repoRoot: string) => typedInvoke('code-change:stash-pop', repoRoot),
-  getCodeChangeStashCount: (repoRoot: string) => typedInvoke('code-change:stash-count', repoRoot),
+    typedInvoke('project-git:unstage-files', repoRoot, relativePaths),
+  stashCodeChanges: (repoRoot: string, message?: string) => typedInvoke('project-git:stash', repoRoot, message),
+  stashPopCodeChanges: (repoRoot: string) => typedInvoke('project-git:stash-pop', repoRoot),
+  getCodeChangeStashCount: (repoRoot: string) => typedInvoke('project-git:stash-count', repoRoot),
   deleteCodeChangeBranch: (repoRoot: string, branchName: string, options?: { deleteRemote?: boolean; force?: boolean }) =>
-    typedInvoke('code-change:delete-branch', repoRoot, branchName, options),
+    typedInvoke('project-git:delete-branch', repoRoot, branchName, options),
   getCodeChangeFileDiff: (repoRoot: string, relativePath: string) =>
-    typedInvoke('code-change:file-diff', repoRoot, relativePath),
+    typedInvoke('project-git:file-diff', repoRoot, relativePath),
   onErrorLogEntry: (callback: (entry: ErrorLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: ErrorLogEntry) => callback(entry)
     typedOn('errors:new', handler)
