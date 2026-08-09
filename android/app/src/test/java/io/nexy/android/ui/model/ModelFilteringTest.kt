@@ -185,38 +185,6 @@ class ModelFilteringTest {
         assertFalse(hasResolvableDefaultModel(EffectiveConnectionMode.STANDALONE_BY_CHOICE, hasModelOptions = false, hasConfiguredProvider = false))
     }
 
-    @Test
-    fun availableRemoteEditPlanningBackendIdsAlwaysIncludesByokOnlyShowsInstalledClis() {
-        val result = availableRemoteEditPlanningBackendIds(
-            mapOf(
-                "claude" to CliInstallInfo(installed = false, version = null, path = null),
-                "codex" to CliInstallInfo(installed = true, version = "1.0.0", path = "/usr/bin/codex"),
-            ),
-        )
-
-        assertEquals(listOf("byok", "codex-cli"), result)
-    }
-
-    @Test
-    fun filterModelsForRemoteEditBackendKeepsProviderModelsForByok() {
-        val codexCli = ModelOption("gpt-5.5", "GPT-5.5", "Codex CLI", isCliSourced = true)
-
-        val result = filterModelsForRemoteEditBackend(
-            models = listOf(apiModel, cliModel, codexCli),
-            backend = "byok",
-        )
-
-        assertEquals(listOf(apiModel), result)
-    }
-
-    @Test
-    fun filterModelsForRemoteEditBackendKeepsOnlySelectedCliVendor() {
-        val codexCli = ModelOption("gpt-5.5", "GPT-5.5", "Codex CLI", isCliSourced = true)
-
-        assertEquals(listOf(cliModel), filterModelsForRemoteEditBackend(listOf(apiModel, cliModel, codexCli), "claude-cli"))
-        assertEquals(listOf(codexCli), filterModelsForRemoteEditBackend(listOf(apiModel, cliModel, codexCli), "codex-cli"))
-    }
-
     // --- cliBackendForModel (Chat mode sheet parity: surface Claude Code mode when a CLI
     // model is selected directly, without a preset agent locking the backend) ---
 

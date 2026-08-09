@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.FsEntry
+import io.nexy.android.data.model.ProjectSettingsConfig
+import io.nexy.android.data.model.ProjectSource
+import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
@@ -55,19 +58,58 @@ private fun String.displayTail(maxLength: Int = 40): String {
 fun FileExplorerScreen(
     onBack: () -> Unit,
     onFolderSelected: (String) -> Unit,
+    projectId: String = "",
+    onOpenProjectSettings: (() -> Unit)? = null,
     initialPath: String = "",
     allowFileSelection: Boolean = false,
+    // Pure content-consumption mode: browse folders and open Markdown to read, with no
+    // "Select this folder" affordance — nothing is picked or returned to a caller.
+    browseMode: Boolean = false,
+    onMarkdownSelected: ((String) -> Unit)? = null,
     vm: FileExplorerViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
+    val projectScoped = browseMode && projectId.isNotBlank()
+    var projectConfig by remember(projectId) { mutableStateOf<ProjectSettingsConfig?>(null) }
+
+    // Project Files is rooted in the project's registered sources, not the desktop's generic
+    // home/recents list. Keep the source list fresh when settings change elsewhere.
+    LaunchedEffect(projectId, projectScoped) {
+        if (!projectScoped) return@LaunchedEffect
+        WsRepository.events.collect { event ->
+            when (event) {
+                is WsEvent.ProjectConfig -> if (event.id == projectId) projectConfig = event.config
+                is WsEvent.ProjectSourcesUpdated -> if (event.id == projectId) projectConfig = event.config
+                is WsEvent.ProjectConfigChanged -> if (event.id == projectId) WsRepository.getProjectConfig(projectId)
+                is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) WsRepository.getProjectConfig(projectId)
+                else -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(projectId, projectScoped) {
+        if (projectScoped) WsRepository.getProjectConfig(projectId)
+    }
+
+    val projectLocations = projectConfig?.toFileLocations().orEmpty()
+
+    // A single project source has no useful choice to present, so enter it directly. With two or
+    // more sources, the source chooser below becomes the explorer's project-scoped first level.
+    LaunchedEffect(projectConfig, projectScoped) {
+        if (projectScoped && projectConfig != null && projectLocations.size == 1) {
+            vm.openInitial(projectLocations.single().path)
+        }
+    }
 
     // Jump straight into the project's already-configured root directory (if any) instead of
     // showing the home/recents chooser first — falls back to the chooser only if that path
     // turns out not to exist (see FileExplorerViewModel.openInitial).
-    LaunchedEffect(Unit) { vm.openInitial(initialPath) }
+    LaunchedEffect(initialPath, projectScoped) {
+        if (!projectScoped) vm.openInitial(initialPath)
+    }
 
     // `history` is a breadcrumb stack the user drills into via folder taps, with no NavGraph
     // route per level — without this, system/gesture back exits the whole screen from any depth
@@ -78,7 +120,15 @@ fun FileExplorerScreen(
         topBar = {
             Column {
                 NexyTopAppBar(
-                    titleContent = { Text(if (allowFileSelection) "Attach from desktop" else "Browse desktop files") },
+                    titleContent = {
+                        Text(
+                            when {
+                                allowFileSelection -> "Attach from desktop"
+                                browseMode -> "Project files"
+                                else -> "Choose folder"
+                            },
+                        )
+                    },
                     onBack = onBack,
                 )
                 NexyConnectionBanner(connectionState, lastError)
@@ -86,7 +136,7 @@ fun FileExplorerScreen(
         },
         bottomBar = {
             val currentPath = state.currentPath
-            if (currentPath != null) {
+            if (currentPath != null && !browseMode) {
                 Surface(tonalElevation = 3.dp) {
                     Row(
                         modifier = Modifier
@@ -149,6 +199,13 @@ fun FileExplorerScreen(
             }
 
             when {
+                projectScoped && projectConfig == null -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    NexyIcon(
+                        NexyIconName.Busy,
+                        contentDescription = "Loading project folders",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 state.loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     NexyIcon(
                         NexyIconName.Busy,
@@ -162,6 +219,13 @@ fun FileExplorerScreen(
                         TextButton(onClick = { vm.retry() }) { Text("Retry") }
                     }
                 }
+                state.history.isEmpty() && projectScoped && projectLocations.isEmpty() -> ProjectFilesEmptyState(
+                    onOpenSettings = onOpenProjectSettings,
+                )
+                state.history.isEmpty() && projectScoped -> ProjectSourceChooser(
+                    locations = projectLocations,
+                    onOpen = vm::open,
+                )
                 state.history.isEmpty() -> RootChooser(home = state.home, recents = state.recents, onOpen = vm::open)
                 state.entries.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("This folder is empty", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -195,8 +259,10 @@ fun FileExplorerScreen(
                                 EntryRow(
                                     entry = entry,
                                     allowFileSelection = allowFileSelection,
+                                    allowMarkdownSelection = onMarkdownSelected != null,
                                     onOpen = {
                                         if (entry.isDirectory) vm.open(entry.fullPath)
+                                        else if (onMarkdownSelected != null && entry.name.endsWith(".md", ignoreCase = true)) onMarkdownSelected(entry.fullPath)
                                         else onFolderSelected(entry.fullPath)
                                     },
                                 )
@@ -205,6 +271,94 @@ fun FileExplorerScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+private data class ProjectFileLocation(
+    val label: String,
+    val path: String,
+    val isPrimary: Boolean,
+)
+
+private fun ProjectSettingsConfig.toFileLocations(): List<ProjectFileLocation> {
+    val enabledSources = sources
+        .filter { it.enabled && it.localPath.isNotBlank() }
+        .distinctBy { it.localPath.trimEnd('/', '\\').lowercase() }
+        .sortedWith(compareByDescending<ProjectSource> { it.isPrimary }.thenBy { it.label.lowercase() })
+        .map { source ->
+            ProjectFileLocation(
+                label = source.label.ifBlank { source.localPath.fileName() },
+                path = source.localPath,
+                isPrimary = source.isPrimary,
+            )
+        }
+
+    // Older projects may predate project_sources but still have a valid primary root. Preserve
+    // access to those projects while making registered sources authoritative whenever present.
+    if (enabledSources.isNotEmpty()) return enabledSources
+    val legacyRoot = rootDirectory.orEmpty()
+    return if (legacyRoot.isBlank()) emptyList() else listOf(
+        ProjectFileLocation(legacyRoot.fileName(), legacyRoot, isPrimary = true),
+    )
+}
+
+private fun String.fileName(): String =
+    trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\').ifBlank { this }
+
+@Composable
+private fun ProjectFilesEmptyState(onOpenSettings: (() -> Unit)?) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            NexyIcon(
+                NexyIconName.Folder,
+                contentDescription = null,
+                modifier = Modifier.padding(bottom = 2.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("No project folders yet", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Add a folder or repository in Settings › Sources & repositories to browse this project's files.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (onOpenSettings != null) {
+                Button(onClick = onOpenSettings) { Text("Open settings") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectSourceChooser(
+    locations: List<ProjectFileLocation>,
+    onOpen: (String) -> Unit,
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("Project folders", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Choose a source to browse.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        items(locations, key = { it.path }) { location ->
+            LocationRow(
+                label = location.label,
+                path = location.path,
+                supportingLabel = if (location.isPrimary) "Primary source" else null,
+                onClick = { onOpen(location.path) },
+            )
         }
     }
 }
@@ -238,7 +392,12 @@ private fun RootChooser(home: String?, recents: List<String>, onOpen: (String) -
 }
 
 @Composable
-private fun LocationRow(label: String, path: String, onClick: () -> Unit) {
+private fun LocationRow(
+    label: String,
+    path: String,
+    supportingLabel: String? = null,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -259,21 +418,29 @@ private fun LocationRow(label: String, path: String, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (supportingLabel != null) {
+                Text(
+                    supportingLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun EntryRow(entry: FsEntry, allowFileSelection: Boolean, onOpen: () -> Unit) {
+private fun EntryRow(entry: FsEntry, allowFileSelection: Boolean, allowMarkdownSelection: Boolean, onOpen: () -> Unit) {
+    val canOpen = entry.isDirectory || allowFileSelection || (allowMarkdownSelection && entry.name.endsWith(".md", ignoreCase = true))
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .let { if (entry.isDirectory || allowFileSelection) it.clickable(onClick = onOpen) else it }
+            .let { if (canOpen) it.clickable(onClick = onOpen) else it }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val contentColor = if (entry.isDirectory || allowFileSelection) {
+        val contentColor = if (canOpen) {
             MaterialTheme.colorScheme.onSurface
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)

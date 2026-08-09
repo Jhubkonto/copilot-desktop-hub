@@ -50,7 +50,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -82,7 +81,6 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyEmptyState
-import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
@@ -246,7 +244,6 @@ fun ArtifactsScreen(
             },
             onDelete = { vm.deleteSelectedArtifact() },
             onDeleteVersion = { versionId -> vm.deleteVersion(versionId) },
-            onGenerateRevision = { vm.generateNewVersion() },
             onDismissExportError = { vm.clearExport() },
             onBack = { vm.clearSelection() },
         )
@@ -486,7 +483,6 @@ private fun ArtifactDetailScreen(
     onDownload: (versionId: String) -> Unit,
     onDelete: () -> Unit,
     onDeleteVersion: (versionId: String) -> Unit,
-    onGenerateRevision: () -> Unit,
     onDismissExportError: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -614,7 +610,6 @@ private fun ArtifactDetailScreen(
                     revisioning = revisioning,
                     onExport = onExport,
                     onDownload = onDownload,
-                    onGenerateRevision = onGenerateRevision,
                     onDelete = { confirmDelete = true },
                 )
             }
@@ -762,20 +757,10 @@ private fun ArtifactActionsCard(
     revisioning: Boolean,
     onExport: (versionId: String) -> Unit,
     onDownload: (versionId: String) -> Unit,
-    onGenerateRevision: () -> Unit,
     onDelete: () -> Unit,
 ) {
     ArtifactDetailCard {
         Text("Actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        NexyPrimaryButton(
-            text = if (revisioning) "Generating new version..." else "Generate new version",
-            onClick = onGenerateRevision,
-            enabled = !revisioning && !deleting,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (revisioning) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
         if (currentVersionId != null) {
             NexySecondaryButton(
                 text = if (exporting) "Exporting..." else "Export current version",

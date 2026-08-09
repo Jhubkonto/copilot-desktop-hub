@@ -39,6 +39,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -60,8 +61,11 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
@@ -113,10 +117,6 @@ fun ProjectConfigScreen(
     projectId: String,
     onBack: () -> Unit,
     isNew: Boolean = false,
-    onOpenWiki: () -> Unit = {},
-    onOpenArtifacts: () -> Unit = {},
-    onOpenAudit: () -> Unit = {},
-    onOpenAutomatedWorkflow: () -> Unit = {},
     onOpenFileExplorer: (String) -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
@@ -178,7 +178,6 @@ fun ProjectConfigScreen(
     var milestonesExpanded by rememberSaveable { mutableStateOf(false) }
     var orchestrationExpanded by rememberSaveable { mutableStateOf(false) }
     var agentsExpanded by rememberSaveable { mutableStateOf(true) }
-    var toolsExpanded by rememberSaveable { mutableStateOf(false) }
 
     val hasUnsavedChanges = loaded && (
         color != loadedColor ||
@@ -192,9 +191,9 @@ fun ProjectConfigScreen(
         defaultModel != loadedDefaultModel
     )
 
-    // Navigating to the file explorer (for "Browse desktop files...") disposes and
-    // recreates this composable; `loaded` is rememberSaveable so it survives that round
-    // trip and this skips re-fetching, which would otherwise overwrite the just-picked
+    // Navigating to the file explorer (from "Project files" or the "Choose folder…" picker)
+    // disposes and recreates this composable; `loaded` is rememberSaveable so it survives that
+    // round trip and this skips re-fetching, which would otherwise overwrite the just-picked
     // rootDirectory with the stale persisted value before the user can hit Save.
     LaunchedEffect(projectId) {
         if (!loaded) {
@@ -613,38 +612,6 @@ fun ProjectConfigScreen(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // — Project Tools —
-            NexyExpandableSection(
-                title = "Project Tools",
-                expanded = toolsExpanded,
-                onToggle = { toolsExpanded = !toolsExpanded },
-            ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
-                    SettingsNavRow(
-                        title = "Project changes",
-                        detail = "Review edits agents have made to this project's files",
-                        onClick = onOpenAudit,
-                    )
-                    SettingsNavRow(
-                        title = "Project wiki",
-                        detail = "Notes and knowledge captured for this project",
-                        onClick = onOpenWiki,
-                    )
-                    SettingsNavRow(
-                        title = "Project artifacts",
-                        detail = "Files and documents generated from chats in this project",
-                        onClick = onOpenArtifacts,
-                    )
-                    SettingsNavRow(
-                        title = "Automated workflow generator",
-                        detail = "Describe a goal to get an AI-drafted, step-by-step delegation plan that runs itself",
-                        onClick = onOpenAutomatedWorkflow,
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
             // — Paths —
             NexyExpandableSection(
                 title = "Sources & repositories",
@@ -654,7 +621,7 @@ fun ProjectConfigScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                     Text(
-                        "A project can use multiple desktop folders and Git repositories. Rescan desktop sources here, or remove repositories from this project without deleting their files.",
+                        "A project can use multiple desktop folders and Git repositories. Choose the primary folder, rescan desktop sources, or remove repositories from this project without deleting their files. To read files, open Project files from the project's home screen.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -675,7 +642,7 @@ fun ProjectConfigScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             TextButton(onClick = { onOpenFileExplorer(rootDirectory) }, enabled = !saving && !sourcesUpdating) {
-                                Text("Browse desktop files…")
+                                Text("Choose folder…")
                             }
                             TextButton(
                                 onClick = {
@@ -693,29 +660,115 @@ fun ProjectConfigScreen(
                     projectSources.forEach { source ->
                         val repositories = projectRepositories.filter { it.sourceId == source.id }
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(14.dp),
+                            tonalElevation = 1.dp,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(
-                                    source.label + if (source.isPrimary) " · primary" else "",
-                                    style = MaterialTheme.typography.labelLarge,
-                                )
-                                Text(source.localPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                // Source header: folder glyph, name, path, primary pill.
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                RoundedCornerShape(9.dp),
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        NexyIcon(
+                                            NexyIconName.Folder,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Text(
+                                            source.label,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            source.localPath,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    if (source.isPrimary) {
+                                        SourcePill(
+                                            text = "Primary",
+                                            container = MaterialTheme.colorScheme.primaryContainer,
+                                            content = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    }
+                                }
+
+                                if (repositories.isNotEmpty() || source.isPrimary) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                }
+
                                 if (repositories.isEmpty()) {
-                                    Text("No Git repositories discovered", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "No Git repositories discovered",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 } else repositories.forEach { repository ->
-                                    val state = if (!repository.available) "unavailable" else repository.branch ?: "Git"
+                                    val branchLabel = if (!repository.available) "unavailable" else repository.branch ?: "Git"
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
-                                        Text(
-                                            "• ${repository.label} · $state${if (repository.dirty == true) " · changes" else ""}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.weight(1f),
+                                        NexyIcon(
+                                            NexyIconName.Fork,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                repository.label,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                SourcePill(
+                                                    text = branchLabel,
+                                                    container = MaterialTheme.colorScheme.surfaceVariant,
+                                                    content = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                                if (repository.dirty == true) {
+                                                    SourcePill(
+                                                        text = "changes",
+                                                        container = MaterialTheme.colorScheme.tertiaryContainer,
+                                                        content = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                    )
+                                                }
+                                            }
+                                        }
                                         IconButton(
                                             onClick = { repositoryToRemove = repository },
                                             enabled = !saving && !sourcesUpdating && !desktopDisconnected,
@@ -852,7 +905,7 @@ fun ProjectConfigScreen(
                         }
                         if (workflowMode == "automated-delegation") {
                             Text(
-                                "Use the Automated workflow generator (above, under Project Tools) to turn a goal into a reusable delegation plan that runs itself.",
+                                "Use the Automated workflow generator (Workflows on the project's home screen) to turn a goal into a reusable delegation plan that runs itself.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1082,6 +1135,23 @@ internal fun AddAgentToProjectSheetContent(
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
+    }
+}
+
+@Composable
+private fun SourcePill(text: String, container: Color, content: Color) {
+    Box(
+        modifier = Modifier
+            .background(container, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = content,
+            maxLines = 1,
+        )
     }
 }
 
