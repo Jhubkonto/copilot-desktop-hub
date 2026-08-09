@@ -29,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -130,14 +131,6 @@ fun ConversationRow(
                             NexyIcon(
                                 NexyIconName.Pin,
                                 contentDescription = null,
-                                modifier = Modifier.size(11.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        if (conv.kind == "code-change") {
-                            NexyIcon(
-                                NexyIconName.Fork,
-                                contentDescription = "Code change",
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
@@ -257,26 +250,6 @@ fun ConversationRow(
                                     },
                                 )
                             }
-                            if (onDelete != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onDelete.invoke(conv.id)
-                                    },
-                                )
-                            }
-                            if (onDebrief != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Debrief") },
-                                    leadingIcon = { NexyIcon(NexyIconName.Artifact, contentDescription = null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onDebrief.invoke(conv.id)
-                                    },
-                                )
-                            }
                             if (onMarkComplete != null && !isCompleted) {
                                 DropdownMenuItem(
                                     text = { Text("Mark complete") },
@@ -297,13 +270,37 @@ fun ConversationRow(
                                     },
                                 )
                             }
-                            if (onQuiz != null && isCompleted) {
+                            if (onDebrief != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Debrief") },
+                                    leadingIcon = { NexyIcon(NexyIconName.Artifact, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDebrief.invoke(conv.id)
+                                    },
+                                )
+                            }
+                            if (onQuiz != null) {
                                 DropdownMenuItem(
                                     text = { Text("Quiz me") },
                                     leadingIcon = { NexyIcon(NexyIconName.Rating, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
                                         onQuiz.invoke(conv.id)
+                                    },
+                                )
+                            }
+                            if (onDelete != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null) },
+                                    colors = MenuDefaults.itemColors(
+                                        textColor = MaterialTheme.colorScheme.error,
+                                        leadingIconColor = MaterialTheme.colorScheme.error,
+                                    ),
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDelete.invoke(conv.id)
                                     },
                                 )
                             }

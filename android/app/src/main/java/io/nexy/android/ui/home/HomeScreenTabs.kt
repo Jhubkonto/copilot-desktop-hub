@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -432,9 +433,8 @@ fun ProjectsTab(
     onOpenProjectHistory: (String) -> Unit,
     onOpenProjectConfig: (String) -> Unit = {},
     onOpenProjectGenerator: () -> Unit,
-    onOpenCodeChanges: (String) -> Unit = {},
+    onOpenCodePanel: (String) -> Unit = {},
     connectionState: ConnectionState = ConnectionState.CONNECTED,
-    activeCodeChangesByProject: Map<String, Int> = emptyMap(),
     onCreateProject: (name: String, color: String) -> Unit,
     onRenameProject: (id: String, name: String) -> Unit,
     onDeleteProject: (id: String, deleteChats: Boolean) -> Unit,
@@ -665,7 +665,7 @@ fun ProjectsTab(
                                     .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                // Line 1: project name (+ running Code Changes badge, if any)
+                                // Line 1: project name
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(
                                         text = project.name,
@@ -675,30 +675,6 @@ fun ProjectsTab(
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false),
                                     )
-                                    val activeCodeChanges = activeCodeChangesByProject[project.id] ?: 0
-                                    if (activeCodeChanges > 0) {
-                                        Surface(
-                                            shape = RoundedCornerShape(50),
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            ) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(8.dp),
-                                                    strokeWidth = 1.5.dp,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                )
-                                                Text(
-                                                    text = "$activeCodeChanges",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                )
-                                            }
-                                        }
-                                    }
                                 }
                                 // Line 2: emojis (if any) then counts
                                 Row(
@@ -737,23 +713,21 @@ fun ProjectsTab(
                                 }
                             }
 
-                            // Code Changes entry point — distinct from the passive badge above,
-                            // which only indicates in-progress count. Gated on rootDirectory,
-                            // mirroring desktop's CodeChangesScreen hasRootDirectory check.
+                            // Git code panel entry point, gated on the project's workspace.
                             IconButton(
                                 enabled = connectionState == ConnectionState.CONNECTED,
                                 onClick = {
                                     if (project.rootDirectory.isNullOrBlank()) {
                                         setupPromptProject = project
                                     } else {
-                                        onOpenCodeChanges(project.id)
+                                        onOpenCodePanel(project.id)
                                     }
                                 },
                                 modifier = Modifier.size(36.dp),
                             ) {
                                 Icon(
                                     Icons.Default.Difference,
-                                    contentDescription = "Code Changes",
+                                    contentDescription = "Code panel",
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -774,8 +748,8 @@ fun ProjectsTab(
                                 }
                                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                     DropdownMenuItem(
-                                        text = { Text("Settings") },
-                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                        text = { Text("Open") },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                                         onClick = {
                                             menuExpanded = false
                                             onOpenProjectConfig(project.id)

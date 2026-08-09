@@ -84,7 +84,7 @@ fun HomeScreen(
     onOpenProjectConfig: (String) -> Unit,
     onOpenProjectConfigNew: (String) -> Unit = onOpenProjectConfig,
     onOpenProjectGenerator: () -> Unit,
-    onOpenCodeChanges: (String) -> Unit,
+    onOpenCodePanel: (String) -> Unit,
     onOpenArtifacts: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenScheduled: () -> Unit,
@@ -116,7 +116,6 @@ fun HomeScreen(
     val activeConversationIds by vm.activeConversationIds.collectAsStateWithLifecycle()
     val pendingConversationIds by vm.pendingConversationIds.collectAsStateWithLifecycle()
     val completedWhileAwayIds by vm.completedWhileAwayIds.collectAsStateWithLifecycle()
-    val activeCodeChangesByProject by WsRepository.activeCodeChangesByProject.collectAsStateWithLifecycle()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     var newChatQuery by remember { mutableStateOf("") }
@@ -461,9 +460,8 @@ fun HomeScreen(
                     onOpenProjectHistory = onOpenProjectHistory,
                     onOpenProjectConfig = onOpenProjectConfig,
                     onOpenProjectGenerator = onOpenProjectGenerator,
-                    onOpenCodeChanges = onOpenCodeChanges,
+                    onOpenCodePanel = onOpenCodePanel,
                     connectionState = connectionState,
-                    activeCodeChangesByProject = activeCodeChangesByProject,
                     onCreateProject = { name, color -> vm.createProject(name, color) },
                     onRenameProject = { id, name -> vm.renameProject(id, name) },
                     onDeleteProject = { id, deleteChats -> vm.deleteProject(id, deleteChats) },
