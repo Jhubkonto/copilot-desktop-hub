@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { getAvailableModelIds, getModelLabel } from '../shared/models'
-import { isApiError, type AgentConfig, type CatalogModel, type CliBackend, type CliModeOverride, type ErrorReportEntry, type QuizSpec, type TeachbackSpec } from '../shared/types'
+import { isApiError, type AgentConfig, type CatalogModel, type CliBackend, type CliModeOverride, type QuizSpec, type TeachbackSpec } from '../shared/types'
 import { MODE_COMMAND_TO_OVERRIDE, slashCommandSourceLabel } from './provider-slash-commands'
 
 interface Attachment {
@@ -83,12 +83,6 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/teachback', usage: '/teachback [topic]', description: 'Explain a session concept out loud and get rubric feedback' },
   { name: '/complete', usage: '/complete', description: 'Mark this conversation complete' },
   { name: '/incomplete', usage: '/incomplete', description: 'Mark this conversation incomplete' },
-  { name: '/code-change', usage: '/code-change [repo] <description>', description: 'Describe a change; the AI investigates and proposes a plan. Add [repo] first if this workspace has more than one git repo' },
-  { name: '/code-plan', usage: '/code-plan', description: 'Show the current code change plan for this conversation' },
-  { name: '/code-execute', usage: '/code-execute', description: 'Run the current plan: apply the fix, verify it, and commit' },
-  { name: '/code-push', usage: '/code-push', description: 'Push the committed code change to the remote' },
-  { name: '/code-undo', usage: '/code-undo', description: 'Undo the most recent applied code change' },
-  { name: '/code-status', usage: '/code-status', description: 'Show the status of the current code change and its git repo' },
   { name: '/code-branch', usage: '/code-branch [repo]', description: 'List local and remote branches for this project\'s git repo' },
   { name: '/code-checkout', usage: '/code-checkout <branch> [repo]', description: 'Check out an existing branch' },
   { name: '/code-newbranch', usage: '/code-newbranch <name> [from] [repo]', description: 'Create and check out a new branch' },
@@ -97,7 +91,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/code-init', usage: '/code-init [path]', description: 'Initialize a new git repo in the workspace (or a subfolder of it) when none exists yet' },
   { name: '/code-creds', usage: '/code-creds [repo]', description: 'Show which already-configured git auth (CLI/SSH/credential helper) would be used to push this repo' },
   { name: '/code-pull', usage: '/code-pull [repo]', description: 'Fetch and merge the current branch\'s upstream; conflicts get an AI-proposed resolution to review' },
-  { name: '/code-git-push', usage: '/code-git-push [repo]', description: 'Push the current branch (plain git push, not tied to a code-change plan)' },
+  { name: '/code-git-push', usage: '/code-git-push [repo]', description: 'Push the current branch with plain Git' },
   { name: '/code-commit', usage: '/code-commit [repo] <message>', description: 'Stage and commit all changed files in the repo with the given message' },
   { name: '/code-discard', usage: '/code-discard <file> [repo]', description: 'Discard uncommitted changes to a single file, reverting it to its last-committed state' },
   { name: '/code-stash', usage: '/code-stash [repo] [message]', description: 'Shelve all current changes so the working tree is clean' },
@@ -106,32 +100,6 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/code-stage', usage: '/code-stage <file> [repo]', description: 'Stage a changed file so it will be included in the next commit' },
   { name: '/code-unstage', usage: '/code-unstage <file> [repo]', description: 'Unstage a file without discarding its changes' },
 ]
-
-/**
- * `investigation_markdown` is generated with a leading YAML front-matter block (confidence,
- * root_cause, affected_files) per investigator.ts's prompt — showing it raw in chat is exactly
- * the "clunky, raw YAML dumped into the UI" complaint that motivated retiring the old wizard.
- * The same three values are already parsed into their own report columns, so this formats a
- * clean summary from those instead of re-displaying the YAML block.
- */
-function formatPlanMessage(report: ErrorReportEntry): string {
-  const body = report.investigation_markdown
-    ? report.investigation_markdown.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
-    : ''
-  const metaLines: string[] = []
-  if (report.investigation_confidence) metaLines.push(`Confidence: ${report.investigation_confidence}`)
-  if (report.investigation_root_cause) metaLines.push(`Root cause: ${report.investigation_root_cause}`)
-  let affectedFiles: string[] = []
-  try {
-    const parsed = JSON.parse(report.investigation_affected_files || '[]')
-    if (Array.isArray(parsed)) affectedFiles = parsed.filter((f): f is string => typeof f === 'string')
-  } catch {
-    // Malformed/legacy affected_files JSON — omit rather than show a parse error.
-  }
-  if (affectedFiles.length > 0) metaLines.push(`Affected files: ${affectedFiles.join(', ')}`)
-  const meta = metaLines.length > 0 ? metaLines.map((line) => `- ${line}`).join('\n') : ''
-  return [meta, body].filter(Boolean).join('\n\n').trim()
-}
 
 const INVALID_MODEL = Symbol('invalid-model')
 
@@ -285,12 +253,6 @@ export interface SlashCommandContext {
   setCliMode?: (mode: CliModeOverride | null) => Promise<void>
   theme: 'light' | 'dark'
   pushSystemMessage: (text: string) => void
-  /** Like pushSystemMessage, but persists the message to whichever conversation was active when
-   * the command was issued and only mirrors it into the live view if that conversation is still
-   * on screen — use this for results that arrive after a potentially long await (e.g.
-   * /code-execute), where pushSystemMessage's current-view-only append could otherwise land in
-   * whatever conversation happens to be open by the time it resolves. */
-  pushPersistentMessage: (text: string) => Promise<void>
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
   logout: () => Promise<void>
   setInput: (value: string) => void
@@ -309,16 +271,6 @@ export interface SlashCommandContext {
    * artifact is created with status 'generating' immediately, and the actual LLM call runs
    * in the background so this resolves without blocking the composer. */
   startArtifactGeneration: (kind: 'debrief' | 'quiz' | 'teachback', opts?: { model?: string; quizSpec?: QuizSpec; teachbackSpec?: TeachbackSpec }) => Promise<{ ok: true } | { error: string }>
-  // --- Code Changes: independent actions, no wizard/step gating ---
-  /** Creates or reuses this conversation's code-change report and (re-)runs the AI investigation. */
-  codeChangeSubmitDescription: (description: string, repoArg?: string) => Promise<{ reportId: string } | { error: string }>
-  codeChangeGetStatus: () => Promise<
-    | { report: import('../shared/types').ErrorReportEntry | null; gitRepo: { ok: boolean; relativePath?: string; reason?: string } }
-    | { error: string }
-  >
-  codeChangeExecute: () => Promise<{ ok: true } | { error: string }>
-  codeChangePush: () => Promise<{ ok: true } | { error: string }>
-  codeChangeUndo: () => Promise<{ rolledBack: boolean; error?: string } | { error: string }>
   // --- Git housekeeping: operates on a repo resolved from an optional [repo] argument ---
   codeChangeListBranches: (repoArg?: string) => Promise<{ current: string; local: string[]; remote: string[] } | { error: string }>
   codeChangeCheckoutBranch: (branchName: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
@@ -707,104 +659,6 @@ export async function executeSlashCommand(
       ctx.pushSystemMessage('Conversation marked incomplete.')
       return 'handled'
     }
-    case '/code-change': {
-      if (!argText) {
-        ctx.pushSystemMessage('Usage: /code-change [repo] <description of the change you want>')
-        return 'handled'
-      }
-      // Unlike /code-branch etc. (where the whole remaining arg text IS the repo path),
-      // /code-change's argument is a free-form description — a trailing "[repo]" convention
-      // would be ambiguous against prose that happens to end in brackets, so the repo hint (only
-      // needed when the workspace has more than one repo) goes in brackets at the START instead.
-      const repoMatch = /^\[([^\]]+)\]\s*(.*)$/s.exec(argText)
-      const description = repoMatch ? repoMatch[2].trim() : argText
-      const repoArg = repoMatch ? repoMatch[1].trim() : undefined
-      if (!description) {
-        ctx.pushSystemMessage('Usage: /code-change [repo] <description of the change you want>')
-        return 'handled'
-      }
-      ctx.pushSystemMessage('Investigating and drafting a plan…')
-      const result = await ctx.codeChangeSubmitDescription(description, repoArg)
-      if ('error' in result) {
-        await ctx.pushPersistentMessage(`Failed to create code change: ${result.error}`)
-        return 'handled'
-      }
-      const report = await window.api.getCodeChangeReportForConversation(ctx.conversationId ?? '')
-      if (!isApiError(report) && report?.investigation_markdown) {
-        await ctx.pushPersistentMessage(`**Plan ready:**\n\n${formatPlanMessage(report)}`)
-      } else {
-        await ctx.pushPersistentMessage('Plan generation finished, but no plan text was found. Run /code-status for details.')
-      }
-      return 'handled'
-    }
-    case '/code-plan': {
-      if (!ctx.conversationId) {
-        ctx.pushSystemMessage('No active conversation.')
-        return 'handled'
-      }
-      const report = await window.api.getCodeChangeReportForConversation(ctx.conversationId)
-      if (isApiError(report)) {
-        ctx.pushSystemMessage(`Failed to fetch plan: ${report.error}`)
-      } else if (!report || !report.investigation_markdown) {
-        ctx.pushSystemMessage('No code change plan yet in this conversation. Run /code-change first.')
-      } else {
-        ctx.pushSystemMessage(formatPlanMessage(report))
-      }
-      return 'handled'
-    }
-    case '/code-execute': {
-      ctx.pushSystemMessage('Applying the fix, verifying, and committing…')
-      const result = await ctx.codeChangeExecute()
-      if ('error' in result) {
-        await ctx.pushPersistentMessage(`Code change execution failed: ${result.error}`)
-      } else {
-        await ctx.pushPersistentMessage('Code change executed, verified, and committed. Run /code-push to push it.')
-      }
-      return 'handled'
-    }
-    case '/code-push': {
-      const result = await ctx.codeChangePush()
-      if ('error' in result) {
-        await ctx.pushPersistentMessage(`Push failed: ${result.error}`)
-      } else {
-        await ctx.pushPersistentMessage('Changes pushed successfully.')
-      }
-      return 'handled'
-    }
-    case '/code-undo': {
-      const result = await ctx.codeChangeUndo()
-      if ('error' in result || !result.rolledBack) {
-        await ctx.pushPersistentMessage(`Undo failed: ${result.error ?? 'unknown error'}`)
-      } else {
-        await ctx.pushPersistentMessage('Code change undone — files restored to their pre-fix state.')
-      }
-      return 'handled'
-    }
-    case '/code-status': {
-      const result = await ctx.codeChangeGetStatus()
-      if ('error' in result) {
-        ctx.pushSystemMessage(`Failed to fetch status: ${result.error}`)
-        return 'handled'
-      }
-      if (!result.report) {
-        ctx.pushSystemMessage('No code change in this conversation yet. Run /code-change to start one.')
-        return 'handled'
-      }
-      const { report, gitRepo } = result
-      const lines = [
-        '**Code change status**',
-        `- Step: ${report.step ?? 'unknown'}`,
-        `- Description: ${report.description}`,
-        report.investigation_confidence ? `- Confidence: ${report.investigation_confidence}` : null,
-        report.investigation_root_cause ? `- Root cause: ${report.investigation_root_cause}` : null,
-        report.fix_error ? `- Last error: ${report.fix_error}` : null,
-        gitRepo.ok
-          ? `- Git repo: ${gitRepo.relativePath || '(workspace root)'}`
-          : `- Git repo: not resolved (${gitRepo.reason ?? 'unknown'})`,
-      ].filter((line): line is string => Boolean(line))
-      ctx.pushSystemMessage(lines.join('\n'))
-      return 'handled'
-    }
     case '/code-branch': {
       const result = await ctx.codeChangeListBranches(argText || undefined)
       if ('error' in result) {
@@ -881,7 +735,7 @@ export async function executeSlashCommand(
             `Merging ${sourceBranch} produced conflicts in:`,
             ...files.map((f) => `- ${f}`),
             '',
-            `Run \`/code-change Resolve git merge conflicts in: ${files.join(', ')}\` to get an AI-proposed resolution to review, then /code-execute to apply it.`,
+            'Resolve the conflicts in the code panel or a normal CLI-backed project conversation, then retry the merge.',
           ].join('\n'),
         )
       } else {
@@ -896,7 +750,7 @@ export async function executeSlashCommand(
         ctx.pushSystemMessage(`Failed to initialize repository: ${('error' in result && result.error) || 'unknown error'}`)
       } else {
         ctx.pushSystemMessage(
-          `Initialized a git repo in ${relativePath || '(workspace root)'}. Run /code-change to start describing a change there.`,
+          `Initialized a git repo in ${relativePath || '(workspace root)'}.`,
         )
       }
       return 'handled'
@@ -938,7 +792,7 @@ export async function executeSlashCommand(
             'Pulling produced conflicts in:',
             ...files.map((f) => `- ${f}`),
             '',
-            `Run \`/code-change Resolve git merge conflicts in: ${files.join(', ')}\` to get an AI-proposed resolution to review, then /code-execute to apply it.`,
+            'Resolve the conflicts in the code panel or a normal CLI-backed project conversation, then retry the pull.',
           ].join('\n'),
         )
       } else {
@@ -957,7 +811,7 @@ export async function executeSlashCommand(
       return 'handled'
     }
     case '/code-commit': {
-      // Same bracket-prefix convention as /code-change — the message is free text and could
+      // Same bracket-prefix convention as the other project Git commands — the message is free text and could
       // itself contain anything, so the optional repo hint goes in brackets at the start.
       const repoMatch = /^\[([^\]]+)\]\s*(.*)$/s.exec(argText)
       const message = (repoMatch ? repoMatch[2] : argText).trim()

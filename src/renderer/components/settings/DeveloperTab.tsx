@@ -100,9 +100,7 @@ interface Props {
   // Debug
   debugLogging: boolean
   onToggleDebugLogging: () => void
-  remoteEditReportingBuildId: string | null
   desktopPackagingBlocked: boolean
-  onFixBuildWithRemoteEdit: (record: BuildRecord) => void
   // Set when the tab is opened from an activity feed entry that needs a specific sub-tab
   // (e.g. clicking an Android build activity should land on the Android sub-tab, not Desktop).
   initialDeveloperTab?: 'desktop' | 'android' | null
@@ -388,7 +386,7 @@ export function DeveloperTab({
   onRefreshAdbDevices, onAndroidInstallApk,
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
-  remoteEditReportingBuildId, desktopPackagingBlocked, onFixBuildWithRemoteEdit,
+  desktopPackagingBlocked,
   debugLogging, onToggleDebugLogging,
   initialDeveloperTab,
 }: Props) {
@@ -660,16 +658,6 @@ export function DeveloperTab({
                     Run {latestDesktopOutcome.action}
                   </button>
                 )}
-                {latestDesktopBuild?.status === 'failed' && isDesktopCommand(latestDesktopBuild.command) && (
-                  <button
-                    type="button"
-                    onClick={() => onFixBuildWithRemoteEdit(latestDesktopBuild)}
-                    disabled={remoteEditReportingBuildId === latestDesktopBuild.id}
-                    className="rounded border border-current/25 px-2 py-0.5 text-[11px] font-medium hover:bg-white/40 disabled:opacity-50 dark:hover:bg-white/10"
-                  >
-                    {remoteEditReportingBuildId === latestDesktopBuild.id ? 'Creating request...' : 'Create code change'}
-                  </button>
-                )}
               </div>
             </div>
           </div>
@@ -725,16 +713,6 @@ export function DeveloperTab({
                           >
                             Re-run {rec.command}
                           </Button>
-                          {rec.status === 'failed' && isDesktopCommand(rec.command) && (
-                            <Button
-                              variant="secondary"
-                              onClick={() => onFixBuildWithRemoteEdit(rec)}
-                              disabled={remoteEditReportingBuildId === rec.id}
-                              className="px-2 py-1 text-[11px] border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
-                            >
-                              {remoteEditReportingBuildId === rec.id ? 'Creating request...' : 'Create code change'}
-                            </Button>
-                          )}
                         </div>
                       )}
                     </div>

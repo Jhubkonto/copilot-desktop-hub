@@ -5,8 +5,7 @@
  * "does this app have X" or "how do I do Y" question falls back on generic AI-coding-assistant
  * training data (e.g. narrating Claude Code CLI's own Read/Edit/Write/Glob/Grep/Bash tool names,
  * none of which exist in a Nexy chat) instead of describing Nexy's real feature set — which is a
- * general-purpose AI workspace app, not primarily a code-editing tool. Code Changes is one feature
- * among several and should read as such here, not as the app's defining purpose.
+ * general-purpose AI workspace app, not primarily a code-editing tool.
  *
  * Hand-maintained rather than generated from slash-commands.ts (renderer-only, not importable
  * from main) — same tradeoff SlashCommands.kt's MOBILE_SLASH_COMMANDS already makes as a manually
@@ -16,8 +15,7 @@
 export const NEXY_HELP_CONTENT = `# What Nexy is
 
 Nexy is a general-purpose, provider-agnostic AI workspace — a desktop app (Electron + React) with a
-full-featured Android companion. It is a chat and agent platform first; making code changes to a
-project's repository is one feature among several, not the app's primary purpose. Users bring their
+full-featured Android companion. It is a chat and agent platform first. Users bring their
 own API keys (OpenAI, Anthropic, Azure, Gemini, Mistral, Groq, xAI) or point at a local CLI (Claude
 CLI, Codex CLI) — there is no Nexy account or hosted backend.
 
@@ -62,29 +60,10 @@ this app actually has are below.
   history and export.
 - **Automated workflows**: multi-step scheduled or triggered agent runs.
 - **MCP servers**: connect Model Context Protocol tool servers per agent, with per-tool trust config.
-- **Self-heal**: automatic error capture (crashes the app itself catches) with AI-investigated fix
-  proposals, verification, and rollback — separate from the user-driven Code Changes feature below.
-
-## Making a code change to a project's repository
-
-This is the Code Changes feature: driven entirely by slash commands typed in the chat composer,
-inside any normal conversation — there is no separate screen or wizard on desktop. All of it requires
-the conversation to be attached to a Project with a real git repository somewhere under its workspace.
-
-- \`/code-change [repo] <description>\` — investigates the codebase and proposes a plan. The
-  \`[repo]\` part is only needed if the project's workspace contains more than one git repository;
-  otherwise just \`/code-change <description>\`.
-- \`/code-plan\` — shows the current plan for this conversation, if one exists.
-- \`/code-execute\` — applies the fix, verifies it (typecheck/lint/test as applicable), and commits.
-- \`/code-push\` — pushes the committed change to the remote.
-- \`/code-undo\` — rolls back the most recently applied fix.
-- \`/code-status\` — shows the current step, plan summary, and git repo status.
-- Git housekeeping (desktop): \`/code-branch [repo]\`, \`/code-checkout <branch> [repo]\`,
+- **Project Git workbench**: repository, branch, diff, staging, commit, push, and stash operations.
+  Git housekeeping on desktop includes \`/code-branch [repo]\`, \`/code-checkout <branch> [repo]\`,
   \`/code-newbranch <name> [from] [repo]\`, \`/code-fetch [remote] [repo]\`, \`/code-merge <branch> [repo]\`.
   On Android, these are a tap-driven \`/code\` panel screen instead of typed commands.
-
-These commands can be run in any order — there's no forced sequence beyond real preconditions (e.g.
-you can't \`/code-execute\` before \`/code-change\` has produced a plan).
 
 ## Other useful slash commands
 
@@ -104,7 +83,7 @@ you can't \`/code-execute\` before \`/code-change\` has produced a plan).
 A local-first Kotlin + Jetpack Compose app that pairs with the desktop over an authenticated
 WebSocket connection (QR code or manual token), or runs standalone with direct provider chat. Mirrors
 most desktop features remotely: agents, projects, wiki, artifacts, prompts, MCP/CLI management, and
-the Code Changes slash commands plus a tap-driven \`/code\` git panel.
+a tap-driven \`/code\` Git panel.
 
 If the user asks whether a feature exists and it isn't described above, say so plainly rather than
 guessing or inventing a workflow that doesn't exist in this app.`
