@@ -254,98 +254,6 @@ export function useChatWindowActions({
     [chatProjectId],
   )
 
-  // Code-change commands like /code-execute can run for a long time (a real LLM/fix/verify
-  // cycle, not a quick local op). ctx.pushSystemMessage only ever appends to this render's
-  // local `messages` state — if the user switches to a different conversation before the await
-  // resolves, that completion text would silently land in whichever conversation happens to be
-  // open when it finishes, and vanish on next reload since it was never persisted. This persists
-  // the message against the conversation the command was actually run against, and only mirrors
-  // it into the live view if that conversation is still the one on screen.
-  const appendPersistedSystemMessage = useCallback(
-    async (targetConversationId: string, content: string) => {
-      const inserted = await window.api.insertConversationMessage(targetConversationId, 'system', content)
-      if (isApiError(inserted)) return
-      if (activeConversationRef.current === targetConversationId) {
-        setMessages((prev) => [...prev, {
-          id: inserted.id,
-          role: inserted.role as ChatMessage['role'],
-          content: inserted.content,
-          timestamp: inserted.timestamp,
-          model: inserted.model ?? null,
-        }])
-      }
-    },
-    [setMessages, activeConversationRef],
-  )
-
-  const getCurrentCodeChangeReportId = useCallback(async (): Promise<string | { error: string }> => {
-    if (!conversationId) return { error: 'No active conversation.' }
-    try {
-      const report = await window.api.getCodeChangeReportForConversation(conversationId)
-      if (isApiError(report)) return report
-      if (!report) return { error: 'No code change in this conversation yet. Run /code-change first.' }
-      return report.id
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to look up code change report' }
-    }
-  }, [conversationId])
-
-  const codeChangeSubmitDescription = useCallback(
-    async (description: string, repoArg?: string): Promise<{ reportId: string } | { error: string }> => {
-      if (!conversationId) return { error: 'No active conversation. Send a message first, then create a code change.' }
-      const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
-      if (!projectId) return { error: 'Code changes require this conversation to be in a project.' }
-      try {
-        const result = await window.api.submitCodeChangeDescription(conversationId, projectId, description, repoArg)
-        return result
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : 'Failed to submit code change description' }
-      }
-    },
-    [conversationId, chatProjectId],
-  )
-
-  const codeChangeGetStatus = useCallback(async () => {
-    if (!conversationId) return { error: 'No active conversation.' as const }
-    try {
-      return await window.api.getCodeChangeStatus(conversationId)
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to fetch code change status' }
-    }
-  }, [conversationId])
-
-  const codeChangeExecute = useCallback(async () => {
-    const reportId = await getCurrentCodeChangeReportId()
-    if (typeof reportId !== 'string') return reportId
-    try {
-      await window.api.acceptCodeChangePlan(reportId)
-      return { ok: true as const }
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to execute the plan' }
-    }
-  }, [getCurrentCodeChangeReportId])
-
-  const codeChangePush = useCallback(async () => {
-    const reportId = await getCurrentCodeChangeReportId()
-    if (typeof reportId !== 'string') return reportId
-    try {
-      await window.api.pushCodeChange(reportId)
-      return { ok: true as const }
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to push' }
-    }
-  }, [getCurrentCodeChangeReportId])
-
-  const codeChangeUndo = useCallback(async () => {
-    const reportId = await getCurrentCodeChangeReportId()
-    if (typeof reportId !== 'string') return reportId
-    try {
-      return await window.api.undoCodeChange(reportId)
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to undo' }
-    }
-  }, [getCurrentCodeChangeReportId])
-
   const codeChangeListBranches = useCallback(
     async (repoArg?: string) => {
       const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
@@ -585,17 +493,6 @@ export function useChatWindowActions({
       catalogModels,
       theme,
       pushSystemMessage,
-      // Falls back to the ephemeral (unpersisted) path when there's no conversation to persist
-      // against — e.g. a code-change command erroring out with "No active conversation" itself
-      // has no conversationId to attach to, and silently no-opping here would swallow that very
-      // error message instead of showing it.
-      pushPersistentMessage: (content: string) => {
-        if (!conversationId) {
-          pushSystemMessage(content)
-          return Promise.resolve()
-        }
-        return appendPersistedSystemMessage(conversationId, content)
-      },
       newChat,
       logout,
       setInput,
@@ -609,11 +506,6 @@ export function useChatWindowActions({
       markComplete: () => (conversationId ? markConversationComplete(conversationId) : Promise.resolve()),
       markIncomplete: () => (conversationId ? markConversationIncomplete(conversationId) : Promise.resolve()),
       startArtifactGeneration,
-      codeChangeSubmitDescription,
-      codeChangeGetStatus,
-      codeChangeExecute,
-      codeChangePush,
-      codeChangeUndo,
       codeChangeListBranches,
       codeChangeCheckoutBranch,
       codeChangeNewBranch,
@@ -642,7 +534,6 @@ export function useChatWindowActions({
       catalogModels,
       theme,
       pushSystemMessage,
-      appendPersistedSystemMessage,
       newChat,
       logout,
       setInput,
@@ -655,11 +546,6 @@ export function useChatWindowActions({
       markConversationComplete,
       markConversationIncomplete,
       startArtifactGeneration,
-      codeChangeSubmitDescription,
-      codeChangeGetStatus,
-      codeChangeExecute,
-      codeChangePush,
-      codeChangeUndo,
       codeChangeListBranches,
       codeChangeCheckoutBranch,
       codeChangeNewBranch,

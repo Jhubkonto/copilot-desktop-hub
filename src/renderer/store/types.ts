@@ -17,7 +17,7 @@ export interface Conversation {
   cli_mode_override?: string | null
   codex_execution_mode_override?: string | null
   rating?: number | null
-  kind?: 'chat' | 'code-change' | 'project-conversation-mode'
+  kind?: 'chat' | 'project-conversation-mode'
 }
 
 export interface Project {
@@ -79,14 +79,13 @@ export type {
   Milestone,
   ProjectVariable,
   ProjectConfig,
-  RemoteEditVerifyCommandConfig,
 } from '../../shared/types'
 export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
 export type UiStyle = 'classic' | '8bit'
 export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings' | null
-export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'verify' | 'changes' | 'wiki' | 'artifacts'
+export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'wiki' | 'artifacts'
 
 /** Sidebar sections that surface a "new item ready" badge when background generation completes. */
 export type SectionBadgeKey = 'projects' | 'agents' | 'skills' | 'scheduled' | 'workflows'

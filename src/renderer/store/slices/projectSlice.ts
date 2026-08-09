@@ -24,8 +24,6 @@ export interface ProjectSlice {
   projectsLoading: boolean
   projectAgents: Record<string, ProjectAgent[]>
   projectConfigs: Record<string, ProjectConfig>
-  activeCodeChangesByProject: Record<string, number>
-  loadActiveCodeChanges: () => Promise<void>
   loadProjects: () => Promise<void>
   selectProject: (id: string | null) => void
   setActiveProjectId: (id: string | null) => void
@@ -81,22 +79,6 @@ export const createProjectSlice: StateCreator<
   projectsLoading: false,
   projectAgents: {},
   projectConfigs: {},
-  activeCodeChangesByProject: {},
-
-  loadActiveCodeChanges: async () => {
-    if (typeof window.api.getActiveCodeChanges !== 'function') return
-    try {
-      const result = await window.api.getActiveCodeChanges()
-      if (!isApiError(result)) {
-        set((s) => {
-          s.activeCodeChangesByProject = result
-        })
-      }
-    } catch {
-      /* non-critical — badge just won't update this cycle */
-    }
-  },
-
   loadProjects: async () => {
     set((s) => {
       s.projectsLoading = true

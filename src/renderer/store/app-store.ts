@@ -118,7 +118,6 @@ export const useAppStore = create<AppState>()(
         get().loadConversations(),
         get().loadAgents(),
         get().loadProjects(),
-        get().loadActiveCodeChanges(),
         get().loadSkills(),
         get().refreshAvailableModels(),
         window.api.schedulerList().then((result) => {
