@@ -22,7 +22,7 @@ const { mockDb, resolveCliPathMock, ptySpawnMock } = vi.hoisted(() => {
 })
 
 vi.mock('../database', () => ({ getDatabase: () => mockDb }))
-vi.mock('../cli-adapters/utils', () => ({ resolveCliPath: resolveCliPathMock }))
+vi.mock('../cli-adapters/utils', () => ({ resolveCliPath: resolveCliPathMock, buildCliChildEnv: () => ({}) }))
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }))
 
 // Fake terminal: `write` is a no-op; the module's polling logic reads the grid via `getLine`,

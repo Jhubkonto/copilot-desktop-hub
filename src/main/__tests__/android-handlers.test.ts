@@ -16,6 +16,8 @@ vi.mock('child_process', () => ({
   spawn: spawnMock,
   execSync: execSyncMock,
   execFile: execFileMock,
+  exec: vi.fn(),
+  spawnSync: vi.fn(),
 }))
 
 vi.mock('util', () => ({
@@ -56,6 +58,7 @@ vi.mock('../local-feed-server', () => ({
 
 vi.mock('../ws-server', () => ({
   getTailscaleIp: vi.fn().mockReturnValue(null),
+  broadcastToMobile: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------

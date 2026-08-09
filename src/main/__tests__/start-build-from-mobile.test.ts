@@ -55,6 +55,9 @@ const { spawnMockFn, execFileMockFn } = vi.hoisted(() => ({
 vi.mock('child_process', () => ({
   spawn: spawnMockFn,
   execFile: execFileMockFn,
+  exec: vi.fn(),
+  execSync: vi.fn(),
+  spawnSync: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------
@@ -189,15 +192,13 @@ describe('startBuildFromMobile', () => {
     expect((doneCalls[0][0].data as Record<string, unknown>).status).toBe('success')
   })
 
-  it('rejects a package build up front when the workspace version is not newer than the running app', async () => {
+  it('rejects a package build up front when the desktop is running from a dev checkout', async () => {
     const { app } = await import('electron')
-    ;(app as unknown as { isPackaged: boolean }).isPackaged = true
+    ;(app as unknown as { isPackaged: boolean }).isPackaged = false
 
     const { startBuildFromMobile } = await import('../build-handlers')
-    await expect(startBuildFromMobile('package')).rejects.toThrow(/not newer than the running app/)
+    await expect(startBuildFromMobile('package')).rejects.toThrow(/dev checkout/)
     expect(spawnMockFn).not.toHaveBeenCalled()
-
-    ;(app as unknown as { isPackaged: boolean }).isPackaged = false
   })
 
   it('cancelMobileBuild kills the process and marks record cancelled', async () => {

@@ -12,6 +12,10 @@ const { spawnMock, workspacePath, retryLimit, broadcastToMobileMock } = vi.hoist
 
 vi.mock('child_process', () => ({
   spawn: spawnMock,
+  exec: vi.fn(),
+  execFile: vi.fn(),
+  execSync: vi.fn(),
+  spawnSync: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
