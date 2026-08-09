@@ -14,6 +14,7 @@ const state = vi.hoisted(() => {
     textSegments: string | null
   }> = []
   const modelUpdates: Array<{ sql: string; model: unknown; conversationId: unknown }> = []
+  const conversationInserts: Array<{ id: unknown; agentId: unknown; projectId: unknown }> = []
   const modeClears: string[] = []
   const events: string[] = []
   const send = vi.fn()
@@ -29,7 +30,7 @@ const state = vi.hoisted(() => {
   const allOverrides = new Map<string, unknown[]>()
   const recordProjectAuditChange = vi.fn()
   const saveFinalizedPlanArtifact = vi.fn()
-  return { handlers, messages, modelUpdates, modeClears, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange, saveFinalizedPlanArtifact }
+  return { handlers, messages, modelUpdates, conversationInserts, modeClears, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange, saveFinalizedPlanArtifact }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -60,6 +61,10 @@ vi.mock('../database', () => ({
             textSegments: typeof args[8] === 'string' ? args[8] : null,
           })
           if (role === 'assistant') state.events.push('db:assistant-insert')
+        }
+        if (sql.includes('INSERT INTO conversations')) {
+          // Column order: (id, agent_id, project_id, title, cli_backend, created_at, updated_at)
+          state.conversationInserts.push({ id: args[0], agentId: args[1], projectId: args[2] })
         }
         if (sql.includes('UPDATE conversations SET model = ?')) {
           state.modelUpdates.push({ sql, model: args[0], conversationId: args[1] })
@@ -208,6 +213,7 @@ describe('chat handlers', () => {
     state.handlers.clear()
     state.messages.length = 0
     state.modelUpdates.length = 0
+    state.conversationInserts.length = 0
     state.modeClears.length = 0
     state.events.length = 0
     state.send.mockClear()
@@ -267,6 +273,37 @@ describe('chat handlers', () => {
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:complete'))
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:messages'))
     expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
+  })
+
+  it('binds a project chat to the project primary agent when no agent is supplied (Android parity)', async () => {
+    // A new project conversation is created with no explicit agentId (as Android's
+    // new-project-chat entry points do). The conversation must be created bound to the project's
+    // primary agent so the agent's backend and settings actually take effect — matching the
+    // desktop renderer's newChat, which resolves the primary client-side.
+    state.getOverrides.set('SELECT id FROM conversations WHERE id', undefined) // force creation branch
+    state.getOverrides.set('SELECT id FROM projects WHERE id', { id: 'proj-1' }) // project exists
+    state.getOverrides.set('FROM project_agents WHERE project_id', { agent_id: 'primary-agent' })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    await handler({ sender: {} }, 'conv-project-primary', 'Hello', { projectId: 'proj-1' })
+
+    const insert = state.conversationInserts.find((row) => row.id === 'conv-project-primary')
+    expect(insert).toBeDefined()
+    expect(insert!.agentId).toBe('primary-agent')
+    expect(insert!.projectId).toBe('proj-1')
+  })
+
+  it('does not bind any agent to a project chat when the project has no agents', async () => {
+    state.getOverrides.set('SELECT id FROM conversations WHERE id', undefined)
+    state.getOverrides.set('SELECT id FROM projects WHERE id', { id: 'proj-2' })
+    state.getOverrides.set('FROM project_agents WHERE project_id', undefined) // no rows
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    await handler({ sender: {} }, 'conv-project-noagent', 'Hello', { projectId: 'proj-2' })
+
+    const insert = state.conversationInserts.find((row) => row.id === 'conv-project-noagent')
+    expect(insert).toBeDefined()
+    expect(insert!.agentId).toBeNull()
   })
 
   it('forwards and stores BYOK provider thinking events', async () => {

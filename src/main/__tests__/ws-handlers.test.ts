@@ -117,6 +117,7 @@ vi.mock('../providers', () => ({
     { name: 'anthropic', label: 'Anthropic', models: ['claude-haiku-4.5'] },
   ],
   isProviderConfigured: vi.fn((provider: string) => provider === 'openai'),
+  getProviderModelIds: vi.fn((provider: { models: string[] }) => provider.models),
 }))
 
 vi.mock('../model-catalog', () => ({
@@ -449,7 +450,7 @@ describe('ws handlers', () => {
         source: { type: 'provider', label: 'Claude CLI' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI', isCliSourced: true },
+          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI', isCliSourced: true, backend: 'claude-cli' },
         ],
       },
     })
@@ -464,7 +465,7 @@ describe('ws handlers', () => {
         source: { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI', isCliSourced: true },
+          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI', isCliSourced: true, backend: 'codex-cli' },
         ],
       },
     })
@@ -479,7 +480,7 @@ describe('ws handlers', () => {
         source: { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI', isCliSourced: true },
+          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI', isCliSourced: true, backend: 'codex-cli' },
         ],
       },
     })
@@ -494,7 +495,7 @@ describe('ws handlers', () => {
         source: { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI', isCliSourced: true },
+          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI', isCliSourced: true, backend: 'claude-cli' },
         ],
       },
     })

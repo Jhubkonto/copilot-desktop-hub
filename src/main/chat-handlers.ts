@@ -703,9 +703,22 @@ export async function dispatchChatSend(
             ? projectId
             : null)
         : null
+      // When a project chat is opened without an explicit agent, bind the project's primary agent
+      // (or the first by sort order) so its backend and settings actually take effect. The desktop
+      // renderer resolves this client-side in `newChat`; Android's new-project-chat entry points
+      // pass no agentId, so without this fallback a project's added agent would never be applied and
+      // nothing would indicate which agent (or backend) is driving the chat. Only runs at creation,
+      // so a later explicit "no agent" choice on an existing conversation is never overridden.
+      const resolvedAgentId =
+        agentId ??
+        (validProjectId
+          ? ((db.prepare(
+              'SELECT agent_id FROM project_agents WHERE project_id = ? ORDER BY is_primary DESC, sort_order ASC, added_at ASC LIMIT 1',
+            ).get(validProjectId) as { agent_id: string } | undefined)?.agent_id ?? null)
+          : null)
       db.prepare(
         'INSERT INTO conversations (id, agent_id, project_id, title, cli_backend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run(conversationId, agentId ?? null, validProjectId, title, cliBackend ?? null, now, now)
+      ).run(conversationId, resolvedAgentId, validProjectId, title, cliBackend ?? null, now, now)
 
     }
 
@@ -1378,7 +1391,7 @@ export async function dispatchChatSend(
         // tool approval). Without this, Android's single-slot pending-approval UI gets
         // silently overwritten by the new turn's request while the old turn's permission-hook
         // HTTP call sits invisible until its 60s auto-deny timeout — see
-        // roadmap/bugs/bug-new/cli-approval-relay-concurrent-turns.md.
+        // roadmap/bugs/bug-in-progress/cli-approval-relay-concurrent-turns.md.
         if (activeCliAbortControllers.has(conversationId)) {
           abortActiveStream(conversationId)
           denyPendingApprovalsForConversation(conversationId)

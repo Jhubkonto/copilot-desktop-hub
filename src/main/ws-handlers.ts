@@ -9,7 +9,7 @@ import {
   getAssistantMessageContext,
   saveMessageSpokenOutput,
 } from './spoken-output'
-import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
+import { abortActiveStream, PROVIDERS, getProviderModelIds, isProviderConfigured } from './providers'
 import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
 import { activateEmergencyStop, getEmergencyStopStatus, resumeConversations } from './emergency-stop'
 import { debugLog } from './debug-mode'
@@ -1254,13 +1254,15 @@ export function registerWsHandlers(): void {
 
     if (command === 'model:list') {
       let backend = typeof data.backend === 'string' ? data.backend : undefined
+      let hermesProfile = typeof data.hermesProfile === 'string' ? data.hermesProfile : undefined
       const agentId = typeof data.agentId === 'string' ? data.agentId : undefined
-      if (!backend && agentId) {
+      if (agentId && (!backend || !hermesProfile)) {
         const db = getDatabase()
-        const row = db.prepare("SELECT json_extract(config_json, '$.backend') AS backend FROM agents WHERE id = ?").get(agentId) as
-          | { backend: string | null }
-          | undefined
-        backend = row?.backend ?? undefined
+        const row = db.prepare(
+          "SELECT json_extract(config_json, '$.backend') AS backend, json_extract(config_json, '$.hermesProfile') AS hermesProfile FROM agents WHERE id = ?",
+        ).get(agentId) as { backend: string | null; hermesProfile: string | null } | undefined
+        backend = backend ?? row?.backend ?? undefined
+        hermesProfile = hermesProfile ?? row?.hermesProfile ?? undefined
       }
       const byId = new Map<string, {
         id: string
@@ -1273,8 +1275,6 @@ export function registerWsHandlers(): void {
 
       const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
       const configuredProviders = PROVIDERS.filter((provider) => isProviderConfigured(provider.name))
-      const getProviderModelIds = (provider: (typeof PROVIDERS)[number]) =>
-        provider.name === 'openrouter' ? getOpenRouterModels() : provider.models
 
       const cliBackendLabels: Record<string, string> = {
         'codex-cli': 'Codex CLI',
@@ -1296,7 +1296,7 @@ export function registerWsHandlers(): void {
             : { type: 'none', label: 'No configured model backend' }
 
         const models = cliLabel
-          ? getCliModels(resolvedBackend).map((model) => ({
+          ? getCliModels(resolvedBackend, hermesProfile).map((model) => ({
               ...model,
               vendor: cliLabel,
               isCliSourced: true,
@@ -1338,7 +1338,7 @@ export function registerWsHandlers(): void {
         }
       }
       if (HermesAdapter.isAvailable()) {
-        for (const model of getCliModels('hermes-cli')) {
+        for (const model of getCliModels('hermes-cli', hermesProfile)) {
           if (!byId.has(model.id)) byId.set(model.id, {
             ...model,
             vendor: 'Hermes Agent',

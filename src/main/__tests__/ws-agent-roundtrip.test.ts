@@ -133,7 +133,7 @@ vi.mock('../agent-generator', () => ({ runAgentGeneratorChatForAndroid: vi.fn(),
 vi.mock('../skill-generator', () => ({ runSkillGeneratorChatForAndroid: vi.fn(), createSkillFromSpec: vi.fn() }))
 vi.mock('../artifact-generator', () => ({ createArtifactGeneratorRunRecord: vi.fn(), runArtifactGeneration: vi.fn(), runArtifactGeneratorChatForAndroid: vi.fn(), updateArtifactGeneratorRunRecord: vi.fn() }))
 vi.mock('../provider-secrets', () => ({ storeApiKey: vi.fn(), removeApiKey: vi.fn(), getAzureEndpoint: vi.fn(), setAzureEndpoint: vi.fn() }))
-vi.mock('../providers', () => ({ abortActiveStream: vi.fn(), PROVIDERS: [], isProviderConfigured: vi.fn(() => false), testProviderKey: vi.fn(), getOpenRouterModels: vi.fn() }))
+vi.mock('../providers', () => ({ abortActiveStream: vi.fn(), PROVIDERS: [], isProviderConfigured: vi.fn(() => false), testProviderKey: vi.fn(), getOpenRouterModels: vi.fn(), getProviderModelIds: vi.fn((provider: { models: string[] }) => provider.models) }))
 vi.mock('../wiki-handlers', () => ({ insertWikiEntry: vi.fn() }))
 vi.mock('../prompt-handlers', () => ({ insertPromptLibraryEntry: vi.fn(), listPromptLibraryVersions: vi.fn(), rollbackPromptLibraryEntry: vi.fn(), updatePromptLibraryEntry: vi.fn() }))
 vi.mock('../conversation-handlers', () => ({ buildConversationExportPack: vi.fn(), forkConversation: vi.fn(), importConversationExport: vi.fn(), getConversationCompressionPreview: vi.fn(), prepareConversationCompressionSummary: vi.fn(), saveConversationCompressionSummary: vi.fn() }))
