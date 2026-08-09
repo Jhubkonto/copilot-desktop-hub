@@ -32,8 +32,9 @@ import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.codepanel.CodePanelScreen
 import io.nexy.android.ui.fileexplorer.FileExplorerScreen
+import io.nexy.android.ui.fileviewer.MarkdownViewerScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
-import io.nexy.android.ui.projects.ProjectAuditScreen
+import io.nexy.android.ui.projects.ProjectHomeScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowListScreen
 import io.nexy.android.ui.ratings.RatingsScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowScreen
@@ -107,10 +108,6 @@ fun NavGraph(
         }
     }
 
-    // Code Changes no longer hijacks a dedicated conversation — /code-change and friends run
-    // against whatever conversation the user is already in. This listener only surfaces errors
-    // that don't otherwise reach a chat screen (e.g. the project icon button firing before any
-    // conversation is open).
     val context = LocalContext.current
 
     // The splash is branding only; the durable Room cache — not the splash — is where returning
@@ -228,7 +225,7 @@ fun NavGraph(
                     navController.navigate("history/project/${Uri.encode(projectId)}")
                 },
                 onOpenProjectConfig = { projectId ->
-                    navController.navigate("project-config/${Uri.encode(projectId)}")
+                    navController.navigate("project-home/${Uri.encode(projectId)}")
                 },
                 onOpenProjectConfigNew = { projectId ->
                     newProjectId = projectId
@@ -237,7 +234,7 @@ fun NavGraph(
                 onOpenProjectGenerator = {
                     navController.navigate("project-generator")
                 },
-                onOpenCodeChanges = { projectId ->
+                onOpenCodePanel = { projectId ->
                     navController.navigate("code-panel/${Uri.encode(projectId)}")
                 },
                 onOpenAgentGenerator = {
@@ -400,10 +397,6 @@ fun NavGraph(
                     navController.navigate("teachback/${Uri.encode(cid)}?artifactId=${Uri.encode(artifactId)}")
                 },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
-                // No-op body: ChatScreen now prefills its own composer in place with
-                // "/code-change <text>" instead of navigating away — this callback being
-                // non-null only gates whether the "Create code change" menu item is shown.
-                onOpenRemoteEditWithPrefill = { _, _ -> },
                 onOpenCodePanel = { pid -> navController.navigate("code-panel/${Uri.encode(pid)}") },
                 onOpenAutomatedWorkflow = { workflowProjectId -> navController.navigate("automated-workflow/${Uri.encode(workflowProjectId)}") },
                 onOpenDesktopPathPicker = {
@@ -542,6 +535,24 @@ fun NavGraph(
         }
 
         composable(
+            route = "project-home/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            ProjectHomeScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate("project-config/${Uri.encode(projectId)}") },
+                onOpenFiles = {
+                    navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=&selectionMode=browse")
+                },
+                onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
+                onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
+                onOpenWorkflow = { navController.navigate("automated-workflow/${Uri.encode(projectId)}") },
+            )
+        }
+
+        composable(
             route = "project-config/{projectId}",
             arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
         ) { backStackEntry ->
@@ -550,10 +561,6 @@ fun NavGraph(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
                 isNew = projectId == newProjectId,
-                onOpenAudit = { navController.navigate("project-audit/${Uri.encode(projectId)}") },
-                onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
-                onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
-                onOpenAutomatedWorkflow = { navController.navigate("automated-workflow/${Uri.encode(projectId)}") },
                 onOpenFileExplorer = { startPath ->
                     navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=${Uri.encode(startPath)}&selectionMode=folder")
                 },
@@ -568,10 +575,15 @@ fun NavGraph(
                 navArgument("selectionMode") { type = NavType.StringType; defaultValue = "folder" },
             ),
         ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             val startPath = backStackEntry.arguments?.getString("startPath").orEmpty()
             val selectionMode = backStackEntry.arguments?.getString("selectionMode").orEmpty()
             FileExplorerScreen(
                 onBack = { navController.popBackStack() },
+                projectId = projectId,
+                onOpenProjectSettings = if (selectionMode == "browse" && projectId.isNotBlank()) {
+                    { navController.navigate("project-config/${Uri.encode(projectId)}") }
+                } else null,
                 onFolderSelected = { path ->
                     if (selectionMode == "attachment") {
                         WsRepository.pendingSelectedAttachmentPath.value = path
@@ -582,7 +594,19 @@ fun NavGraph(
                 },
                 initialPath = startPath,
                 allowFileSelection = selectionMode == "attachment",
+                browseMode = selectionMode == "browse",
+                // Reading Markdown is a browse-mode affordance only; the folder picker
+                // (selectionMode == "folder") stays a pure path chooser.
+                onMarkdownSelected = if (selectionMode == "browse") { path -> navController.navigate("markdown-viewer?path=${Uri.encode(path)}") } else null,
             )
+        }
+
+        composable(
+            route = "markdown-viewer?path={path}",
+            arguments = listOf(navArgument("path") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val path = backStackEntry.arguments?.getString("path") ?: return@composable
+            MarkdownViewerScreen(path = path, onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -628,17 +652,6 @@ fun NavGraph(
             RatingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },
-            )
-        }
-
-        composable(
-            route = "project-audit/{projectId}",
-            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
-            ProjectAuditScreen(
-                projectId = projectId,
-                onBack = { navController.popBackStack() },
             )
         }
 
@@ -730,15 +743,6 @@ fun NavGraph(
             CodePanelScreen(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
-                // "Resolve with AI in chat": the panel already kicked off the /code-change
-                // investigation itself (see CodePanelViewModel.resolveConflictsWithAi) before
-                // calling this, so navigating here just opens the conversation it's now running in
-                // — no prefill plumbing needed on the chat route.
-                onOpenChatForConflictResolution = { conversationId, projectIdForChat ->
-                    navController.navigate(
-                        "chat/$conversationId?projectId=${Uri.encode(projectIdForChat)}",
-                    )
-                },
             )
         }
 
