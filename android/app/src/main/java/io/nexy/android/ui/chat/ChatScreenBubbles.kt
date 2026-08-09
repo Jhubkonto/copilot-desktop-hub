@@ -343,6 +343,10 @@ private fun ChatMarkdownAndroidView(
     modifier: Modifier = Modifier,
 ) {
     val textColorArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+    // Text-selection highlight for the native TextView path. Mirrors Compose's default
+    // SelectionContainer background (primary @ 0.4 alpha) so selected block-level markdown
+    // (headings/lists) shows a visible tinted band instead of an invisible highlight.
+    val selectionHighlightArgb = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f).toArgb()
     val markwon = LocalMarkwon.current
     val parsedMarkdown = if (streaming) null else rememberParsedMarkdown(markwon, markdown)
     val displayedText = if (streaming) rememberRevealedText(markdown) else markdown
@@ -388,7 +392,7 @@ private fun ChatMarkdownAndroidView(
                     // block-level markdown links look clickable but silently do nothing.
                     view.movementMethod = LinkMovementMethod.getInstance()
                     view.linksClickable = true
-                    view.highlightColor = android.graphics.Color.TRANSPARENT
+                    view.highlightColor = selectionHighlightArgb
                     view.addOnLayoutChangeListener { laidOutView, left, top, right, bottom, _, _, _, _ ->
                         val textView = laidOutView as TextView
                         val textLayout = textView.layout
@@ -410,6 +414,7 @@ private fun ChatMarkdownAndroidView(
                 view.minWidth = exactWidthPx
                 view.maxWidth = exactWidthPx
                 view.setTextColor(textColorArgb)
+                view.highlightColor = selectionHighlightArgb
                 if (streaming) {
                     // Streaming text changes on every chunk and its width can still be settling, so
                     // keep deferring the render until the view has a real width (the original

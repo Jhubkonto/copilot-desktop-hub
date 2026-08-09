@@ -170,6 +170,55 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun approvalCancelDismissesTheVisibleRequestAndAdvancesTheQueue() = runTest {
+        val fakeWs = FakeWsClient()
+        val fakeEffects = FakeApprovalEffects()
+        val vm = HomeViewModel(Application(), fakeWs, fakeEffects)
+        advanceUntilIdle()
+
+        val first = WsEvent.ToolApprovalRequest("req-1", "fileWrite", emptyMap())
+        val second = WsEvent.ToolApprovalRequest("req-2", "fileWrite", emptyMap())
+        fakeWs.emit(first)
+        fakeWs.emit(second)
+        advanceUntilIdle()
+        assertEquals(first, vm.pendingApproval.value)
+
+        // Desktop superseded the visible request: it should be dropped and the queued one shown.
+        fakeWs.emit(WsEvent.ToolApprovalCancel("req-1"))
+        advanceUntilIdle()
+        assertEquals(second, vm.pendingApproval.value)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun approvalCancelForAQueuedRequestPrunesItWithoutDisturbingTheVisibleOne() = runTest {
+        val fakeWs = FakeWsClient()
+        val fakeEffects = FakeApprovalEffects()
+        val vm = HomeViewModel(Application(), fakeWs, fakeEffects)
+        advanceUntilIdle()
+
+        val first = WsEvent.ToolApprovalRequest("req-1", "fileWrite", emptyMap())
+        val second = WsEvent.ToolApprovalRequest("req-2", "fileWrite", emptyMap())
+        fakeWs.emit(first)
+        fakeWs.emit(second)
+        advanceUntilIdle()
+        assertEquals(first, vm.pendingApproval.value)
+
+        // Cancelling the queued (not visible) request leaves the current dialog untouched...
+        fakeWs.emit(WsEvent.ToolApprovalCancel("req-2"))
+        advanceUntilIdle()
+        assertEquals(first, vm.pendingApproval.value)
+
+        // ...and it is gone from the backlog, so resolving the first surfaces nothing.
+        vm.approveRequest("req-1")
+        advanceUntilIdle()
+        assertNull(vm.pendingApproval.value)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun conversationCreatedEventSetsAndClearsNewConversationId() = runTest {
         val fakeWs = FakeWsClient()
         val vm = HomeViewModel(Application(), fakeWs, FakeApprovalEffects())

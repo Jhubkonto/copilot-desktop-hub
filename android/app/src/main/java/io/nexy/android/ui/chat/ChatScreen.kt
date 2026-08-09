@@ -78,6 +78,7 @@ import androidx.compose.runtime.key
 import io.nexy.android.ui.theme.Blue500
 import io.nexy.android.ui.theme.Green500
 import io.nexy.android.ui.theme.Gray400
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -266,6 +267,7 @@ fun ChatScreen(
     val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
     val agents by WsRepository.agents.collectAsStateWithLifecycle()
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val projectPrimaryAgents by WsRepository.projectPrimaryAgents.collectAsStateWithLifecycle()
     val models by WsRepository.models.collectAsStateWithLifecycle()
     val modelSource by WsRepository.modelSource.collectAsStateWithLifecycle()
     val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
@@ -285,7 +287,11 @@ fun ChatScreen(
     val chatTerminalSandboxOverride by vm.terminalSandboxOverride.collectAsStateWithLifecycle()
     val chatCliModeOverride by vm.cliModeOverride.collectAsStateWithLifecycle()
     val chatCodexExecutionModeOverride by vm.codexExecutionModeOverride.collectAsStateWithLifecycle()
+    // A project draft chat opens with no bound agent (nav-arg agentId is null); fall back to the
+    // project's inherited primary so the header shows the agent — and its backend — before the
+    // first send. The server binds the same agent on send (chat-handlers.ts).
     val chatAgentId = conversation?.agent_id ?: agentId
+        ?: (conversation?.project_id ?: projectId)?.let { projectPrimaryAgents[it] }
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val activeCliBackend = (chatAgent?.backend ?: modelSource?.backend)
         ?.takeIf { it == "claude-cli" || it == "codex-cli" }
@@ -305,6 +311,16 @@ fun ChatScreen(
     }
     LaunchedEffect(statusProjectId) {
         if (!statusProjectId.isNullOrBlank()) WsRepository.getProjectConfig(statusProjectId) else chatProjectWorkflowMode = null
+    }
+    // Warm the project→primary-agent cache so a project draft chat (no bound agent yet) can show
+    // its inherited agent before the first send. Only needed while the conversation itself carries
+    // no agent_id; once bound, chatAgentId resolves directly from the conversation.
+    LaunchedEffect(statusProjectId, conversation?.agent_id, connectionState) {
+        if (conversation?.agent_id == null && !statusProjectId.isNullOrBlank() &&
+            connectionState == ConnectionState.CONNECTED
+        ) {
+            WsRepository.listProjectAgents(statusProjectId)
+        }
     }
 
     var activeWorkflowRun by remember { mutableStateOf<io.nexy.android.data.model.AutomatedWorkflowRunInfo?>(null) }
@@ -541,6 +557,23 @@ fun ChatScreen(
     var savePromptScope by remember { mutableStateOf("global") }
     var savePromptPending by remember { mutableStateOf(false) }
     var pendingApproval by remember { mutableStateOf<io.nexy.android.data.model.WsEvent.ToolApprovalRequest?>(null) }
+    // A second CLI turn can broadcast its own approval request while one is already showing (e.g.
+    // the user re-sends before approving). Queue rather than overwrite so the earlier request isn't
+    // silently orphaned until its 60s server-side auto-deny — mirrors HomeViewModel.approvalQueue.
+    val approvalQueue = remember { mutableStateListOf<io.nexy.android.data.model.WsEvent.ToolApprovalRequest>() }
+    val enqueueApproval = { event: io.nexy.android.data.model.WsEvent.ToolApprovalRequest ->
+        if (pendingApproval == null) pendingApproval = event else approvalQueue.add(event)
+    }
+    // Drop exactly one request (the visible one advances to the next queued; a queued one is pruned).
+    val dismissApproval = { requestId: String ->
+        if (pendingApproval?.requestId == requestId) {
+            pendingApproval = approvalQueue.removeFirstOrNull()
+        } else {
+            approvalQueue.removeAll { it.requestId == requestId }
+        }
+    }
+    // The current request resolved by an out-of-band signal (tool ran / turn ended); advance the queue.
+    val advanceApproval = { pendingApproval = approvalQueue.removeFirstOrNull() }
     val promptEntries by WsRepository.promptEntries.collectAsStateWithLifecycle()
     var relaunchFilePicker by remember { mutableStateOf(false) }
 
@@ -862,17 +895,25 @@ fun ChatScreen(
                     }
                 }
                 is io.nexy.android.data.model.WsEvent.ToolApprovalRequest -> {
-                    pendingApproval = event
+                    // Only surface approvals for the conversation being viewed. A concurrent turn in
+                    // another conversation broadcasts its own request; the Home-screen dialog owns
+                    // those. null conversationId = legacy desktop that can't scope, so show it here.
+                    if (event.conversationId == null || event.conversationId == conversationId) {
+                        enqueueApproval(event)
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.ToolApprovalCancel -> {
+                    dismissApproval(event.requestId)
                 }
                 is io.nexy.android.data.model.WsEvent.ChatToolCallEvent -> {
                     if (event.conversationId == conversationId) {
-                        pendingApproval = null
+                        advanceApproval()
                     }
                 }
                 is io.nexy.android.data.model.WsEvent.ChatActivity -> {
                     if (event.conversationId == conversationId &&
                         (event.state == "complete" || event.state == "error")) {
-                        pendingApproval = null
+                        advanceApproval()
                     }
                 }
                 is io.nexy.android.data.model.WsEvent.ArtifactPromoted -> {
@@ -1001,12 +1042,13 @@ fun ChatScreen(
                 (connectionState == ConnectionState.CONNECTED || capabilities.internetState != InternetState.UNAVAILABLE)
         }
     }
-    val draftAgent = agentId?.let { id -> agents.find { it.id == id } }
     val draftProject = projectId?.let { id -> projects.find { it.id == id } }
     val agentLabel = conversation?.agent_name?.let { name ->
         val icon = conversation.agent_icon
         if (!icon.isNullOrBlank()) "$icon  $name" else name
-    } ?: draftAgent?.let { agent ->
+    } ?: chatAgent?.let { agent ->
+        // chatAgent already resolves nav-arg agentId and, for a project draft, the inherited
+        // primary — so the header names the agent even before the first send binds it.
         if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name
     }
     val projectLabel = conversation?.project_name ?: draftProject?.name
@@ -2022,15 +2064,15 @@ fun ChatScreen(
                                 approval = approval,
                                 onApprove = {
                                     WsRepository.send("tool:approve", mapOf("requestId" to approval.requestId))
-                                    pendingApproval = null
+                                    advanceApproval()
                                 },
                                 onKeepPlanning = {
                                     WsRepository.send("tool:reject", mapOf("requestId" to approval.requestId))
-                                    pendingApproval = null
+                                    advanceApproval()
                                 },
                                 onDeny = {
                                     WsRepository.send("tool:reject", mapOf("requestId" to approval.requestId))
-                                    pendingApproval = null
+                                    advanceApproval()
                                 },
                             )
                         }

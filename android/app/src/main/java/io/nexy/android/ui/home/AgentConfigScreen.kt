@@ -349,7 +349,12 @@ fun AgentConfigScreen(
     LaunchedEffect(agentId) {
         WsRepository.events.collect { event ->
             when {
-                event is WsEvent.AgentUpdated && event.agent.id == agentId -> {
+                // Only react to the save THIS screen initiated. `agent:updated` is a broadcast:
+                // a duplicate delivery (two live sockets after a reconnect) or a concurrent edit
+                // from another client would otherwise call onBack() again and pop the back stack
+                // past `home` into an empty NavHost — a persistent white screen needing a restart.
+                // Gating on `saving` makes the navigate-back fire exactly once, for our own save.
+                event is WsEvent.AgentUpdated && event.agent.id == agentId && saving -> {
                     saving = false
                     loadedName = name; loadedIcon = icon
                     loadedSystemPrompt = systemPrompt; loadedMemory = memory

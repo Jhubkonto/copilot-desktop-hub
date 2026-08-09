@@ -378,9 +378,12 @@ class ChatViewModel(
     // The conversation's own agent (once known) takes precedence over the nav-arg agentId,
     // matching ChatScreen's own chatAgentId resolution (conversation?.agent_id ?: agentId).
     private val effectiveAgentId: StateFlow<String?> = if (wsClient === WsRepository) {
-        WsRepository.conversations
-            .map { list -> list.find { it.id == conversationId }?.agent_id ?: agentId }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, agentId)
+        combine(WsRepository.conversations, WsRepository.projectPrimaryAgents) { list, primaries ->
+            val conv = list.find { it.id == conversationId }
+            // A project draft chat has no bound agent yet, so fall back to the project's inherited
+            // primary — matching the header's chatAgentId resolution and desktop's newChat().
+            conv?.agent_id ?: agentId ?: (conv?.project_id ?: projectId)?.let { primaries[it] }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, agentId)
     } else {
         MutableStateFlow(agentId)
     }

@@ -85,6 +85,17 @@ class HomeViewModel(
         }
     }
 
+    // Desktop denied/superseded a specific request. Drop exactly that one — advancing to the next
+    // queued request if it was the visible one, or pruning it from the backlog otherwise — instead
+    // of clearing whatever happens to be showing.
+    private fun cancelApprovalById(requestId: String) {
+        if (_pendingApproval.value?.requestId == requestId) {
+            clearCurrentApproval()
+        } else {
+            approvalQueue.removeAll { it.requestId == requestId }
+        }
+    }
+
     private val _isRefreshingConversations = MutableStateFlow(false)
     val isRefreshingConversations: StateFlow<Boolean> = _isRefreshingConversations
 
@@ -142,6 +153,7 @@ class HomeViewModel(
             wsClient.events.collect { event ->
                 when (event) {
                     is WsEvent.ToolApprovalRequest -> enqueueApproval(event)
+                    is WsEvent.ToolApprovalCancel -> cancelApprovalById(event.requestId)
                     is WsEvent.ChatToolCallEvent -> {
                         // Tool ran — means any pending approval was resolved (possibly via
                         // notification while the app was backgrounded). Clear the dialog.
