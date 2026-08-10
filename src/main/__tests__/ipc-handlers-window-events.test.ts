@@ -52,7 +52,11 @@ vi.mock('../providers', () => ({
 vi.mock('../screen-capture-handlers', () => ({ registerScreenCaptureHandlers: vi.fn() }))
 vi.mock('../model-catalog-handlers', () => ({ registerModelCatalogHandlers: vi.fn() }))
 vi.mock('../cli-detection', () => ({ registerCliHandlers: vi.fn() }))
-vi.mock('../ws-handlers', () => ({ registerWsHandlers: vi.fn() }))
+vi.mock('../ws-handlers', () => ({
+  registerWsHandlers: vi.fn(),
+  registerUserInputResolver: vi.fn(),
+  registerPendingUserInputProvider: vi.fn(),
+}))
 vi.mock('../android-handlers', () => ({ registerAndroidHandlers: vi.fn() }))
 vi.mock('../model-availability', () => ({ registerModelAvailabilityHandlers: vi.fn() }))
 vi.mock('../voice-handlers', () => ({ registerVoiceHandlers: vi.fn() }))

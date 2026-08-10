@@ -16,6 +16,10 @@ function copyWorkers(): import('vite').Plugin {
         resolve(__dirname, 'src/main/supertonic-worker.cjs'),
         resolve(outDir, 'supertonic-worker.cjs'),
       )
+      copyFileSync(
+        resolve(__dirname, 'src/main/user-input-mcp-worker.cjs'),
+        resolve(outDir, 'user-input-mcp-worker.cjs'),
+      )
     },
   }
 }

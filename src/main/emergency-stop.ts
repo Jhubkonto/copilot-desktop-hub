@@ -6,6 +6,7 @@ import { denyAllPendingApprovals } from './tools'
 import { broadcastToMobile } from './ws-server'
 import { safeHandle } from './safe-handle'
 import { abortAllHttpsRequests } from './http-client'
+import { cancelAllPendingUserInputs } from './user-input'
 
 export interface EmergencyStopStatus {
   active: boolean
@@ -55,6 +56,7 @@ export function activateEmergencyStop(): EmergencyStopStatus {
   abortAllHttpsRequests()
   clearAllActiveChatTurns()
   denyAllPendingApprovals()
+  cancelAllPendingUserInputs('Emergency stop activated')
   return publishStatus()
 }
 

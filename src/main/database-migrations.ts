@@ -1757,6 +1757,11 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       DROP TABLE IF EXISTS error_reports;
     `,
   },
+  {
+    // Durable structured clarification cards resolved during an assistant turn.
+    version: 90,
+    sql: `ALTER TABLE messages ADD COLUMN user_inputs TEXT;`,
+  },
 ];
 
 

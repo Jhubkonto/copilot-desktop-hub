@@ -16,6 +16,7 @@ import { autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 import { schedulerEngine } from './scheduler-engine'
 import { initializeActivityBadge, getUnseenActivityCount, setUnseenCountChangeCallback } from './activity-badge'
+import { cancelAllPendingUserInputs } from './user-input'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -366,6 +367,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  cancelAllPendingUserInputs()
   globalShortcut.unregisterAll()
   shutdownMcpServers().catch(() => {})
   closeDatabase()
