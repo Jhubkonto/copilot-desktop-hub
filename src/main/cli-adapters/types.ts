@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import type { ProviderMessage } from '../providers'
+import type { UserInputAnswer, UserInputQuestion } from '../../shared/chat-turn-types'
 
 export interface CliAdapterRequest {
   systemPrompt?: string
@@ -40,6 +41,9 @@ export interface CliAdapterRequest {
   // that support a permission callback (currently Claude Code via PermissionRequest
   // hooks) pause the tool call and delegate the exact request to Nexy's approval UI.
   requestPermission?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>
+  /** Pauses a supported CLI protocol request while Nexy's desktop or paired Android UI
+   * collects a structured answer. This is deliberately separate from permissions. */
+  requestUserInput?: (questions: UserInputQuestion[]) => Promise<UserInputAnswer[]>
 }
 
 export type CliStreamEvent =

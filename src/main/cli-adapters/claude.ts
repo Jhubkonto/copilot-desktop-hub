@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import { createServer } from 'http'
 import type { BrowserWindow } from 'electron'
+import { startUserInputMcpBridge } from '../user-input-mcp-bridge'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
 
@@ -163,10 +164,15 @@ export const ClaudeAdapter: CliAgentAdapter = {
     const permissionHook = req.requestPermission && !bypassPermissions
       ? await startPermissionHookServer(req.requestPermission)
       : null
+    let awaitingUserInput = false
+    const userInputBridge = req.requestUserInput
+      ? await startUserInputMcpBridge(req.requestUserInput, (waiting) => { awaitingUserInput = waiting })
+      : null
     return new Promise((resolve, reject) => {
       const claudePath = resolveCliPath('claude')
       if (!claudePath) {
         permissionHook?.close()
+        userInputBridge?.close()
         reject(new Error('claude CLI not found'))
         return
       }
@@ -177,8 +183,11 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // in the user's global ~/.claude.json. We control exactly which servers are
       // available via --mcp-config (or none at all when no servers are permitted).
       const args = ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config']
-      if (req.systemPrompt) {
-        args.push('--system-prompt', req.systemPrompt)
+      if (req.systemPrompt || userInputBridge) {
+        const userInputInstruction = userInputBridge
+          ? '\n\nWhen essential information is missing, call nexy_user_input.ask_user and wait for the answer. Do not use AskUserQuestion because Nexy cannot render that native tool in --print mode.'
+          : ''
+        args.push('--system-prompt', `${req.systemPrompt ?? ''}${userInputInstruction}`)
       }
       if (req.agents && Object.keys(req.agents).length > 0) {
         args.push('--agents', JSON.stringify(req.agents))
@@ -191,9 +200,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
         const cliEffort = effortMap[req.thinkingEffort]
         if (cliEffort) args.push('--effort', cliEffort)
       }
-      if (req.mcpServers && req.mcpServers.length > 0) {
+      const effectiveMcpServers = [...(req.mcpServers ?? []), ...(userInputBridge ? [userInputBridge.server] : [])]
+      if (effectiveMcpServers.length > 0) {
         const mcpConfig = {
-          mcpServers: Object.fromEntries(req.mcpServers.map((server) => {
+          mcpServers: Object.fromEntries(effectiveMcpServers.map((server) => {
             const config: Record<string, unknown> = {
               command: server.command,
               args: server.args,
@@ -205,8 +215,12 @@ export const ClaudeAdapter: CliAgentAdapter = {
         }
         args.push('--mcp-config', JSON.stringify(mcpConfig))
       }
-      if (req.allowedTools && req.allowedTools.length > 0) {
-        args.push('--allowedTools', req.allowedTools.join(','))
+      const effectiveAllowedTools = [...(req.allowedTools ?? []), ...(userInputBridge ? [userInputBridge.allowedTool] : [])]
+      if (effectiveAllowedTools.length > 0) {
+        args.push('--allowedTools', effectiveAllowedTools.join(','))
+      }
+      if (userInputBridge) {
+        args.push('--disallowedTools', 'AskUserQuestion')
       }
       if (req.extraAllowedDirs && req.extraAllowedDirs.length > 0) {
         for (const dir of req.extraAllowedDirs) {
@@ -259,6 +273,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
         })
       } catch (error) {
         permissionHook?.close()
+        userInputBridge?.close()
         reject(error)
         return
       }
@@ -268,8 +283,12 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // hook server (and its port) is reclaimed exactly once — a hung turn must not orphan it.
       let settled = false
       let hookClosed = false
-      const closeHook = () => { if (!hookClosed) { hookClosed = true; permissionHook?.close() } }
+      const closeHook = () => { if (!hookClosed) { hookClosed = true; permissionHook?.close(); userInputBridge?.close() } }
       const watchdog = createInactivityWatchdog(CLI_INACTIVITY_TIMEOUT_MS, () => {
+        if (awaitingUserInput) {
+          watchdog.touch()
+          return
+        }
         onEvent?.({ type: 'activity', label: 'Claude CLI timed out (no output).' })
         killProcess(proc)
         settle(() => reject(new Error(`claude produced no output for ${Math.round(CLI_INACTIVITY_TIMEOUT_MS / 60000)} minutes and was stopped`)))

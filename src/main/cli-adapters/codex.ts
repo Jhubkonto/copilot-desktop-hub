@@ -4,6 +4,7 @@ import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
+import type { UserInputQuestion } from '../../shared/chat-turn-types'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, stripAnsi, createLineBuffer, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
 
@@ -488,6 +489,7 @@ function sendCodexPlanViaAppServer(
     let protocolError: string | null = null
     let turnCompleted = false
     let settled = false
+    let awaitingUserInput = false
     const streamedTextItems = new Set<string>()
     const openToolIds = new Set<string>()
     const openReasoningIds = new Set<string>()
@@ -498,7 +500,7 @@ function sendCodexPlanViaAppServer(
     let lastActivityAt = Date.now()
     const touchActivity = () => { lastActivityAt = Date.now() }
     const watchdog = setInterval(() => {
-      if (settled) return
+      if (settled || awaitingUserInput) return
       if (Date.now() - lastActivityAt < PLAN_INACTIVITY_TIMEOUT_MS) return
       onEvent?.({ type: 'activity', label: 'Codex Plan turn timed out (no response).' })
       killProcess(proc)
@@ -606,6 +608,64 @@ function sendCodexPlanViaAppServer(
 
       const method = message.method ?? ''
       const params = message.params ?? {}
+
+      if (message.id !== undefined && method === 'item/tool/requestUserInput') {
+        const requestId = message.id
+        const rawQuestions = Array.isArray(params.questions) ? params.questions : []
+        const questions: UserInputQuestion[] = rawQuestions.flatMap((raw, index) => {
+          const question = asRecord(raw)
+          if (!question) return []
+          const id = typeof question.id === 'string' ? question.id : `question-${index + 1}`
+          const prompt = typeof question.question === 'string'
+            ? question.question
+            : typeof question.prompt === 'string' ? question.prompt : ''
+          if (!prompt) return []
+          const options = Array.isArray(question.options)
+            ? question.options.flatMap((rawOption, optionIndex) => {
+                const option = asRecord(rawOption)
+                if (!option || typeof option.label !== 'string') return []
+                return [{
+                  id: typeof option.id === 'string' ? option.id : option.label || `option-${optionIndex + 1}`,
+                  label: option.label,
+                  ...(typeof option.description === 'string' ? { description: option.description } : {}),
+                }]
+              })
+            : undefined
+          return [{
+            id,
+            ...(typeof question.header === 'string' ? { header: question.header } : {}),
+            prompt,
+            ...(options?.length ? { options } : {}),
+            selection: question.multiple === true ? 'multiple' : 'single',
+            allowFreeText: question.allowFreeText !== false,
+          }]
+        })
+        if (!req.requestUserInput || questions.length === 0) {
+          writeMessage({ id: requestId, error: { code: -32601, message: 'Structured user input is unavailable' } })
+          return
+        }
+        awaitingUserInput = true
+        touchActivity()
+        req.requestUserInput(questions).then((answers) => {
+          awaitingUserInput = false
+          touchActivity()
+          const resultAnswers: Record<string, { answers: string[] }> = {}
+          for (const answer of answers) {
+            const question = questions.find((candidate) => candidate.id === answer.questionId)
+            const selectedLabels = answer.selectedOptionIds.map((optionId) =>
+              question?.options?.find((option) => option.id === optionId)?.label ?? optionId)
+            resultAnswers[answer.questionId] = {
+              answers: [...selectedLabels, ...(answer.text ? [answer.text] : [])],
+            }
+          }
+          writeMessage({ id: requestId, result: { answers: resultAnswers } })
+        }).catch(() => {
+          awaitingUserInput = false
+          touchActivity()
+          writeMessage({ id: requestId, error: { code: -32800, message: 'User input cancelled' } })
+        })
+        return
+      }
       if (method === 'item/agentMessage/delta' || method === 'item/plan/delta') {
         const delta = typeof params.delta === 'string' ? params.delta : ''
         const itemId = typeof params.itemId === 'string' ? params.itemId : method
