@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { ChatTurnEvent, ChatActivityState } from '../shared/chat-turn-types'
+import type { ChatTurnEvent, ChatActivityState, UserInputAnswer, UserInputRequest } from '../shared/chat-turn-types'
 import type { WsPushEvent } from './ws-server'
 import { debugLog } from './debug-mode'
 import { recordActiveChatTurnEvent } from './active-chat-turns'
@@ -186,6 +186,19 @@ export class ChatTurnEmitter {
     if (options.desktop !== false) this.sinks.sendDesktop?.('chat:tool-call-event', data)
     if (options.mobile !== false) this.sinks.broadcastMobile?.({ event: 'chat:tool-call-event', data })
     return event
+  }
+
+  userInputRequested(request: UserInputRequest): ChatTurnEvent {
+    this.closeOpenTextSegment()
+    return this.emit({ type: 'user_input_requested', request })
+  }
+
+  userInputResolved(requestId: string, answers: UserInputAnswer[]): ChatTurnEvent {
+    return this.emit({ type: 'user_input_resolved', requestId, answers })
+  }
+
+  userInputCancelled(requestId: string, reason: string): ChatTurnEvent {
+    return this.emit({ type: 'user_input_cancelled', requestId, reason })
   }
 
   cost(inputTokens: number, outputTokens: number, totalCostUsd: number): ChatTurnEvent {

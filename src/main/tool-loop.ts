@@ -94,6 +94,7 @@ export interface ModelToolCaller {
 }
 
 export interface ToolLoopToolFinishedEvent {
+  id?: string
   toolName: string
   serverName: string
   args: Record<string, unknown>
@@ -197,7 +198,16 @@ export async function runProviderMcpToolLoop(
 
     sendActivity({ type: 'thinking' })
     assertConversationStartsAllowed()
-    const result = await caller(loopMessages, toolDefs, toolChoice)
+    let result: ProviderNonStreamResult
+    try {
+      result = await caller(loopMessages, toolDefs, toolChoice)
+    } catch (error) {
+      // A dropped provider request must not erase useful narration already emitted during this
+      // turn. The caller has already retried transient failures; if it still fails, preserve the
+      // partial response and let the turn settle instead of replacing it with a raw error.
+      if (fullResponse) return fullResponse
+      throw error
+    }
     assertConversationStartsAllowed()
 
     if (result.usage) onUsage?.(result.usage)
@@ -269,6 +279,7 @@ export async function runProviderMcpToolLoop(
         toolResultContent = `Error: ${call.argsError}. Re-call the tool with valid JSON arguments.`
         sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })
         sendToolFinished({
+          id: call.id,
           toolName: toolShortName,
           serverName: call.name.split('__')[0] ?? '',
           args: call.arguments as Record<string, unknown>,
@@ -291,6 +302,7 @@ export async function runProviderMcpToolLoop(
         if (isNeverAllow) {
           toolResultContent = `Error: Tool "${toolShortName}" is not permitted by the task's tool policy (neverAllow).`
           const neverAllowPayload = {
+            id: call.id,
             toolName: toolShortName,
             serverName: call.name.split('__')[0] ?? '',
             args: call.arguments as Record<string, unknown>,
@@ -306,6 +318,7 @@ export async function runProviderMcpToolLoop(
           // Tool is not pre-approved and not an inline handler — block it
           toolResultContent = `Error: Tool "${toolShortName}" is not in the pre-approved list for this scheduled task. Add it to the task's tool policy to allow it.`
           const notApprovedPayload = {
+            id: call.id,
             toolName: toolShortName,
             serverName: call.name.split('__')[0] ?? '',
             args: call.arguments as Record<string, unknown>,
@@ -323,6 +336,7 @@ export async function runProviderMcpToolLoop(
         toolResultContent = `Error: Unknown tool "${call.name}"`
         sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })
         const unknownPayload = {
+          id: call.id,
           toolName: toolShortName,
           serverName: call.name.split('__')[0] ?? '',
           args: call.arguments as Record<string, unknown>,
@@ -338,6 +352,7 @@ export async function runProviderMcpToolLoop(
           ? (toolResult.result ?? '(no output)')
           : `Error: ${toolResult.error ?? 'Tool execution failed'}`
         const inlinePayload = {
+          id: call.id,
           toolName: call.name,
           serverName: 'Project Wiki',
           args: call.arguments as Record<string, unknown>,
@@ -369,6 +384,7 @@ export async function runProviderMcpToolLoop(
           toolImages = toolResult.images.map(img => ({ dataUrl: img.dataUrl }))
         }
         const mcpPayload = {
+          id: call.id,
           toolName: toolShortName,
           serverName,
           args: call.arguments as Record<string, unknown>,
@@ -415,7 +431,12 @@ export async function runProviderMcpToolLoop(
       // If text already streamed, surface the error rather than re-running the non-streaming
       // caller (which would duplicate the streamed text). If nothing streamed (e.g. the endpoint
       // rejected the request outright), fall through to the resilient non-streaming path.
-      if (streamedAny) throw err
+      // Once any terminal text was emitted, keep it as the completed response. Re-throwing here
+      // causes chat-handlers to persist only the transport error and makes a turn appear to stop
+      // halfway through, even though the renderer already received a usable partial answer.
+      if (streamedAny) return fullResponse
+      // No terminal text was emitted: let the resilient non-streaming fallback below retry
+      // endpoints that reject streaming outright.
     }
   }
 

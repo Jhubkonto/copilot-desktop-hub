@@ -19,6 +19,7 @@ import { safeHandle } from './safe-handle'
 import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
 import { requestApproval, denyPendingApprovalsForConversation } from './tools'
+import { cancelPendingUserInputsForConversation, requestUserInput, userInputQuestionsFromArgs } from './user-input'
 import { getAdapter } from './cli-adapters/registry'
 import { getSkillConfigsForAgent } from './skills'
 import { bridgeSkillsForCliRun, releaseBridgedSkills, type BridgedSkill } from './cli-skill-bridge'
@@ -42,6 +43,7 @@ import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
 import { ChatTurnEmitter } from './chat-turn-emitter'
+import type { ResolvedUserInput } from '../shared/chat-turn-types'
 import { endActivity } from './activity-tracker'
 import { clearActiveChatTurn } from './active-chat-turns'
 import { assertConversationStartsAllowed } from './emergency-stop'
@@ -107,6 +109,7 @@ function persistAssistantMessage(
   thinkingBlocks?: Map<string, ThinkingBlockEntry>,
   textSegments?: Map<string, ThinkingBlockEntry>,
   timestamp: number = Date.now(),
+  userInputs?: ResolvedUserInput[],
 ): string {
   const msgId = randomUUID()
   const thinkingJson = thinkingBlocks && thinkingBlocks.size > 0
@@ -119,8 +122,8 @@ function persistAssistantMessage(
     ? JSON.stringify(Array.from(textSegments.values()))
     : null
   db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks, text_segments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(msgId, conversationId, 'assistant', content, null, timestamp, model, thinkingJson, textSegmentsJson)
+    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks, text_segments, user_inputs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(msgId, conversationId, 'assistant', content, null, timestamp, model, thinkingJson, textSegmentsJson, userInputs?.length ? JSON.stringify(userInputs) : null)
   return msgId
 }
 
@@ -169,7 +172,7 @@ function buildToolHistoryDigest(historyMessages: { role: string; content: string
 export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
   const rows = (db.prepare(
-    `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
+    `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
        WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT 20`,
   ).all(conversationId) as unknown[]).reverse()
   broadcastToMobile({
@@ -616,6 +619,10 @@ export async function dispatchChatSend(
     broadcastMobile: broadcastToMobile,
   })
   turnEmitter.started()
+  const resolvedUserInputs: ResolvedUserInput[] = []
+  const collectResolvedUserInput = (request: ResolvedUserInput['request'], answers: ResolvedUserInput['answers']) => {
+    resolvedUserInputs.push({ request, answers })
+  }
 
   let latestContextEstimate: number | null = null
   let showContextEstimate = true
@@ -1366,6 +1373,7 @@ export async function dispatchChatSend(
         // tool_end the file is already mutated), keyed by resolved absolute path so it survives
         // multiple tool calls touching the same file within one turn.
         const cliFileContentBeforeEdit = new Map<string, string | null>()
+        const userInputToolIds = new Set<string>()
         const recordCliFileEditAudit = (absPath: string, before: string | null) => {
           try {
             if (!existsSync(absPath)) return
@@ -1395,6 +1403,7 @@ export async function dispatchChatSend(
         if (activeCliAbortControllers.has(conversationId)) {
           abortActiveStream(conversationId)
           denyPendingApprovalsForConversation(conversationId)
+          cancelPendingUserInputsForConversation(conversationId, 'Replaced by a new turn')
         }
         assertConversationStartsAllowed()
         const cliAbortController = new AbortController()
@@ -1470,11 +1479,20 @@ export async function dispatchChatSend(
                   conversationId,
                 )
               : undefined,
+            requestUserInput: effectiveBackend === 'codex-cli' && effectiveCodexExecutionMode === 'plan'
+              ? (questions) => requestUserInput(turnEmitter, 'codex', questions, collectResolvedUserInput)
+              : effectiveBackend === 'claude-cli'
+              ? (questions) => requestUserInput(turnEmitter, 'claude', questions, collectResolvedUserInput)
+              : undefined,
           },
           cliSendChunk,
           (event) => {
             if (window.webContents.isDestroyed()) return
             if (event.type === 'tool_start') {
+              if (event.name === 'mcp__nexy_user_input__ask_user' || event.name.endsWith('nexy_user_input.ask_user')) {
+                userInputToolIds.add(event.id)
+                return
+              }
               debugLog('chat', `cli-tool-start: id=${event.id} name=${event.name}`)
               pendingTools.set(event.id, { name: event.name, input: event.input, startTime: nextOccurrenceAt() })
               if (isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli' | 'hermes-cli', event.name)) {
@@ -1492,6 +1510,7 @@ export async function dispatchChatSend(
                 serverName: effectiveBackend,
               })
             } else if (event.type === 'tool_end') {
+              if (userInputToolIds.delete(event.id)) return
               debugLog('chat', `cli-tool-end: id=${event.id} isError=${event.isError} resultLen=${event.content.length}`)
               const pending = pendingTools.get(event.id)
               if (pending) {
@@ -1569,6 +1588,7 @@ export async function dispatchChatSend(
           cliThinkingBuffer,
           cliTextBuffer,
           nextOccurrenceAt(),
+          resolvedUserInputs,
         )
         if (finalizedPlan) {
           saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
@@ -1742,13 +1762,59 @@ export async function dispatchChatSend(
       },
     }
   })
-  toolDefs.push(...wikiToolDefs, ...fileToolDefs, ...skillToolDefs, ...planToolDefs)
+  const userInputToolDef = {
+    type: 'function' as const,
+    function: {
+      name: 'nexy_ask_user',
+      description: 'Ask the user one or more necessary clarification questions and wait for their answers before continuing.',
+      parameters: {
+        type: 'object',
+        required: ['questions'],
+        properties: {
+          questions: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              required: ['id', 'prompt'],
+              properties: {
+                id: { type: 'string' },
+                header: { type: 'string' },
+                prompt: { type: 'string' },
+                selection: { type: 'string', enum: ['single', 'multiple'] },
+                allowFreeText: { type: 'boolean' },
+                options: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['id', 'label'],
+                    properties: {
+                      id: { type: 'string' },
+                      label: { type: 'string' },
+                      description: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+  toolDefs.push(...wikiToolDefs, ...fileToolDefs, ...skillToolDefs, ...planToolDefs, userInputToolDef)
   sendContextProgress(
     estimateInputTokens(chatMessages) + estimateInputTokens(toolDefs),
     'Context ready',
   )
 
   const inlineHandlers = new Map([...wikiInlineHandlers, ...fileInlineHandlers, ...skillInlineHandlers, ...planInlineHandlers])
+  inlineHandlers.set('nexy_ask_user', async (args) => {
+    const questions = userInputQuestionsFromArgs(args)
+    if (questions.length === 0) return { success: false, error: 'At least one valid question is required.' }
+    const answers = await requestUserInput(turnEmitter, 'byok', questions, collectResolvedUserInput)
+    return { success: true, result: JSON.stringify({ answers }) }
+  })
 
   const hasMcpTools = mcpTools.length > 0
   const hasWikiTools = wikiToolDefs.length > 0
@@ -1791,7 +1857,8 @@ export async function dispatchChatSend(
       'When the plan is complete, call the exit_plan_mode tool with the full plan as markdown to present it to the user for approval. ' +
       'Do not claim you have made changes — in plan mode you cannot. Only after the user approves your plan will editing tools become available.'
     : ''
-  const toolDirective = [browserDirective, wikiDirective, fileDirective, skillDirective, planDirective].filter(Boolean).join('\n\n')
+  const userInputDirective = 'You can call nexy_ask_user when essential information is missing and the answer is required to continue this same turn. Use it only for genuine clarification, not for rhetorical questions or optional follow-up offers.'
+  const toolDirective = [browserDirective, wikiDirective, fileDirective, skillDirective, planDirective, userInputDirective].filter(Boolean).join('\n\n')
 
   // Heuristic: when the user's message clearly asks for a file operation and file tools are
   // available, force the model to call a tool on the first iteration instead of leaving
@@ -1817,6 +1884,22 @@ export async function dispatchChatSend(
   const byokNextOccurrenceAt = (): number => {
     byokLastOccurrenceAt = Math.max(Date.now(), byokLastOccurrenceAt + 1)
     return byokLastOccurrenceAt
+  }
+  const byokTextBuffer = new Map<string, ThinkingBlockEntry>()
+  const byokSendChunk = (chunk: string, blockId?: string) => {
+    const event = turnEmitter.assistantTextDelta(chunk, blockId)
+    const resolvedBlockId = event.type === 'assistant_text_delta' ? event.blockId : undefined
+    if (!resolvedBlockId) return
+    const existing = byokTextBuffer.get(resolvedBlockId) ?? {
+      blockId: resolvedBlockId,
+      content: '',
+      done: false,
+      firstSeenAt: byokNextOccurrenceAt(),
+    }
+    byokTextBuffer.set(resolvedBlockId, {
+      ...existing,
+      content: existing.content + chunk,
+    })
   }
 
   let responseContent: string
@@ -1844,7 +1927,7 @@ export async function dispatchChatSend(
       generationOptions,
       conversationId,
       webContents: window.webContents,
-      sendChunk,
+      sendChunk: byokSendChunk,
       sendActivity,
       onModel: handleStreamModel,
       onUsage: (usage) => recordServerUsage(db, newUserMsgId, usage.inputTokens, usage.outputTokens),
@@ -1863,7 +1946,11 @@ export async function dispatchChatSend(
         turnEmitter.thinkingEnd(blockId)
       },
       onToolFinished: (event) => {
+        // The dedicated request/resolution events and cards are authoritative for this built-in;
+        // do not also expose or persist its answer JSON as a generic tool-call card.
+        if (event.toolName === 'nexy_ask_user') return
         turnEmitter.toolFinished({
+          id: event.id,
           toolName: event.toolName,
           serverName: event.serverName,
           args: event.args,
@@ -1871,6 +1958,12 @@ export async function dispatchChatSend(
           success: event.success,
           ...(event.resultImages?.length ? { resultImages: event.resultImages } : {}),
         })
+        // toolFinished closes the current response-text segment in the emitter. Mirror that
+        // boundary in the persisted buffer so the historical timeline can place narration
+        // before/after each BYOK tool call instead of collapsing everything into the final bubble.
+        for (const [blockId, block] of byokTextBuffer) {
+          if (!block.done) byokTextBuffer.set(blockId, { ...block, done: true })
+        }
         // Persist a durable, renderable tool-call row (parity with the CLI path's
         // persistCompletedCliToolCalls). Without this the live tool events vanish the moment the
         // client reloads history from the DB at end-of-turn — the reported "toolcalls disappeared"
@@ -1883,6 +1976,7 @@ export async function dispatchChatSend(
           'tool-call',
           JSON.stringify({
             __type: 'tool-call',
+            toolCallId: event.id,
             toolName: event.toolName,
             serverName: event.serverName,
             toolArgs: event.args,
@@ -1914,8 +2008,9 @@ export async function dispatchChatSend(
     db, conversationId, responseContent,
     capturedStreamModel ?? selectedModel ?? null,
     byokThinkingBuffer,
-    undefined,
+    byokTextBuffer,
     byokNextOccurrenceAt(),
+    resolvedUserInputs,
   )
   if (finalizedPlan) {
     saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
@@ -1963,6 +2058,7 @@ export function registerChatHandlers(): void {
     if (conversationId) {
       clearActiveChatTurn(conversationId)
       denyPendingApprovalsForConversation(conversationId)
+      cancelPendingUserInputsForConversation(conversationId)
     }
     return true
   })

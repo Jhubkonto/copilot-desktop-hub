@@ -819,7 +819,7 @@ describe('runProviderMcpToolLoop', () => {
     expect(caller).toHaveBeenLastCalledWith(expect.any(Array), undefined, 'none')
   })
 
-  it('does not fall back (avoiding duplicate text) when finalStreamCaller fails after emitting', async () => {
+  it('keeps partial text when finalStreamCaller fails after emitting', async () => {
     const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
       if (toolChoice === 'none') throw new Error('non-streaming final caller should not be used after partial stream')
       return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
@@ -831,7 +831,7 @@ describe('runProviderMcpToolLoop', () => {
       throw new Error('connection dropped mid-stream')
     })
 
-    await expect(runWithFinalStream(caller, onChunk, finalStreamCaller)).rejects.toThrow('connection dropped mid-stream')
+    await expect(runWithFinalStream(caller, onChunk, finalStreamCaller)).resolves.toBe('partial answer')
     expect(onChunk).toHaveBeenCalledWith('partial answer')
     // No fallback: the non-streaming forced-'none' call must not run (would duplicate the text).
     expect(caller).not.toHaveBeenCalledWith(expect.any(Array), undefined, 'none')

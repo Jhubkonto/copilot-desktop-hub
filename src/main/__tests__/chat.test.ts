@@ -177,6 +177,7 @@ vi.mock('../providers', () => ({
   getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-4o' })),
   getApiKey: vi.fn(() => 'test-key'),
   getOpenRouterModels: vi.fn(() => []),
+  toOpenAICompatibleMessages: vi.fn((messages) => messages),
   sendOpenAIMessage: vi.fn(async (_conversationId, _apiKey, _model, _messages, onChunk) => {
     onChunk('Hello')
     onChunk(' world')
@@ -232,6 +233,18 @@ describe('chat handlers', () => {
     vi.mocked(getMcpServerConfigsForCli).mockReturnValue([])
     vi.mocked(getApiKey).mockReturnValue('test-key')
     vi.mocked(runProviderMcpToolLoop).mockReset()
+    vi.mocked(runProviderMcpToolLoop).mockImplementation(async (...args) => {
+      const onChunk = args[7]
+      const finalStreamCaller = args[19]
+      let response = ''
+      if (finalStreamCaller) {
+        await finalStreamCaller(args[1], (chunk) => {
+          response += chunk
+          onChunk(chunk)
+        })
+      }
+      return response
+    })
     vi.mocked(requestApproval).mockResolvedValue(false)
     state.recordProjectAuditChange.mockClear()
     registerChatHandlers()
@@ -262,7 +275,7 @@ describe('chat handlers', () => {
       data: expect.objectContaining({
         conversationId: 'conv-1',
         state: 'thinking',
-        label: expect.stringMatching(/^Generating response · ~[\d,]+ tokens$/),
+        label: expect.stringMatching(/^Contacting model · ~[\d,]+ tokens$/),
       }),
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
