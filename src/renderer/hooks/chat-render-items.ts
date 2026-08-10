@@ -1,11 +1,12 @@
 import type { ChatMessage } from './chat-types'
-import type { ChatTurnState, ChatTurnThinkingBlock, ChatTurnToolCall } from './chat-turn-reducer'
+import type { ChatTurnState, ChatTurnThinkingBlock, ChatTurnToolCall, ChatTurnUserInput } from './chat-turn-reducer'
 
 export type ChatRenderItem =
   | { type: 'historical-message'; id: string; message: ChatMessage; index: number }
   | { type: 'historical-tool-group'; id: string; message: ChatMessage; toolCalls: ChatMessage[]; index: number }
   | { type: 'live-thinking-block'; id: string; block: ChatTurnThinkingBlock }
   | { type: 'live-tool-call'; id: string; toolCall: ChatTurnToolCall }
+  | { type: 'live-user-input'; id: string; userInput: ChatTurnUserInput }
   | { type: 'live-text-segment'; id: string; text: string }
   | { type: 'live-assistant-text'; id: string; text: string; model: string | null }
   | { type: 'live-activity'; id: string; label: string; state: string; toolName?: string; serverName?: string }
@@ -93,6 +94,7 @@ export function buildChatRenderItems(
     | { type: 'live-thinking-block'; id: string; block: ChatTurnThinkingBlock; seq: number }
     | { type: 'live-tool-call'; id: string; toolCall: ChatTurnToolCall; seq: number }
     | { type: 'live-text-segment'; id: string; block: ChatTurnThinkingBlock; seq: number }
+    | { type: 'live-user-input'; id: string; userInput: ChatTurnUserInput; seq: number }
   > = []
 
   for (const block of liveTurnState.thinkingBlocks.values()) {
@@ -129,14 +131,25 @@ export function buildChatRenderItems(
     }
   })
 
+  for (const userInput of liveTurnState.userInputs.values()) {
+    liveThinkingAndTools.push({
+      type: 'live-user-input',
+      id: `live-user-input-${userInput.request.requestId}`,
+      userInput,
+      seq: userInput.firstSeenSequence,
+    })
+  }
+
   liveThinkingAndTools.sort((a, b) => a.seq - b.seq)
   for (const item of liveThinkingAndTools) {
     if (item.type === 'live-thinking-block') {
       items.push({ type: 'live-thinking-block', id: item.id, block: item.block })
     } else if (item.type === 'live-text-segment') {
       items.push({ type: 'live-text-segment', id: item.id, text: item.block.content })
-    } else {
+    } else if (item.type === 'live-tool-call') {
       items.push({ type: 'live-tool-call', id: item.id, toolCall: item.toolCall })
+    } else {
+      items.push({ type: 'live-user-input', id: item.id, userInput: item.userInput })
     }
   }
 
@@ -203,6 +216,8 @@ function describeRenderItemForLog(item: ChatRenderItem): string {
       return `text-seg("${preview(item.text)}")`
     case 'live-tool-call':
       return `tool(${item.toolCall.toolName}${item.toolCall.inProgress ? '…' : ''})`
+    case 'live-user-input':
+      return `user-input(${item.userInput.status})`
     case 'live-assistant-text':
       return `live-text("${preview(item.text)}")`
     case 'live-activity':

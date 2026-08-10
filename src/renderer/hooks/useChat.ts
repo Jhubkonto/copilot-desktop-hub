@@ -238,6 +238,10 @@ export function useChat({
                   base.textSegments = new Map(segments.map((s) => [s.blockId, s]))
                 } catch { /* malformed — ignore */ }
               }
+              if (message.role === 'assistant' && message.user_inputs) {
+                try { base.userInputs = JSON.parse(message.user_inputs) }
+                catch { /* malformed — ignore */ }
+              }
               if (message.role === 'tool-call') {
                 try {
                   const parsed = JSON.parse(message.content) as Record<string, unknown>
@@ -345,6 +349,10 @@ export function useChat({
               const segments = JSON.parse(message.text_segments) as Array<{ blockId: string; content: string; done: boolean; firstSeenAt?: number }>
               base.textSegments = new Map(segments.map((s) => [s.blockId, s]))
             } catch { /* malformed — ignore */ }
+          }
+          if (message.role === 'assistant' && message.user_inputs) {
+            try { base.userInputs = JSON.parse(message.user_inputs) }
+            catch { /* malformed — ignore */ }
           }
           if (message.role === 'tool-call') {
             try {

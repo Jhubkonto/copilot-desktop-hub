@@ -9,6 +9,7 @@ import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { ThinkingBlock } from './ThinkingBlock'
 import { CodexActionLine } from './CodexActionLine'
+import { UserInputCard } from './UserInputCard'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import { getSupersededPendingArtifactMessageIds, parseArtifactReference } from '../artifacts/artifactReferences'
 import type { ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
@@ -638,6 +639,16 @@ export function ChatMessagesBase({
                   })}
                 </div>
               )}
+              {main.userInputs?.map((entry) => (
+                <div key={entry.request.requestId} className="mb-2 max-w-3xl mx-auto">
+                  <UserInputCard userInput={{
+                    request: entry.request,
+                    answers: entry.answers,
+                    status: 'resolved',
+                    firstSeenSequence: 0,
+                  }} />
+                </div>
+              ))}
               <MessageBubble
                 id={main.id}
                 role={main.role as 'user' | 'assistant' | 'system'}
@@ -767,6 +778,13 @@ export function ChatMessagesBase({
                         onUseImageAsContext={onUseImageAsContext}
                       />
                     )}
+                  </TimelineEntry>
+                )
+              }
+              if (item.type === 'live-user-input') {
+                return (
+                  <TimelineEntry key={item.id} colorClass={item.userInput.status === 'pending' ? 'bg-blue-500' : 'bg-green-500'} pulse={item.userInput.status === 'pending'}>
+                    <UserInputCard userInput={item.userInput} />
                   </TimelineEntry>
                 )
               }
