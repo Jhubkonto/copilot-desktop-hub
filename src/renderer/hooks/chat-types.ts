@@ -68,6 +68,7 @@ export interface ChatMessage {
   // `content` remains the full concatenated text regardless. Undefined/empty when the
   // reply text was never interrupted (the common case).
   textSegments?: Map<string, { blockId: string; content: string; done: boolean; firstSeenAt?: number }>
+  userInputs?: import('../../shared/chat-turn-types').ResolvedUserInput[]
   // True for a text segment optimistically promoted into `messages` mid-turn (as soon as
   // it closes) so it interleaves with tool-call messages in true chronological order
   // instead of staying stuck in the live-only render area until the whole turn settles.

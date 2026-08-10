@@ -12,6 +12,23 @@ function event(overrides: Partial<ChatTurnEvent> & { type: ChatTurnEvent['type']
 }
 
 describe('chatTurnReducer', () => {
+  it('keeps a structured question in sequence through resolution', () => {
+    let state = createEmptyChatTurnState('conv-1')
+    state = chatTurnReducer(state, event({ type: 'turn_started', sequence: 1 }))
+    state = chatTurnReducer(state, event({
+      type: 'user_input_requested', sequence: 2,
+      request: {
+        requestId: 'request-1', conversationId: 'conv-1', turnId: 'turn-1', source: 'byok',
+        questions: [{ id: 'q', prompt: 'Choose', selection: 'single', allowFreeText: true }],
+      },
+    }))
+    expect(state.userInputs.get('request-1')?.status).toBe('pending')
+    state = chatTurnReducer(state, event({
+      type: 'user_input_resolved', sequence: 3, requestId: 'request-1',
+      answers: [{ questionId: 'q', selectedOptionIds: [], text: 'Custom' }],
+    }))
+    expect(state.userInputs.get('request-1')).toMatchObject({ status: 'resolved', answers: [{ text: 'Custom' }] })
+  })
   it('starts a turn and accumulates assistant text deltas in sequence order', () => {
     let state = createEmptyChatTurnState('conv-1')
     state = chatTurnReducer(state, event({ type: 'turn_started', sequence: 1 }))

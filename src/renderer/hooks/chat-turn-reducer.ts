@@ -1,4 +1,4 @@
-import type { ChatTurnEvent } from '../../shared/chat-turn-types'
+import type { ChatTurnEvent, UserInputAnswer, UserInputRequest } from '../../shared/chat-turn-types'
 import type { CliCostSummary, StreamError } from './chat-types'
 
 export type ChatTurnStatus = 'idle' | 'active' | 'streaming' | 'completed' | 'failed'
@@ -33,6 +33,14 @@ export interface ChatTurnActivity {
   serverName?: string
 }
 
+export interface ChatTurnUserInput {
+  request: UserInputRequest
+  status: 'pending' | 'resolved' | 'cancelled'
+  answers?: UserInputAnswer[]
+  reason?: string
+  firstSeenSequence: number
+}
+
 export interface ChatTurnState {
   conversationId: string | null
   turnId: string | null
@@ -47,6 +55,7 @@ export interface ChatTurnState {
   // reflects the full reply either way.
   textBlocks: Map<string, ChatTurnThinkingBlock>
   toolCalls: ChatTurnToolCall[]
+  userInputs: Map<string, ChatTurnUserInput>
   activity: ChatTurnActivity | null
   cost: CliCostSummary | null
   model: string | null
@@ -64,6 +73,7 @@ export function createEmptyChatTurnState(conversationId: string | null = null): 
     pendingThinkingEnds: new Set(),
     textBlocks: new Map(),
     toolCalls: [],
+    userInputs: new Map(),
     activity: null,
     cost: null,
     model: null,
@@ -190,6 +200,45 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
           firstSeenSequence: event.sequence,
         }),
       }
+
+    case 'user_input_requested':
+      return {
+        ...base,
+        status: 'active',
+        userInputs: new Map(state.userInputs).set(event.request.requestId, {
+          request: event.request,
+          status: 'pending',
+          firstSeenSequence: event.sequence,
+        }),
+        activity: { state: 'approval', label: 'Waiting for your answer' },
+      }
+
+    case 'user_input_resolved': {
+      const existing = state.userInputs.get(event.requestId)
+      if (!existing) return base
+      return {
+        ...base,
+        userInputs: new Map(state.userInputs).set(event.requestId, {
+          ...existing,
+          status: 'resolved',
+          answers: event.answers,
+        }),
+        activity: { state: 'thinking', label: 'Processing your answer' },
+      }
+    }
+
+    case 'user_input_cancelled': {
+      const existing = state.userInputs.get(event.requestId)
+      if (!existing) return base
+      return {
+        ...base,
+        userInputs: new Map(state.userInputs).set(event.requestId, {
+          ...existing,
+          status: 'cancelled',
+          reason: event.reason,
+        }),
+      }
+    }
 
     case 'activity_changed':
       return {

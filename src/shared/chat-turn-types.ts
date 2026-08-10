@@ -7,6 +7,9 @@ export type ChatTurnEventType =
   | 'thinking_done'
   | 'tool_started'
   | 'tool_finished'
+  | 'user_input_requested'
+  | 'user_input_resolved'
+  | 'user_input_cancelled'
   | 'activity_changed'
   | 'cost_updated'
   | 'model_changed'
@@ -79,6 +82,60 @@ export interface ChatToolFinishedEvent extends ChatTurnEventBase {
   resultImages?: { dataUrl: string }[]
 }
 
+export type UserInputSource = 'codex' | 'claude' | 'byok'
+export type UserInputSelection = 'single' | 'multiple'
+
+export interface UserInputOption {
+  id: string
+  label: string
+  description?: string
+}
+
+export interface UserInputQuestion {
+  id: string
+  header?: string
+  prompt: string
+  options?: UserInputOption[]
+  selection: UserInputSelection
+  allowFreeText: boolean
+}
+
+export interface UserInputAnswer {
+  questionId: string
+  selectedOptionIds: string[]
+  text?: string
+}
+
+export interface UserInputRequest {
+  requestId: string
+  conversationId: string
+  turnId: string
+  source: UserInputSource
+  questions: UserInputQuestion[]
+}
+
+export interface ResolvedUserInput {
+  request: UserInputRequest
+  answers: UserInputAnswer[]
+}
+
+export interface ChatUserInputRequestedEvent extends ChatTurnEventBase {
+  type: 'user_input_requested'
+  request: UserInputRequest
+}
+
+export interface ChatUserInputResolvedEvent extends ChatTurnEventBase {
+  type: 'user_input_resolved'
+  requestId: string
+  answers: UserInputAnswer[]
+}
+
+export interface ChatUserInputCancelledEvent extends ChatTurnEventBase {
+  type: 'user_input_cancelled'
+  requestId: string
+  reason: string
+}
+
 export interface ChatActivityChangedEvent extends ChatTurnEventBase {
   type: 'activity_changed'
   state: ChatActivityState
@@ -125,6 +182,9 @@ export type ChatTurnEvent =
   | ChatThinkingDoneEvent
   | ChatToolStartedEvent
   | ChatToolFinishedEvent
+  | ChatUserInputRequestedEvent
+  | ChatUserInputResolvedEvent
+  | ChatUserInputCancelledEvent
   | ChatActivityChangedEvent
   | ChatCostUpdatedEvent
   | ChatModelChangedEvent
