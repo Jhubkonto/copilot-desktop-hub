@@ -44,6 +44,24 @@ data class ChatTurnError(
     val retryAfterSeconds: Int? = null,
 )
 
+data class UserInputOption(val id: String, val label: String, val description: String? = null)
+data class UserInputQuestion(
+    val id: String,
+    val header: String? = null,
+    val prompt: String,
+    val options: List<UserInputOption> = emptyList(),
+    val selection: String = "single",
+    val allowFreeText: Boolean = true,
+)
+data class UserInputAnswer(val questionId: String, val selectedOptionIds: List<String>, val text: String? = null)
+data class ChatTurnUserInput(
+    val requestId: String,
+    val questions: List<UserInputQuestion>,
+    val status: String = "pending",
+    val answers: List<UserInputAnswer> = emptyList(),
+    val reason: String? = null,
+)
+
 // One entry in a turn's true chronological order — text/thinking bursts and tool calls,
 // interleaved the way they actually happened, keyed by blockId (text/thinking) or id (tool
 // call) so a later event for the same entry updates it in place instead of appending a
@@ -54,6 +72,7 @@ sealed class ChatTurnItem {
     data class TextSegment(val blockId: String, val content: String, val done: Boolean) : ChatTurnItem()
     data class Thinking(val blockId: String, val content: String, val done: Boolean) : ChatTurnItem()
     data class ToolCall(val id: String, val call: ChatTurnToolCall) : ChatTurnItem()
+    data class UserInput(val input: ChatTurnUserInput) : ChatTurnItem()
 }
 
 data class ChatTurnState(
@@ -225,6 +244,65 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
             )
         }
 
+        "user_input_requested" -> {
+            val request = payload.optJSONObject("request")
+            val requestId = request?.optString("requestId").orEmpty()
+            val rawQuestions = request?.optJSONArray("questions") ?: JSONArray()
+            val questions = (0 until rawQuestions.length()).mapNotNull { index ->
+                val raw = rawQuestions.optJSONObject(index) ?: return@mapNotNull null
+                val id = raw.optString("id")
+                val prompt = raw.optString("prompt")
+                if (id.isBlank() || prompt.isBlank()) return@mapNotNull null
+                val rawOptions = raw.optJSONArray("options") ?: JSONArray()
+                UserInputQuestion(
+                    id = id,
+                    header = raw.nullableString("header"),
+                    prompt = prompt,
+                    options = (0 until rawOptions.length()).mapNotNull { optionIndex ->
+                        val option = rawOptions.optJSONObject(optionIndex) ?: return@mapNotNull null
+                        val optionId = option.optString("id")
+                        val label = option.optString("label")
+                        if (optionId.isBlank() || label.isBlank()) null
+                        else UserInputOption(optionId, label, option.nullableString("description"))
+                    },
+                    selection = raw.optString("selection", "single"),
+                    allowFreeText = raw.optBoolean("allowFreeText", true),
+                )
+            }
+            if (requestId.isBlank() || questions.isEmpty()) base else base.copy(
+                status = ChatTurnStatus.Active,
+                timeline = state.timeline.upsertUserInput(ChatTurnUserInput(requestId, questions)),
+                activity = ChatTurnActivity("approval", "Waiting for your answer"),
+            )
+        }
+
+        "user_input_resolved" -> {
+            val requestId = payload.optString("requestId")
+            val rawAnswers = payload.optJSONArray("answers") ?: JSONArray()
+            val answers = (0 until rawAnswers.length()).mapNotNull { index ->
+                val raw = rawAnswers.optJSONObject(index) ?: return@mapNotNull null
+                val questionId = raw.optString("questionId")
+                if (questionId.isBlank()) return@mapNotNull null
+                val selected = raw.optJSONArray("selectedOptionIds") ?: JSONArray()
+                UserInputAnswer(
+                    questionId,
+                    (0 until selected.length()).mapNotNull { selected.optString(it).takeIf(String::isNotBlank) },
+                    raw.nullableString("text"),
+                )
+            }
+            base.copy(
+                timeline = state.timeline.updateUserInput(requestId) { it.copy(status = "resolved", answers = answers) },
+                activity = ChatTurnActivity("thinking", "Processing your answer"),
+            )
+        }
+
+        "user_input_cancelled" -> {
+            val requestId = payload.optString("requestId")
+            base.copy(timeline = state.timeline.updateUserInput(requestId) {
+                it.copy(status = "cancelled", reason = payload.optString("reason", "Cancelled"))
+            })
+        }
+
         "activity_changed" -> base.copy(
             activity = ChatTurnActivity(
                 state = payload.optString("state", "thinking"),
@@ -311,10 +389,26 @@ private fun List<ChatTurnItem>.upsertToolCallItem(id: String, call: ChatTurnTool
     return if (index >= 0) toMutableList().also { it[index] = item } else this + item
 }
 
+private fun List<ChatTurnItem>.upsertUserInput(input: ChatTurnUserInput): List<ChatTurnItem> {
+    val item = ChatTurnItem.UserInput(input)
+    val index = indexOfFirst { it is ChatTurnItem.UserInput && it.input.requestId == input.requestId }
+    return if (index >= 0) toMutableList().also { it[index] = item } else this + item
+}
+
+private fun List<ChatTurnItem>.updateUserInput(requestId: String, update: (ChatTurnUserInput) -> ChatTurnUserInput): List<ChatTurnItem> {
+    val index = indexOfFirst { it is ChatTurnItem.UserInput && it.input.requestId == requestId }
+    if (index < 0) return this
+    return toMutableList().also { list ->
+        val item = list[index] as ChatTurnItem.UserInput
+        list[index] = ChatTurnItem.UserInput(update(item.input))
+    }
+}
+
 private fun ChatTurnItem.markDone(): ChatTurnItem = when (this) {
     is ChatTurnItem.TextSegment -> copy(done = true)
     is ChatTurnItem.Thinking -> copy(done = true)
     is ChatTurnItem.ToolCall -> this
+    is ChatTurnItem.UserInput -> this
 }
 
 private fun JSONObject.nullableString(key: String): String? =

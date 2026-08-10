@@ -97,6 +97,10 @@ sealed class ChatRenderItem {
         override val key: String get() = "live_activity"
     }
 
+    data class UserInputCard(val input: ChatTurnUserInput) : ChatRenderItem() {
+        override val key: String get() = "user_input_${input.requestId}"
+    }
+
     data class ArtifactCard(
         val ref: ArtifactRef,
         val messageId: String,
@@ -189,6 +193,9 @@ fun buildChatRenderItems(
             for (tc in pendingToolCalls) {
                 entries.add(Entry(tc.timestamp) { result.add(ChatRenderItem.ToolCall(tc, toolCallListIdx++)) })
             }
+            for (input in msg.userInputs) {
+                entries.add(Entry(Long.MAX_VALUE - 1) { result.add(ChatRenderItem.UserInputCard(input)) })
+            }
             entries.sortBy { it.ts }
             for (entry in entries) entry.add()
 
@@ -257,6 +264,7 @@ fun buildActiveTurnRenderItems(turn: ChatTurnState): List<ChatRenderItem> {
                 ),
                 listIndex = index,
             )
+            is ChatTurnItem.UserInput -> result += ChatRenderItem.UserInputCard(item.input)
         }
     }
     if (turn.status == ChatTurnStatus.Active) {

@@ -70,6 +70,7 @@ data class ChatMessage(
     // to interleave earlier narration with the tool calls it surrounded, the same way
     // thinkingBlocks are. `text` remains the full concatenated content regardless.
     val textSegments: List<ThinkingBlock> = emptyList(),
+    val userInputs: List<ChatTurnUserInput> = emptyList(),
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val toolCalls: List<ChatMessage> = emptyList(),

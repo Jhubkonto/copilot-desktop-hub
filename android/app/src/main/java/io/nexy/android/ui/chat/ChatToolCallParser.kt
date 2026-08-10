@@ -74,6 +74,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             attachments = attachments,
             thinkingBlocks = thinkingBlocks,
             textSegments = textSegments,
+            userInputs = userInputs,
             model = model,
         )
     }

@@ -1709,6 +1709,7 @@ fun ChatScreen(
                                 is ChatRenderItem.ArtifactCard -> 5
                                 is ChatRenderItem.ThinkingBlockItem -> 6
                                 is ChatRenderItem.TextSegmentItem -> "text-segment:${item.key}"
+                                is ChatRenderItem.UserInputCard -> 7
                             }
                         },
                     ) { item ->
@@ -1789,6 +1790,13 @@ fun ChatScreen(
                                 ChatTimelineGroup {
                                     ChatTimelineEntry(beadColor = if (isTool) Blue500 else Gray400, pulse = true) {
                                         ThinkingBubble(item.activity, item.generationStartedAt)
+                                    }
+                                }
+                            }
+                            is ChatRenderItem.UserInputCard -> {
+                                ChatTimelineGroup {
+                                    ChatTimelineEntry(beadColor = Blue500, pulse = item.input.status == "pending") {
+                                        UserInputCard(item.input)
                                     }
                                 }
                             }
