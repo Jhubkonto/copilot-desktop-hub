@@ -2479,6 +2479,22 @@ object WsRepository : WsClient {
     fun listCodeChangeRepos(workspaceRoot: String) {
         send("project-git:list-repos", mapOf("workspaceRoot" to workspaceRoot))
     }
+
+    fun respondToUserInput(requestId: String, answers: List<io.nexy.android.ui.chat.UserInputAnswer>) {
+        sendOrQueue(
+            "chat:user-input-response",
+            mapOf(
+                "requestId" to requestId,
+                "answers" to answers.map { answer ->
+                    buildMap<String, Any> {
+                        put("questionId", answer.questionId)
+                        put("selectedOptionIds", answer.selectedOptionIds)
+                        answer.text?.takeIf { it.isNotBlank() }?.let { put("text", it) }
+                    }
+                },
+            ),
+        )
+    }
     fun listCodeChangeChangedFiles(repoRoot: String, seq: Int = 0) {
         send("project-git:list-changed-files", mapOf("repoRoot" to repoRoot, "seq" to seq))
     }

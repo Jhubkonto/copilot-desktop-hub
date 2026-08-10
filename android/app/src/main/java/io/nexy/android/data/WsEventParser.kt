@@ -106,6 +106,59 @@ internal fun mergeConversationPage(
     return existing.map { incomingById[it.id] ?: it } + incoming.filterNot { it.id in existingIds }
 }
 
+private fun parseResolvedUserInputs(raw: String?): List<io.nexy.android.ui.chat.ChatTurnUserInput> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val entries = JSONArray(raw)
+        (0 until entries.length()).mapNotNull { index ->
+            val entry = entries.optJSONObject(index) ?: return@mapNotNull null
+            val request = entry.optJSONObject("request") ?: return@mapNotNull null
+            val requestId = request.optString("requestId")
+            val rawQuestions = request.optJSONArray("questions") ?: JSONArray()
+            val questions = (0 until rawQuestions.length()).mapNotNull questions@{ questionIndex ->
+                val question = rawQuestions.optJSONObject(questionIndex) ?: return@questions null
+                val id = question.optString("id")
+                val prompt = question.optString("prompt")
+                if (id.isBlank() || prompt.isBlank()) return@questions null
+                val rawOptions = question.optJSONArray("options") ?: JSONArray()
+                io.nexy.android.ui.chat.UserInputQuestion(
+                    id = id,
+                    header = question.nullableString("header"),
+                    prompt = prompt,
+                    options = (0 until rawOptions.length()).mapNotNull options@{ optionIndex ->
+                        val option = rawOptions.optJSONObject(optionIndex) ?: return@options null
+                        val optionId = option.optString("id")
+                        val label = option.optString("label")
+                        if (optionId.isBlank() || label.isBlank()) null else io.nexy.android.ui.chat.UserInputOption(
+                            optionId, label, option.nullableString("description"),
+                        )
+                    },
+                    selection = question.optString("selection", "single"),
+                    allowFreeText = question.optBoolean("allowFreeText", true),
+                )
+            }
+            val rawAnswers = entry.optJSONArray("answers") ?: JSONArray()
+            val answers = (0 until rawAnswers.length()).mapNotNull answers@{ answerIndex ->
+                val answer = rawAnswers.optJSONObject(answerIndex) ?: return@answers null
+                val questionId = answer.optString("questionId")
+                if (questionId.isBlank()) return@answers null
+                val rawSelected = answer.optJSONArray("selectedOptionIds") ?: JSONArray()
+                io.nexy.android.ui.chat.UserInputAnswer(
+                    questionId,
+                    (0 until rawSelected.length()).mapNotNull { rawSelected.optString(it).takeIf(String::isNotBlank) },
+                    answer.nullableString("text"),
+                )
+            }
+            if (requestId.isBlank() || questions.isEmpty()) null else io.nexy.android.ui.chat.ChatTurnUserInput(
+                requestId = requestId,
+                questions = questions,
+                status = "resolved",
+                answers = answers,
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
 internal fun isOversizedSyncEvent(text: String, maxChars: Int = MAX_SYNC_EVENT_CHARS): Boolean {
     if (text.length <= maxChars) return false
     val envelopePrefix = text.take(512)
@@ -689,6 +742,7 @@ fun parseWsEvent(
                         attachments = attachmentsFromJson(m.nullableString("attachments")),
                         thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
                         textSegments = parseThinkingBlocks(m.nullableString("text_segments")),
+                        userInputs = parseResolvedUserInputs(m.nullableString("user_inputs")),
                         model = m.nullableString("model"),
                     )
                 }
@@ -726,6 +780,7 @@ fun parseWsEvent(
                         attachments = attachmentsFromJson(m.nullableString("attachments")),
                         thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
                         textSegments = parseThinkingBlocks(m.nullableString("text_segments")),
+                        userInputs = parseResolvedUserInputs(m.nullableString("user_inputs")),
                         model = m.nullableString("model"),
                     )
                 }

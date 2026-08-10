@@ -672,6 +672,7 @@ data class HistoryMessage(
     // remains the full concatenated text regardless; this is purely a rendering aid for
     // interleaving with tool-call messages, mirroring desktop's text_segments column.
     val textSegments: List<ThinkingBlock> = emptyList(),
+    val userInputs: List<io.nexy.android.ui.chat.ChatTurnUserInput> = emptyList(),
     val model: String? = null,
 )
 
