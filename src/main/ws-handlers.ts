@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { listConversationPage } from './conversation-pagination'
 import type { ConversationPageRequest } from '../shared/types'
+import type { UserInputAnswer, UserInputRequest } from '../shared/chat-turn-types'
 import { createHash, randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
@@ -160,11 +161,19 @@ import {
 // Filled in by tools.ts after registration to avoid a circular import
 let resolveApprovalFn: ((requestId: string, approved: boolean) => boolean) | null = null
 let approveConversationApprovalsFn: ((conversationId: string) => void) | null = null
+let resolveUserInputFn: ((requestId: string, answers: UserInputAnswer[]) => boolean) | null = null
+let getPendingUserInputsFn: ((conversationId?: string) => UserInputRequest[]) | null = null
 export function registerApprovalResolver(fn: (requestId: string, approved: boolean) => boolean): void {
   resolveApprovalFn = fn
 }
 export function registerConversationApprovalEscalator(fn: (conversationId: string) => void): void {
   approveConversationApprovalsFn = fn
+}
+export function registerUserInputResolver(fn: (requestId: string, answers: UserInputAnswer[]) => boolean): void {
+  resolveUserInputFn = fn
+}
+export function registerPendingUserInputProvider(fn: (conversationId?: string) => UserInputRequest[]): void {
+  getPendingUserInputsFn = fn
 }
 
 const MAX_MOBILE_ATTACHMENT_BYTES = 20 * 1024 * 1024
@@ -463,6 +472,23 @@ export function registerWsHandlers(): void {
       } catch (error) {
         reply({ event: 'project-git:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
+      return
+    }
+
+    if (command === 'chat:user-input-response') {
+      const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+      const answers = Array.isArray(data.answers) ? data.answers as UserInputAnswer[] : []
+      const accepted = resolveUserInputFn?.(requestId, answers) ?? false
+      reply({ event: 'chat:user-input-response-result', data: { requestId, accepted } })
+      return
+    }
+
+    if (command === 'chat:get-pending-user-inputs') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : undefined
+      reply({
+        event: 'chat:pending-user-inputs',
+        data: { requests: getPendingUserInputsFn?.(conversationId) ?? [] },
+      })
       return
     }
 
@@ -1206,12 +1232,12 @@ export function registerWsHandlers(): void {
         const beforeId = typeof data.beforeId === 'string' ? data.beforeId : null
         const descendingRows = beforeTimestamp != null && beforeId != null
           ? db.prepare(
-            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
+            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
                WHERE conversation_id = ? AND (timestamp < ? OR (timestamp = ? AND id < ?))
                ORDER BY timestamp DESC, id DESC LIMIT ?`
           ).all(conversationId, beforeTimestamp, beforeTimestamp, beforeId, limit + 1)
           : db.prepare(
-            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
+            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
                WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`
           ).all(conversationId, limit + 1)
         const hasMore = descendingRows.length > limit
@@ -1292,7 +1318,7 @@ export function registerWsHandlers(): void {
         return
       }
       const rows = db.prepare(
-        `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments FROM messages
+        `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
            WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`
       ).all(conversationId)
       reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })

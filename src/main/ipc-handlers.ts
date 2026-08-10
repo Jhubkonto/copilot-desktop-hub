@@ -10,6 +10,7 @@ import { registerAgentHandlers } from './agents'
 import { registerSkillHandlers } from './skills'
 import { registerKnowledgeHandlers } from './knowledge'
 import { registerToolHandlers } from './tools'
+import { registerUserInputHandlers } from './user-input'
 import { registerMcpHandlers, initDesktopNavigatorMcp } from './mcp'
 import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
@@ -60,6 +61,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSkillHandlers()
   registerKnowledgeHandlers()
   registerToolHandlers()
+  registerUserInputHandlers()
   registerMcpHandlers()
   if (mainWindow) {
     initDesktopNavigatorMcp(mainWindow)

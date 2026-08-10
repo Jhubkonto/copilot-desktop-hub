@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { ChatTurnEvent } from '../shared/chat-turn-types'
+import type { ChatTurnEvent, UserInputAnswer } from '../shared/chat-turn-types'
 import type {
   AndroidBuildCommandName,
   AndroidSigningConfig,
@@ -170,6 +170,10 @@ const api = {
       codexExecutionModeOverride?: import('../shared/types').CodexExecutionModeOverride | null
     }
   ) => typedInvoke('chat:send-message', conversationId, content, options),
+  getPendingUserInputs: (conversationId?: string) =>
+    typedInvoke('chat:get-pending-user-inputs', conversationId),
+  respondToUserInput: (requestId: string, answers: UserInputAnswer[]) =>
+    typedInvoke('chat:respond-user-input', requestId, answers),
   onStreamResponse: (callback: (chunk: string | null) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string | null) =>
       callback(chunk)

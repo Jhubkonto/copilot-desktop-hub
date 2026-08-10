@@ -1108,6 +1108,7 @@ export interface MessageRow {
   context_snapshot: string | null
   thinking_blocks: string | null
   text_segments: string | null
+  user_inputs: string | null
 }
 
 export interface ConversationExportAttachment {
@@ -1852,6 +1853,8 @@ export type IpcReturnMap = {
   // Chat
   'chat:new': void
   'chat:get-active-turn': import('./chat-turn-types').ActiveChatTurnSnapshot | null
+  'chat:get-pending-user-inputs': import('./chat-turn-types').UserInputRequest[]
+  'chat:respond-user-input': boolean
   'chat:send-message': void
   'chat:stop-generation': void
   'chat:get-emergency-stop': { active: boolean; activatedAt: number | null }
@@ -2338,6 +2341,8 @@ export type IpcChannels =
   | 'chat:wiki-injected'
   | 'chat:remote-message'
   | 'chat:get-active-turn'
+  | 'chat:get-pending-user-inputs'
+  | 'chat:respond-user-input'
   | 'clipboard:auto-focus'
   | 'clipboard:read-content'
   | 'clipboard:read-image'
