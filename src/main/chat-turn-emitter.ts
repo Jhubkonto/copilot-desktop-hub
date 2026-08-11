@@ -34,6 +34,13 @@ export interface ToolFinishedPayload {
   resultImages?: { dataUrl: string }[]
 }
 
+export interface ToolStartedPayload {
+  id: string
+  toolName: string
+  serverName?: string
+  args?: Record<string, unknown>
+}
+
 export class ChatTurnEmitter {
   readonly conversationId: string
   readonly turnId: string
@@ -186,6 +193,20 @@ export class ChatTurnEmitter {
     if (options.desktop !== false) this.sinks.sendDesktop?.('chat:tool-call-event', data)
     if (options.mobile !== false) this.sinks.broadcastMobile?.({ event: 'chat:tool-call-event', data })
     return event
+  }
+
+  /** Emits the same normalized start event used by CLI adapters. BYOK uses this before the
+   * provider/MCP call begins so a slow tool is visible as in progress instead of looking like a
+   * response that stopped after narration. */
+  toolStarted(payload: ToolStartedPayload): ChatTurnEvent {
+    this.closeOpenTextSegment()
+    return this.emit({
+      type: 'tool_started',
+      id: payload.id,
+      name: payload.toolName,
+      serverName: payload.serverName,
+      input: payload.args,
+    })
   }
 
   userInputRequested(request: UserInputRequest): ChatTurnEvent {

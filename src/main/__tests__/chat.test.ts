@@ -382,8 +382,21 @@ describe('chat handlers', () => {
       _autoApproveTools,
       _toolPolicy,
       onToolFinished,
+      _fullAutoApprove,
+      _forceFirstToolChoice,
+      _onUsage,
+      _finalStreamCaller,
+      onToolStarted,
     ) => {
+      onToolStarted?.({
+        id: 'call-1',
+        conversationId: 'conv-byok-tool',
+        toolName: 'browser_snapshot',
+        serverName: 'Browser',
+        args: { tab: 'active' },
+      })
       onToolFinished?.({
+        id: 'call-1',
         conversationId: 'conv-byok-tool',
         toolName: 'browser_snapshot',
         serverName: 'Browser',
@@ -409,6 +422,15 @@ describe('chat handlers', () => {
         success: true,
         turnId: expect.any(String),
         sequence: expect.any(Number),
+      }),
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:turn-event',
+      data: expect.objectContaining({
+        conversationId: 'conv-byok-tool',
+        type: 'tool_started',
+        id: 'call-1',
+        name: 'browser_snapshot',
       }),
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({

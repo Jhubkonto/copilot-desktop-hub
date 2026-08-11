@@ -115,10 +115,14 @@ function persistAssistantMessage(
   const thinkingJson = thinkingBlocks && thinkingBlocks.size > 0
     ? JSON.stringify(Array.from(thinkingBlocks.values()))
     : null
-  // Only worth persisting when there's more than one segment — a single segment means
-  // the response text was never interrupted by a tool call, so there's nothing to
-  // re-interleave and `content` alone (already the full text) covers it.
-  const textSegmentsJson = textSegments && textSegments.size > 1
+  // Normally a single segment needs no separate storage because `content` already contains the
+  // full response. Keep it when it was interrupted by a tool or reasoning block. Without this,
+  // narration such as "I’m about to edit the file" disappears into the final assistant bubble
+  // after reload even though it happened before the tool call.
+  const hasInterruptedTextSegment = textSegments
+    ? Array.from(textSegments.values()).some((segment) => segment.done)
+    : false
+  const textSegmentsJson = textSegments && textSegments.size > 0 && (textSegments.size > 1 || hasInterruptedTextSegment)
     ? JSON.stringify(Array.from(textSegments.values()))
     : null
   db.prepare(
@@ -173,7 +177,7 @@ export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
   const rows = (db.prepare(
     `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
-       WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT 20`,
+       WHERE conversation_id = ? ORDER BY timeline_order DESC, timestamp DESC, id DESC LIMIT 20`,
   ).all(conversationId) as unknown[]).reverse()
   broadcastToMobile({
     event: 'conversation:messages',
@@ -1886,6 +1890,11 @@ export async function dispatchChatSend(
     return byokLastOccurrenceAt
   }
   const byokTextBuffer = new Map<string, ThinkingBlockEntry>()
+  const closeByokTextSegments = () => {
+    for (const [blockId, block] of byokTextBuffer) {
+      if (!block.done) byokTextBuffer.set(blockId, { ...block, done: true })
+    }
+  }
   const byokSendChunk = (chunk: string, blockId?: string) => {
     const event = turnEmitter.assistantTextDelta(chunk, blockId)
     const resolvedBlockId = event.type === 'assistant_text_delta' ? event.blockId : undefined
@@ -1936,7 +1945,10 @@ export async function dispatchChatSend(
       fullAutoApprove: effectiveFullAutoApprove,
       forceFirstToolChoice,
       onThinkingChunk: (blockId, chunk) => {
-        const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false, firstSeenAt: Date.now() }
+        // Reasoning starts a new chronological segment too. Date.now() alone can tie with a
+        // text/tool event, which made the historical timeline depend on sort stability.
+        closeByokTextSegments()
+        const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false, firstSeenAt: byokNextOccurrenceAt() }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
         turnEmitter.thinkingDelta(blockId, chunk)
       },
@@ -1944,6 +1956,18 @@ export async function dispatchChatSend(
         const existing = byokThinkingBuffer.get(blockId)
         if (existing) byokThinkingBuffer.set(blockId, { ...existing, done: true })
         turnEmitter.thinkingEnd(blockId)
+      },
+      onToolStarted: (event) => {
+        // The user-input tool has its own normalized request card; showing a generic tool card as
+        // well would duplicate it. All other BYOK tools get the same in-progress event as CLI
+        // tools, before the potentially slow MCP call begins.
+        if (event.toolName === 'nexy_ask_user') return
+        turnEmitter.toolStarted({
+          id: event.id,
+          toolName: event.toolName,
+          serverName: event.serverName,
+          args: event.args,
+        })
       },
       onToolFinished: (event) => {
         // The dedicated request/resolution events and cards are authoritative for this built-in;
@@ -1961,9 +1985,7 @@ export async function dispatchChatSend(
         // toolFinished closes the current response-text segment in the emitter. Mirror that
         // boundary in the persisted buffer so the historical timeline can place narration
         // before/after each BYOK tool call instead of collapsing everything into the final bubble.
-        for (const [blockId, block] of byokTextBuffer) {
-          if (!block.done) byokTextBuffer.set(blockId, { ...block, done: true })
-        }
+        closeByokTextSegments()
         // Persist a durable, renderable tool-call row (parity with the CLI path's
         // persistCompletedCliToolCalls). Without this the live tool events vanish the moment the
         // client reloads history from the DB at end-of-turn — the reported "toolcalls disappeared"

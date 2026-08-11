@@ -18,7 +18,7 @@ vi.mock('../mcp', () => ({
 }))
 
 import { MCP_MAX_ITERATIONS, MCP_REQUIRED_ITERATIONS, MAX_TOOL_RESULT_CHARS, MAX_LOOP_CONTEXT_CHARS, runProviderMcpToolLoop } from '../tool-loop'
-import type { ModelToolCaller } from '../tool-loop'
+import type { ModelToolCaller, ModelToolStreamCaller } from '../tool-loop'
 import type { ProviderMessage } from '../providers'
 import type { ToolDefinition } from '../provider-types'
 
@@ -470,6 +470,124 @@ describe('runProviderMcpToolLoop', () => {
     expect(mockCallMcpTool).toHaveBeenCalledWith('server-1', 'browser_fill_form', expect.any(Object), expect.any(String), expect.any(Object), undefined, undefined, undefined)
   })
 
+  it('recovers when the first response narrates an action instead of calling a tool', async () => {
+    const choices: Array<'auto' | 'required' | 'none'> = []
+    const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
+      choices.push(toolChoice)
+      if (choices.length === 1) return { content: 'I will read the file now.', toolCalls: [] }
+      if (choices.length === 2) return { content: null, toolCalls: [{ id: 'c1', name: 'server-1__click', arguments: {} }] }
+      return { content: 'Done.', toolCalls: [] }
+    })
+
+    const result = await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'read the file' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn(),
+    )
+
+    expect(result).toBe('Done.')
+    expect(choices).toEqual(['auto', 'required', 'auto'])
+    expect(mockCallMcpTool).toHaveBeenCalledOnce()
+  })
+
+  it('shows a BYOK tool as in progress before a slow MCP call finishes', async () => {
+    const events: string[] = []
+    const onToolStarted = vi.fn(() => events.push('started'))
+    const onToolFinished = vi.fn(() => events.push('finished'))
+    mockCallMcpTool.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1))
+      return { success: true, result: 'clicked' }
+    })
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({ content: 'I am about to click it.', toolCalls: [{ id: 'c1', name: 'server-1__click', arguments: {} }] })
+      .mockResolvedValueOnce({ content: 'Done.', toolCalls: [] })
+
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click it' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      'conversation-1',
+      makeWebContents(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onToolFinished,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onToolStarted,
+    )
+
+    expect(onToolStarted).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'c1',
+      toolName: 'click',
+      serverName: 'Browser Server',
+      args: {},
+    }))
+    expect(events).toEqual(['started', 'finished'])
+  })
+
+  it('recovers from an empty response after an inspection tool instead of ending silently', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({ content: null, toolCalls: [{ id: 'c1', name: 'server-1__browser_snapshot', arguments: {} }] })
+      .mockResolvedValueOnce({ content: '', toolCalls: [] })
+      .mockResolvedValueOnce({ content: null, toolCalls: [{ id: 'c2', name: 'server-1__browser_fill_form', arguments: {} }] })
+      .mockResolvedValueOnce({ content: 'Finished.', toolCalls: [] })
+
+    const result = await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'inspect and fill the form' }],
+      toolDefsWithSnapshot,
+      toolMapWithSnapshot,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn(),
+    )
+
+    expect(result).toBe('Finished.')
+    expect(caller).toHaveBeenCalledTimes(4)
+    expect(mockCallMcpTool).toHaveBeenCalledTimes(2)
+  })
+
+  it('feeds thrown MCP tool failures back to the model and continues the turn', async () => {
+    mockCallMcpTool.mockRejectedValueOnce(new Error('browser disconnected'))
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({ content: null, toolCalls: [{ id: 'c1', name: 'server-1__click', arguments: {} }] })
+      .mockImplementationOnce(async (messages) => {
+        expect(messages).toContainEqual(expect.objectContaining({
+          role: 'tool',
+          tool_call_id: 'c1',
+          content: expect.stringContaining('browser disconnected'),
+        }))
+        return { content: 'I recovered and finished.', toolCalls: [] }
+      })
+
+    await expect(runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click it' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn(),
+    )).resolves.toBe('I recovered and finished.')
+  })
+
   it('does NOT recover when previous step had action (non-inspection) tools', async () => {
     mockCallMcpTool.mockResolvedValue({ success: true, result: 'clicked' })
 
@@ -672,6 +790,65 @@ describe('runProviderMcpToolLoop', () => {
     expect(onChunk).toHaveBeenCalledWith('Let me click that button.')
     expect(result).toContain('Let me click that button.')
     expect(result).toContain('All done.')
+  })
+
+  it('streams structured tool-round text without duplicating the returned content', async () => {
+    let round = 0
+    const caller: ModelToolCaller = vi.fn(async () => {
+      throw new Error('non-streaming tool caller should not be used')
+    })
+    const streamCaller: ModelToolStreamCaller = vi.fn(async (_messages, _tools, _choice, onChunk) => {
+      round++
+      if (round === 1) {
+        onChunk('I will ')
+        onChunk('click it now.')
+        return {
+          content: 'I will click it now.',
+          toolCalls: [{ id: 'stream-call-1', name: 'server-1__click', arguments: { target: 'submit' } }],
+        }
+      }
+      onChunk('Done.')
+      return { content: 'Done.', toolCalls: [] }
+    })
+
+    const onChunk = vi.fn()
+    const result = await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click it' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      onChunk,
+      undefined, // onModel
+      undefined, // agenticMode
+      undefined, // inlineHandlers
+      undefined, // toolDirective
+      undefined, // onActivity
+      undefined, // autoApproveTools
+      undefined, // toolPolicy
+      undefined, // onToolFinished
+      undefined, // fullAutoApprove
+      undefined, // forceFirstToolChoice
+      undefined, // onUsage
+      undefined, // finalStreamCaller
+      undefined, // onToolStarted
+      streamCaller,
+    )
+
+    expect(result).toBe('I will click it now.Done.')
+    expect(onChunk.mock.calls.map(([chunk]) => chunk)).toEqual(['I will ', 'click it now.', 'Done.'])
+    expect(mockCallMcpTool).toHaveBeenCalledWith(
+      'server-1',
+      'click',
+      { target: 'submit' },
+      'agent-1',
+      expect.any(Object),
+      undefined,
+      undefined,
+      undefined,
+    )
   })
 
   it('feeds a parse error back instead of running a tool with malformed arguments', async () => {

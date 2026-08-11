@@ -104,6 +104,28 @@ export interface ToolLoopToolFinishedEvent {
   resultImages?: { dataUrl: string }[]
 }
 
+/**
+ * Streaming variant of a tool-capable provider round. Text is forwarded as it
+ * arrives, while the returned result contains only complete tool calls so the
+ * loop never dispatches partial JSON arguments.
+ */
+export interface ModelToolStreamCaller {
+  (
+    messages: ProviderMessage[],
+    tools: ToolDefinition[] | undefined,
+    toolChoice: ToolChoice,
+    onChunk: (chunk: string) => void,
+  ): Promise<ProviderNonStreamResult>
+}
+
+export interface ToolLoopToolStartedEvent {
+  id: string
+  toolName: string
+  serverName: string
+  args: Record<string, unknown>
+  conversationId: string | null
+}
+
 export async function runProviderMcpToolLoop(
   caller: ModelToolCaller,
   messages: ProviderMessage[],
@@ -134,6 +156,8 @@ export async function runProviderMcpToolLoop(
     messages: ProviderMessage[],
     onChunk: (chunk: string) => void,
   ) => Promise<void>,
+  onToolStarted?: (event: ToolLoopToolStartedEvent) => void,
+  toolRoundStreamCaller?: ModelToolStreamCaller,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -155,6 +179,7 @@ export async function runProviderMcpToolLoop(
   const loopMessages = [...baseMessages]
   let fullResponse = ''
   let modelEmitted = false
+  let executedTool = false
 
   // Recovery state — when the model returns planning text after a pure inspection step,
   // we force one additional 'required' iteration rather than exiting immediately.
@@ -181,6 +206,9 @@ export async function runProviderMcpToolLoop(
     if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', event)
     broadcastToMobile({ event: 'chat:tool-call-event', data: event })
   }
+  const sendToolStarted = (event: ToolLoopToolStartedEvent) => {
+    onToolStarted?.(event)
+  }
 
   for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {
     // Stop accumulating tool results once the conversation itself risks exceeding the model's
@@ -199,13 +227,24 @@ export async function runProviderMcpToolLoop(
     sendActivity({ type: 'thinking' })
     assertConversationStartsAllowed()
     let result: ProviderNonStreamResult
+    let streamedRoundText = false
     try {
-      result = await caller(loopMessages, toolDefs, toolChoice)
+      if (toolRoundStreamCaller) {
+        result = await toolRoundStreamCaller(loopMessages, toolDefs, toolChoice, (chunk) => {
+          if (chunk) streamedRoundText = true
+          fullResponse += chunk
+          onChunk(chunk)
+        })
+      } else {
+        result = await caller(loopMessages, toolDefs, toolChoice)
+      }
     } catch (error) {
       // A dropped provider request must not erase useful narration already emitted during this
       // turn. The caller has already retried transient failures; if it still fails, preserve the
       // partial response and let the turn settle instead of replacing it with a raw error.
-      if (fullResponse) return fullResponse
+      if (fullResponse || executedTool) {
+        return fullResponse || 'I completed some tool actions, but the provider stopped before providing a final response.'
+      }
       throw error
     }
     assertConversationStartsAllowed()
@@ -224,18 +263,32 @@ export async function runProviderMcpToolLoop(
       // step (e.g. browser_snapshot). Push a user nudge (not an assistant message —
       // ending a turn with a bare assistant text message and then requesting more tool
       // calls causes a 400 from the API) and force one more 'required' iteration.
-      if (prevIterationInspectionOnly && !hasRecovered && text.trim()) {
+      const planningText = text.trim()
+      const shouldRecoverPlanning = planningText.length > 0 && (
+        prevIterationInspectionOnly ||
+        isActionPlanningText(planningText) && (i === 0 || executedTool)
+      )
+      // An empty first response is usually a provider/model failure, not evidence that a tool is
+      // required (the tool list may contain only nexy_ask_user). Once an inspection tool has run,
+      // however, an empty response is the same stalled boundary as planning text and merits one
+      // bounded recovery attempt.
+      const shouldRecoverEmpty = !planningText && executedTool && prevIterationInspectionOnly
+      if (!hasRecovered && (shouldRecoverPlanning || shouldRecoverEmpty)) {
         hasRecovered = true
         forcedToolChoice = 'required'
         loopMessages.push({
           role: 'user' as const,
-          content: 'Please proceed with the actions now — call the appropriate tools directly.'
+          content: planningText
+            ? 'Please proceed with the actions now — call the appropriate tools directly instead of narrating what you will do.'
+            : 'Continue the task now — call the appropriate tool if an action remains, then provide the final result.'
         })
         continue
       }
 
-      onChunk(text)
-      fullResponse += text
+      if (!streamedRoundText) {
+        onChunk(text)
+        fullResponse += text
+      }
       return fullResponse
     }
 
@@ -249,7 +302,7 @@ export async function runProviderMcpToolLoop(
     // user, keep it in fullResponse so it's persisted, and preserve it as the assistant message
     // content so the model retains its own continuity across rounds.
     const interstitialText = (result.content ?? '').trim()
-    if (interstitialText) {
+    if (interstitialText && !streamedRoundText) {
       onChunk(result.content as string)
       fullResponse += result.content as string
     }
@@ -266,11 +319,25 @@ export async function runProviderMcpToolLoop(
 
     for (const call of result.toolCalls) {
       assertConversationStartsAllowed()
+      executedTool = true
       const toolShortName = call.name.split('__').pop() ?? call.name
       const resolved = toolMap.get(call.name)
       const inlineHandler = inlineHandlers?.get(call.name)
+      const resolvedServer = resolved ? servers.get(resolved.serverId) : undefined
+      const defaultServerName = call.name.split('__')[0] ?? ''
+      const serverName = inlineHandler
+        ? 'Project Wiki'
+        : resolvedServer?.config.name ?? (resolved?.serverId ?? defaultServerName)
       let toolResultContent: string
       let toolImages: { dataUrl: string }[] | undefined
+
+      sendToolStarted({
+        id: call.id,
+        toolName: toolShortName,
+        serverName,
+        args: call.arguments as Record<string, unknown>,
+        conversationId,
+      })
 
       // Malformed arguments: the provider returned a tool call whose arguments couldn't be parsed
       // as JSON. Running the tool with `{}` silently produces a wrong result and burns an
@@ -281,7 +348,7 @@ export async function runProviderMcpToolLoop(
         sendToolFinished({
           id: call.id,
           toolName: toolShortName,
-          serverName: call.name.split('__')[0] ?? '',
+          serverName,
           args: call.arguments as Record<string, unknown>,
           result: toolResultContent,
           success: false,
@@ -304,7 +371,7 @@ export async function runProviderMcpToolLoop(
           const neverAllowPayload = {
             id: call.id,
             toolName: toolShortName,
-            serverName: call.name.split('__')[0] ?? '',
+            serverName,
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
             success: false,
@@ -320,7 +387,7 @@ export async function runProviderMcpToolLoop(
           const notApprovedPayload = {
             id: call.id,
             toolName: toolShortName,
-            serverName: call.name.split('__')[0] ?? '',
+            serverName,
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
             success: false,
@@ -338,7 +405,7 @@ export async function runProviderMcpToolLoop(
         const unknownPayload = {
           id: call.id,
           toolName: toolShortName,
-          serverName: call.name.split('__')[0] ?? '',
+          serverName,
           args: call.arguments as Record<string, unknown>,
           result: toolResultContent,
           success: false,
@@ -347,53 +414,77 @@ export async function runProviderMcpToolLoop(
         sendToolFinished(unknownPayload)
       } else if (inlineHandler) {
         sendActivity({ type: 'tool', name: call.name, server: 'Project Wiki' })
-        const toolResult = await inlineHandler(call.arguments as Record<string, unknown>)
-        toolResultContent = toolResult.success
-          ? (toolResult.result ?? '(no output)')
-          : `Error: ${toolResult.error ?? 'Tool execution failed'}`
-        const inlinePayload = {
-          id: call.id,
-          toolName: call.name,
-          serverName: 'Project Wiki',
-          args: call.arguments as Record<string, unknown>,
-          result: toolResultContent,
-          success: toolResult.success,
-          conversationId,
+        try {
+          const toolResult = await inlineHandler(call.arguments as Record<string, unknown>)
+          toolResultContent = toolResult.success
+            ? (toolResult.result ?? '(no output)')
+            : `Error: ${toolResult.error ?? 'Tool execution failed'}`
+          const inlinePayload = {
+            id: call.id,
+            toolName: call.name,
+            serverName,
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: toolResult.success,
+            conversationId,
+          }
+          sendToolFinished(inlinePayload)
+        } catch (error) {
+          toolResultContent = `Error: ${error instanceof Error ? error.message : String(error)}`
+          sendToolFinished({
+            id: call.id,
+            toolName: call.name,
+            serverName,
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: false,
+            conversationId,
+          })
         }
-        sendToolFinished(inlinePayload)
       } else {
         // resolved is guaranteed non-null: the first branch handles !resolved && !inlineHandler
         const mcpResolved = resolved!
-        const serverInstance = servers.get(mcpResolved.serverId)
-        const serverName = serverInstance?.config.name ?? mcpResolved.serverId
         sendActivity({ type: 'tool', name: toolShortName, server: serverName })
-        const toolResult = await callMcpTool(
-          mcpResolved.serverId,
-          mcpResolved.toolName,
-          call.arguments as Record<string, unknown>,
-          agentId,
-          webContents,
-          agenticMode,
-          autoApproveTools,
-          fullAutoApprove,
-        )
-        toolResultContent = toolResult.success
-          ? (toolResult.result ?? '(no output)')
-          : `Error: ${toolResult.error ?? 'Tool execution failed'}`
-        if (toolResult.images?.length) {
-          toolImages = toolResult.images.map(img => ({ dataUrl: img.dataUrl }))
+        try {
+          const toolResult = await callMcpTool(
+            mcpResolved.serverId,
+            mcpResolved.toolName,
+            call.arguments as Record<string, unknown>,
+            agentId,
+            webContents,
+            agenticMode,
+            autoApproveTools,
+            fullAutoApprove,
+          )
+          toolResultContent = toolResult.success
+            ? (toolResult.result ?? '(no output)')
+            : `Error: ${toolResult.error ?? 'Tool execution failed'}`
+          if (toolResult.images?.length) {
+            toolImages = toolResult.images.map(img => ({ dataUrl: img.dataUrl }))
+          }
+          const mcpPayload = {
+            id: call.id,
+            toolName: toolShortName,
+            serverName,
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: toolResult.success,
+            conversationId,
+            ...(toolImages?.length && { resultImages: toolImages }),
+          }
+          sendToolFinished(mcpPayload)
+        } catch (error) {
+          toolResultContent = `Error: ${error instanceof Error ? error.message : String(error)}`
+          sendToolFinished({
+            id: call.id,
+            toolName: toolShortName,
+            serverName,
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: false,
+            conversationId,
+          })
         }
-        const mcpPayload = {
-          id: call.id,
-          toolName: toolShortName,
-          serverName,
-          args: call.arguments as Record<string, unknown>,
-          result: toolResultContent,
-          success: toolResult.success,
-          conversationId,
-          ...(toolImages?.length && { resultImages: toolImages }),
-        }
-        sendToolFinished(mcpPayload)
       }
 
       // Truncate large results for the model context to prevent inspection tools
@@ -427,7 +518,7 @@ export async function runProviderMcpToolLoop(
     try {
       await finalStreamCaller(finalMessages, trackedChunk)
       return fullResponse
-    } catch (err) {
+    } catch {
       // If text already streamed, surface the error rather than re-running the non-streaming
       // caller (which would duplicate the streamed text). If nothing streamed (e.g. the endpoint
       // rejected the request outright), fall through to the resilient non-streaming path.
@@ -440,7 +531,15 @@ export async function runProviderMcpToolLoop(
     }
   }
 
-  const finalResult = await caller(finalMessages, undefined, 'none')
+  let finalResult: ProviderNonStreamResult
+  try {
+    finalResult = await caller(finalMessages, undefined, 'none')
+  } catch (error) {
+    if (fullResponse || executedTool) {
+      return fullResponse || 'I completed some tool actions, but the provider stopped before providing a final response.'
+    }
+    throw error
+  }
   if (finalResult.usage) onUsage?.(finalResult.usage)
   if (!modelEmitted && onModel && finalResult.model) {
     onModel(finalResult.model)
@@ -448,5 +547,11 @@ export async function runProviderMcpToolLoop(
   const text = finalResult.content ?? ''
   onChunk(text)
   fullResponse += text
-  return fullResponse
+  return fullResponse || (executedTool
+    ? 'I completed some tool actions, but the provider returned no final response.'
+    : fullResponse)
+}
+
+function isActionPlanningText(text: string): boolean {
+  return /\b(?:i['’]?m going to|i['’]?ll|i will|let me|about to|next,?\s+i|first,?\s+i|i need to)\b[\s\S]{0,180}\b(?:call|use|open|read|write|edit|update|create|click|fill|search|inspect|run|check|find|navigate|apply|change|save|delete|fetch|test|implement|perform)\b/i.test(text)
 }
