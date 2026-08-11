@@ -1,6 +1,13 @@
 # BYOK Tool-Loop Remediation Roadmap
 
-**Status:** In progress — Findings 1–10 and 12 implemented (2026-08-07). Finding 11 blocked (see Implementation Status).
+**Status:** In progress — Findings 1–10 and 12 implemented (2026-08-07). Follow-up reliability and
+timeline fixes landed 2026-08-10. Finding 11 remains blocked (see Implementation Status).
+
+**2026-08-10 follow-up:** BYOK now emits normalized `tool_started` events before MCP execution,
+recovers once from actionable planning text or an empty post-inspection response, feeds thrown tool
+errors back into the model, preserves useful partial work when the provider fails, and orders mobile
+history broadcasts by `timeline_order` rather than wall-clock timestamps. Interrupted single text
+segments are now persisted as well.
 
 ## Implementation Status (2026-08-07)
 
