@@ -506,11 +506,15 @@ const api = {
     config: { enabled: boolean; approval: string; instructions: string }
   ) => typedInvoke('agent:set-mcp-tool-override', agentId, serverId, toolName, config),
   getMcpServerTrust: (agentId: string) => typedInvoke('agent:get-mcp-server-trust', agentId),
+  assignMcpServerToAgent: (agentId: string, serverId: string, trust: string) =>
+    typedInvoke('agent:assign-mcp-server', agentId, serverId, trust),
   setMcpServerTrust: (agentId: string, serverId: string, trust: string) =>
     typedInvoke('agent:set-mcp-server-trust', agentId, serverId, trust),
   callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) =>
     typedInvoke('mcp:call-tool', serverId, toolName, args, agentId),
   restartMcpServer: (id: string) => typedInvoke('mcp:restart-server', id),
+  testMcpServer: (config: Record<string, unknown>) => typedInvoke('mcp:test-server', config),
+  searchMcpRegistry: (query: string) => typedInvoke('mcp:search-registry', query),
   onMcpServerStatusChanged: (callback: (server: McpServerWithStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, server: McpServerWithStatus) => callback(server)
     typedOn('mcp:server-status-changed', handler)

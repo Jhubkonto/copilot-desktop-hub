@@ -241,10 +241,13 @@ export function createMockApi() {
     listMcpToolsForAgent: vi.fn().mockResolvedValue([]),
     getMcpToolOverrides: vi.fn().mockResolvedValue([]),
     getMcpServerTrust: vi.fn().mockResolvedValue([]),
+    assignMcpServerToAgent: vi.fn().mockResolvedValue({ assigned: true, trust: 'always-ask' }),
     setMcpServerTrust: vi.fn().mockResolvedValue(true),
     setMcpToolOverride: vi.fn().mockResolvedValue(true),
     callMcpTool: vi.fn().mockResolvedValue(null),
     restartMcpServer: vi.fn().mockResolvedValue(true),
+    testMcpServer: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
+    searchMcpRegistry: vi.fn().mockResolvedValue({ servers: [], fetchedAt: Date.now(), stale: false }),
     onMcpServerStatusChanged: vi.fn().mockReturnValue(() => {}),
 
     // Voice

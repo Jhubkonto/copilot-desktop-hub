@@ -84,34 +84,147 @@ describe('McpServerPanel — Rendering', () => {
     })
   })
 
-  it('shows empty state when no servers', async () => {
+  it('shows the add-a-server gallery when no servers', async () => {
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
     await waitFor(() => {
-      expect(screen.getByText(/No MCP servers configured/)).toBeInTheDocument()
+      expect(screen.getByText('Add a server')).toBeInTheDocument()
+      expect(screen.getByText('Custom server')).toBeInTheDocument()
     })
+  })
+
+  it('offers catalog entries in the gallery', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('Filesystem')).toBeInTheDocument())
+  })
+
+  it('browses the official registry and opens an installable result', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    mockApi.searchMcpRegistry = vi.fn().mockResolvedValue({
+      stale: false,
+      fetchedAt: Date.now(),
+      servers: [{
+        name: 'io.github.acme/calendar',
+        title: 'Calendar',
+        description: 'Read calendars',
+        version: '1.2.3',
+        status: 'active',
+        isLatest: true,
+        transport: 'stdio',
+        install: {
+          command: 'npx',
+          args: ['-y', '@acme/calendar@1.2.3'],
+          requiredEnv: [],
+        },
+      }],
+    })
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('Browse official MCP Registry')).toBeInTheDocument())
+    await user.click(screen.getByText('Browse official MCP Registry'))
+    await user.type(screen.getByRole('textbox', { name: 'Search MCP Registry' }), 'calendar')
+    await user.click(screen.getByText('Search'))
+
+    expect(await screen.findByText('Calendar')).toBeInTheDocument()
+    await user.click(screen.getByText('Use this server'))
+    expect(screen.getByDisplayValue('Calendar')).toBeInTheDocument()
+  })
+
+  it('organizes the tool library by server with capability and risk metadata', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue(SAMPLE_SERVERS)
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([
+      {
+        name: 'read_file',
+        description: 'Read a local file',
+        serverId: 'srv-1',
+        serverName: 'GitHub MCP',
+      },
+      {
+        name: 'delete_repository',
+        description: 'Delete a repository',
+        serverId: 'srv-1',
+        serverName: 'GitHub MCP',
+      },
+    ])
+    render(<McpServerPanel />)
+
+    await user.click(screen.getByRole('button', { name: /Tool library/ }))
+
+    expect((await screen.findAllByText('Tool library')).length).toBeGreaterThan(0)
+    expect(screen.getByText('GitHub MCP')).toBeInTheDocument()
+    expect(screen.getByText('Read File')).toBeInTheDocument()
+    expect(screen.getByText('Delete Repository')).toBeInTheDocument()
+    expect(screen.getAllByText('High impact').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Local files and folders/)).toBeInTheDocument()
+  })
+
+  it('lets an agent enable a server from the Agent access view', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue(SAMPLE_SERVERS)
+    mockApi.listAgents = vi.fn().mockResolvedValue([{
+      id: 'agent-1',
+      name: 'Research Agent',
+      icon: '🔎',
+      mcpServers: [],
+    }])
+    render(<McpServerPanel />)
+
+    await user.click(screen.getByRole('button', { name: /Agent access/ }))
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Agent to configure' })).toHaveValue('agent-1'))
+    await user.click(screen.getByRole('button', { name: /Add GitHub MCP to Research Agent/ }))
+
+    await waitFor(() => expect(mockApi.assignMcpServerToAgent).toHaveBeenCalledWith(
+      'agent-1',
+      'srv-1',
+      'always-ask',
+    ))
   })
 })
 
 describe('McpServerPanel — CRUD Operations', () => {
-  it('add server button opens form', async () => {
+  it('custom server button opens form', async () => {
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
-    await waitFor(() => expect(screen.getByText('Add MCP Server')).toBeInTheDocument())
-    await user.click(screen.getByText('Add MCP Server'))
+    await waitFor(() => expect(screen.getByText('Custom server')).toBeInTheDocument())
+    await user.click(screen.getByText('Custom server'))
 
     expect(screen.getByPlaceholderText('My MCP Server')).toBeInTheDocument()
     expect(screen.getByText('Add Server')).toBeInTheDocument()
+  })
+
+  it('catalog card pre-fills the form', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('Filesystem')).toBeInTheDocument())
+    await user.click(screen.getByText('Filesystem'))
+
+    expect(screen.getByPlaceholderText('My MCP Server')).toHaveValue('Filesystem')
+  })
+
+  it('renders a guided secret field for a catalog entry with requiredEnv', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('GitHub')).toBeInTheDocument())
+    await user.click(screen.getByText('GitHub'))
+
+    // Labeled, masked field for the declared token + a help link.
+    const field = screen.getByPlaceholderText('GITHUB_PERSONAL_ACCESS_TOKEN') as HTMLInputElement
+    expect(field.type).toBe('password')
+    expect(screen.getByText('How to get one')).toBeInTheDocument()
   })
 
   it('save new server calls addMcpServer', async () => {
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
-    await waitFor(() => expect(screen.getByText('Add MCP Server')).toBeInTheDocument())
-    await user.click(screen.getByText('Add MCP Server'))
+    await waitFor(() => expect(screen.getByText('Custom server')).toBeInTheDocument())
+    await user.click(screen.getByText('Custom server'))
 
     await user.type(screen.getByPlaceholderText('My MCP Server'), 'Test Server')
     await user.type(screen.getByPlaceholderText('npx'), 'node')
@@ -120,6 +233,29 @@ describe('McpServerPanel — CRUD Operations', () => {
     expect(mockApi.addMcpServer).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Test Server', command: 'node' })
     )
+  })
+
+  it('offers safe assignment and trust after adding a server', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    mockApi.listAgents = vi.fn().mockResolvedValue([{ id: 'agent-1', name: 'Research Agent' }])
+    mockApi.addMcpServer = vi.fn().mockResolvedValue({ id: 'mcp-new', name: 'Test Server' })
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('Custom server')).toBeInTheDocument())
+    await user.click(screen.getByText('Custom server'))
+    await user.type(screen.getByPlaceholderText('My MCP Server'), 'Test Server')
+    await user.type(screen.getByPlaceholderText('npx'), 'node')
+    await user.click(screen.getByText('Add Server'))
+
+    expect(await screen.findByText('Test Server is ready')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Research Agent')).toBeInTheDocument()
+    await user.click(screen.getByText('Add to agent'))
+
+    await waitFor(() => expect(mockApi.assignMcpServerToAgent).toHaveBeenCalledWith(
+      'agent-1',
+      'mcp-new',
+      'always-ask',
+    ))
   })
 
   it('delete server calls removeMcpServer', async () => {
@@ -156,14 +292,49 @@ describe('McpServerPanel — CRUD Operations', () => {
   })
 })
 
+describe('McpServerPanel — Pre-flight test', () => {
+  it('test connection reports found tools on success', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    mockApi.testMcpServer = vi
+      .fn()
+      .mockResolvedValue({ ok: true, tools: [{ name: 'a' }, { name: 'b' }] })
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('Custom server')).toBeInTheDocument())
+    await user.click(screen.getByText('Custom server'))
+    await user.type(screen.getByPlaceholderText('npx'), 'node')
+    await user.click(screen.getByText('Test connection'))
+
+    await waitFor(() =>
+      expect(mockApi.testMcpServer).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'node' })
+      )
+    )
+    expect(await screen.findByText(/found 2 tools/)).toBeInTheDocument()
+  })
+
+  it('test connection surfaces the error on failure', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    mockApi.testMcpServer = vi.fn().mockResolvedValue({ ok: false, error: 'spawn ENOENT' })
+    render(<McpServerPanel />)
+
+    await waitFor(() => expect(screen.getByText('Custom server')).toBeInTheDocument())
+    await user.click(screen.getByText('Custom server'))
+    await user.type(screen.getByPlaceholderText('npx'), 'nope')
+    await user.click(screen.getByText('Test connection'))
+
+    expect(await screen.findByText('spawn ENOENT')).toBeInTheDocument()
+  })
+})
+
 describe('McpServerPanel — Error Handling', () => {
   it('shows toast on save failure', async () => {
     mockApi.addMcpServer = vi.fn().mockRejectedValue(new Error('fail'))
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
-    await waitFor(() => expect(screen.getByText('Add MCP Server')).toBeInTheDocument())
-    await user.click(screen.getByText('Add MCP Server'))
+    await waitFor(() => expect(screen.getByText('Custom server')).toBeInTheDocument())
+    await user.click(screen.getByText('Custom server'))
 
     await user.type(screen.getByPlaceholderText('My MCP Server'), 'Test')
     await user.type(screen.getByPlaceholderText('npx'), 'node')
@@ -207,14 +378,16 @@ describe('McpServerPanel — JSON Import', () => {
   it('switches to JSON import mode', async () => {
     render(<McpServerPanel />)
 
-    await user.click(screen.getByText('Import JSON'))
+    await waitFor(() => expect(screen.getByText('Paste JSON')).toBeInTheDocument())
+    await user.click(screen.getByText('Paste JSON'))
     expect(screen.getByText(/Paste a Claude Desktop/)).toBeInTheDocument()
   })
 
   it('shows error for invalid JSON', async () => {
     render(<McpServerPanel />)
 
-    await user.click(screen.getByText('Import JSON'))
+    await waitFor(() => expect(screen.getByText('Paste JSON')).toBeInTheDocument())
+    await user.click(screen.getByText('Paste JSON'))
     const textarea = screen.getByRole('textbox')
     await user.type(textarea, 'not json')
     await user.click(screen.getByText('Import Servers'))
@@ -225,7 +398,8 @@ describe('McpServerPanel — JSON Import', () => {
   it('shows error for missing mcpServers key', async () => {
     render(<McpServerPanel />)
 
-    await user.click(screen.getByText('Import JSON'))
+    await waitFor(() => expect(screen.getByText('Paste JSON')).toBeInTheDocument())
+    await user.click(screen.getByText('Paste JSON'))
     const textarea = screen.getByRole('textbox')
     const { fireEvent } = await import('@testing-library/react')
     fireEvent.change(textarea, { target: { value: '{"other": {}}' } })

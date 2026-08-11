@@ -1742,6 +1742,47 @@ export interface McpCallResult {
   error?: string
 }
 
+export interface McpTestResult {
+  ok: boolean
+  tools?: { name: string; description?: string }[]
+  error?: string
+}
+
+export interface McpRegistryEnvRequirement {
+  key: string
+  label: string
+  helpUrl?: string
+  secret?: boolean
+}
+
+export interface McpRegistryInstallConfig {
+  command: string
+  args: string[]
+  requiredEnv: McpRegistryEnvRequirement[]
+}
+
+export interface McpRegistryServer {
+  name: string
+  title?: string
+  description: string
+  version: string
+  docsUrl?: string
+  repositoryUrl?: string
+  status: 'active' | 'deprecated' | 'deleted'
+  statusMessage?: string
+  publishedAt?: string
+  updatedAt?: string
+  isLatest: boolean
+  transport: 'stdio' | 'remote' | 'unknown'
+  install?: McpRegistryInstallConfig
+}
+
+export interface McpRegistrySearchResult {
+  servers: McpRegistryServer[]
+  fetchedAt: number
+  stale: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Files / directories
 // ---------------------------------------------------------------------------
@@ -1808,6 +1849,7 @@ export type IpcReturnMap = {
   'agent:get': AgentConfig | null
   'agent:get-mcp-tool-overrides': McpToolOverrideRow[]
   'agent:get-mcp-server-trust': { server_id: string; trust: string }[]
+  'agent:assign-mcp-server': { assigned: boolean; trust: string }
   'agent:import': AgentConfig | null
   'agent:list': AgentConfig[]
   'agent:list-knowledge-files': KnowledgeFile[]
@@ -2026,6 +2068,8 @@ export type IpcReturnMap = {
   'mcp:remove-server': boolean
   'mcp:restart-server': boolean
   'mcp:server-status-changed': void
+  'mcp:test-server': McpTestResult
+  'mcp:search-registry': McpRegistrySearchResult
   'mcp:update-server': McpServerConfig | null
   // Model
   'model:list-catalog': CatalogModel[]
@@ -2277,6 +2321,7 @@ export type IpcChannels =
   | 'agent:get'
   | 'agent:get-mcp-tool-overrides'
   | 'agent:get-mcp-server-trust'
+  | 'agent:assign-mcp-server'
   | 'agent:import'
   | 'agent:list'
   | 'agent:list-knowledge-files'
@@ -2461,6 +2506,8 @@ export type IpcChannels =
   | 'mcp:remove-server'
   | 'mcp:restart-server'
   | 'mcp:server-status-changed'
+  | 'mcp:test-server'
+  | 'mcp:search-registry'
   | 'mcp:update-server'
   | 'model:list-catalog'
   | 'model:catalog-updated'
