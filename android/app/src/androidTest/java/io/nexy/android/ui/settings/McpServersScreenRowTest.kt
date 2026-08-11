@@ -15,9 +15,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Regression coverage for item 6 of the follow-up roadmap: McpServersScreen hand-rolled its own
- * zebra-striped Surface/Row instead of the shared NexyListRow that ProvidersScreen/CliModelsScreen
- * already use. Confirms the rows render through the shared component and their actions still work.
+ * Regression coverage for the MCP settings surface. These tests keep the server card's primary
+ * identity, connection status, tool count, and overflow actions visible while the surrounding
+ * screen evolves.
  */
 @RunWith(AndroidJUnit4::class)
 class McpServersScreenRowTest {
@@ -53,6 +53,21 @@ class McpServersScreenRowTest {
             )
         }
         composeRule.onNodeWithText("Off").assertIsDisplayed()
+    }
+
+    @Test
+    fun showsToolCountOnServerCard() {
+        composeRule.setContent {
+            McpServerRow(
+                server = McpServerInfo(id = "s1", name = "Filesystem", command = "npx", enabled = true),
+                status = "connected",
+                toolCount = 12,
+                onEdit = {},
+                onDelete = {},
+                onRestart = {},
+            )
+        }
+        composeRule.onNodeWithText("12 tools").assertIsDisplayed()
     }
 
     @Test
