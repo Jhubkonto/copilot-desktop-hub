@@ -1762,6 +1762,26 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 90,
     sql: `ALTER TABLE messages ADD COLUMN user_inputs TEXT;`,
   },
+  {
+    // Flags whether mcp_servers.config_json is safeStorage-encrypted at rest.
+    // 0 = legacy plaintext JSON (still readable); 1 = base64 encrypted blob.
+    // Secrets in a server's env map used to be persisted in the clear here.
+    // mcp_servers is only created by initializeBaseSchema (no migration creates it),
+    // so guard with CREATE IF NOT EXISTS for upgrade paths that skip the base schema —
+    // the ADD COLUMN then no-ops (duplicate column) when the table already carries it.
+    version: 91,
+    sql: `
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        config_encrypted INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      ALTER TABLE mcp_servers ADD COLUMN config_encrypted INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 
@@ -1936,6 +1956,7 @@ export function initializeBaseSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
       config_json TEXT NOT NULL,
+      config_encrypted INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
