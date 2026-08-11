@@ -107,6 +107,7 @@ import {
 import { getActivitySnapshot, endActivity } from './activity-tracker'
 import { clearUnseenDestination, getNewContentConversations, markAllConversationsRead } from './activity-badge'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
+import { MCP_CATALOG } from '../shared/mcp-catalog'
 import {
   insertPromptLibraryEntry,
   listPromptLibraryVersions,
@@ -1841,6 +1842,13 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'mcp:catalog') {
+      // This is deliberately the hand-curated catalog only. Registry results and user
+      // credentials never cross the companion connection as part of this payload.
+      reply({ event: 'mcp:catalog', data: { entries: MCP_CATALOG } })
+      return
+    }
+
     if (command === 'mcp:add') {
       const name = typeof data.name === 'string' ? data.name.trim() : ''
       const command2 = typeof data.command === 'string' ? data.command.trim() : ''
@@ -1848,8 +1856,9 @@ export function registerWsHandlers(): void {
       const args = Array.isArray(data.args) ? (data.args as string[]) : []
       const env = (data.env && typeof data.env === 'object' && !Array.isArray(data.env)) ? data.env as Record<string, string> : {}
       const cwd = typeof data.cwd === 'string' ? data.cwd : undefined
+      const imageResponses = data.imageResponses === 'allow' || data.imageResponses === 'omit' ? data.imageResponses : undefined
       const enabled = typeof data.enabled === 'boolean' ? data.enabled : true
-      void addMcpServer({ name, command: command2, args, env, cwd, enabled }).then((server) => {
+      void addMcpServer({ name, command: command2, args, env, cwd, imageResponses, enabled }).then((server) => {
         const s = getMcpServerStatus(server.id)
         const payload = { ...server, status: s.status, toolCount: s.tools.length }
         broadcastToMobile({ event: 'mcp:server-added', data: { server: payload } })

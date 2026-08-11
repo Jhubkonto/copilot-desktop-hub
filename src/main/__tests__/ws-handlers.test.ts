@@ -286,6 +286,21 @@ describe('ws handlers', () => {
     })
   })
 
+  it('replies with the curated MCP catalog for companion clients', () => {
+    const reply = sendCommand('mcp:catalog')
+
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'mcp:catalog',
+      data: expect.objectContaining({
+        entries: expect.arrayContaining([
+          expect.objectContaining({ id: 'github', requiredEnv: expect.arrayContaining([
+            expect.objectContaining({ key: 'GITHUB_PERSONAL_ACCESS_TOKEN', secret: true }),
+          ]) }),
+        ]),
+      }),
+    }))
+  })
+
   it('replies to the requesting client for message history', () => {
     const reply = sendCommand('conversation:get-messages', { conversationId: 'conv-1' })
 

@@ -23,6 +23,7 @@ import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.NewContentConversation
 import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.McpCatalogEntry
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.data.model.ModelListSource
@@ -232,6 +233,9 @@ object WsRepository : WsClient {
 
     private val _mcpServers = MutableStateFlow<List<McpServerInfo>>(emptyList())
     val mcpServers: StateFlow<List<McpServerInfo>> = _mcpServers
+
+    private val _mcpCatalog = MutableStateFlow<List<McpCatalogEntry>>(emptyList())
+    val mcpCatalog: StateFlow<List<McpCatalogEntry>> = _mcpCatalog
 
     // One-shot highlight IDs set by config screens when saving a brand-new item
     val pendingHighlightProjectId = MutableStateFlow<String?>(null)
@@ -1343,6 +1347,7 @@ object WsRepository : WsClient {
             androidUpdateManifest = _androidUpdateManifest,
             providers = _providers,
             mcpServers = _mcpServers,
+            mcpCatalog = _mcpCatalog,
             skills = _skills,
             skillAgentUsage = _skillAgentUsage,
             artifacts = _artifacts,
@@ -1785,6 +1790,7 @@ object WsRepository : WsClient {
         _desktopIsPackaged.value = null
         _providers.value = standaloneProviders?.providers?.value.orEmpty()
         _mcpServers.value = emptyList()
+        _mcpCatalog.value = emptyList()
         _skillAgentUsage.value = emptyMap()
         _artifacts.value = emptyList()
         _cliStatus.value = emptyMap()
@@ -2589,6 +2595,7 @@ object WsRepository : WsClient {
     fun getSetting(key: String) { send("app:get-setting", mapOf("key" to key)) }
     fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
     fun getMcpServers() { send("mcp:list", emptyMap()) }
+    fun getMcpCatalog() { send("mcp:catalog", emptyMap()) }
 
     private fun skillPayload(
         name: String,
@@ -2888,9 +2895,10 @@ object WsRepository : WsClient {
         send("agent:set-mcp-server-trust", mapOf("agentId" to agentId, "serverId" to serverId, "trust" to trust))
     }
 
-    fun addMcpServer(name: String, command: String, args: List<String> = emptyList(), env: Map<String, String> = emptyMap(), cwd: String? = null, enabled: Boolean = true) {
+    fun addMcpServer(name: String, command: String, args: List<String> = emptyList(), env: Map<String, String> = emptyMap(), cwd: String? = null, imageResponses: String? = null, enabled: Boolean = true) {
         val payload = mutableMapOf<String, Any>("name" to name, "command" to command, "args" to args, "env" to env, "enabled" to enabled)
         if (cwd != null) payload["cwd"] = cwd
+        if (imageResponses != null) payload["imageResponses"] = imageResponses
         send("mcp:add", payload)
     }
     fun updateMcpServer(id: String, name: String? = null, command: String? = null, args: List<String>? = null, env: Map<String, String>? = null, cwd: String? = null, enabled: Boolean? = null) {

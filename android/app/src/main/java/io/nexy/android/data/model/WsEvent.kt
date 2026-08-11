@@ -295,6 +295,7 @@ sealed class WsEvent {
     data class SettingSet(val key: String, val value: String) : WsEvent()
     data class SettingValue(val key: String, val value: String?) : WsEvent()
     data class McpList(val servers: List<McpServerInfo>) : WsEvent()
+    data class McpCatalog(val entries: List<McpCatalogEntry>) : WsEvent()
     data class SkillList(val skills: List<SkillConfig>) : WsEvent()
     data class SkillDetail(val skill: SkillConfig?) : WsEvent()
     data class SkillCreated(val skill: SkillConfig) : WsEvent()
@@ -789,6 +790,27 @@ data class McpServerInfo(
     val name: String,
     val command: String,
     val enabled: Boolean,
+)
+
+data class McpCatalogRequiredEnv(
+    val key: String,
+    val label: String,
+    val helpUrl: String? = null,
+    val secret: Boolean = false,
+)
+
+data class McpCatalogEntry(
+    val id: String,
+    val name: String,
+    val description: String,
+    val category: String,
+    val command: String,
+    val args: List<String> = emptyList(),
+    val env: Map<String, String> = emptyMap(),
+    val imageResponses: String? = null,
+    val requiredEnv: List<McpCatalogRequiredEnv> = emptyList(),
+    val docsUrl: String? = null,
+    val keywords: List<String> = emptyList(),
 )
 
 data class SkillConfig(

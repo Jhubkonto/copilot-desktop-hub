@@ -52,6 +52,8 @@ import io.nexy.android.data.model.NewContentConversation
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.McpCatalogEntry
+import io.nexy.android.data.model.McpCatalogRequiredEnv
 import io.nexy.android.data.model.McpServerWithStatus
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WikiExtractionCandidate
@@ -196,6 +198,7 @@ fun parseWsEvent(
     ratingsList: MutableStateFlow<List<ConversationRatingListItem>>,
     ratingStats: MutableStateFlow<ConversationRatingStats?>,
     desktopIsPackaged: MutableStateFlow<Boolean?> = MutableStateFlow(null),
+    mcpCatalog: MutableStateFlow<List<McpCatalogEntry>> = MutableStateFlow(emptyList()),
 ) {
     // Older desktop builds can send the entire message database in one reconnect frame. Refuse
     // that frame before JSONObject expands it into a much larger object graph; connected chat
@@ -1118,6 +1121,53 @@ fun parseWsEvent(
                 }
                 mcpServers.value = list
                 WsEvent.McpList(list)
+            }
+
+            "mcp:catalog" -> {
+                val arr = data?.optJSONArray("entries") ?: JSONArray()
+                val list = (0 until arr.length()).mapNotNull { i ->
+                    val entry = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val args = entry.optJSONArray("args")?.let { values ->
+                        (0 until values.length()).map { values.optString(it) }
+                    } ?: emptyList()
+                    val env = entry.optJSONObject("env")?.let { envObject ->
+                        buildMap {
+                            envObject.keys().forEach { key -> put(key, envObject.optString(key)) }
+                        }
+                    } ?: emptyMap()
+                    val required = entry.optJSONArray("requiredEnv")?.let { values ->
+                        (0 until values.length()).mapNotNull { index ->
+                            val req = values.optJSONObject(index) ?: return@mapNotNull null
+                            val key = req.optString("key")
+                            val label = req.optString("label")
+                            if (key.isBlank() || label.isBlank()) null else McpCatalogRequiredEnv(
+                                key = key,
+                                label = label,
+                                helpUrl = req.nullableString("helpUrl"),
+                                secret = req.optBoolean("secret", false),
+                            )
+                        }
+                    } ?: emptyList()
+                    val id = entry.optString("id")
+                    val name = entry.optString("name")
+                    if (id.isBlank() || name.isBlank()) null else McpCatalogEntry(
+                        id = id,
+                        name = name,
+                        description = entry.optString("description"),
+                        category = entry.optString("category", "productivity"),
+                        command = entry.optString("command"),
+                        args = args,
+                        env = env,
+                        imageResponses = entry.nullableString("imageResponses"),
+                        requiredEnv = required,
+                        docsUrl = entry.nullableString("docsUrl"),
+                        keywords = entry.optJSONArray("keywords")?.let { values ->
+                            (0 until values.length()).map { values.optString(it) }
+                        } ?: emptyList(),
+                    )
+                }
+                mcpCatalog.value = list
+                WsEvent.McpCatalog(list)
             }
 
             "mcp:server-added" -> {
