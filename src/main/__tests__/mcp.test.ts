@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockDb, mockOverrideRows } = vi.hoisted(() => {
+const { mockIpcMain, mockDb, mockOverrideRows, mockAgentRows, mockTrustRows } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
-  const serverRows: { id: string; config_json: string; enabled: number }[] = []
+  const serverRows: { id: string; config_json: string; config_encrypted: number; enabled: number }[] = []
   const overrideRows = new Map<string, { enabled: number; approval: string }>()
+  const agentRows = [{ id: 'agent-1', config_json: JSON.stringify({ name: 'Research Agent', mcpServers: [] }) }]
+  const trustRows = new Map<string, string>()
 
   const mockIpcMain = {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
@@ -17,8 +19,14 @@ const { mockIpcMain, mockDb, mockOverrideRows } = vi.hoisted(() => {
     prepare: vi.fn((sql: string) => ({
       run: vi.fn((...args: unknown[]) => {
         if (sql.includes('INSERT OR REPLACE INTO mcp_servers')) {
+          // Column order: (id, config_json, config_encrypted, enabled, updated_at)
           const idx = serverRows.findIndex((r) => r.id === args[0])
-          const row = { id: args[0] as string, config_json: args[1] as string, enabled: args[2] as number }
+          const row = {
+            id: args[0] as string,
+            config_json: args[1] as string,
+            config_encrypted: args[2] as number,
+            enabled: args[3] as number,
+          }
           if (idx >= 0) serverRows[idx] = row
           else serverRows.push(row)
         }
@@ -26,21 +34,42 @@ const { mockIpcMain, mockDb, mockOverrideRows } = vi.hoisted(() => {
           const idx = serverRows.findIndex((r) => r.id === args[0])
           if (idx >= 0) serverRows.splice(idx, 1)
         }
+        if (sql.includes('UPDATE agents SET config_json')) {
+          const row = agentRows.find((agent) => agent.id === args[2])
+          if (row) row.config_json = args[0] as string
+        }
+        if (sql.includes('INSERT OR REPLACE INTO agent_mcp_server_trust')) {
+          trustRows.set(`${args[0]}:${args[1]}`, args[2] as string)
+        }
         return { changes: 1 }
       }),
-      all: vi.fn(() => [...serverRows]),
+      all: vi.fn((...args: unknown[]) => {
+        void args
+        if (sql.includes('agent_mcp_server_trust')) {
+          return [...trustRows.entries()].map(([key, trust]) => {
+            const [agent_id, server_id] = key.split(':')
+            return { agent_id, server_id, trust }
+          })
+        }
+        return [...serverRows]
+      }),
       get: vi.fn((...args: unknown[]): unknown => {
         if (sql.includes('agent_mcp_tool_overrides')) {
           const key = `${args[0]}:${args[1]}:${args[2]}`
           return overrideRows.get(key)
         }
+        if (sql.includes('SELECT config_json FROM agents')) {
+          return agentRows.find((agent) => agent.id === args[0])
+        }
         return undefined
       })
     })),
-    _serverRows: serverRows
+    _serverRows: serverRows,
+    _agentRows: agentRows,
+    _trustRows: trustRows,
   }
 
-  return { mockIpcMain, mockDb, mockOverrideRows: overrideRows }
+  return { mockIpcMain, mockDb, mockOverrideRows: overrideRows, mockAgentRows: agentRows, mockTrustRows: trustRows }
 })
 
 /* ── Mock requestApproval from tools ──────────────────────── */
@@ -77,7 +106,13 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
 
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
-  BrowserWindow: { getAllWindows: vi.fn(() => []) }
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  // Keyring unavailable in tests → mcp.ts falls back to plaintext config storage.
+  safeStorage: {
+    isEncryptionAvailable: vi.fn(() => false),
+    encryptString: vi.fn((s: string) => Buffer.from(s)),
+    decryptString: vi.fn((b: Buffer) => b.toString()),
+  }
 }))
 
 vi.mock('../database', () => ({
@@ -86,6 +121,7 @@ vi.mock('../database', () => ({
 
 /* ── Import & Register ─────────────────────────────────────── */
 import { registerMcpHandlers, disconnectServer, shutdownMcpServers, servers, callMcpTool } from '../mcp'
+import { safeStorage } from 'electron'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
@@ -124,6 +160,8 @@ function injectConnectedServer(id: string, name: string, client: ReturnType<type
 
 beforeEach(() => {
   mockDb._serverRows.length = 0
+  mockAgentRows[0].config_json = JSON.stringify({ name: 'Research Agent', mcpServers: [] })
+  mockTrustRows.clear()
   mockOverrideRows.clear()
   servers.clear()
   vi.useRealTimers()
@@ -177,6 +215,79 @@ describe('MCP — IPC Handlers', () => {
   it('mcp:list-tools returns empty when no servers connected', async () => {
     const r = await invokeHandler('mcp:list-tools')
     expect(r).toEqual([])
+  })
+})
+
+describe('MCP — Secret storage at rest', () => {
+  it('persists config as plaintext with config_encrypted=0 when keyring is unavailable', async () => {
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(false)
+    await invokeHandler('mcp:add-server', {
+      name: 'Plain', command: 'node', args: [], env: { API_KEY: 'sekret' }, enabled: false
+    })
+    const row = mockDb._serverRows[0]
+    expect(row.config_encrypted).toBe(0)
+    expect(row.config_json).toContain('sekret') // plaintext fallback
+  })
+
+  it('encrypts config and round-trips env secrets when keyring is available', async () => {
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(true)
+    const added = await invokeHandler('mcp:add-server', {
+      name: 'Secure', command: 'node', args: [], env: { API_KEY: 'sekret' }, enabled: false
+    })
+
+    const row = mockDb._serverRows[0]
+    expect(row.config_encrypted).toBe(1)
+    // Stored blob is base64 of the encrypted bytes — must not expose the secret verbatim.
+    expect(Buffer.from(row.config_json, 'base64').toString()).toContain('sekret')
+
+    // list-servers reads it back through the decrypt path.
+    const servers = await invokeHandler('mcp:list-servers')
+    const loaded = servers.find((s: { id: string }) => s.id === added.id)
+    expect(loaded.env.API_KEY).toBe('sekret')
+
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(false)
+  })
+})
+
+describe('MCP — Pre-flight test-server', () => {
+  it('rejects a blank command without spawning', async () => {
+    const r = await invokeHandler('mcp:test-server', { command: '', args: [], env: {} })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/command is required/i)
+  })
+
+  it('connects, lists tools, and reports ok', async () => {
+    const r = await invokeHandler('mcp:test-server', { command: 'node', args: ['server.js'], env: {} })
+    expect(r.ok).toBe(true)
+    expect(Array.isArray(r.tools)).toBe(true)
+  })
+
+  it('does not persist or register the ephemeral server', async () => {
+    await invokeHandler('mcp:test-server', { command: 'node', args: [], env: {} })
+    expect(mockDb._serverRows.length).toBe(0)
+    expect(servers.size).toBe(0)
+  })
+})
+
+describe('MCP — Agent assignment', () => {
+  it('assigns a server and persists the selected trust tier', async () => {
+    const added = await invokeHandler('mcp:add-server', {
+      name: 'Calendar', command: 'node', args: [], env: {}, enabled: false
+    })
+
+    const result = await invokeHandler('agent:assign-mcp-server', 'agent-1', added.id, 'always-ask')
+
+    expect(result).toEqual({ assigned: true, trust: 'always-ask' })
+    expect(JSON.parse(mockAgentRows[0].config_json).mcpServers).toEqual([added.id])
+    expect(mockTrustRows.get(`agent-1:${added.id}`)).toBe('always-ask')
+  })
+
+  it('rejects an invalid trust tier', async () => {
+    const added = await invokeHandler('mcp:add-server', {
+      name: 'Calendar', command: 'node', args: [], env: {}, enabled: false
+    })
+
+    await expect(invokeHandler('agent:assign-mcp-server', 'agent-1', added.id, 'trust-everything')).resolves.toEqual({ error: 'Invalid MCP trust tier' })
   })
 })
 

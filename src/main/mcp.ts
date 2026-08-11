@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { BrowserWindow, type WebContents } from 'electron'
+import { BrowserWindow, safeStorage, type WebContents } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
@@ -8,6 +8,7 @@ import { requestApproval } from './tools'
 import { DESKTOP_NAVIGATOR_ID, DESKTOP_NAVIGATOR_TOOLS, createDesktopNavigatorHandler } from './desktop-navigator-mcp'
 import { startDesktopNavigatorBridge, getDesktopNavigatorCliConfig } from './desktop-navigator-bridge'
 import { debugLog } from './debug-mode'
+import { searchMcpRegistry } from './mcp-registry'
 
 interface McpServerConfig {
   id: string
@@ -70,15 +71,35 @@ function broadcastServerStatus(id: string): void {
   }
 }
 
+// A server's config_json can carry secrets (API tokens in its env map). We encrypt
+// the whole blob at rest via Electron safeStorage — mirroring how provider API keys
+// are handled — and flag it with config_encrypted so legacy plaintext rows written
+// before this change still decode. When the OS keyring is unavailable (e.g. some
+// Linux setups) we fall back to plaintext, exactly like provider-secrets.ts.
+function decodeStoredConfig(configJson: string, encrypted: boolean): string {
+  if (encrypted && safeStorage.isEncryptionAvailable()) {
+    return safeStorage.decryptString(Buffer.from(configJson, 'base64'))
+  }
+  return configJson
+}
+
+function encodeConfigForStorage(json: string): { value: string; encrypted: boolean } {
+  if (safeStorage.isEncryptionAvailable()) {
+    return { value: safeStorage.encryptString(json).toString('base64'), encrypted: true }
+  }
+  return { value: json, encrypted: false }
+}
+
 function loadServerConfigs(): McpServerConfig[] {
   const db = getDatabase()
-  const rows = db.prepare('SELECT id, config_json, enabled FROM mcp_servers').all() as {
+  const rows = db.prepare('SELECT id, config_json, config_encrypted, enabled FROM mcp_servers').all() as {
     id: string
     config_json: string
+    config_encrypted: number
     enabled: number
   }[]
   return rows.map((row) => {
-    const config = JSON.parse(row.config_json)
+    const config = JSON.parse(decodeStoredConfig(row.config_json, row.config_encrypted === 1))
     return { ...config, id: row.id, enabled: row.enabled === 1 }
   })
 }
@@ -86,9 +107,10 @@ function loadServerConfigs(): McpServerConfig[] {
 function saveServerConfig(config: McpServerConfig): void {
   const db = getDatabase()
   const { id, enabled, ...rest } = config
+  const { value, encrypted } = encodeConfigForStorage(JSON.stringify(rest))
   db.prepare(
-    'INSERT OR REPLACE INTO mcp_servers (id, config_json, enabled, updated_at) VALUES (?, ?, ?, unixepoch() * 1000)'
-  ).run(id, JSON.stringify(rest), enabled ? 1 : 0)
+    'INSERT OR REPLACE INTO mcp_servers (id, config_json, config_encrypted, enabled, updated_at) VALUES (?, ?, ?, ?, unixepoch() * 1000)'
+  ).run(id, value, encrypted ? 1 : 0, enabled ? 1 : 0)
 }
 
 function removeServerConfig(id: string): void {
@@ -195,6 +217,62 @@ async function connectServer(config: McpServerConfig): Promise<void> {
   }
 
   broadcastServerStatus(config.id)
+}
+
+export interface McpTestResult {
+  ok: boolean
+  tools?: { name: string; description?: string }[]
+  error?: string
+}
+
+/**
+ * Pre-flight check for a candidate server. Spawns an ephemeral stdio connection,
+ * lists its tools, then tears it down — without persisting anything or touching the
+ * live `servers` map. Powers the "Test connection" button in the add-server wizard.
+ */
+export async function testMcpServer(
+  config: Pick<McpServerConfig, 'command' | 'args' | 'env'> & Partial<Pick<McpServerConfig, 'cwd' | 'imageResponses'>>
+): Promise<McpTestResult> {
+  if (!config.command || !config.command.trim()) {
+    return { ok: false, error: 'A launch command is required.' }
+  }
+
+  const extraArgs: string[] = []
+  if (config.imageResponses === 'omit') {
+    extraArgs.push('--imageResponses', 'omit')
+  }
+
+  const env = config.env ?? {}
+  const transport = new StdioClientTransport({
+    command: config.command,
+    args: [...(config.args ?? []), ...extraArgs],
+    env: Object.keys(env).length > 0 ? { ...process.env, ...env } as Record<string, string> : undefined,
+    cwd: config.cwd || undefined,
+    stderr: 'pipe',
+  })
+
+  const client = new Client({ name: 'nexy-preflight', version: '0.9.0' }, { capabilities: {} })
+
+  try {
+    await client.connect(transport)
+    let tools: { name: string; description?: string }[] = []
+    try {
+      const result = await client.listTools()
+      tools = (result.tools || []).map((t) => ({ name: t.name, description: t.description }))
+    } catch {
+      // Server connected but exposes no tools list — still a successful connection.
+      tools = []
+    }
+    return { ok: true, tools }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  } finally {
+    try {
+      await transport.close()
+    } catch {
+      // Ignore teardown errors.
+    }
+  }
 }
 
 export async function disconnectServer(id: string): Promise<void> {
@@ -618,6 +696,36 @@ export function registerMcpHandlers(): void {
     return true
   })
 
+  safeHandle('agent:assign-mcp-server', (_event, agentId: string, serverId: string, trust: string = 'always-ask') => {
+    if (!['auto', 'always-ask', 'block'].includes(trust)) {
+      throw new Error('Invalid MCP trust tier')
+    }
+    const db = getDatabase()
+    const agentRow = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(agentId) as
+      | { config_json: string }
+      | undefined
+    if (!agentRow) throw new Error('Agent not found')
+
+    const serverExists = loadServerConfigs().some((config) => config.id === serverId) || servers.has(serverId)
+    if (!serverExists) throw new Error('MCP server not found')
+
+    const config = JSON.parse(agentRow.config_json) as Record<string, unknown>
+    const assignedServers = Array.isArray(config.mcpServers)
+      ? config.mcpServers.filter((id): id is string => typeof id === 'string')
+      : []
+    if (!assignedServers.includes(serverId)) assignedServers.push(serverId)
+    config.mcpServers = assignedServers
+    db.prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(config),
+      Date.now(),
+      agentId,
+    )
+    db.prepare(
+      'INSERT OR REPLACE INTO agent_mcp_server_trust (agent_id, server_id, trust) VALUES (?, ?, ?)'
+    ).run(agentId, serverId, trust)
+    return { assigned: true, trust }
+  })
+
   safeHandle(
     'mcp:call-tool',
     async (event, serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) => {
@@ -631,5 +739,13 @@ export function registerMcpHandlers(): void {
     if (!config) return false
     await connectServer(config).catch(() => {})
     return true
+  })
+
+  safeHandle('mcp:test-server', async (_event, config: Pick<McpServerConfig, 'command' | 'args' | 'env'> & Partial<Pick<McpServerConfig, 'cwd' | 'imageResponses'>>) => {
+    return await testMcpServer(config)
+  })
+
+  safeHandle('mcp:search-registry', async (_event, query: string) => {
+    return await searchMcpRegistry(typeof query === 'string' ? query : '')
   })
 }

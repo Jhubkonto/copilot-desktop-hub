@@ -164,6 +164,213 @@ export async function sendAnthropicWithTools(
   }
 }
 
+interface AnthropicStreamContentBlock {
+  type?: string
+  thinking?: string
+  text?: string
+  id?: string
+  name?: string
+  input?: unknown
+}
+
+interface AnthropicStreamPayload {
+  model?: string
+  content?: AnthropicStreamContentBlock[]
+  usage?: { output_tokens?: number }
+  message?: { model?: string; usage?: { input_tokens?: number } }
+  type?: string
+  index?: number
+  content_block?: AnthropicStreamContentBlock
+  delta?: {
+    type?: string
+    thinking?: string
+    text?: string
+    partial_json?: string
+  }
+}
+
+/**
+ * Streaming counterpart to sendAnthropicWithTools. Anthropic emits tool input
+ * as input_json_delta fragments; those fragments are deliberately kept out of
+ * the tool loop until the complete tool_use block has arrived.
+ */
+export function sendAnthropicWithToolsStream(
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  onChunk: (chunk: string) => void,
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    conversationId?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  } = {},
+): Promise<ProviderNonStreamResult> {
+  const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
+  const { tools: anthropicTools, nameMap } = toAnthropicTools(tools)
+  const toolChoiceParam =
+    toolChoice === 'required' ? { type: 'any' } :
+    { type: 'auto' }
+  const bodyObj: Record<string, unknown> = {
+    model,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7,
+    stream: true,
+    ...(system ? { system } : {}),
+    messages: anthropicMsgs,
+  }
+  if (toolChoice !== 'none' && anthropicTools.length > 0) {
+    bodyObj.tools = anthropicTools
+    bodyObj.tool_choice = toolChoiceParam
+  }
+  applyThinkingBudget(bodyObj, model, options.thinkingEffort)
+
+  let streamedResult: ProviderNonStreamResult = { content: null, toolCalls: [] }
+  return runStreamingRequest(conversationIdOrEmpty(options.conversationId), ANTHROPIC_MESSAGES_URL, anthropicHeaders(apiKey), JSON.stringify(bodyObj), (res, finish) => {
+    if (res.statusCode && res.statusCode >= 400) {
+      rejectHttpError(res, finish, (errBody) => providerHttpError('Anthropic', res.statusCode, errBody))
+      return
+    }
+
+    const contentType = res.headers['content-type'] ?? ''
+    if (!contentType.includes('text/event-stream')) {
+      let rawBody = ''
+      res.on('data', (chunk: Buffer) => { rawBody += chunk.toString() })
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(rawBody) as AnthropicStreamPayload
+          const blocks = Array.isArray(parsed.content) ? parsed.content : []
+          let content = ''
+          const toolCalls: ToolCallResult[] = []
+          blocks.forEach((block, index) => {
+            if (block.type === 'thinking' && (block.thinking || block.text)) {
+              const thinking = block.thinking ?? block.text ?? ''
+              options.onThinkingChunk?.(`thinking-${index}`, thinking)
+              options.onThinkingEnd?.(`thinking-${index}`)
+            } else if (block.type === 'text' && typeof block.text === 'string') {
+              content += block.text
+              onChunk(block.text)
+            } else if (block.type === 'tool_use' && block.id && block.name) {
+              const input = block.input && typeof block.input === 'object' && !Array.isArray(block.input)
+                ? block.input as Record<string, unknown>
+                : {}
+              toolCalls.push({ id: block.id, name: nameMap.get(block.name) ?? block.name, arguments: input })
+            }
+          })
+          const rawUsage = parsed.usage as { input_tokens?: number; output_tokens?: number } | undefined
+          const usage = rawUsage && typeof rawUsage.input_tokens === 'number' && typeof rawUsage.output_tokens === 'number'
+            ? { inputTokens: rawUsage.input_tokens, outputTokens: rawUsage.output_tokens }
+            : undefined
+          if (usage) options.onUsage?.(usage)
+          streamedResult = {
+            content: content || null,
+            toolCalls,
+            ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
+            ...(usage ? { usage } : {}),
+          }
+        } catch {
+          // Keep the empty result; the normal tool-loop recovery handles it.
+        }
+        finish.resolve(streamedResult.content ?? '')
+      })
+      res.on('error', (err: Error) => finish.reject(err))
+      return
+    }
+
+    let content = ''
+    let modelName: string | undefined
+    let inputTokens: number | undefined
+    let outputTokens: number | undefined
+    let activeThinkingBlockId: string | null = null
+    const toolBlocks = new Map<number, { id: string; name: string; inputJson: string }>()
+
+    parseSseStream(res, (data) => {
+      try {
+        const parsed = JSON.parse(data) as AnthropicStreamPayload
+        const message = parsed.message
+        if (typeof message?.model === 'string') modelName = message.model
+        if (typeof message?.usage?.input_tokens === 'number') inputTokens = message.usage.input_tokens
+        if (typeof parsed.usage?.output_tokens === 'number') outputTokens = parsed.usage.output_tokens
+        if (typeof inputTokens === 'number' && typeof outputTokens === 'number') {
+          options.onUsage?.({ inputTokens, outputTokens })
+        }
+
+        if (parsed.type === 'content_block_start') {
+          const block = parsed.content_block
+          const index = typeof parsed.index === 'number' ? parsed.index : toolBlocks.size
+          if (block?.type === 'thinking') {
+            activeThinkingBlockId = `thinking-${index}`
+          } else if (block?.type === 'tool_use' && block.id && block.name) {
+            toolBlocks.set(index, { id: block.id, name: block.name, inputJson: '' })
+          }
+        } else if (parsed.type === 'content_block_delta') {
+          const index = typeof parsed.index === 'number' ? parsed.index : 0
+          const delta = parsed.delta
+          if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string' && activeThinkingBlockId) {
+            options.onThinkingChunk?.(activeThinkingBlockId, delta.thinking)
+          } else if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+            content += delta.text
+            onChunk(delta.text)
+          } else if (delta?.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+            const tool = toolBlocks.get(index)
+            if (tool) tool.inputJson += delta.partial_json
+          }
+        } else if (parsed.type === 'content_block_stop' && activeThinkingBlockId) {
+          options.onThinkingEnd?.(activeThinkingBlockId)
+          activeThinkingBlockId = null
+        }
+      } catch {
+        // Skip malformed chunks; the provider stream parser continues.
+      }
+    })
+      .then(() => {
+        if (activeThinkingBlockId) options.onThinkingEnd?.(activeThinkingBlockId)
+        const toolCalls: ToolCallResult[] = [...toolBlocks.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, block]) => {
+            let args: Record<string, unknown> = {}
+            let argsError: string | undefined
+            try {
+              const parsed = block.inputJson.trim() ? JSON.parse(block.inputJson) : {}
+              if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                argsError = 'tool input was not a JSON object'
+              } else {
+                args = parsed as Record<string, unknown>
+              }
+            } catch {
+              argsError = `could not parse tool input as JSON: ${block.inputJson.slice(0, 200)}`
+            }
+            return {
+              id: block.id,
+              name: nameMap.get(block.name) ?? block.name,
+              arguments: args,
+              ...(argsError ? { argsError } : {}),
+            }
+          })
+        const usage = typeof inputTokens === 'number' && typeof outputTokens === 'number'
+          ? { inputTokens, outputTokens }
+          : undefined
+        streamedResult = {
+          content: content || null,
+          toolCalls,
+          ...(modelName ? { model: modelName } : {}),
+          ...(usage ? { usage } : {}),
+        }
+        finish.resolve(content)
+      })
+      .catch((err: Error) => finish.reject(err))
+  }).then(() => streamedResult)
+}
+
+function conversationIdOrEmpty(conversationId?: string): string {
+  return conversationId ?? ''
+}
+
 export async function sendAnthropicMessage(
   conversationId: string,
   apiKey: string,

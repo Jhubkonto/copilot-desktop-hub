@@ -3,17 +3,20 @@ import {
   PROVIDERS,
   sendOpenAIMessage,
   sendOpenAIWithTools,
+  sendOpenAIWithToolsStream,
   sendAnthropicMessage,
   sendAnthropicMessagesStream,
   sendAnthropicWithTools,
+  sendAnthropicWithToolsStream,
   sendAzureMessage,
   sendAzureWithTools,
+  sendAzureWithToolsStream,
   getAzureEndpoint,
   toOpenAICompatibleMessages,
   type ProviderMessage,
 } from './providers'
 import { runProviderMcpToolLoop } from './tool-loop'
-import type { ToolLoopToolFinishedEvent } from './tool-loop'
+import type { ModelToolStreamCaller, ToolLoopToolFinishedEvent, ToolLoopToolStartedEvent } from './tool-loop'
 import { callWithResilience } from './provider-resilience'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
@@ -53,6 +56,7 @@ export type ProviderDispatchOptions = {
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
   onToolFinished?: (event: ToolLoopToolFinishedEvent) => void
+  onToolStarted?: (event: ToolLoopToolStartedEvent) => void
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
   fullAutoApprove?: boolean
   forceFirstToolChoice?: boolean
@@ -65,6 +69,36 @@ function makeActivityHandler(sendActivity: (a: MobileChatActivity) => void) {
     } else {
       sendActivity({ state: 'thinking', label: 'Thinking' })
     }
+  }
+}
+
+/**
+ * Keeps transient retry behavior for streamed tool rounds, but never retries a
+ * request after it has already exposed text to the UI. Retrying at that point
+ * would duplicate the narration and break the visible chronology.
+ */
+function makeStreamingToolRoundCaller(
+  request: (
+    messages: ProviderMessage[],
+    tools: ToolDefinition[] | undefined,
+    choice: ToolChoice,
+    onChunk: (chunk: string) => void,
+  ) => Promise<ProviderNonStreamResult>,
+): ModelToolStreamCaller {
+  return (messages, tools, choice, onChunk) => {
+    let emitted = false
+    return callWithResilience(
+      (effectiveChoice) => request(messages, tools, effectiveChoice, (chunk) => {
+        if (chunk) emitted = true
+        onChunk(chunk)
+      }).catch((error) => {
+        if (emitted) {
+          throw new Error(`Provider stream interrupted after partial tool-round output: ${error instanceof Error ? error.message : String(error)}`)
+        }
+        throw error
+      }),
+      choice,
+    )
   }
 }
 
@@ -90,6 +124,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     onThinkingChunk: callerOnThinkingChunk,
     onThinkingEnd: callerOnThinkingEnd,
     onToolFinished,
+    onToolStarted,
     toolPolicy,
     fullAutoApprove,
     forceFirstToolChoice,
@@ -202,6 +237,15 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         async (msgs, onChunk) => {
           await sendAnthropicMessagesStream(conversationId, byokKey, providerModel, msgs, onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks })
         },
+        onToolStarted,
+        makeStreamingToolRoundCaller((msgs, tools, choice, onChunk) =>
+          sendAnthropicWithToolsStream(byokKey, providerModel, msgs, tools ?? [], choice, onChunk, {
+            ...effectiveGenerationOptions,
+            ...thinkingCallbacks,
+            onUsage,
+            conversationId,
+          })
+        ),
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -246,6 +290,15 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         async (msgs, onChunk) => {
           await sendOpenAIMessage(conversationId, byokKey, providerModel, toOpenAICompatibleMessages(msgs), onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage })
         },
+        onToolStarted,
+        makeStreamingToolRoundCaller((msgs, tools, choice, onChunk) =>
+          sendOpenAIWithToolsStream(byokKey, providerModel, msgs, tools ?? [], choice, onChunk, {
+            ...effectiveGenerationOptions,
+            ...thinkingCallbacks,
+            onUsage,
+            conversationId,
+          })
+        ),
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -285,6 +338,27 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
             throw err
           }
         }, choice)
+      const streamingToolCaller = makeStreamingToolRoundCaller((msgs, tools, choice, onChunk) =>
+        sendOpenAIWithToolsStream(byokKey, providerModel, msgs, tools ?? [], choice, onChunk, {
+          ...effectiveGenerationOptions,
+          ...thinkingCallbacks,
+          onUsage,
+          conversationId,
+        }, baseUrl).catch(async (err) => {
+          if (!(err instanceof Error)) throw err
+          if (err.message.includes('No endpoints found that support tool use')) {
+            debugLog('provider', `${providerName}: streamed tool use not supported by endpoint — retrying without tools model=${providerModel}`)
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+            return { content: text, toolCalls: [] }
+          }
+          if (err.message.includes('No endpoints found that support image input')) {
+            debugLog('provider', `${providerName}: streamed image input not supported — retrying with text-only model=${providerModel}`)
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
+            return { content: text, toolCalls: [] }
+          }
+          throw err
+        })
+      )
       return runProviderMcpToolLoop(
         caller,
         chatMessages,
@@ -308,6 +382,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         async (msgs, onChunk) => {
           await sendOpenAIMessage(conversationId, byokKey, providerModel, toOpenAICompatibleMessages(msgs), onChunk, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage }, baseUrl)
         },
+        onToolStarted,
+        streamingToolCaller,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -360,6 +436,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       async (msgs, onChunk) => {
         await sendAzureMessage(conversationId, byokKey, azureEndpoint, providerModel, toOpenAICompatibleMessages(msgs), onChunk, effectiveGenerationOptions)
       },
+      onToolStarted,
+      makeStreamingToolRoundCaller((msgs, tools, choice, onChunk) =>
+        sendAzureWithToolsStream(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, onChunk, {
+          ...effectiveGenerationOptions,
+          onUsage,
+          conversationId,
+        })
+      ),
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

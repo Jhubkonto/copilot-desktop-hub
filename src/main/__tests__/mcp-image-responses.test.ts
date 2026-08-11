@@ -16,8 +16,9 @@ const { mockIpcMain, mockDb, transportOptions } = vi.hoisted(() => {
       prepare: vi.fn((sql: string) => ({
         run: vi.fn((...args: unknown[]) => {
           if (sql.includes('INSERT OR REPLACE INTO mcp_servers')) {
+            // Column order: (id, config_json, config_encrypted, enabled, updated_at)
             const idx = serverRows.findIndex((row) => row.id === args[0])
-            const row = { id: args[0] as string, config_json: args[1] as string, enabled: args[2] as number }
+            const row = { id: args[0] as string, config_json: args[1] as string, enabled: args[3] as number }
             if (idx >= 0) serverRows[idx] = row
             else serverRows.push(row)
           }
@@ -50,7 +51,12 @@ const { MockClient, MockTransport } = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => ({
-  ipcMain: mockIpcMain
+  ipcMain: mockIpcMain,
+  safeStorage: {
+    isEncryptionAvailable: vi.fn(() => false),
+    encryptString: vi.fn((s: string) => Buffer.from(s)),
+    decryptString: vi.fn((b: Buffer) => b.toString()),
+  }
 }))
 
 vi.mock('../database', () => ({

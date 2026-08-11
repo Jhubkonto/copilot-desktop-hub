@@ -246,6 +246,156 @@ function streamChatCompletions(
   })
 }
 
+interface OpenAIStreamToolDelta {
+  index?: number
+  id?: string
+  function?: { name?: string; arguments?: string }
+}
+
+interface OpenAIStreamPayload {
+  model?: string
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
+  choices?: Array<{
+    delta?: {
+      content?: string
+      reasoning?: string
+      reasoning_content?: string
+      tool_calls?: OpenAIStreamToolDelta[]
+      function_call?: { name?: string; arguments?: string }
+    }
+    message?: { content?: string }
+    finish_reason?: string | null
+  }>
+}
+
+/**
+ * Streams an OpenAI-compatible tool round. Function names and argument JSON
+ * arrive in separate SSE deltas, so they are assembled here and exposed to the
+ * tool loop only after the response has ended.
+ */
+function streamChatCompletionsWithTools(
+  conversationId: string,
+  endpoint: ChatEndpoint,
+  body: string,
+  onChunk: (chunk: string) => void,
+  options: StreamOptions = {},
+): Promise<ProviderNonStreamResult> {
+  let streamedResult: ProviderNonStreamResult = { content: null, toolCalls: [] }
+  return runStreamingRequest(conversationId, endpoint.url, endpoint.headers, body, (res, finish) => {
+    const contentType = res.headers['content-type'] ?? ''
+    if (res.statusCode && res.statusCode >= 400) {
+      rejectHttpError(res, finish, (errBody) => providerHttpError(endpoint.label, res.statusCode, errBody))
+      return
+    }
+
+    if (!contentType.includes('text/event-stream')) {
+      let rawBody = ''
+      res.on('data', (chunk: Buffer) => { rawBody += chunk.toString() })
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(rawBody) as Record<string, unknown>
+          const msg = extractMessage(parsed)
+          const content = typeof msg?.content === 'string' ? msg.content : null
+          if (content) onChunk(content)
+          const usage = extractUsage(parsed)
+          if (usage) options.onUsage?.(usage)
+          streamedResult = {
+            content,
+            toolCalls: extractToolCalls(msg),
+            ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
+            ...(usage ? { usage } : {}),
+          }
+        } catch {
+          // Keep the empty result; the normal tool-loop recovery handles it.
+        }
+        finish.resolve(streamedResult.content ?? '')
+      })
+      res.on('error', (err: Error) => finish.reject(err))
+      return
+    }
+
+    let fullContent = ''
+    let model: string | undefined
+    let usage: { inputTokens: number; outputTokens: number } | undefined
+    let sawEmptyStop = false
+    let reasoningBlockOpen = false
+    const calls = new Map<number, { id: string; name: string; arguments: string }>()
+
+    parseSseStream(res, (data) => {
+      try {
+        const parsed = JSON.parse(data) as OpenAIStreamPayload
+        if (typeof parsed.model === 'string') model = parsed.model
+        const parsedUsage = parsed.usage
+        if (parsedUsage && typeof parsedUsage.prompt_tokens === 'number' && typeof parsedUsage.completion_tokens === 'number') {
+          usage = { inputTokens: parsedUsage.prompt_tokens, outputTokens: parsedUsage.completion_tokens }
+          options.onUsage?.(usage)
+        }
+        const choice = parsed.choices?.[0]
+        const delta = choice?.delta ?? {}
+        const textContent = delta.content ?? choice?.message?.content
+        const reasoning = delta.reasoning ?? delta.reasoning_content
+        if (typeof reasoning === 'string' && reasoning) {
+          reasoningBlockOpen = true
+          options.onThinkingChunk?.('reasoning-0', reasoning)
+        }
+        if (typeof textContent === 'string' && textContent) {
+          if (reasoningBlockOpen) {
+            options.onThinkingEnd?.('reasoning-0')
+            reasoningBlockOpen = false
+          }
+          fullContent += textContent
+          onChunk(textContent)
+        }
+
+        const streamedCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : []
+        streamedCalls.forEach((toolCall, position) => {
+          const index = typeof toolCall.index === 'number' ? toolCall.index : position
+          const existing = calls.get(index) ?? {
+            id: typeof toolCall.id === 'string' ? toolCall.id : `tool-call-${index}`,
+            name: '',
+            arguments: '',
+          }
+          if (typeof toolCall.id === 'string' && toolCall.id) existing.id = toolCall.id
+          if (typeof toolCall.function?.name === 'string') existing.name += toolCall.function.name
+          if (typeof toolCall.function?.arguments === 'string') existing.arguments += toolCall.function.arguments
+          calls.set(index, existing)
+        })
+
+        // Older OpenAI-compatible endpoints sometimes use the legacy single
+        // function_call delta instead of tool_calls[].
+        if (delta.function_call) {
+          const existing = calls.get(0) ?? { id: 'tool-call-0', name: '', arguments: '' }
+          if (typeof delta.function_call.name === 'string') existing.name += delta.function_call.name
+          if (typeof delta.function_call.arguments === 'string') existing.arguments += delta.function_call.arguments
+          calls.set(0, existing)
+        }
+        if (!textContent && choice?.finish_reason === 'stop') sawEmptyStop = true
+      } catch {
+        // Skip malformed chunks; the provider stream parser continues.
+      }
+    })
+      .then(() => {
+        if (reasoningBlockOpen) options.onThinkingEnd?.('reasoning-0')
+        const rawCalls = [...calls.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, call]) => ({ id: call.id, function: { name: call.name, arguments: call.arguments } }))
+        const toolCalls = extractToolCalls({ tool_calls: rawCalls })
+        if (sawEmptyStop && fullContent === '' && toolCalls.length === 0) {
+          finish.reject(new Error('The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'))
+          return
+        }
+        streamedResult = {
+          content: fullContent || null,
+          toolCalls,
+          ...(model ? { model } : {}),
+          ...(usage ? { usage } : {}),
+        }
+        finish.resolve(fullContent)
+      })
+      .catch((err: Error) => finish.reject(err))
+  }).then(() => streamedResult)
+}
+
 export async function sendOpenAIMessage(
   conversationId: string,
   apiKey: string,
@@ -352,6 +502,46 @@ export async function sendOpenAIWithTools(
   }
 }
 
+export function sendOpenAIWithToolsStream(
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  onChunk: (chunk: string) => void,
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    conversationId?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  } = {},
+  baseUrl?: string,
+): Promise<ProviderNonStreamResult> {
+  const bodyObj: Record<string, unknown> = {
+    model,
+    messages: toOpenAICompatibleMessages(messages),
+    stream: true,
+    stream_options: { include_usage: true },
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7,
+  }
+  if (tools.length > 0) {
+    bodyObj.tools = tools
+    bodyObj.tool_choice = toolChoice
+  }
+  applyReasoningEffort(bodyObj, model, options.thinkingEffort)
+  return streamChatCompletionsWithTools(
+    options.conversationId ?? '',
+    openAiEndpoint(apiKey, baseUrl),
+    JSON.stringify(bodyObj),
+    onChunk,
+    options,
+  )
+}
+
 export async function sendAzureMessage(
   conversationId: string,
   apiKey: string,
@@ -428,4 +618,38 @@ export async function sendAzureWithTools(
     ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
     ...(usage ? { usage } : {}),
   }
+}
+
+export function sendAzureWithToolsStream(
+  apiKey: string,
+  endpoint: string,
+  deployment: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  onChunk: (chunk: string) => void,
+  options: {
+    maxTokens?: number
+    temperature?: number
+    conversationId?: string
+    onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  } = {},
+): Promise<ProviderNonStreamResult> {
+  const bodyObj: Record<string, unknown> = {
+    messages: toOpenAICompatibleMessages(messages),
+    stream: true,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7,
+  }
+  if (tools.length > 0) {
+    bodyObj.tools = tools
+    bodyObj.tool_choice = toolChoice
+  }
+  return streamChatCompletionsWithTools(
+    options.conversationId ?? '',
+    azureEndpoint(apiKey, endpoint, deployment),
+    JSON.stringify(bodyObj),
+    onChunk,
+    options,
+  )
 }

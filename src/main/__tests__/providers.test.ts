@@ -322,6 +322,106 @@ describe('Providers — IPC Handlers', () => {
     })
   })
 
+  describe('streaming tool rounds', () => {
+    it('streams OpenAI text while buffering fragmented tool-call arguments', async () => {
+      let requestBody = ''
+      mockHttpsRequest.mockImplementationOnce((options: unknown, callback: (res: EventEmitter) => void) => {
+        const req = new EventEmitter() as EventEmitter & {
+          write: (chunk: string) => void
+          end: () => void
+        }
+        const res = new EventEmitter() as EventEmitter & {
+          statusCode?: number
+          headers?: Record<string, string>
+        }
+        res.statusCode = 200
+        res.headers = { 'content-type': 'text/event-stream' }
+        req.write = (chunk: string) => { requestBody += chunk }
+        req.end = () => {
+          callback(res)
+          res.emit('data', 'data: {"model":"gpt-test","choices":[{"delta":{"content":"I will "}}]}\n\n')
+          res.emit('data', 'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"server-1__click","arguments":"{\\"target\\":"}}]}}]}\n\n')
+          res.emit('data', 'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"submit\\"}"}}]}}]}\n\n')
+          res.emit('data', 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n')
+          res.emit('data', 'data: [DONE]\n\n')
+          res.emit('end')
+        }
+        return req
+      })
+
+      const mod = await import('../providers')
+      const streamed: string[] = []
+      const result = await mod.sendOpenAIWithToolsStream(
+        'sk-test',
+        'gpt-test',
+        [{ role: 'user', content: 'click submit' }],
+        [{
+          type: 'function',
+          function: { name: 'server-1__click', description: 'Click', parameters: { type: 'object' } },
+        }],
+        'auto',
+        (chunk) => streamed.push(chunk),
+        { conversationId: 'conv-stream' },
+      )
+
+      expect(streamed).toEqual(['I will '])
+      expect(result).toMatchObject({
+        content: 'I will ',
+        toolCalls: [{ id: 'call-1', name: 'server-1__click', arguments: { target: 'submit' } }],
+        model: 'gpt-test',
+      })
+      expect(JSON.parse(requestBody)).toMatchObject({ stream: true, tool_choice: 'auto' })
+    })
+
+    it('streams Anthropic text while buffering input_json_delta fragments', async () => {
+      mockHttpsRequest.mockImplementationOnce((options: unknown, callback: (res: EventEmitter) => void) => {
+        const req = new EventEmitter() as EventEmitter & { write: (chunk: string) => void; end: () => void }
+        const res = new EventEmitter() as EventEmitter & { statusCode?: number; headers?: Record<string, string> }
+        res.statusCode = 200
+        res.headers = { 'content-type': 'text/event-stream' }
+        req.write = () => {}
+        req.end = () => {
+          callback(res)
+          res.emit('data', 'data: {"type":"message_start","message":{"model":"claude-test","usage":{"input_tokens":10}}}\n\n')
+          res.emit('data', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n')
+          res.emit('data', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I will "}}\n\n')
+          res.emit('data', 'data: {"type":"content_block_stop","index":0}\n\n')
+          res.emit('data', 'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call-ant","name":"server-1__click","input":{}}}\n\n')
+          res.emit('data', 'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"target\\":"}}\n\n')
+          res.emit('data', 'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\\"submit\\"}"}}\n\n')
+          res.emit('data', 'data: {"type":"content_block_stop","index":1}\n\n')
+          res.emit('data', 'data: {"type":"message_delta","usage":{"output_tokens":5}}\n\n')
+          res.emit('data', 'data: {"type":"message_stop"}\n\n')
+          res.emit('end')
+        }
+        return req
+      })
+
+      const mod = await import('../providers')
+      const streamed: string[] = []
+      const result = await mod.sendAnthropicWithToolsStream(
+        'sk-ant-test',
+        'claude-test',
+        [{ role: 'user', content: 'click submit' }],
+        [{
+          type: 'function',
+          function: { name: 'server-1__click', description: 'Click', parameters: { type: 'object' } },
+        }],
+        'auto',
+        (chunk) => streamed.push(chunk),
+        { conversationId: 'conv-anthropic-stream' },
+      )
+
+      expect(streamed).toEqual(['I will '])
+      expect(result).toMatchObject({
+        content: 'I will ',
+        toolCalls: [{ id: 'call-ant', name: 'server-1__click', arguments: { target: 'submit' } }],
+        model: 'claude-test',
+      })
+      expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 })
+    })
+  })
+
   describe('abortActiveStream', () => {
     it('keeps other conversation streams active when aborting by conversation id', async () => {
       const { abortActiveStream, activeStreamingRequests } = await import('../providers')
