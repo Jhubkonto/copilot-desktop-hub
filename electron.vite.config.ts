@@ -20,6 +20,10 @@ function copyWorkers(): import('vite').Plugin {
         resolve(__dirname, 'src/main/user-input-mcp-worker.cjs'),
         resolve(outDir, 'user-input-mcp-worker.cjs'),
       )
+      copyFileSync(
+        resolve(__dirname, 'src/main/project-wiki-mcp-worker.cjs'),
+        resolve(outDir, 'project-wiki-mcp-worker.cjs'),
+      )
     },
   }
 }

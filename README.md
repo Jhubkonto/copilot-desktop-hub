@@ -41,6 +41,7 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 
 - Project workspaces with per-project agent config, orchestration settings, scope rules, milestones, and workspace variables
 - Project wiki: manual and AI-extracted knowledge entries, `@wiki` context references, queryable via `search_project_wiki` MCP tool
+- External project-wiki MCP bridge: project-scoped loopback access for Codex/Claude with approval-gated writes ([details](docs/project-wiki-mcp.md))
 - Prompt library with versioning, variable substitution, categories, tags, and per-version rollback
 - Project and agent generators: guided multi-turn wizards for scaffolding new workspaces and teams
 
