@@ -6,6 +6,7 @@ import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
 // scroll/click can land just inside one check's "at bottom" zone while still outside the other's
 // narrower epsilon, producing a visible pause-then-jump right as the user reaches the end.
 const SCROLL_BOTTOM_THRESHOLD = 80
+const RESIZE_SETTLE_DELAY = 140
 
 interface SavedChatViewState {
   scrollTop: number
@@ -74,6 +75,9 @@ export function useAutoScroll({
   // as the user having scrolled up.
   const isProgrammaticScrollRef = useRef(false)
   const suppressAutoFollowUntilRef = useRef(0)
+  const isWindowResizingRef = useRef(false)
+  const resizeSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resizeRafRef = useRef<number | null>(null)
   const prevContentSignalRef = useRef(contentSignal)
   const wasContentInitializingRef = useRef(isContentInitializing)
   const activeResetKeyRef = useRef(resetKey)
@@ -101,6 +105,8 @@ export function useAutoScroll({
     }
     onAtBottomChange?.(true)
   }, [onAtBottomChange])
+  const scrollToBottomRef = useRef(scrollToBottom)
+  scrollToBottomRef.current = scrollToBottom
 
   const handleScrollContainerScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -136,17 +142,43 @@ export function useAutoScroll({
 
   // Auto-scroll only when the user is at the bottom, driven by a ResizeObserver on the content
   // column rather than guessing how many animation frames a given change takes to land in layout.
+  // Native window resizing can produce a ResizeObserver callback for every drag frame. Pause
+  // those callbacks while the frame is being resized, then do one settling correction after the
+  // drag ends instead of competing with Chromium's resize/repaint loop.
   useEffect(() => {
     const content = contentContainerRef.current
     if (!content) return
-    const observer = new ResizeObserver(() => {
-      if (isUserScrolledUpRef.current) return
-      if (Date.now() < suppressAutoFollowUntilRef.current) return
-      if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
-    })
+    const scheduleAutoFollow = () => {
+      if (isWindowResizingRef.current || resizeRafRef.current !== null) return
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null
+        if (isWindowResizingRef.current) return
+        if (isUserScrolledUpRef.current) return
+        if (Date.now() < suppressAutoFollowUntilRef.current) return
+        if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottomRef.current('auto')
+      })
+    }
+    const handleWindowResize = () => {
+      isWindowResizingRef.current = true
+      if (resizeSettleTimerRef.current) clearTimeout(resizeSettleTimerRef.current)
+      resizeSettleTimerRef.current = setTimeout(() => {
+        resizeSettleTimerRef.current = null
+        isWindowResizingRef.current = false
+        scheduleAutoFollow()
+      }, RESIZE_SETTLE_DELAY)
+    }
+    const observer = new ResizeObserver(scheduleAutoFollow)
     observer.observe(content)
-    return () => observer.disconnect()
-  }, [scrollToBottom])
+    window.addEventListener('resize', handleWindowResize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', handleWindowResize)
+      if (resizeSettleTimerRef.current) clearTimeout(resizeSettleTimerRef.current)
+      if (resizeRafRef.current !== null) cancelAnimationFrame(resizeRafRef.current)
+      resizeSettleTimerRef.current = null
+      resizeRafRef.current = null
+    }
+  }, [])
 
   // Track new content arriving while user is scrolled up → mark unread.
   useEffect(() => {

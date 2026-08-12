@@ -48,6 +48,14 @@
   --sidebar-width: 260px;
 }
 
+/* Native Chromium windowing for long chat transcripts. The subtree remains in the DOM so
+   message anchors, accessibility, and scroll-to-request behavior continue to work, while
+   offscreen Markdown/code blocks can skip layout and paint until they approach the viewport. */
+.chat-message-windowed {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 240px;
+}
+
 /* Classic and 8-bit are visual styles; `.dark` remains the independent brightness axis. */
 [data-ui-style='classic'] {
   --nexy-outer-frame: 249 250 251;
