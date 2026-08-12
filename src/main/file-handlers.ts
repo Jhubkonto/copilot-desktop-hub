@@ -232,7 +232,11 @@ export function isRemotePathAuthorized(filePath: string, authorizedRoots: string
 
 export function getFsAuthorizedRoots(): string[] {
   const { home, recents } = getFsStartRoots()
-  return [home, getWorkingDirectory(), ...recents].filter((root, index, roots) => root && roots.indexOf(root) === index)
+  const artifactRoot = (getDatabase()
+    .prepare("SELECT value FROM settings WHERE key = 'artifact_storage_root'")
+    .get() as { value?: string } | undefined)?.value
+  return [home, getWorkingDirectory(), ...recents, artifactRoot]
+    .filter((root, index, roots): root is string => Boolean(root) && roots.indexOf(root) === index)
 }
 
 export function listDirectoryEntriesForRemote(path: string, authorizedRoots?: string[]): FsRemoteListResult {

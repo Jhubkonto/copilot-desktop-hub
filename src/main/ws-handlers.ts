@@ -2239,7 +2239,7 @@ export function registerWsHandlers(): void {
       if (currentVersionId) {
         const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(currentVersionId) as Record<string, unknown> | undefined
         if (vRow) {
-          const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(currentVersionId) as Record<string, unknown>[]
+          const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, absolute_path, role FROM artifact_files WHERE version_id = ?').all(currentVersionId) as Record<string, unknown>[]
           currentVersion = {
             id: String(vRow.id),
             artifactId: String(vRow.artifact_id),
@@ -2250,6 +2250,7 @@ export function registerWsHandlers(): void {
             files: fileRows.map((f) => ({
               id: String(f.id),
               relativePath: String(f.relative_path),
+              absolutePath: String(f.absolute_path),
               mediaType: String(f.media_type),
               role: String(f.role),
             })),
@@ -2284,7 +2285,7 @@ export function registerWsHandlers(): void {
       const rows = db.prepare('SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC').all(artifactId) as Record<string, unknown>[]
       const versions = rows.map((vRow) => {
         const versionId = String(vRow.id)
-        const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(versionId) as Record<string, unknown>[]
+        const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, absolute_path, role FROM artifact_files WHERE version_id = ?').all(versionId) as Record<string, unknown>[]
         return {
           id: versionId,
           artifactId: String(vRow.artifact_id),
@@ -2295,6 +2296,7 @@ export function registerWsHandlers(): void {
           files: fileRows.map((f) => ({
             id: String(f.id),
             relativePath: String(f.relative_path),
+            absolutePath: String(f.absolute_path),
             mediaType: String(f.media_type),
             role: String(f.role),
           })),
@@ -2341,7 +2343,7 @@ export function registerWsHandlers(): void {
           const versionRows = db.prepare('SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC').all(artifactId) as Record<string, unknown>[]
           const versions = versionRows.map((vRow) => {
             const vId = String(vRow.id)
-            const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(vId) as Record<string, unknown>[]
+            const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, absolute_path, role FROM artifact_files WHERE version_id = ?').all(vId) as Record<string, unknown>[]
             return {
               id: vId,
               artifactId: String(vRow.artifact_id),
@@ -2352,6 +2354,7 @@ export function registerWsHandlers(): void {
               files: fileRows.map((f) => ({
                 id: String(f.id),
                 relativePath: String(f.relative_path),
+                absolutePath: String(f.absolute_path),
                 mediaType: String(f.media_type),
                 role: String(f.role),
               })),
@@ -2366,7 +2369,7 @@ export function registerWsHandlers(): void {
             if (currentVersionId) {
               const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(currentVersionId) as Record<string, unknown> | undefined
               if (vRow) {
-                const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(currentVersionId) as Record<string, unknown>[]
+                const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, absolute_path, role FROM artifact_files WHERE version_id = ?').all(currentVersionId) as Record<string, unknown>[]
                 currentVersion = {
                   id: String(vRow.id),
                   artifactId: String(vRow.artifact_id),
@@ -2377,6 +2380,7 @@ export function registerWsHandlers(): void {
                   files: fileRows.map((f) => ({
                     id: String(f.id),
                     relativePath: String(f.relative_path),
+                    absolutePath: String(f.absolute_path),
                     mediaType: String(f.media_type),
                     role: String(f.role),
                   })),
