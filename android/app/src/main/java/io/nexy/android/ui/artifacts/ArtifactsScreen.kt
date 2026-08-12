@@ -89,6 +89,7 @@ import io.nexy.android.ui.components.NexySortSheet
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 private enum class ArtifactExportAction { SHARE, DOWNLOAD }
 
@@ -96,6 +97,7 @@ private enum class ArtifactExportAction { SHARE, DOWNLOAD }
 @Composable
 fun ArtifactsScreen(
     onBack: () -> Unit,
+    onOpenMarkdown: (path: String) -> Unit = {},
     projectId: String? = null,
     initialArtifactId: String? = null,
     vm: ArtifactsViewModel = viewModel(),
@@ -123,6 +125,7 @@ fun ArtifactsScreen(
     var exportAction by remember { mutableStateOf<ArtifactExportAction?>(null) }
     var pendingDownloadFiles by remember { mutableStateOf<List<ArtifactExportFile>?>(null) }
     var pendingDownloadFolder by remember { mutableStateOf("artifact") }
+    var autoOpenedMarkdownArtifactId by remember { mutableStateOf<String?>(null) }
     val downloadDirectoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
         val files = pendingDownloadFiles
         if (treeUri != null && files != null) {
@@ -170,6 +173,20 @@ fun ArtifactsScreen(
         val artifactId = initialArtifactId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         if (artifacts.any { it.id == artifactId } && selected?.id != artifactId) {
             vm.selectArtifact(artifactId)
+        }
+    }
+    LaunchedEffect(selected?.id, selected?.kind, selected?.currentVersion?.id) {
+        val artifact = selected ?: return@LaunchedEffect
+        if (artifact.kind != "plan" || autoOpenedMarkdownArtifactId == artifact.id) return@LaunchedEffect
+        val primaryFile = artifact.currentVersion?.files
+            ?.firstOrNull { it.role == "primary" }
+            ?: artifact.currentVersion?.files?.firstOrNull()
+        val isMarkdown = primaryFile?.mediaType.equals("text/markdown", ignoreCase = true) ||
+            primaryFile?.relativePath?.lowercase(Locale.ROOT)?.endsWith(".md") == true
+        val path = primaryFile?.absolutePath
+        if (isMarkdown && !path.isNullOrBlank()) {
+            autoOpenedMarkdownArtifactId = artifact.id
+            onOpenMarkdown(path)
         }
     }
     LifecycleResumeEffect(projectId) {
