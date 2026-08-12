@@ -13,6 +13,7 @@ import { searchMcpRegistry } from './mcp-registry'
 interface McpServerConfig {
   id: string
   name: string
+  description?: string
   command: string
   args: string[]
   env: Record<string, string>
@@ -503,6 +504,7 @@ export function initDesktopNavigatorMcp(win: BrowserWindow): void {
     config: {
       id: DESKTOP_NAVIGATOR_ID,
       name: 'Desktop Navigator',
+      description: 'Inspect and operate the Nexy desktop interface through navigation and interaction tools.',
       command: '',
       args: [],
       env: {},
