@@ -212,6 +212,7 @@ export function McpServerPanel() {
   const [guidedEnv, setGuidedEnv] = useState<McpCatalogRequiredEnv[]>([])
   const [test, setTest] = useState<TestState>({ status: 'idle' })
   const [search, setSearch] = useState('')
+  const [catalogCategory, setCatalogCategory] = useState<McpCatalogCategory | 'all'>('all')
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [registryQuery, setRegistryQuery] = useState('')
@@ -295,6 +296,7 @@ export function McpServerPanel() {
       setView('gallery')
       setEditingServer(null)
       setSearch('')
+      setCatalogCategory('all')
       setJsonError(null)
       setAssignment(null)
       setToolSearch('')
@@ -600,7 +602,10 @@ export function McpServerPanel() {
     }
   }
 
-  const filteredCatalog = useMemo(() => searchCatalog(search), [search])
+  const filteredCatalog = useMemo(() => {
+    const matches = searchCatalog(search)
+    return catalogCategory === 'all' ? matches : matches.filter((entry) => entry.category === catalogCategory)
+  }, [catalogCategory, search])
 
   // Group filtered entries by category, preserving MCP_CATEGORY_ORDER.
   const groupedCatalog = useMemo(() => {
@@ -617,6 +622,14 @@ export function McpServerPanel() {
     () => new Set(servers.map((s) => s.name.toLowerCase())),
     [servers]
   )
+
+  const agentCountByServer = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const agent of accessAgents) {
+      for (const serverId of agent.mcpServers ?? []) counts.set(serverId, (counts.get(serverId) ?? 0) + 1)
+    }
+    return counts
+  }, [accessAgents])
 
   const filteredTools = useMemo(() => {
     const query = toolSearch.trim().toLowerCase()
@@ -1339,8 +1352,8 @@ export function McpServerPanel() {
             <section className="space-y-2">
               <div className="flex items-end justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-nexy-text">Connected servers</h3>
-                  <p className="mt-0.5 text-xs text-nexy-muted">The local connections that power your agents.</p>
+                  <h3 className="text-sm font-bold text-nexy-text">Configured servers</h3>
+                  <p className="mt-0.5 text-xs text-nexy-muted">Installed connections and their current health.</p>
                 </div>
                 <button type="button" onClick={() => setView('access')} className="inline-flex items-center gap-1 text-[11px] font-bold text-nexy-accent hover:underline">
                   <Users className="h-3 w-3" /> Manage access
@@ -1348,7 +1361,8 @@ export function McpServerPanel() {
               </div>
               {servers.map((server) => {
                 const detailsOpen = expandedServerDetails.has(server.id)
-                const statusLabel = server.status === 'connected' ? 'Connected' : server.status === 'connecting' ? 'Connecting' : server.status === 'error' ? 'Needs attention' : 'Offline'
+                const statusLabel = server.status === 'connected' ? 'Connected' : server.status === 'connecting' ? 'Connecting' : server.status === 'error' ? 'Needs attention' : server.enabled ? 'Offline' : 'Disabled'
+                const assignedAgentCount = agentCountByServer.get(server.id) ?? 0
                 return (
                   <article key={server.id} className="overflow-hidden rounded-nexy-md border-2 border-nexy-border bg-nexy-raised">
                     <div className="flex items-start gap-3 p-3">
@@ -1358,6 +1372,7 @@ export function McpServerPanel() {
                           <h4 className="truncate text-xs font-bold text-nexy-text">{server.name}</h4>
                           <span className="rounded-full border border-nexy-border bg-nexy-recessed px-1.5 py-0.5 text-[10px] font-bold text-nexy-muted">{statusLabel}</span>
                           <span className="text-[10px] text-nexy-muted">{server.toolCount} tool{server.toolCount !== 1 ? 's' : ''}</span>
+                          {assignedAgentCount > 0 && <span className="text-[10px] text-nexy-muted">· {assignedAgentCount} agent{assignedAgentCount === 1 ? '' : 's'}</span>}
                         </div>
                         {server.error ? <p className="mt-1 truncate text-[11px] text-nexy-error">{server.error}</p> : <p className="mt-1 text-[11px] text-nexy-muted">Ready to assign to an agent.</p>}
                       </div>
@@ -1380,12 +1395,19 @@ export function McpServerPanel() {
 
           <section className="space-y-3">
             <div>
-              <h3 className="text-sm font-bold text-nexy-text">Add a server</h3>
+              <h3 className="text-sm font-bold text-nexy-text">Available capabilities<span className="sr-only">Add a server</span></h3>
               <p className="mt-0.5 text-xs text-nexy-muted">Start with the capability you need. We’ll fill in the technical setup.</p>
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-nexy-muted" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search capabilities — web, github, files, screenshot…" aria-label="Search server catalog" className="w-full rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed py-2 pl-9 pr-3 text-sm text-nexy-text placeholder:text-nexy-muted focus:bg-nexy-raised focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-nexy-accent" />
+            </div>
+            <div className="flex gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Capability categories">
+              {(['all', ...MCP_CATEGORY_ORDER] as const).map((category) => {
+                const active = catalogCategory === category
+                const label = category === 'all' ? 'All' : MCP_CATEGORY_LABELS[category]
+                return <button key={category} type="button" role="tab" aria-selected={active} onClick={() => setCatalogCategory(category)} className={`shrink-0 rounded-full border-2 px-2.5 py-1 text-[11px] font-bold transition-colors ${active ? 'border-nexy-border bg-nexy-text text-nexy-raised' : 'border-nexy-border bg-nexy-raised text-nexy-muted hover:bg-nexy-recessed hover:text-nexy-text'}`}>{label}</button>
+              })}
             </div>
             {groupedCatalog.length === 0 ? <p className="rounded-nexy-md border-2 border-dashed border-nexy-border px-4 py-5 text-center text-xs text-nexy-muted">No matching servers. Try a custom server below.</p> : groupedCatalog.map((group) => (
               <div key={group.category} className="space-y-1.5">
@@ -1394,17 +1416,21 @@ export function McpServerPanel() {
                   const added = configuredNames.has(entry.name.toLowerCase())
                   return <button key={entry.id} onClick={() => openCatalogForm(entry.id)} className="flex w-full items-start gap-3 rounded-nexy-md border-2 border-nexy-border bg-nexy-raised p-3 text-left shadow-[1px_1px_0_rgb(var(--nexy-shadow))] transition-colors hover:bg-nexy-recessed">
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed text-[11px] font-bold text-nexy-accent">{entry.name.slice(0, 1)}</div>
-                    <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="text-xs font-bold text-nexy-text">{entry.name}</span>{added && <span className="rounded-full border border-nexy-success px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:text-green-300">Added</span>}{entry.requiredEnv && entry.requiredEnv.length > 0 && <span className="rounded-full border border-nexy-warning px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">Needs key</span>}</div><span className="mt-1 block text-[11px] leading-relaxed text-nexy-muted">{entry.description}</span></div>
+                    <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="text-xs font-bold text-nexy-text">{entry.capability}</span>{added && <span className="rounded-full border border-nexy-success px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:text-green-300">Added</span>}{entry.requiredEnv && entry.requiredEnv.length > 0 && <span className="rounded-full border border-nexy-warning px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">Requires {entry.requiredEnv.length === 1 ? 'credential' : 'credentials'}</span>}<span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${entry.impact === 'can-change' ? 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300' : 'border-green-300 text-green-700 dark:border-green-800 dark:text-green-300'}`}>{entry.impact === 'can-change' ? 'Can make changes' : 'Read-only'}</span></div><span className="mt-1 block text-[11px] leading-relaxed text-nexy-muted">{entry.description}</span><span className="mt-1 block text-[10px] text-nexy-muted">Server: <span className="font-semibold text-nexy-text">{entry.name}</span> · Access: {entry.access}</span></div>
                     {entry.docsUrl && <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-nexy-muted" aria-hidden />}
                   </button>
                 })}
               </div>
             ))}
-            <button onClick={() => { setRegistryError(null); setView('registry') }} className="flex w-full items-center justify-center gap-1.5 rounded-nexy-sm border-2 border-nexy-accent px-3 py-2 text-xs font-bold text-nexy-accent hover:bg-nexy-recessed"><Globe2 className="h-3.5 w-3.5" /> Browse official MCP Registry</button>
+            <div className="border-t-2 border-nexy-border pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-nexy-muted">Other ways to add</p><button onClick={() => { setRegistryError(null); setView('registry') }} className="flex w-full items-center gap-3 rounded-nexy-md border-2 border-nexy-accent bg-nexy-recessed p-3 text-left text-xs hover:bg-nexy-raised"><Globe2 className="h-4 w-4 shrink-0 text-nexy-accent" /><span className="min-w-0 flex-1"><span className="block font-bold text-nexy-text">Browse official MCP Registry</span><span className="mt-0.5 block text-[11px] font-normal text-nexy-muted">Discover community-published servers. Review source and permissions before installing.</span></span><ChevronRight className="h-4 w-4 shrink-0 text-nexy-accent" /></button></div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={openCustomForm} className="flex items-center justify-center gap-1.5 rounded-nexy-sm border-2 border-dashed border-nexy-border px-3 py-2 text-xs font-bold text-nexy-muted hover:bg-nexy-recessed hover:text-nexy-text"><Wrench className="h-3.5 w-3.5" /> Custom server</button>
               <button onClick={() => { setJsonError(null); setView('json') }} className="flex items-center justify-center gap-1.5 rounded-nexy-sm border-2 border-dashed border-nexy-border px-3 py-2 text-xs font-bold text-nexy-muted hover:bg-nexy-recessed hover:text-nexy-text"><ClipboardPaste className="h-3.5 w-3.5" /> Paste JSON</button>
             </div>
+          </section>
+          <section className="space-y-2">
+            <div className="flex items-end justify-between gap-2"><div><h3 className="text-sm font-bold text-nexy-text">Nexy services</h3><p className="mt-0.5 text-xs text-nexy-muted">Built-in project connections managed by Nexy, not third-party servers.</p></div><Database className="h-4 w-4 text-nexy-accent" /></div>
+            <div className="rounded-nexy-md border-2 border-nexy-border bg-nexy-recessed p-3"><div className="flex items-start gap-3"><div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised text-nexy-accent"><Database className="h-3.5 w-3.5" /></div><div className="min-w-0"><p className="text-xs font-bold text-nexy-text">Project Wiki</p><p className="mt-1 text-[11px] leading-relaxed text-nexy-muted">Search project knowledge and propose approved updates from project chats. Available automatically when a project is active.</p><span className="mt-1 inline-flex rounded-full border border-nexy-success px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:text-green-300">Nexy-managed</span></div></div></div>
           </section>
         </div>
       )}

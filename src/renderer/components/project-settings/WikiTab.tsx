@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useAppStore } from '../../store/app-store'
 import { Button } from '../ui/primitives'
 import { NexyIcon } from '../ui/icons/NexyIcon'
-import type { WikiEntry } from '../../../shared/types'
+import type { ProjectWikiMcpConnection, WikiEntry } from '../../../shared/types'
 
 function parseWikiTags(value: string): string[] {
   return Array.from(new Set(value.split(',').map((tag) => tag.trim()).filter(Boolean)))
@@ -22,6 +22,8 @@ export function WikiTab({ projectId }: { projectId: string }) {
   const [draftBody, setDraftBody] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [mcpConnection, setMcpConnection] = useState<ProjectWikiMcpConnection | null>(null)
+  const [mcpLoading, setMcpLoading] = useState(false)
 
   const resetEditor = useCallback(() => {
     setEditingId(null)
@@ -100,6 +102,39 @@ export function WikiTab({ projectId }: { projectId: string }) {
   }, [addToast, editingId, resetEditor])
 
   const parsedDraftTags = parseWikiTags(draftTags)
+
+  const startExternalMcp = useCallback(async () => {
+    setMcpLoading(true)
+    try {
+      setMcpConnection(await window.api.startWikiMcp(projectId))
+      addToast('External wiki MCP access is ready', 'success')
+    } catch {
+      addToast('Failed to start external wiki MCP access', 'error')
+    } finally {
+      setMcpLoading(false)
+    }
+  }, [addToast, projectId])
+
+  const stopExternalMcp = useCallback(async () => {
+    await window.api.stopWikiMcp(projectId)
+    setMcpConnection(null)
+    addToast('External wiki MCP access stopped', 'success')
+  }, [addToast, projectId])
+
+  const copyExternalMcpConfig = useCallback(async () => {
+    if (!mcpConnection) return
+    const config = {
+      mcpServers: {
+        nexy_project_wiki: {
+          command: mcpConnection.command,
+          args: mcpConnection.args,
+          env: mcpConnection.env,
+        },
+      },
+    }
+    await navigator.clipboard.writeText(JSON.stringify(config, null, 2))
+    addToast('MCP configuration copied', 'success')
+  }, [addToast, mcpConnection])
 
   const renderEditor = (mode: 'new' | 'edit') => (
     <div className="space-y-3 rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-3 shadow-nexy">
@@ -184,6 +219,37 @@ export function WikiTab({ projectId }: { projectId: string }) {
           <NexyIcon name="add" size={14} />
           New entry
         </button>
+      </div>
+
+      <div className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-3 shadow-nexy">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-nexy-text">External LLM access</p>
+            <p className="mt-1 text-[11px] text-nexy-muted">
+              Give Codex, Claude, or another MCP client access to this project through the Nexy project MCP server. Changes still require Nexy approval.
+            </p>
+          </div>
+          {mcpConnection ? (
+            <button type="button" onClick={() => void stopExternalMcp()} className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1.5 text-[11px] text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-900/20">
+              Stop
+            </button>
+          ) : (
+            <button type="button" onClick={() => void startExternalMcp()} disabled={mcpLoading} className="shrink-0 rounded-lg border border-blue-200 px-2.5 py-1.5 text-[11px] text-blue-600 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-900/50 dark:hover:bg-blue-900/20">
+              {mcpLoading ? 'Starting…' : 'Connect'}
+            </button>
+          )}
+        </div>
+        {mcpConnection && (
+          <div className="mt-3 space-y-2">
+            <p className="text-[11px] text-green-600 dark:text-green-400">Local Nexy project MCP endpoint ready: {mcpConnection.url}</p>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => void copyExternalMcpConfig()} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] text-nexy-text hover:bg-white dark:border-gray-600 dark:hover:bg-gray-700">
+                Copy stdio config
+              </button>
+              <span className="text-[10px] text-nexy-muted">The copied config is valid for MCP clients that support stdio servers.</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {editingId == 'new' && renderEditor('new')}
