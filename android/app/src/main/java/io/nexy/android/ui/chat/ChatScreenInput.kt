@@ -69,6 +69,7 @@ fun ChatInputBar(
     isListening: Boolean = false,
     isTranscribing: Boolean = false,
     onVoiceInput: () -> Unit = {},
+    onCancelVoiceInput: () -> Unit = {},
     voiceDockAvailable: Boolean = false,
     voiceDockFloating: Boolean = false,
     onFloatVoiceDock: () -> Unit = {},
@@ -300,6 +301,18 @@ fun ChatInputBar(
                     }
                     Spacer(Modifier.weight(1f))
                     if (!voiceDockFloating) {
+                        if (isListening) {
+                            IconButton(
+                                onClick = onCancelVoiceInput,
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                NexyIcon(
+                                    NexyIconName.Close,
+                                    contentDescription = "Cancel voice recording",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = onVoiceInput,
                             enabled = !isTranscribing,

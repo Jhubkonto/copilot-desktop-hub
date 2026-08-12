@@ -1512,6 +1512,9 @@ fun ChatScreen(
                         voiceInput.toggle()
                     }
                 },
+                onCancelVoiceInput = {
+                    if (usePairedVoice && voiceDockEnabled) cancelVoiceDockRecording() else voiceInput.cancel()
+                },
                 voiceDockAvailable = voiceDockEnabled,
                 voiceDockFloating = voiceDockFloating,
                 onFloatVoiceDock = {
