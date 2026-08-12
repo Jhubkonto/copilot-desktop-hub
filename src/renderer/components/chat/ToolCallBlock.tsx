@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Loader2, Pin } from 'lucide-react'
-import { stripAnsiEscapes } from '../../../shared/ansi'
+import { buildToolResultPreview } from './tool-result-preview'
 
 interface ToolCallBlockProps {
   toolName: string
@@ -11,30 +11,6 @@ interface ToolCallBlockProps {
   inProgress?: boolean
   resultImages?: { dataUrl: string }[]
   onUseImageAsContext?: (dataUrl: string) => void
-}
-
-// How much of the result is always visible without clicking — the rest is available
-// via the expand toggle, appended right below rather than replacing this. Two caps
-// apply independently: a line-count cap (for normal multi-line output) and a
-// character cap (so a single very long line, e.g. a long path or minified JSON,
-// still gets truncated instead of rendering unbounded).
-const RESULT_PREVIEW_LINES = 3
-const RESULT_PREVIEW_CHARS = 240
-const RESULT_MAX_CHARS = 2000
-
-function buildResultPreview(result: string): { preview: string; truncated: boolean; remainder: string; hiddenLineCount: number } {
-  const lines = result.split('\n')
-  const lineLimited = lines.length > RESULT_PREVIEW_LINES
-  let preview = lineLimited ? lines.slice(0, RESULT_PREVIEW_LINES).join('\n') : result
-  const hiddenLineCount = lineLimited ? lines.length - RESULT_PREVIEW_LINES : 0
-  const charLimited = preview.length > RESULT_PREVIEW_CHARS
-  if (charLimited) preview = preview.slice(0, RESULT_PREVIEW_CHARS)
-  const truncated = lineLimited || charLimited
-  let remainder = truncated ? result.slice(preview.length) : ''
-  if (remainder.length > RESULT_MAX_CHARS) {
-    remainder = `${remainder.slice(0, RESULT_MAX_CHARS)}\n…(truncated)`
-  }
-  return { preview, truncated, remainder, hiddenLineCount }
 }
 
 // Rough line-level diff via multiset comparison — not a real LCS, but close enough
@@ -196,14 +172,17 @@ export function ToolCallBlock({
   toolName, serverName, args, result, success = true, inProgress = false, resultImages, onUseImageAsContext
 }: ToolCallBlockProps) {
   const { title, summary, suppressResult } = describeToolCall(toolName, args)
-  const cleanedResult = !suppressResult && result ? stripAnsiEscapes(result) : undefined
+  const [expanded, setExpanded] = useState(false)
 
-  const { preview: previewText, truncated: resultTruncated, remainder: remainderText, hiddenLineCount } =
-    cleanedResult ? buildResultPreview(cleanedResult) : { preview: '', truncated: false, remainder: '', hiddenLineCount: 0 }
+  // The collapsed path only scans a small prefix. Full ANSI stripping and remainder
+  // construction happen after the user expands the result.
+  const resultPreview = !suppressResult && result
+    ? buildToolResultPreview(result, expanded)
+    : { preview: '', truncated: false, remainder: '', hiddenLineCount: 0 }
+  const { preview: previewText, truncated: resultTruncated, remainder: remainderText, hiddenLineCount } = resultPreview
   // Anything not already covered by the title/summary line — the rest of a long
   // result, or screenshots (kept behind the toggle since they're visually heavy).
   const hasExpandableContent = resultTruncated || !!resultImages?.length
-  const [expanded, setExpanded] = useState(false)
 
   const handleToggle = () => {
     if (!hasExpandableContent) return

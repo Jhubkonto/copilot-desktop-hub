@@ -325,6 +325,12 @@ export function ChatMessagesBase({
     [historicalMessages, effectiveLiveTurnState],
   )
   const effectiveCliCost = cliCost ?? liveTurnState?.cost ?? null
+  // Keep normal-sized conversations unchanged. Once the transcript is long enough,
+  // Chromium skips layout/paint for message subtrees outside the viewport via the
+  // `.chat-message-windowed` rule below. This preserves DOM anchors and scroll-to-request
+  // behavior while avoiding a full Markdown/code repaint during window resizing.
+  const shouldWindowHistoricalTimeline = msgGroups.length >= 24
+  const windowedMessageClass = shouldWindowHistoricalTimeline ? ' chat-message-windowed' : ''
   const supersededPendingArtifactMessageIds = useMemo(
     () => getSupersededPendingArtifactMessageIds(messages),
     [messages],
@@ -484,7 +490,7 @@ export function ChatMessagesBase({
               <div
                 key={main.id}
                 ref={registerMessageElement(main.id)}
-                className="max-w-3xl mx-auto message-enter"
+                className={`max-w-3xl mx-auto message-enter${windowedMessageClass}`}
                 data-message-id={main.id}
                 data-message-role={main.role}
               >
@@ -500,7 +506,7 @@ export function ChatMessagesBase({
               <div
                 key={main.id}
                 ref={registerMessageElement(main.id)}
-                className="max-w-3xl mx-auto px-4 pb-2 message-enter"
+                className={`max-w-3xl mx-auto px-4 pb-2 message-enter${windowedMessageClass}`}
                 data-message-id={main.id}
                 data-message-role={main.role}
               >
@@ -523,7 +529,7 @@ export function ChatMessagesBase({
               <div
                 key={main.id}
                 ref={registerMessageElement(main.id)}
-                className="max-w-3xl mx-auto message-enter pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-3"
+                className={`max-w-3xl mx-auto message-enter pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-3${windowedMessageClass}`}
                 data-message-id={main.id}
                 data-message-role={main.role}
               >
@@ -573,7 +579,7 @@ export function ChatMessagesBase({
             <div
               key={main.id}
               ref={registerMessageElement(main.id)}
-              className="message-enter"
+              className={`message-enter${windowedMessageClass}`}
               data-message-id={main.id}
               data-message-role={main.role}
             >

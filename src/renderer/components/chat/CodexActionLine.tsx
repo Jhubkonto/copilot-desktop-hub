@@ -4,22 +4,10 @@
 // every other backend, so a Codex turn reads like Codex's own CLI session.
 import { useEffect, useState } from 'react'
 import { Maximize2 } from 'lucide-react'
-import { stripAnsiEscapes } from '../../../shared/ansi'
 import { estimateTextTokens, formatEstimatedTokens } from '../../../shared/token-estimate'
 import { ModalShell } from '../ui/primitives'
 import { StreamingFadeText } from './StreamingFadeText'
-
-const RESULT_PREVIEW_LINES = 3
-const RESULT_PREVIEW_CHARS = 240
-
-function buildPreview(result: string): { preview: string; hiddenLineCount: number } {
-  const lines = result.split('\n')
-  const lineLimited = lines.length > RESULT_PREVIEW_LINES
-  let preview = lineLimited ? lines.slice(0, RESULT_PREVIEW_LINES).join('\n') : result
-  const hiddenLineCount = lineLimited ? lines.length - RESULT_PREVIEW_LINES : 0
-  if (preview.length > RESULT_PREVIEW_CHARS) preview = `${preview.slice(0, RESULT_PREVIEW_CHARS)}…`
-  return { preview, hiddenLineCount }
-}
+import { buildToolResultPreview } from './tool-result-preview'
 
 function primaryArg(args: Record<string, unknown> | undefined): string {
   if (!args) return ''
@@ -78,8 +66,11 @@ export function CodexActionLine(props: CodexActionLineProps) {
   const { toolName, args, result, success = true, inProgress = false } = props
   const arg = primaryArg(args)
   const verb = inProgress ? 'Running' : success ? 'Ran' : 'Failed:'
-  const cleanedResult = result ? stripAnsiEscapes(result) : result
-  const { preview, hiddenLineCount } = cleanedResult ? buildPreview(cleanedResult) : { preview: '', hiddenLineCount: 0 }
+  // Only the bounded prefix is processed during normal transcript rendering. The
+  // complete result is stripped when the details modal is explicitly opened.
+  const { preview, hiddenLineCount, cleanedResult } = result
+    ? buildToolResultPreview(result, showFullContent)
+    : { preview: '', hiddenLineCount: 0, cleanedResult: undefined }
   const invocation = `${verb} ${toolName}${arg ? ` ${arg}` : ''}`
 
   return (
