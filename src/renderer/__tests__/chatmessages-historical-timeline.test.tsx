@@ -32,6 +32,20 @@ function renderChatMessages(messages: ChatMessage[]) {
 }
 
 describe('ChatMessages historical timeline interleaving', () => {
+  it('enables native windowing for long historical timelines', () => {
+    const messages: ChatMessage[] = Array.from({ length: 24 }, (_, index) => ({
+      id: `user-${index}`,
+      role: 'user' as const,
+      content: `Message ${index}`,
+      timestamp: index,
+    }))
+
+    renderChatMessages(messages)
+
+    expect(screen.getByText('Message 0').closest('[data-message-id]')).toHaveClass('chat-message-windowed')
+    expect(screen.getByText('Message 23').closest('[data-message-id]')).toHaveClass('chat-message-windowed')
+  })
+
   it('positions a persisted assistant text segment before the tool call that followed it, and shows only the tail segment in the bubble', () => {
     const messages: ChatMessage[] = [
       {
