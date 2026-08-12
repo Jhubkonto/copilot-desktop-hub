@@ -1,6 +1,7 @@
 package io.nexy.android.ui.settings
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNode
@@ -71,6 +72,21 @@ class McpServersScreenRowTest {
     }
 
     @Test
+    fun showsServerDescription() {
+        composeRule.setContent {
+            McpServerRow(
+                server = McpServerInfo(id = "s1", name = "Filesystem", command = "npx", enabled = true),
+                status = "connected",
+                description = "Read and search files in a chosen directory.",
+                onEdit = {},
+                onDelete = {},
+                onRestart = {},
+            )
+        }
+        composeRule.onNodeWithText("Read and search files in a chosen directory.").assertIsDisplayed()
+    }
+
+    @Test
     fun openingMenuAndTappingEditInvokesOnEdit() {
         var edited = false
         composeRule.setContent {
@@ -85,6 +101,21 @@ class McpServersScreenRowTest {
         composeRule.onNode(hasContentDescription("Server options")).performClick()
         composeRule.onNodeWithText("Edit").performClick()
         assertEquals(true, edited)
+    }
+
+    @Test
+    fun builtInDesktopNavigatorDoesNotExposeShellEditing() {
+        composeRule.setContent {
+            McpServerRow(
+                server = McpServerInfo(id = "__desktop-navigator__", name = "Desktop Navigator", command = "", enabled = true),
+                status = "connected",
+                onEdit = {},
+                onDelete = {},
+                onRestart = {},
+            )
+        }
+        composeRule.onNodeWithText("Built in").assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("Server options")).assertDoesNotExist()
     }
 
     @Test
