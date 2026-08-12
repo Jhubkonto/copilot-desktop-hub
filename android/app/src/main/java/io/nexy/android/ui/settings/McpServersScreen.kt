@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
@@ -38,6 +40,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,13 +64,17 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.McpCatalogEntry
+import io.nexy.android.data.model.McpCatalogRequiredEnv
+import io.nexy.android.data.model.McpRegistryEnvRequirement
+import io.nexy.android.data.model.McpRegistrySearchResult
+import io.nexy.android.data.model.McpRegistryServer
+import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyFormSheet
 import io.nexy.android.ui.components.NexyGhostButton
 import io.nexy.android.ui.components.NexyPrimaryButton
-import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.icons.NexyIcon
@@ -74,35 +82,58 @@ import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun McpServersScreen(onBack: () -> Unit) {
+fun McpServersScreen(onBack: () -> Unit, onOpenProjectWiki: (String) -> Unit = {}) {
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val mcpServers by WsRepository.mcpServers.collectAsStateWithLifecycle()
     val mcpCatalog by WsRepository.mcpCatalog.collectAsStateWithLifecycle()
+    val projects by WsRepository.projects.collectAsStateWithLifecycle()
+    val wikiMcpStatuses by WsRepository.wikiMcpStatuses.collectAsStateWithLifecycle()
     val disconnected = connectionState != ConnectionState.CONNECTED
 
     var showAddSheet by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf<McpServerInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<McpServerInfo?>(null) }
+    var detailServer by remember { mutableStateOf<McpServerInfo?>(null) }
     var serverToStatus by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var tools by remember { mutableStateOf<List<McpToolInfo>>(emptyList()) }
-    var showTools by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    var testingConnection by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<WsEvent.McpTestResult?>(null) }
+    var projectMcpExpanded by remember { mutableStateOf(false) }
+    var registryResult by remember { mutableStateOf<McpRegistrySearchResult?>(null) }
+    var registryLoading by remember { mutableStateOf(false) }
+    var registryError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         WsRepository.getMcpServers()
         WsRepository.getMcpCatalog()
+        WsRepository.listMcpTools()
+        WsRepository.send("project:list")
     }
 
     LaunchedEffect(Unit) {
         WsRepository.events.collect { event ->
             when (event) {
-                is WsEvent.McpServerAdded -> WsRepository.getMcpServers()
+                is WsEvent.McpList -> refreshing = false
+                is WsEvent.McpServerAdded -> { refreshing = false; WsRepository.getMcpServers() }
                 is WsEvent.McpServerUpdated -> {
                     serverToStatus = serverToStatus + (event.server.id to event.server.status)
+                    refreshing = false
                     WsRepository.getMcpServers()
                 }
                 is WsEvent.McpServerRemoved -> Unit
                 is WsEvent.McpServerStatus -> serverToStatus = serverToStatus + (event.id to event.status)
                 is WsEvent.McpToolList -> tools = event.tools
+                is WsEvent.McpTestResult -> { testingConnection = false; testResult = event }
+                is WsEvent.McpRegistryResults -> {
+                    registryResult = event.result
+                    registryLoading = false
+                    registryError = null
+                }
+                is WsEvent.McpRegistryError -> {
+                    registryLoading = false
+                    registryError = event.message
+                }
                 else -> {}
             }
         }
@@ -111,28 +142,48 @@ fun McpServersScreen(onBack: () -> Unit) {
     if (showAddSheet) {
         McpAddWizard(
             catalog = mcpCatalog,
-            onConfirm = { name, command, args, env, imageResponses, enabled ->
-                WsRepository.addMcpServer(name = name, command = command, args = args, env = env, imageResponses = imageResponses, enabled = enabled)
+            registry = registryResult,
+            registryLoading = registryLoading,
+            registryError = registryError,
+            onSearchRegistry = { query ->
+                registryLoading = true
+                registryError = null
+                WsRepository.searchMcpRegistry(query)
+            },
+            onConfirm = { name, description, command, args, env, imageResponses, enabled ->
+                WsRepository.addMcpServer(name = name, description = description, command = command, args = args, env = env, imageResponses = imageResponses, enabled = enabled)
                 showAddSheet = false
             },
+            onTest = { command, args, env, imageResponses ->
+                testingConnection = true
+                testResult = null
+                WsRepository.testMcpServer(command, args, env, imageResponses)
+            },
+            testingConnection = testingConnection,
+            testResult = testResult,
             onDismiss = { showAddSheet = false },
         )
     }
     if (editingServer != null) {
         McpEditSheet(
             server = editingServer!!,
-            onConfirm = { name, command, args, enabled ->
+            initialDescription = editingServer!!.description.ifBlank { catalogDescription(editingServer!!, mcpCatalog) },
+            onConfirm = { name, description, command, args, enabled ->
                 val existing = editingServer!!
-                WsRepository.updateMcpServer(existing.id, name = name, command = command, args = args.split(" ").filter { it.isNotBlank() }, enabled = enabled)
+                WsRepository.updateMcpServer(existing.id, name = name, description = description, command = command, args = args.split(" ").filter { it.isNotBlank() }, enabled = enabled)
                 editingServer = null
             },
             onDismiss = { editingServer = null },
         )
     }
-    if (showTools) {
-        McpToolsSheet(
-            tools = tools,
-            onDismiss = { showTools = false },
+    detailServer?.let { server ->
+        McpServerDetailSheet(
+            server = server,
+            description = server.description.ifBlank { catalogDescription(server, mcpCatalog) },
+            status = serverToStatus[server.id],
+            tools = tools.filter { it.serverId == server.id },
+            managed = isManagedMcpServer(server),
+            onDismiss = { detailServer = null },
         )
     }
     deleteTarget?.let { dt ->
@@ -157,7 +208,11 @@ fun McpServersScreen(onBack: () -> Unit) {
         floatingActionButton = {
             if (!disconnected) {
                 FloatingActionButton(
-                    onClick = { showAddSheet = true },
+                    onClick = {
+                        testResult = null
+                        testingConnection = false
+                        showAddSheet = true
+                    },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 ) {
@@ -166,11 +221,19 @@ fun McpServersScreen(onBack: () -> Unit) {
             }
         },
     ) { padding ->
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                refreshing = true
+                WsRepository.getMcpServers()
+                WsRepository.getMcpCatalog()
+                WsRepository.listMcpTools()
+                WsRepository.send("project:list")
+            },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -188,18 +251,23 @@ fun McpServersScreen(onBack: () -> Unit) {
                         serverCount = mcpServers.size,
                         connectedCount = mcpServers.count { serverToStatus[it.id] == "connected" },
                         toolCount = tools.size,
-                        onBrowseTools = {
-                            WsRepository.listMcpTools()
-                            showTools = true
-                        },
-                        onRefresh = { WsRepository.getMcpServers() },
+                    )
+                }
+
+            item {
+                    McpSectionHeader(
+                        title = "Configured servers",
+                        detail = if (mcpServers.isEmpty()) "Add a server to give agents more capabilities." else "Open a server for its description, tools, and details.",
                     )
                 }
 
                 item {
-                    McpSectionHeader(
-                        title = "Configured servers",
-                        detail = if (mcpServers.isEmpty()) "Add a server to give agents more capabilities." else "Manage connections and launch settings.",
+                    ProjectWikiMcpGroup(
+                        projects = projects,
+                        statuses = wikiMcpStatuses,
+                        expanded = projectMcpExpanded,
+                        onToggle = { projectMcpExpanded = !projectMcpExpanded },
+                        onOpenProjectWiki = onOpenProjectWiki,
                     )
                 }
 
@@ -217,6 +285,8 @@ fun McpServersScreen(onBack: () -> Unit) {
                             server = server,
                             status = serverToStatus[server.id],
                             toolCount = tools.count { it.serverId == server.id },
+                            description = server.description.ifBlank { catalogDescription(server, mcpCatalog) },
+                            onOpen = { WsRepository.listMcpTools(listOf(server.id)); detailServer = server },
                             onEdit = { editingServer = server },
                             onDelete = { deleteTarget = server },
                             onRestart = { WsRepository.restartMcpServer(server.id); WsRepository.getMcpServerStatus(server.id) },
@@ -224,16 +294,8 @@ fun McpServersScreen(onBack: () -> Unit) {
                     }
                 }
 
-                item {
-                    McpToolsLauncher(
-                        toolCount = tools.size,
-                        onClick = {
-                            WsRepository.listMcpTools()
-                            showTools = true
-                        },
-                    )
-                }
             }
+        }
         }
     }
 }
@@ -243,8 +305,6 @@ private fun McpOverviewCard(
     serverCount: Int,
     connectedCount: Int,
     toolCount: Int,
-    onBrowseTools: () -> Unit,
-    onRefresh: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -282,18 +342,6 @@ private fun McpOverviewCard(
                 McpMetric(value = toolCount.toString(), label = "tools", modifier = Modifier.weight(1f))
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NexyPrimaryButton(
-                    text = if (toolCount > 0) "Browse tools" else "Discover tools",
-                    onClick = onBrowseTools,
-                    modifier = Modifier.weight(1f),
-                )
-                NexySecondaryButton(
-                    text = "Refresh",
-                    onClick = onRefresh,
-                    leadingNexyIcon = NexyIconName.Refresh,
-                )
-            }
         }
     }
 }
@@ -317,6 +365,85 @@ private fun McpSectionHeader(title: String, detail: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ProjectWikiMcpGroup(
+    projects: List<Project>,
+    statuses: Map<String, io.nexy.android.data.model.ProjectWikiMcpStatus>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenProjectWiki: (String) -> Unit,
+) {
+    val runningCount = projects.count { statuses[it.id]?.running == true }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RectangleShape,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Project Wiki MCP", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        when {
+                            projects.isEmpty() -> "No project bridges available."
+                            runningCount > 0 -> "$runningCount of ${projects.size} bridge${if (projects.size == 1) "" else "s"} running"
+                            else -> "${projects.size} project bridge${if (projects.size == 1) "" else "s"} · managed from each Wiki"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (runningCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                NexyIcon(
+                    if (expanded) NexyIconName.ChevronDown else NexyIconName.ChevronRight,
+                    contentDescription = if (expanded) "Collapse Project Wiki MCP" else "Expand Project Wiki MCP",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (projects.isEmpty()) {
+                    Text(
+                        "No projects available.",
+                        modifier = Modifier.padding(14.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    projects.forEachIndexed { index, project ->
+                        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(project.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    if (statuses[project.id]?.running == true) "Bridge running" else "Bridge stopped",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (statuses[project.id]?.running == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(onClick = { onOpenProjectWiki(project.id) }) { Text("Open Wiki") }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -375,6 +502,8 @@ internal fun McpServerRow(
     server: McpServerInfo,
     status: String?,
     toolCount: Int = 0,
+    description: String = "",
+    onOpen: () -> Unit = {},
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRestart: () -> Unit,
@@ -382,21 +511,24 @@ internal fun McpServerRow(
     var showMenu by remember { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(136.dp)
+            .clickable(onClick = onOpen),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RectangleShape,
     ) {
         Column(
-            modifier = Modifier.padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
                         server.name,
                         style = MaterialTheme.typography.bodyLarge,
@@ -404,6 +536,15 @@ internal fun McpServerRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (description.isNotBlank()) {
+                        Text(
+                            description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (status != null) McpStatusBadge(status)
                         if (!server.enabled) {
@@ -420,34 +561,43 @@ internal fun McpServerRow(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (isManagedMcpServer(server)) {
+                            NexyStatusBadge(
+                                label = "Built in",
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        NexyIcon(NexyIconName.More, contentDescription = "Server options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            leadingIcon = { NexyIcon(NexyIconName.Edit, contentDescription = null) },
-                            onClick = { showMenu = false; onEdit() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Restart") },
-                            leadingIcon = { NexyIcon(NexyIconName.Refresh, contentDescription = null) },
-                            onClick = { showMenu = false; onRestart() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                            onClick = { showMenu = false; onDelete() },
-                        )
+                if (!isManagedMcpServer(server)) {
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            NexyIcon(NexyIconName.More, contentDescription = "Server options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Edit") },
+                                leadingIcon = { NexyIcon(NexyIconName.Edit, contentDescription = null) },
+                                onClick = { showMenu = false; onEdit() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Restart") },
+                                leadingIcon = { NexyIcon(NexyIconName.Refresh, contentDescription = null) },
+                                onClick = { showMenu = false; onRestart() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { NexyIcon(NexyIconName.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = { showMenu = false; onDelete() },
+                            )
+                        }
                     }
                 }
             }
-            if (server.command.isNotBlank()) {
+            if (fullServerCommand(server).isNotBlank()) {
                 Text(
-                    server.command,
+                    fullServerCommand(server),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -459,12 +609,102 @@ internal fun McpServerRow(
     }
 }
 
+private fun catalogDescription(server: McpServerInfo, catalog: List<McpCatalogEntry>): String =
+    catalog.firstOrNull { entry -> entry.name.equals(server.name, ignoreCase = true) }?.description.orEmpty()
+
+private fun isManagedMcpServer(server: McpServerInfo): Boolean =
+    server.id == "__desktop-navigator__"
+
+private fun fullServerCommand(server: McpServerInfo): String =
+    (listOf(server.command) + server.args).filter { it.isNotBlank() }.joinToString(" ")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun McpServerDetailSheet(
+    server: McpServerInfo,
+    description: String,
+    status: String?,
+    tools: List<McpToolInfo>,
+    managed: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 720.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(server.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (description.isNotBlank()) {
+                            Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    status?.let { McpStatusBadge(it) }
+                }
+            }
+            item {
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RectangleShape) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (managed) {
+                            Text("Managed by Nexy", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "This server is built into the desktop app. Its tools are available automatically; no command or arguments are required.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text("Launch configuration", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(fullServerCommand(server), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                        }
+                    }
+                }
+            }
+            item {
+                Text(
+                    "${tools.size} tool${if (tools.size == 1) "" else "s"} available from this server",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            if (tools.isEmpty()) {
+                item {
+                    NexyEmptyState(
+                        title = "No tools available",
+                        detail = if (status == "connected") "This server is connected but did not expose any tools." else "Connect the server to discover its tools.",
+                    )
+                }
+            } else {
+                items(tools, key = { "detail-tool:${server.id}:${it.name}" }) { tool ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().height(76.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RectangleShape,
+                    ) { McpToolEntry(tool) }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun McpToolEntry(tool: McpToolInfo) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -490,7 +730,7 @@ internal fun McpToolEntry(tool: McpToolInfo) {
                     it,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -628,7 +868,7 @@ private fun McpToolsSheet(
                         if (expanded) {
                             items(serverTools, key = { "tool:$serverId:${it.name}" }) { tool ->
                                 Card(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().height(76.dp),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                     shape = RectangleShape,
@@ -672,21 +912,67 @@ private fun McpCatalogCard(entry: McpCatalogEntry, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(entry.capability, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text("Server: ${entry.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (entry.requiredEnv.isNotEmpty()) {
                     NexyStatusBadge(
-                        label = "Needs key",
+                        label = "Requires credential",
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                 }
             }
             Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                NexyStatusBadge(
+                    label = if (entry.impact == "can-change") "Can make changes" else "Read-only",
+                    containerColor = if (entry.impact == "can-change") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = if (entry.impact == "can-change") MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Text(entry.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
+            if (entry.access.isNotBlank()) Text("Access: ${entry.access}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun McpRegistryCard(entry: McpRegistryServer, onInstall: () -> Unit) {
+    val context = LocalContext.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RectangleShape,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(entry.title ?: entry.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text("v${entry.version}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
-                entry.category.replaceFirstChar { it.uppercase() },
+                when {
+                    entry.install != null -> "Supported ${entry.transport} install"
+                    entry.transport == "remote" -> "Remote server — configuration not supported yet"
+                    else -> "Metadata only — no supported install package"
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (entry.install != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
             )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                entry.docsUrl?.let { url ->
+                    TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }) { Text("Docs") }
+                }
+                if (entry.install != null) {
+                    NexyPrimaryButton(text = "Review install", onClick = onInstall)
+                }
+            }
         }
     }
 }
@@ -695,17 +981,27 @@ private fun McpCatalogCard(entry: McpCatalogEntry, onClick: () -> Unit) {
 @Composable
 private fun McpAddWizard(
     catalog: List<McpCatalogEntry>,
-    onConfirm: (name: String, command: String, args: List<String>, env: Map<String, String>, imageResponses: String?, enabled: Boolean) -> Unit,
+    registry: McpRegistrySearchResult?,
+    registryLoading: Boolean,
+    registryError: String?,
+    onSearchRegistry: (String) -> Unit,
+    onConfirm: (name: String, description: String, command: String, args: List<String>, env: Map<String, String>, imageResponses: String?, enabled: Boolean) -> Unit,
+    onTest: (command: String, args: List<String>, env: Map<String, String>, imageResponses: String?) -> Unit,
+    testingConnection: Boolean,
+    testResult: WsEvent.McpTestResult?,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
     var step by remember { mutableIntStateOf(0) }
     var catalogBrowse by remember { mutableStateOf(true) }
+    var registryBrowse by remember { mutableStateOf(false) }
     var catalogQuery by remember { mutableStateOf("") }
+    var catalogCategory by remember { mutableStateOf("all") }
     var selectedCatalog by remember { mutableStateOf<McpCatalogEntry?>(null) }
     var selectedType by remember { mutableStateOf<McpAddType?>(null) }
     var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
     var npmPackage by remember { mutableStateOf("") }
     var npmExtraArgs by remember { mutableStateOf("") }
     var scriptPath by remember { mutableStateOf("") }
@@ -715,11 +1011,15 @@ private fun McpAddWizard(
     var manualCommand by remember { mutableStateOf("") }
     var manualArgs by remember { mutableStateOf("") }
     var requiredEnvValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var registryRequiredEnv by remember { mutableStateOf<List<McpRegistryEnvRequirement>>(emptyList()) }
     var enabled by remember { mutableStateOf(true) }
 
     fun chooseCatalog(entry: McpCatalogEntry) {
+        registryBrowse = false
         selectedCatalog = entry
+        registryRequiredEnv = emptyList()
         name = entry.name
+        description = entry.description
         requiredEnvValues = entry.requiredEnv.associate { it.key to entry.env[it.key].orEmpty() }
         enabled = true
         val packageIndex = if (entry.args.firstOrNull() == "-y") 1 else 0
@@ -732,6 +1032,26 @@ private fun McpAddWizard(
             selectedType = McpAddType.Manual
             manualCommand = entry.command
             manualArgs = entry.args.joinToString(" ")
+        }
+        step = 1
+    }
+
+    fun chooseRegistry(entry: McpRegistryServer) {
+        val install = entry.install ?: return
+        selectedCatalog = null
+        registryRequiredEnv = install.requiredEnv
+        requiredEnvValues = emptyMap()
+        name = entry.title ?: entry.name
+        description = entry.description
+        enabled = true
+        selectedType = if (install.command == "npx") McpAddType.Npm else McpAddType.Manual
+        if (selectedType == McpAddType.Npm) {
+            val packageIndex = if (install.args.firstOrNull() == "-y") 1 else 0
+            npmPackage = install.args.getOrNull(packageIndex).orEmpty()
+            npmExtraArgs = install.args.drop(packageIndex + 1).joinToString(" ")
+        } else {
+            manualCommand = install.command
+            manualArgs = install.args.joinToString(" ")
         }
         step = 1
     }
@@ -763,18 +1083,29 @@ private fun McpAddWizard(
     // from any step instead of stepping back one wizard page like the sheet's own "Back" button.
     BackHandler(enabled = step > 0) { step -= 1 }
 
+    val activeRequiredEnv = selectedCatalog?.requiredEnv ?: registryRequiredEnv.map {
+        McpCatalogRequiredEnv(key = it.key, label = it.label, helpUrl = it.helpUrl, secret = it.secret)
+    }
     val step2Valid = when (selectedType) {
         McpAddType.Npm -> name.isNotBlank() && npmPackage.isNotBlank()
         McpAddType.LocalScript -> name.isNotBlank() && scriptPath.isNotBlank()
         McpAddType.Docker -> name.isNotBlank() && dockerImage.isNotBlank()
         McpAddType.Manual -> name.isNotBlank() && manualCommand.isNotBlank()
         null -> false
-    } && (selectedCatalog?.requiredEnv?.all { requiredEnvValues[it.key].orEmpty().isNotBlank() } ?: true)
+    } && activeRequiredEnv.all { requiredEnvValues[it.key].orEmpty().isNotBlank() }
 
     val filteredCatalog = catalog.filter { entry ->
         val query = catalogQuery.trim().lowercase()
-        if (query.isBlank()) true else {
+        val matchesCategory = catalogCategory == "all" || entry.category == catalogCategory
+        matchesCategory && if (query.isBlank()) true else {
             val haystack = listOf(entry.name, entry.description, entry.category) + entry.keywords
+            query.split(Regex("\\s+")).all { term -> haystack.any { it.contains(term, ignoreCase = true) } }
+        }
+    }
+    val filteredRegistry = registry?.servers.orEmpty().filter { entry ->
+        val query = catalogQuery.trim()
+        if (query.isBlank()) true else {
+            val haystack = listOf(entry.name, entry.title.orEmpty(), entry.description, entry.transport)
             query.split(Regex("\\s+")).all { term -> haystack.any { it.contains(term, ignoreCase = true) } }
         }
     }
@@ -787,6 +1118,8 @@ private fun McpAddWizard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = 720.dp)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -812,45 +1145,105 @@ private fun McpAddWizard(
             when (step) {
                 0 -> {
                     if (catalogBrowse) {
-                        Text(
-                            "Start with what you want the agent to do. The command and arguments are filled in for you.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        OutlinedTextField(
-                            value = catalogQuery,
-                            onValueChange = { catalogQuery = it },
-                            label = { Text("Search capabilities") },
-                            placeholder = { Text("e.g. GitHub, browser, files") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (filteredCatalog.isEmpty()) {
-                            Text("No curated servers match that search.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            filteredCatalog.forEach { entry ->
-                                McpCatalogCard(entry = entry, onClick = { chooseCatalog(entry) })
+                        if (registryBrowse) {
+                            Text(
+                                "Search the official MCP Registry. Nexy checks the server metadata and only offers supported stdio packages for installation.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedTextField(
+                                value = catalogQuery,
+                                onValueChange = { catalogQuery = it },
+                                label = { Text("Search official registry") },
+                                placeholder = { Text("e.g. GitHub, calendar, filesystem") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                NexyPrimaryButton(
+                                    text = if (registryLoading) "Searching…" else "Search",
+                                    onClick = { onSearchRegistry(catalogQuery) },
+                                    enabled = !registryLoading,
+                                )
                             }
-                        }
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    selectedCatalog = null
-                                    selectedType = null
-                                    catalogBrowse = false
-                                },
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            shape = RectangleShape,
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("Custom server", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                Text("Use your own command, local script, or Docker image.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            registryError?.let { message ->
+                                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                            registry?.stale?.takeIf { it }?.let {
+                                Text("Showing the last cached result because the registry is temporarily unavailable.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                            }
+                            if (registry != null && filteredRegistry.isEmpty() && !registryLoading) {
+                                Text("No registry servers matched that search.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            filteredRegistry.forEach { entry ->
+                                McpRegistryCard(entry = entry, onInstall = { chooseRegistry(entry) })
+                            }
+                            NexyGhostButton(text = "Back to curated catalog", onClick = { registryBrowse = false })
+                                    } else {
+                            Text(
+                                "Start with a capability below whenever possible. Nexy fills in a known-good launch command and shows the required credentials before saving.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedTextField(
+                                value = catalogQuery,
+                                onValueChange = { catalogQuery = it },
+                                label = { Text("Search capabilities") },
+                                placeholder = { Text("e.g. GitHub, browser, files") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("all", "browser", "files", "dev", "web", "data", "productivity").forEach { category ->
+                                    val selected = catalogCategory == category
+                                    NexyStatusBadge(
+                                        label = if (category == "all") "All" else category.replaceFirstChar { it.uppercase() },
+                                        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.clickable { catalogCategory = category },
+                                    )
+                                }
+                            }
+                            if (filteredCatalog.isEmpty()) {
+                                Text("No curated servers match that search.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                filteredCatalog.forEach { entry ->
+                                    McpCatalogCard(entry = entry, onClick = { chooseCatalog(entry) })
+                                }
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { registryBrowse = true },
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                                shape = RectangleShape,
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Official MCP Registry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    Text("Search externally published MCP servers and review supported installs.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedCatalog = null
+                                        selectedType = null
+                                        catalogBrowse = false
+                                    },
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                shape = RectangleShape,
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Custom server", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    Text("Use this only when the server documentation gives you a command, local script, or Docker image.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     } else {
-                        Text("Choose how your custom server runs.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Choose how your custom server runs. If you are unsure which command to use, go back and choose a curated capability or search the official MCP Registry.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         McpAddType.entries.forEach { type ->
                             val selected = selectedType == type
                             Card(
@@ -890,6 +1283,7 @@ private fun McpAddWizard(
 
                 1 -> {
                     OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Server name") }, placeholder = { Text("e.g. Filesystem") }, singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, placeholder = { Text("Shown on the server card and details view") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
                     when (selectedType) {
                         McpAddType.Npm -> {
                             OutlinedTextField(value = npmPackage, onValueChange = { npmPackage = it }, label = { Text("npm package") }, placeholder = { Text("e.g. @modelcontextprotocol/server-filesystem") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -908,10 +1302,11 @@ private fun McpAddWizard(
                         McpAddType.Manual -> {
                             OutlinedTextField(value = manualCommand, onValueChange = { manualCommand = it }, label = { Text("Command") }, placeholder = { Text("e.g. npx") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                             OutlinedTextField(value = manualArgs, onValueChange = { manualArgs = it }, label = { Text("Arguments (space-separated)") }, placeholder = { Text("e.g. -y @modelcontextprotocol/server-github") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            Text("Copy these values from the server's installation documentation. The next step lets you test the connection before adding it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         null -> {}
                     }
-                    selectedCatalog?.requiredEnv?.takeIf { it.isNotEmpty() }?.let { requirements ->
+                    activeRequiredEnv.takeIf { it.isNotEmpty() }?.let { requirements ->
                         Text("Credentials", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         Text("These values are sent to the desktop only as server environment variables.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         requirements.forEach { requirement ->
@@ -962,7 +1357,7 @@ private fun McpAddWizard(
                             ReviewRow("Name", name)
                             ReviewRow("Type", selectedType?.label ?: "")
                             ReviewRow("Enabled", if (enabled) "Yes" else "No")
-                            selectedCatalog?.requiredEnv?.takeIf { it.isNotEmpty() }?.let {
+                            activeRequiredEnv.takeIf { it.isNotEmpty() }?.let {
                                 ReviewRow("Credentials", "${it.size} value(s) provided")
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 4.dp))
@@ -974,16 +1369,33 @@ private fun McpAddWizard(
                             )
                         }
                     }
+                    testResult?.let { result ->
+                        Text(
+                            if (result.ok) "Connection succeeded — ${result.toolNames.size} tool${if (result.toolNames.size == 1) "" else "s"} discovered." else "Connection failed: ${result.error ?: "The server did not start."}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (result.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         NexyGhostButton(text = "Back", onClick = { step = 1 })
-                        NexyPrimaryButton(
-                            text = "Add server",
-                            onClick = {
-                                val env = (selectedCatalog?.env.orEmpty() + requiredEnvValues).filterValues { it.isNotBlank() }
-                                onConfirm(name.trim(), previewCommand, previewArgs, env, selectedCatalog?.imageResponses, enabled)
-                            },
-                            enabled = previewCommand.isNotBlank() && step2Valid,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            NexyGhostButton(
+                                text = if (testingConnection) "Testing…" else "Test connection",
+                                onClick = {
+                                    val env = (selectedCatalog?.env.orEmpty() + requiredEnvValues).filterValues { it.isNotBlank() }
+                                    onTest(previewCommand, previewArgs, env, selectedCatalog?.imageResponses)
+                                },
+                                enabled = !testingConnection && previewCommand.isNotBlank() && step2Valid,
+                            )
+                            NexyPrimaryButton(
+                                text = "Add server",
+                                onClick = {
+                                    val env = (selectedCatalog?.env.orEmpty() + requiredEnvValues).filterValues { it.isNotBlank() }
+                                    onConfirm(name.trim(), description.trim(), previewCommand, previewArgs, env, selectedCatalog?.imageResponses, enabled)
+                                },
+                                enabled = previewCommand.isNotBlank() && step2Valid,
+                            )
+                        }
                     }
                 }
             }
@@ -1003,22 +1415,26 @@ private fun ReviewRow(label: String, value: String) {
 @Composable
 private fun McpEditSheet(
     server: McpServerInfo,
-    onConfirm: (name: String, command: String, args: String, enabled: Boolean) -> Unit,
+    initialDescription: String,
+    onConfirm: (name: String, description: String, command: String, args: String, enabled: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(server.name) }
+    var description by remember { mutableStateOf(initialDescription) }
     var command by remember { mutableStateOf(server.command) }
-    var args by remember { mutableStateOf("") }
+    var args by remember { mutableStateOf(server.args.joinToString(" ")) }
     var enabled by remember { mutableStateOf(server.enabled) }
 
     NexyFormSheet(
         title = "Edit MCP Server",
         confirmLabel = "Save",
-        onConfirm = { onConfirm(name.trim(), command.trim(), args.trim(), enabled) },
+        onConfirm = { onConfirm(name.trim(), description.trim(), command.trim(), args.trim(), enabled) },
         onDismiss = onDismiss,
         confirmEnabled = name.isNotBlank() && command.isNotBlank(),
     ) {
         OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Server name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true))
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, supportingText = { Text("Shown on the server card and details view") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Command") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Spacer(Modifier.height(8.dp))
