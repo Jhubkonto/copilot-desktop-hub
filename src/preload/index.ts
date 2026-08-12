@@ -40,6 +40,8 @@ import type {
   ArtifactSpec,
   McpServerWithStatus,
   BackgroundActivity,
+  ProjectWikiMcpConnection,
+  ProjectWikiMcpStatus,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -401,6 +403,9 @@ const api = {
   deleteWikiEntry: (id: string) => typedInvoke('wiki:delete-entry', id),
   extractWikiLearnings: (conversationId: string, projectId: string, model?: string) =>
     typedInvoke('wiki:extract-learnings', conversationId, projectId, model),
+  startWikiMcp: (projectId: string): Promise<ProjectWikiMcpConnection> => typedInvoke('wiki:mcp-start', projectId),
+  stopWikiMcp: (projectId: string): Promise<boolean> => typedInvoke('wiki:mcp-stop', projectId),
+  getWikiMcpStatus: (projectId: string): Promise<ProjectWikiMcpStatus> => typedInvoke('wiki:mcp-status', projectId),
 
   // Prompt Library
   listPrompts: (projectId?: string | null) => typedInvoke('prompt:list', projectId ?? null),
