@@ -4,6 +4,7 @@ import { getDatabase, closeDatabase } from './database'
 import { registerIpcHandlers } from './ipc-handlers'
 import { registerAuthHandlers } from './auth'
 import { initMcpServers, shutdownMcpServers } from './mcp'
+import { stopAllProjectWikiMcpBridges } from './project-wiki-mcp'
 import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
 import { loadModelCatalog } from './model-catalog'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -370,5 +371,6 @@ app.on('will-quit', () => {
   cancelAllPendingUserInputs()
   globalShortcut.unregisterAll()
   shutdownMcpServers().catch(() => {})
+  stopAllProjectWikiMcpBridges().catch(() => {})
   closeDatabase()
 })

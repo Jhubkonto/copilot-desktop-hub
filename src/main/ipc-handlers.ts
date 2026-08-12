@@ -16,6 +16,7 @@ import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
 import { registerModelCatalogHandlers } from './model-catalog-handlers'
 import { registerWikiHandlers } from './wiki-handlers'
+import { registerProjectWikiMcpHandlers } from './project-wiki-mcp'
 import { registerPromptHandlers } from './prompt-handlers'
 import { registerCliHandlers } from './cli-detection'
 import { registerWsHandlers } from './ws-handlers'
@@ -50,6 +51,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerProjectAgentHandlers()
   registerProjectAuditHandlers()
   registerWikiHandlers()
+  registerProjectWikiMcpHandlers()
   registerPromptHandlers()
   registerConversationHandlers()
   registerChatHandlers()

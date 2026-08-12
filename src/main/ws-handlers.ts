@@ -106,7 +106,9 @@ import {
 } from './rating-handlers'
 import { getActivitySnapshot, endActivity } from './activity-tracker'
 import { clearUnseenDestination, getNewContentConversations, markAllConversationsRead } from './activity-badge'
-import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
+import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent, testMcpServer } from './mcp'
+import { searchMcpRegistry } from './mcp-registry'
+import { getProjectWikiMcpStatus, startProjectWikiMcpBridge, stopProjectWikiMcpBridge } from './project-wiki-mcp'
 import { MCP_CATALOG } from '../shared/mcp-catalog'
 import {
   insertPromptLibraryEntry,
@@ -1849,8 +1851,19 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'mcp:search-registry') {
+      const query = typeof data.query === 'string' ? data.query : ''
+      void searchMcpRegistry(query).then((result) => {
+        reply({ event: 'mcp:registry-results', data: result })
+      }).catch((error) => {
+        reply({ event: 'mcp:registry-error', data: { message: error instanceof Error ? error.message : 'Could not reach the MCP Registry' } })
+      })
+      return
+    }
+
     if (command === 'mcp:add') {
       const name = typeof data.name === 'string' ? data.name.trim() : ''
+      const description = typeof data.description === 'string' ? data.description.trim() : undefined
       const command2 = typeof data.command === 'string' ? data.command.trim() : ''
       if (!name || !command2) return
       const args = Array.isArray(data.args) ? (data.args as string[]) : []
@@ -1858,7 +1871,7 @@ export function registerWsHandlers(): void {
       const cwd = typeof data.cwd === 'string' ? data.cwd : undefined
       const imageResponses = data.imageResponses === 'allow' || data.imageResponses === 'omit' ? data.imageResponses : undefined
       const enabled = typeof data.enabled === 'boolean' ? data.enabled : true
-      void addMcpServer({ name, command: command2, args, env, cwd, imageResponses, enabled }).then((server) => {
+      void addMcpServer({ name, description, command: command2, args, env, cwd, imageResponses, enabled }).then((server) => {
         const s = getMcpServerStatus(server.id)
         const payload = { ...server, status: s.status, toolCount: s.tools.length }
         broadcastToMobile({ event: 'mcp:server-added', data: { server: payload } })
@@ -1872,6 +1885,7 @@ export function registerWsHandlers(): void {
       if (!id) return
       const updates: Record<string, unknown> = {}
       if (typeof data.name === 'string') updates.name = data.name
+      if (typeof data.description === 'string') updates.description = data.description
       if (typeof data.command === 'string') updates.command = data.command
       if (Array.isArray(data.args)) updates.args = data.args
       if (data.env && typeof data.env === 'object') updates.env = data.env
@@ -1927,6 +1941,59 @@ export function registerWsHandlers(): void {
       if (!agentId) return
       const tools = listMcpToolsForAgent(agentId)
       reply({ event: 'mcp:tools', data: { agentId, tools } })
+      return
+    }
+
+    if (command === 'mcp:test') {
+      const command2 = typeof data.command === 'string' ? data.command.trim() : ''
+      const args = Array.isArray(data.args) ? data.args as string[] : []
+      const env = (data.env && typeof data.env === 'object' && !Array.isArray(data.env)) ? data.env as Record<string, string> : {}
+      const cwd = typeof data.cwd === 'string' ? data.cwd : undefined
+      const imageResponses = data.imageResponses === 'allow' || data.imageResponses === 'omit' ? data.imageResponses : undefined
+      void testMcpServer({ command: command2, args, env, cwd, imageResponses }).then((result) => {
+        reply({ event: 'mcp:test-result', data: result })
+      })
+      return
+    }
+
+    // The project-wiki MCP bridge runs in the desktop process because it owns the
+    // project database and the approval UI. Android can control that bridge over
+    // the authenticated companion connection without receiving direct database
+    // access or pretending that the bridge is an ordinary global MCP server.
+    if (command === 'wiki:mcp-status') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      if (!projectId) return
+      reply({ event: 'wiki:mcp-status', data: getProjectWikiMcpStatus(projectId) })
+      return
+    }
+
+    if (command === 'wiki:mcp-start') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!projectId || !win || win.isDestroyed()) {
+        reply({ event: 'wiki:mcp-error', data: { projectId, message: 'Nexy desktop is not ready to host the project wiki bridge.' } })
+        return
+      }
+      void startProjectWikiMcpBridge(projectId, win.webContents)
+        .then((connection) => reply({
+          event: 'wiki:mcp-status',
+          data: {
+            projectId: connection.projectId,
+            running: true,
+            url: connection.url,
+            stdio: { command: connection.command, args: connection.args, env: connection.env },
+          },
+        }))
+        .catch((error) => reply({ event: 'wiki:mcp-error', data: { projectId, message: error instanceof Error ? error.message : String(error) } }))
+      return
+    }
+
+    if (command === 'wiki:mcp-stop') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      if (!projectId) return
+      void stopProjectWikiMcpBridge(projectId)
+        .then(() => reply({ event: 'wiki:mcp-status', data: getProjectWikiMcpStatus(projectId) }))
+        .catch((error) => reply({ event: 'wiki:mcp-error', data: { projectId, message: error instanceof Error ? error.message : String(error) } }))
       return
     }
 
