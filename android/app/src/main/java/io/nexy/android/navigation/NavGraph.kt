@@ -670,6 +670,7 @@ fun NavGraph(
             val artifactId = backStackEntry.arguments?.getString("artifactId")?.takeIf { it.isNotBlank() }
             ArtifactsScreen(
                 onBack = { navController.popBackStack() },
+                onOpenMarkdown = { path -> navController.navigate("markdown-viewer?path=${Uri.encode(path)}") },
                 initialArtifactId = artifactId,
             )
         }
