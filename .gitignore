@@ -46,3 +46,7 @@ src/planning/
 
 # Android local Gradle cache
 android/.gradle-user/
+
+# Temporary visual test data
+tmp-nexy-visual/
+tmp-mcp-visual.cjs
