@@ -1451,6 +1451,7 @@ fun parseWsEvent(
                                 ArtifactVersionFile(
                                     id = f.optString("id"),
                                     relativePath = f.optString("relativePath"),
+                                    absolutePath = f.nullableString("absolutePath"),
                                     mediaType = f.optString("mediaType"),
                                     role = f.optString("role"),
                                 )
@@ -2661,6 +2662,7 @@ private fun parseArtifactVersion(obj: JSONObject): ArtifactVersionSummary {
             ArtifactVersionFile(
                 id = f.optString("id"),
                 relativePath = f.optString("relativePath"),
+                absolutePath = f.nullableString("absolutePath"),
                 mediaType = f.optString("mediaType"),
                 role = f.optString("role"),
             )

@@ -954,6 +954,7 @@ data class ArtifactSummary(
 data class ArtifactVersionFile(
     val id: String,
     val relativePath: String,
+    val absolutePath: String? = null,
     val mediaType: String,
     val role: String,
 )
