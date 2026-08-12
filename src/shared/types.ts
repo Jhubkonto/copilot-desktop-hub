@@ -623,6 +623,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 export interface McpServerConfig {
   id: string
   name: string
+  description?: string
   command: string
   args: string[]
   env: Record<string, string>
@@ -1368,6 +1369,22 @@ export interface WikiCandidate {
 
 export interface WikiExtractionResult {
   candidates: WikiCandidate[]
+}
+
+export interface ProjectWikiMcpConnection {
+  projectId: string
+  url: string
+  token: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+}
+
+export interface ProjectWikiMcpStatus {
+  projectId: string
+  running: boolean
+  url: string | null
+  stdio: { command: string; args: string[]; env: Record<string, string> } | null
 }
 
 // ---------------------------------------------------------------------------
@@ -2199,6 +2216,9 @@ export type IpcReturnMap = {
   'wiki:extract-learnings': WikiExtractionResult
   'wiki:list-entries': WikiEntry[]
   'wiki:update-entry': WikiEntry
+  'wiki:mcp-start': ProjectWikiMcpConnection
+  'wiki:mcp-stop': boolean
+  'wiki:mcp-status': ProjectWikiMcpStatus
   // Provider
   'provider:get-azure-endpoint': string
   'provider:has-key': boolean
@@ -2627,6 +2647,9 @@ export type IpcChannels =
   | 'wiki:extract-learnings'
   | 'wiki:list-entries'
   | 'wiki:update-entry'
+  | 'wiki:mcp-start'
+  | 'wiki:mcp-stop'
+  | 'wiki:mcp-status'
   | 'build:get-workspace-info'
   | 'build:set-workspace-path'
   | 'build:start-command'

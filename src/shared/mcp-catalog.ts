@@ -4,6 +4,8 @@
 
 export type McpCatalogCategory = 'browser' | 'files' | 'dev' | 'web' | 'data' | 'productivity'
 
+export type McpCatalogImpact = 'read-only' | 'can-change'
+
 export interface McpCatalogRequiredEnv {
   key: string
   label: string
@@ -17,8 +19,13 @@ export interface McpCatalogEntry {
   id: string
   /** Default server name pre-filled into the form. */
   name: string
+  /** Capability-first title shown to users; name stays the technical server identity. */
+  capability: string
   description: string
   category: McpCatalogCategory
+  /** Plain-language scope shown before the technical launch command. */
+  access: string
+  impact: McpCatalogImpact
   command: string
   args: string[]
   env?: Record<string, string>
@@ -53,8 +60,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'playwright',
     name: 'Playwright (Chromium)',
+    capability: 'Control a browser',
     description: 'AI-controlled managed browser — navigate pages, click, type, screenshot.',
     category: 'browser',
+    access: 'A managed Chromium browser session',
+    impact: 'can-change',
     command: 'npx',
     args: ['-y', '@playwright/mcp'],
     imageResponses: 'allow',
@@ -64,8 +74,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'playwright-cdp',
     name: 'Playwright (CDP attach)',
+    capability: 'Connect to an open browser',
     description: 'Attach to an existing Chrome/Edge launched with --remote-debugging-port=9222.',
     category: 'browser',
+    access: 'The browser session running on this computer',
+    impact: 'can-change',
     command: 'npx',
     args: ['-y', '@playwright/mcp', '--cdp-endpoint', 'http://localhost:9222'],
     imageResponses: 'allow',
@@ -75,8 +88,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'filesystem',
     name: 'Filesystem',
+    capability: 'Access local files',
     description: 'Read, write, and search files within a directory you choose.',
     category: 'files',
+    access: 'The directory you select',
+    impact: 'can-change',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
     docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem',
@@ -85,8 +101,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'git',
     name: 'Git',
+    capability: 'Work with Git repositories',
     description: 'Inspect and operate on a local Git repository — status, log, diff, commit.',
     category: 'dev',
+    access: 'A local Git repository',
+    impact: 'can-change',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-git'],
     docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/git',
@@ -95,8 +114,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'github',
     name: 'GitHub',
+    capability: 'Use GitHub',
     description: 'Access GitHub repos, issues, and pull requests with your token.',
     category: 'dev',
+    access: 'The GitHub account allowed by your token',
+    impact: 'can-change',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-github'],
     requiredEnv: [
@@ -113,8 +135,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'fetch',
     name: 'Fetch',
+    capability: 'Read web pages',
     description: 'Fetch a URL and return its content as clean markdown for the model.',
     category: 'web',
+    access: 'Public web URLs requested by the agent',
+    impact: 'read-only',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-fetch'],
     docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/fetch',
@@ -123,8 +148,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'memory',
     name: 'Memory',
+    capability: 'Remember project knowledge',
     description: 'A persistent knowledge graph the model can store and recall facts from.',
     category: 'data',
+    access: 'Nexy’s local MCP memory store',
+    impact: 'can-change',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-memory'],
     docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/memory',
@@ -133,8 +161,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'sequential-thinking',
     name: 'Sequential Thinking',
+    capability: 'Structure complex work',
     description: 'Structured step-by-step reasoning scaffold for harder problems.',
     category: 'productivity',
+    access: 'No external data; creates working notes for the model',
+    impact: 'read-only',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
     docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking',
@@ -143,8 +174,11 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: 'time',
     name: 'Time',
+    capability: 'Look up time zones',
     description: 'Current time and timezone conversions.',
     category: 'productivity',
+    access: 'Time-zone data and the local system clock',
+    impact: 'read-only',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-time'],
     docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/time',
