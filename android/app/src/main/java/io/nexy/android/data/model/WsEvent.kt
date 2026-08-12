@@ -296,6 +296,9 @@ sealed class WsEvent {
     data class SettingValue(val key: String, val value: String?) : WsEvent()
     data class McpList(val servers: List<McpServerInfo>) : WsEvent()
     data class McpCatalog(val entries: List<McpCatalogEntry>) : WsEvent()
+    data class McpRegistryResults(val result: McpRegistrySearchResult) : WsEvent()
+    data class McpRegistryError(val message: String) : WsEvent()
+    data class McpTestResult(val ok: Boolean, val toolNames: List<String> = emptyList(), val error: String? = null) : WsEvent()
     data class SkillList(val skills: List<SkillConfig>) : WsEvent()
     data class SkillDetail(val skill: SkillConfig?) : WsEvent()
     data class SkillCreated(val skill: SkillConfig) : WsEvent()
@@ -420,6 +423,8 @@ sealed class WsEvent {
     data class McpServerRemoved(val id: String) : WsEvent()
     data class McpServerStatus(val id: String, val status: String, val error: String?, val toolCount: Int) : WsEvent()
     data class McpToolList(val agentId: String?, val tools: List<McpToolInfo>) : WsEvent()
+    data class WikiMcpStatus(val status: ProjectWikiMcpStatus) : WsEvent()
+    data class WikiMcpError(val projectId: String, val message: String) : WsEvent()
     data class WikiExtractionCandidates(val conversationId: String, val candidates: List<WikiExtractionCandidate>) : WsEvent()
     data class WikiExtractionError(val message: String) : WsEvent()
     data class BuildRecords(val records: List<BuildRecord>) : WsEvent()
@@ -589,6 +594,7 @@ data class AgentMcpServerTrust(
 data class McpServerWithStatus(
     val id: String,
     val name: String,
+    val description: String = "",
     val command: String,
     val args: List<String> = emptyList(),
     val enabled: Boolean,
@@ -788,7 +794,9 @@ data class CliInstallInfo(
 data class McpServerInfo(
     val id: String,
     val name: String,
+    val description: String = "",
     val command: String,
+    val args: List<String> = emptyList(),
     val enabled: Boolean,
 )
 
@@ -802,8 +810,11 @@ data class McpCatalogRequiredEnv(
 data class McpCatalogEntry(
     val id: String,
     val name: String,
+    val capability: String = name,
     val description: String,
     val category: String,
+    val access: String = "",
+    val impact: String = "read-only",
     val command: String,
     val args: List<String> = emptyList(),
     val env: Map<String, String> = emptyMap(),
@@ -811,6 +822,51 @@ data class McpCatalogEntry(
     val requiredEnv: List<McpCatalogRequiredEnv> = emptyList(),
     val docsUrl: String? = null,
     val keywords: List<String> = emptyList(),
+)
+
+data class McpRegistryEnvRequirement(
+    val key: String,
+    val label: String,
+    val helpUrl: String? = null,
+    val secret: Boolean = false,
+)
+
+data class McpRegistryInstallConfig(
+    val command: String,
+    val args: List<String> = emptyList(),
+    val requiredEnv: List<McpRegistryEnvRequirement> = emptyList(),
+)
+
+data class McpRegistryServer(
+    val name: String,
+    val title: String? = null,
+    val description: String,
+    val version: String,
+    val docsUrl: String? = null,
+    val repositoryUrl: String? = null,
+    val status: String = "active",
+    val statusMessage: String? = null,
+    val transport: String = "unknown",
+    val install: McpRegistryInstallConfig? = null,
+)
+
+data class McpRegistrySearchResult(
+    val servers: List<McpRegistryServer> = emptyList(),
+    val fetchedAt: Long = 0L,
+    val stale: Boolean = false,
+)
+
+data class ProjectWikiMcpStdio(
+    val command: String,
+    val args: List<String> = emptyList(),
+    val env: Map<String, String> = emptyMap(),
+)
+
+data class ProjectWikiMcpStatus(
+    val projectId: String,
+    val running: Boolean,
+    val url: String? = null,
+    val stdio: ProjectWikiMcpStdio? = null,
 )
 
 data class SkillConfig(

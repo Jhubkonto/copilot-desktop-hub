@@ -54,8 +54,14 @@ import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpCatalogEntry
 import io.nexy.android.data.model.McpCatalogRequiredEnv
+import io.nexy.android.data.model.McpRegistryEnvRequirement
+import io.nexy.android.data.model.McpRegistryInstallConfig
+import io.nexy.android.data.model.McpRegistrySearchResult
+import io.nexy.android.data.model.McpRegistryServer
 import io.nexy.android.data.model.McpServerWithStatus
 import io.nexy.android.data.model.McpToolInfo
+import io.nexy.android.data.model.ProjectWikiMcpStatus
+import io.nexy.android.data.model.ProjectWikiMcpStdio
 import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.data.model.BuildRecord
 import io.nexy.android.data.model.PreflightCheck
@@ -199,6 +205,7 @@ fun parseWsEvent(
     ratingStats: MutableStateFlow<ConversationRatingStats?>,
     desktopIsPackaged: MutableStateFlow<Boolean?> = MutableStateFlow(null),
     mcpCatalog: MutableStateFlow<List<McpCatalogEntry>> = MutableStateFlow(emptyList()),
+    wikiMcpStatuses: MutableStateFlow<Map<String, ProjectWikiMcpStatus>> = MutableStateFlow(emptyMap()),
 ) {
     // Older desktop builds can send the entire message database in one reconnect frame. Refuse
     // that frame before JSONObject expands it into a much larger object graph; connected chat
@@ -1112,10 +1119,15 @@ fun parseWsEvent(
                 val arr = data?.optJSONArray("servers") ?: return
                 val list = (0 until arr.length()).map { i ->
                     val s = arr.getJSONObject(i)
+                    val args = s.optJSONArray("args")?.let { values ->
+                        (0 until values.length()).map { values.optString(it) }
+                    } ?: emptyList()
                     McpServerInfo(
                         id = s.optString("id"),
                         name = s.optString("name"),
+                        description = s.optString("description"),
                         command = s.optString("command"),
+                        args = args,
                         enabled = s.optBoolean("enabled", false),
                     )
                 }
@@ -1153,8 +1165,11 @@ fun parseWsEvent(
                     if (id.isBlank() || name.isBlank()) null else McpCatalogEntry(
                         id = id,
                         name = name,
+                        capability = entry.optString("capability", name),
                         description = entry.optString("description"),
                         category = entry.optString("category", "productivity"),
+                        access = entry.optString("access"),
+                        impact = entry.optString("impact", "read-only"),
                         command = entry.optString("command"),
                         args = args,
                         env = env,
@@ -1170,17 +1185,82 @@ fun parseWsEvent(
                 WsEvent.McpCatalog(list)
             }
 
+            "mcp:registry-results" -> {
+                val arr = data?.optJSONArray("servers") ?: JSONArray()
+                val servers = (0 until arr.length()).mapNotNull { index ->
+                    val raw = arr.optJSONObject(index) ?: return@mapNotNull null
+                    val name = raw.optString("name")
+                    val description = raw.optString("description")
+                    if (name.isBlank() || description.isBlank()) return@mapNotNull null
+                    val install = raw.optJSONObject("install")?.let { config ->
+                        val command = config.optString("command")
+                        if (command.isBlank()) return@let null
+                        val args = config.optJSONArray("args")?.let { values ->
+                            (0 until values.length()).map { values.optString(it) }
+                        } ?: emptyList()
+                        val requiredEnv = config.optJSONArray("requiredEnv")?.let { values ->
+                            (0 until values.length()).mapNotNull { envIndex ->
+                                val requirement = values.optJSONObject(envIndex) ?: return@mapNotNull null
+                                val key = requirement.optString("key")
+                                val label = requirement.optString("label")
+                                if (key.isBlank() || label.isBlank()) null else McpRegistryEnvRequirement(
+                                    key = key,
+                                    label = label,
+                                    helpUrl = requirement.nullableString("helpUrl"),
+                                    secret = requirement.optBoolean("secret", false),
+                                )
+                            }
+                        } ?: emptyList()
+                        McpRegistryInstallConfig(command = command, args = args, requiredEnv = requiredEnv)
+                    }
+                    McpRegistryServer(
+                        name = name,
+                        title = raw.nullableString("title"),
+                        description = description,
+                        version = raw.optString("version"),
+                        docsUrl = raw.nullableString("docsUrl"),
+                        repositoryUrl = raw.nullableString("repositoryUrl"),
+                        status = raw.optString("status", "active"),
+                        statusMessage = raw.nullableString("statusMessage"),
+                        transport = raw.optString("transport", "unknown"),
+                        install = install,
+                    )
+                }
+                WsEvent.McpRegistryResults(
+                    McpRegistrySearchResult(
+                        servers = servers,
+                        fetchedAt = data?.optLong("fetchedAt", 0L) ?: 0L,
+                        stale = data?.optBoolean("stale", false) ?: false,
+                    ),
+                )
+            }
+
+            "mcp:registry-error" -> WsEvent.McpRegistryError(
+                data?.optString("message") ?: "Could not reach the MCP Registry",
+            )
+
+            "mcp:test-result" -> {
+                val tools = data?.optJSONArray("tools")?.let { values ->
+                    (0 until values.length()).mapNotNull { index -> values.optJSONObject(index)?.optString("name")?.takeIf { it.isNotBlank() } }
+                } ?: emptyList()
+                WsEvent.McpTestResult(
+                    ok = data?.optBoolean("ok", false) ?: false,
+                    toolNames = tools,
+                    error = data?.nullableString("error"),
+                )
+            }
+
             "mcp:server-added" -> {
                 val s = data?.optJSONObject("server") ?: return
                 val server = parseMcpServerWithStatus(s)
-                mcpServers.value = mcpServers.value + McpServerInfo(id = server.id, name = server.name, command = server.command, enabled = server.enabled)
+                mcpServers.value = mcpServers.value + McpServerInfo(id = server.id, name = server.name, description = server.description, command = server.command, args = server.args, enabled = server.enabled)
                 WsEvent.McpServerAdded(server)
             }
 
             "mcp:server-updated" -> {
                 val s = data?.optJSONObject("server") ?: return
                 val server = parseMcpServerWithStatus(s)
-                mcpServers.value = mcpServers.value.map { if (it.id == server.id) McpServerInfo(id = server.id, name = server.name, command = server.command, enabled = server.enabled) else it }
+                mcpServers.value = mcpServers.value.map { if (it.id == server.id) McpServerInfo(id = server.id, name = server.name, description = server.description, command = server.command, args = server.args, enabled = server.enabled) else it }
                 WsEvent.McpServerUpdated(server)
             }
 
@@ -1212,6 +1292,38 @@ fun parseWsEvent(
                 }
                 WsEvent.McpToolList(agentId, tools)
             }
+
+            "wiki:mcp-status" -> {
+                val projectId = data?.optString("projectId") ?: ""
+                val stdioObject = data?.optJSONObject("stdio")
+                val args = stdioObject?.optJSONArray("args")?.let { values ->
+                    (0 until values.length()).map { values.optString(it) }
+                } ?: emptyList()
+                val env = stdioObject?.optJSONObject("env")?.let { values ->
+                    buildMap {
+                        values.keys().forEach { key -> put(key, values.optString(key)) }
+                    }
+                } ?: emptyMap()
+                val status = ProjectWikiMcpStatus(
+                    projectId = projectId,
+                    running = data?.optBoolean("running", false) == true,
+                    url = data?.nullableString("url"),
+                    stdio = stdioObject?.let {
+                        ProjectWikiMcpStdio(
+                            command = it.optString("command"),
+                            args = args,
+                            env = env,
+                        )
+                    },
+                )
+                wikiMcpStatuses.value = wikiMcpStatuses.value + (projectId to status)
+                WsEvent.WikiMcpStatus(status)
+            }
+
+            "wiki:mcp-error" -> WsEvent.WikiMcpError(
+                projectId = data?.optString("projectId") ?: "",
+                message = data?.optString("message") ?: "Project wiki MCP bridge failed.",
+            )
 
             "wiki:extraction-candidates" -> {
                 val conversationId = data?.optString("conversationId") ?: ""
@@ -2508,6 +2620,7 @@ private fun parseMcpServerWithStatus(s: JSONObject): McpServerWithStatus {
     return McpServerWithStatus(
         id = s.optString("id"),
         name = s.optString("name"),
+        description = s.optString("description"),
         command = s.optString("command"),
         args = args,
         enabled = s.optBoolean("enabled", false),

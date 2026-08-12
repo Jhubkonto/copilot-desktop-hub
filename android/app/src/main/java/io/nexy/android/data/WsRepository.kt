@@ -25,6 +25,7 @@ import io.nexy.android.data.model.NewContentConversation
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpCatalogEntry
 import io.nexy.android.data.model.McpToolInfo
+import io.nexy.android.data.model.ProjectWikiMcpStatus
 import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
@@ -236,6 +237,9 @@ object WsRepository : WsClient {
 
     private val _mcpCatalog = MutableStateFlow<List<McpCatalogEntry>>(emptyList())
     val mcpCatalog: StateFlow<List<McpCatalogEntry>> = _mcpCatalog
+
+    private val _wikiMcpStatuses = MutableStateFlow<Map<String, ProjectWikiMcpStatus>>(emptyMap())
+    val wikiMcpStatuses: StateFlow<Map<String, ProjectWikiMcpStatus>> = _wikiMcpStatuses
 
     // One-shot highlight IDs set by config screens when saving a brand-new item
     val pendingHighlightProjectId = MutableStateFlow<String?>(null)
@@ -1348,6 +1352,7 @@ object WsRepository : WsClient {
             providers = _providers,
             mcpServers = _mcpServers,
             mcpCatalog = _mcpCatalog,
+            wikiMcpStatuses = _wikiMcpStatuses,
             skills = _skills,
             skillAgentUsage = _skillAgentUsage,
             artifacts = _artifacts,
@@ -1791,6 +1796,7 @@ object WsRepository : WsClient {
         _providers.value = standaloneProviders?.providers?.value.orEmpty()
         _mcpServers.value = emptyList()
         _mcpCatalog.value = emptyList()
+        _wikiMcpStatuses.value = emptyMap()
         _skillAgentUsage.value = emptyMap()
         _artifacts.value = emptyList()
         _cliStatus.value = emptyMap()
@@ -2596,6 +2602,10 @@ object WsRepository : WsClient {
     fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
     fun getMcpServers() { send("mcp:list", emptyMap()) }
     fun getMcpCatalog() { send("mcp:catalog", emptyMap()) }
+    fun searchMcpRegistry(query: String) { send("mcp:search-registry", mapOf("query" to query)) }
+    fun getWikiMcpStatus(projectId: String) { send("wiki:mcp-status", mapOf("projectId" to projectId)) }
+    fun startWikiMcp(projectId: String) { send("wiki:mcp-start", mapOf("projectId" to projectId)) }
+    fun stopWikiMcp(projectId: String) { send("wiki:mcp-stop", mapOf("projectId" to projectId)) }
 
     private fun skillPayload(
         name: String,
@@ -2895,21 +2905,27 @@ object WsRepository : WsClient {
         send("agent:set-mcp-server-trust", mapOf("agentId" to agentId, "serverId" to serverId, "trust" to trust))
     }
 
-    fun addMcpServer(name: String, command: String, args: List<String> = emptyList(), env: Map<String, String> = emptyMap(), cwd: String? = null, imageResponses: String? = null, enabled: Boolean = true) {
-        val payload = mutableMapOf<String, Any>("name" to name, "command" to command, "args" to args, "env" to env, "enabled" to enabled)
+    fun addMcpServer(name: String, command: String, description: String = "", args: List<String> = emptyList(), env: Map<String, String> = emptyMap(), cwd: String? = null, imageResponses: String? = null, enabled: Boolean = true) {
+        val payload = mutableMapOf<String, Any>("name" to name, "description" to description, "command" to command, "args" to args, "env" to env, "enabled" to enabled)
         if (cwd != null) payload["cwd"] = cwd
         if (imageResponses != null) payload["imageResponses"] = imageResponses
         send("mcp:add", payload)
     }
-    fun updateMcpServer(id: String, name: String? = null, command: String? = null, args: List<String>? = null, env: Map<String, String>? = null, cwd: String? = null, enabled: Boolean? = null) {
+    fun updateMcpServer(id: String, name: String? = null, description: String? = null, command: String? = null, args: List<String>? = null, env: Map<String, String>? = null, cwd: String? = null, enabled: Boolean? = null) {
         val payload = mutableMapOf<String, Any>("id" to id)
         if (name != null) payload["name"] = name
+        if (description != null) payload["description"] = description
         if (command != null) payload["command"] = command
         if (args != null) payload["args"] = args
         if (env != null) payload["env"] = env
         if (cwd != null) payload["cwd"] = cwd
         if (enabled != null) payload["enabled"] = enabled
         send("mcp:update", payload)
+    }
+    fun testMcpServer(command: String, args: List<String>, env: Map<String, String> = emptyMap(), imageResponses: String? = null) {
+        val payload = mutableMapOf<String, Any>("command" to command, "args" to args, "env" to env)
+        if (imageResponses != null) payload["imageResponses"] = imageResponses
+        send("mcp:test", payload)
     }
     fun removeMcpServer(id: String) { send("mcp:remove", mapOf("id" to id)) }
     fun restartMcpServer(id: String) { send("mcp:restart", mapOf("id" to id)) }
