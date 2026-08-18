@@ -40,6 +40,12 @@ class NexyFcmService : FirebaseMessagingService() {
                 SchedulerNotificationManager.show(this, taskId, taskName, success = false)
             }
 
+            "scheduler:run-approval-required" -> {
+                val taskId = data["taskId"] ?: return
+                val taskName = data["taskName"] ?: "Scheduled workflow"
+                SchedulerNotificationManager.show(this, taskId, taskName, success = false, requiresApproval = true)
+            }
+
             "chat:complete" -> {
                 val convId = data["conversationId"] ?: return
                 val title = data["title"] ?: "Chat"

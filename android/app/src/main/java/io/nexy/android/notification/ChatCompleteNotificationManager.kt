@@ -39,7 +39,7 @@ object ChatCompleteNotificationManager {
         )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(io.nexy.android.R.drawable.ic_notification)
             .setContentTitle("Response ready")
             .setContentText(title)
             .setContentIntent(openIntent)

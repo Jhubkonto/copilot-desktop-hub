@@ -59,7 +59,7 @@ object ApprovalNotificationManager {
         )
 
         val notification = Notification.Builder(context, NexyApp.APPROVAL_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(io.nexy.android.R.drawable.ic_notification)
             .setContentTitle("Tool Request")
             .setContentText(toolName)
             .setContentIntent(openIntent)

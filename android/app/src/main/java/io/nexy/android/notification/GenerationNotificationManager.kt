@@ -42,7 +42,7 @@ object GenerationNotificationManager {
         val contentTitle = if (kind == "quiz") "Quiz ready" else "Debrief ready"
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(io.nexy.android.R.drawable.ic_notification)
             .setContentTitle(contentTitle)
             .setContentText(title)
             .setContentIntent(openIntent)

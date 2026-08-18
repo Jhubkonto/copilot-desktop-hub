@@ -14,7 +14,7 @@ import io.nexy.android.MainActivity
 object SchedulerNotificationManager {
 
     private const val CHANNEL_ID = "scheduler_runs"
-    fun show(context: Context, taskId: String, taskName: String, success: Boolean) {
+    fun show(context: Context, taskId: String, taskName: String, success: Boolean, requiresApproval: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -37,9 +37,13 @@ object SchedulerNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val title = if (success) "Task completed: $taskName" else "Task failed: $taskName"
+        val title = when {
+            requiresApproval -> "Review required: $taskName"
+            success -> "Task completed: $taskName"
+            else -> "Task failed: $taskName"
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(io.nexy.android.R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
