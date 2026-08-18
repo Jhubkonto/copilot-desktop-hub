@@ -20,24 +20,17 @@ beforeEach(() => {
 })
 
 describe('Sidebar', () => {
-  it('shows provider-configured footer in BYOK mode', async () => {
+  it('shows compact status dots for configured providers and available CLI tools', async () => {
     mockStore = createMockAppStore({ authState: { authenticated: true, mode: 'byok', user: null } })
     setupStoreMock(useAppStore, mockStore)
     mockApi.listProviders.mockResolvedValue([{ name: 'openai', label: 'API keys configured', configured: true }])
 
     render(<Sidebar />)
-    await screen.findByText('API keys configured')
-    expect(screen.getByText('BYOK mode is active')).toBeInTheDocument()
-  })
-
-  it('opens settings from footer button', async () => {
-    mockStore = createMockAppStore({ authState: { authenticated: false, mode: 'none', user: null } })
-    setupStoreMock(useAppStore, mockStore)
-
-    render(<Sidebar />)
-    await user.click(screen.getByText('Settings'))
-
-    expect(mockStore.setShowSettings).toHaveBeenCalledWith(true)
+    const statusDot = await screen.findByLabelText('API keys configured API key is active')
+    expect(statusDot).toBeInTheDocument()
+    await user.hover(statusDot)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('API keys configured API key is active')
+    expect(screen.queryByText('BYOK mode is active')).not.toBeInTheDocument()
   })
 
   it('starts a new chat from the primary action', async () => {

@@ -93,7 +93,23 @@ describe('ChatMessages Codex CLI bulleted timeline', () => {
     expect(screen.getByText('Reasoning summary · ~6 tokens')).toBeInTheDocument()
   })
 
-  it('still renders a non-Codex reasoning burst with the collapsible ThinkingBlock', () => {
+  it('renders Claude CLI reasoning with the compact plain narration style', () => {
+    renderChatMessages({
+      liveTurnState: {
+        ...createEmptyChatTurnState('conv-1'),
+        turnId: 'turn-1',
+        status: 'active',
+        thinkingBlocks: new Map([
+          ['claude-reasoning-0', { blockId: 'claude-reasoning-0', content: 'Planning the change.', done: false }],
+        ]),
+      },
+    })
+
+    expect(screen.getByText('Planning the change.')).toBeInTheDocument()
+    expect(screen.getByText('Reasoning summary · ~5 tokens')).toBeInTheDocument()
+  })
+
+  it('keeps generic provider reasoning in the collapsible ThinkingBlock', () => {
     renderChatMessages({
       liveTurnState: {
         ...createEmptyChatTurnState('conv-1'),

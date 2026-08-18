@@ -140,4 +140,55 @@ describe('useAutoScroll', () => {
     expect(result.current.hasUnreadBelow).toBe(true)
     expect(onNewContentWhileScrolledUp).toHaveBeenCalledTimes(1)
   })
+
+  it('waits until streaming completes before marking content as unread', () => {
+    const onNewContentWhileScrolledUp = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ contentSignal, isGenerating }) => useAutoScroll({
+        isGenerating,
+        contentSignal,
+        resetKey: 'streaming-chat',
+        onNewContentWhileScrolledUp,
+      }),
+      { initialProps: { contentSignal: '10:0:0', isGenerating: false } },
+    )
+
+    const { el } = mockScrollElement({ scrollTop: 500 })
+    result.current.scrollContainerRef.current = el
+    act(() => result.current.handleScrollContainerScroll())
+    expect(result.current.isUserScrolledUp).toBe(true)
+
+    rerender({ contentSignal: '10:0:12', isGenerating: true })
+    rerender({ contentSignal: '10:0:24', isGenerating: true })
+
+    expect(result.current.hasUnreadBelow).toBe(false)
+    expect(onNewContentWhileScrolledUp).not.toHaveBeenCalled()
+
+    rerender({ contentSignal: '10:0:24', isGenerating: false })
+
+    expect(result.current.hasUnreadBelow).toBe(true)
+    expect(onNewContentWhileScrolledUp).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not notify twice when the final streamed content settles with generation', () => {
+    const onNewContentWhileScrolledUp = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ contentSignal, isGenerating }) => useAutoScroll({
+        isGenerating,
+        contentSignal,
+        resetKey: 'streaming-chat-final-signal',
+        onNewContentWhileScrolledUp,
+      }),
+      { initialProps: { contentSignal: '10:0:0', isGenerating: false } },
+    )
+
+    const { el } = mockScrollElement({ scrollTop: 500 })
+    result.current.scrollContainerRef.current = el
+    act(() => result.current.handleScrollContainerScroll())
+
+    rerender({ contentSignal: '10:0:12', isGenerating: true })
+    rerender({ contentSignal: '11:0:0', isGenerating: false })
+
+    expect(onNewContentWhileScrolledUp).toHaveBeenCalledTimes(1)
+  })
 })

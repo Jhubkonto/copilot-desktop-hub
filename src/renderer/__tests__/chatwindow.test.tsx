@@ -485,6 +485,55 @@ describe("ChatWindow — Messages Display", () => {
     expect(messages[2]).toHaveTextContent("Second message");
   });
 
+  it("opens fork-from-here configuration and forwards the selected target", async () => {
+    const user = userEvent.setup();
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "Fork at this point", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "Continue elsewhere", timestamp: 2000 },
+    ]);
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      projects: [
+        { id: "project-1", name: "Current project", color: "blue", created_at: 0, updated_at: 0 },
+        { id: "project-2", name: "Different project", color: "green", created_at: 0, updated_at: 0 },
+      ],
+      availableModelGroups: [{
+        sourceKey: "openai",
+        sourceLabel: "OpenAI",
+        sourceType: "provider",
+        models: [{ id: "gpt-5.5", label: "GPT-5.5" }, { id: "gpt-4.1", label: "GPT-4.1" }],
+      }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => expect(screen.getByText("Fork at this point")).toBeInTheDocument());
+    fireEvent.mouseEnter(screen.getByText("Fork at this point").closest(".group")!);
+    const forkButton = await screen.findByRole("button", { name: "Fork from here" });
+    await user.click(forkButton);
+
+    expect(screen.getByText("Fork the conversation up to this message into a new project or model.")).toBeInTheDocument();
+    const modelButton = screen.getAllByRole("button", { name: /conversation model/i }).at(-1)!;
+    await user.click(modelButton);
+    await user.click(await screen.findByText("GPT-4.1"));
+
+    const projectSelect = screen.getAllByRole("combobox").at(-1)!;
+    await user.selectOptions(projectSelect, "project-2");
+    const forkButtons = screen.getAllByRole("button", { name: "Fork from here" });
+    await user.click(forkButtons[forkButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockApi.forkConversation).toHaveBeenCalledWith("conv-1", {
+        model: "gpt-4.1",
+        agentId: null,
+        projectId: "project-2",
+        cutoffTimestamp: 1000,
+      });
+    });
+  });
+
   it("shows a clickable request reference when the related user message is above the viewport", async () => {
     const originalScrollIntoView = Element.prototype.scrollIntoView;
     const scrollIntoView = vi.fn();
@@ -1489,6 +1538,71 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     expect(screen.getByLabelText("Chat backend locked by agent settings to Codex CLI")).toHaveTextContent("Agent locked");
 
     expect(mockApi.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it("locks a Hermes agent to Hermes models and uses its configured model", async () => {
+    const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: true,
+        mode: 'byok',
+        user: null,
+        cliInstalled: true,
+        clis: { claude: true, codex: true },
+      },
+      globalDefaultModel: "claude-haiku-4-5-20251001",
+      currentConversationId: "conv-1",
+      conversations: [{
+        id: "conv-1",
+        title: "Hermes chat",
+        project_id: null,
+        agent_id: "agent-1",
+        model: null,
+        pinned: false,
+        created_at: 0,
+        updated_at: 0,
+      }],
+      agents: [{
+        id: "agent-1",
+        name: "Hermes Agent",
+        icon: "⚙️",
+        systemPrompt: "",
+        backend: "hermes-cli",
+        hermesProfile: "localllm-iso",
+        cliModel: "anthropic/claude-sonnet-4-6",
+      }],
+      availableModelGroups: [
+        {
+          sourceKey: "anthropic",
+          sourceLabel: "Anthropic",
+          sourceType: "provider",
+          models: [{ id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" }],
+        },
+        {
+          sourceKey: "hermes-cli",
+          sourceLabel: "Hermes Agent",
+          sourceType: "cli",
+          models: [{ id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Anthropic)" }],
+        },
+      ],
+    });
+    mockApi.listAvailableModels.mockResolvedValueOnce([{
+      sourceKey: "hermes-cli",
+      sourceLabel: "Hermes Agent",
+      sourceType: "cli",
+      models: [{ id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Anthropic)" }],
+    }]);
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    const modelButton = await screen.findByRole("button", { name: /conversation model/i });
+    expect(modelButton).toHaveTextContent("Claude Sonnet 4.6");
+    expect(modelButton).toHaveTextContent("Hermes Agent");
+
+    await user.click(modelButton);
+    expect((await screen.findAllByText("Claude Sonnet 4.6 (Anthropic)")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Claude Haiku 4.5")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Chat backend locked by agent settings to Hermes Agent")).toHaveTextContent("Agent locked");
   });
 
   it("shows the forced CLI badge even if the conversation has a provider model", () => {

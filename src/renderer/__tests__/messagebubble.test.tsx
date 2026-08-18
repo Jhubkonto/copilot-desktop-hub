@@ -192,6 +192,21 @@ describe('MessageBubble', () => {
     expect(onDeleteAssistant).toHaveBeenCalledOnce()
   })
 
+  it('offers fork from here for user and assistant messages', () => {
+    const onForkUser = vi.fn()
+    render(<MessageBubble {...baseProps} onForkFromHere={onForkUser} />)
+
+    fireEvent.mouseEnter(screen.getByText('Hello there').closest('.group')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }))
+    expect(onForkUser).toHaveBeenCalledOnce()
+
+    const onForkAssistant = vi.fn()
+    render(<MessageBubble {...baseProps} role="assistant" onForkFromHere={onForkAssistant} />)
+    openAssistantActions()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Fork from here' }))
+    expect(onForkAssistant).toHaveBeenCalledOnce()
+  })
+
   it('shows saved state for assistant messages linked to wiki entries', () => {
     render(
       <MessageBubble

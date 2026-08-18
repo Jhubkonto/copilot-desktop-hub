@@ -36,12 +36,11 @@ describe('Sidebar loading states', () => {
     expect(agentsBtn.className).toContain('bg-gray-100')
   })
 
-  it('shows BYOK footer when no provider is configured', () => {
+  it('hides the status strip when no CLI or API provider is configured', () => {
     mockStore = createMockAppStore({ authState: { authenticated: false, mode: 'none', user: null } })
     setupStoreMock(useAppStore, mockStore)
 
     render(<Sidebar />)
-    expect(screen.getByText('No provider configured')).toBeInTheDocument()
-    expect(screen.getByText('Add an API key in Settings')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Available CLI tools and configured API providers')).not.toBeInTheDocument()
   })
 })

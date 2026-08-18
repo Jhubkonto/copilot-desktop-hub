@@ -25,6 +25,7 @@ beforeEach(() => {
   mockApi = setupMockApi()
   mockApi.getSettings = vi.fn().mockResolvedValue({
     autoStart: 'false',
+    runInBackground: 'false',
     default_model: 'gpt-5-mini',
     temperature: '0.7',
     max_tokens: '4096',
@@ -66,6 +67,14 @@ describe('SettingsPanel', () => {
     expect(mockApi.setSetting).toHaveBeenCalledWith('default_model', 'gpt-5-mini')
     expect(mockApi.setSetting).toHaveBeenCalledWith('temperature', '0.7')
     expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
+  })
+
+  it('persists the tray background execution preference', async () => {
+    render(<SettingsPanel />)
+
+    await user.click(screen.getByRole('switch', { name: 'Run in background' }))
+
+    expect(mockApi.setSetting).toHaveBeenCalledWith('runInBackground', 'true')
   })
 
 })

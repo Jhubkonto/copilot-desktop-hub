@@ -55,6 +55,22 @@ const ARTIFACT: ArtifactRow = {
   },
 }
 
+const PLAN_ARTIFACT: ArtifactRow = {
+  ...ARTIFACT,
+  title: 'Implementation Plan',
+  kind: 'plan',
+  currentVersion: {
+    ...ARTIFACT.currentVersion!,
+    title: 'Implementation Plan',
+    files: [{
+      ...ARTIFACT.currentVersion!.files![0],
+      relativePath: 'plan.md',
+      mediaType: 'text/markdown',
+      role: 'primary',
+    }],
+  },
+}
+
 let mockStore: ReturnType<typeof createMockAppStore>
 let mockApi: ReturnType<typeof setupMockApi>
 
@@ -77,6 +93,18 @@ describe('ArtifactPanel', () => {
     await waitFor(() => {
       expect(screen.getByText('Test Artifact')).toBeInTheDocument()
     })
+  })
+
+  it('opens plan artifacts on their rich Markdown view', async () => {
+    mockApi.artifactGet.mockResolvedValue(PLAN_ARTIFACT)
+    mockApi.artifactGetFileContent.mockResolvedValue({ content: '# Plan\n\n- First step' })
+
+    render(<ArtifactPanel artifactId="art-1" />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Markdown' })).toBeInTheDocument())
+    expect(await screen.findByRole('heading', { name: 'Plan' })).toBeInTheDocument()
+    expect(screen.getByText('First step')).toBeInTheDocument()
+    expect(mockApi.artifactGetFileContent).toHaveBeenCalledWith('v1', 'plan.md')
   })
 
   it('calls closeArtifactPanel when X button is clicked', async () => {

@@ -28,6 +28,7 @@ const BASE_CONFIG: ProjectConfig = {
   milestones: [],
   strategyRetrievalEnabled: false,
   terminalSandboxBypass: false,
+  defaultThinkingEffort: null,
 }
 
 const PROJECT = { id: 'proj-1', name: 'My Project', color: 'blue', created_at: 0, default_model: null }
@@ -60,7 +61,7 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(screen.getByRole('tab', { name: /general/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /scope/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /milestones/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Changes' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Code Changes' })).not.toBeInTheDocument()
   })
 
@@ -102,6 +103,8 @@ describe('ProjectSettingsPanel — tabs', () => {
     render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
     const toggle = screen.getByRole('switch', { name: /enable similar past strategies/i })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText(/compares it with conversations you rated in this project/i)).toBeInTheDocument()
+    expect(screen.getByText(/not the old conversation or its full answer/i)).toBeInTheDocument()
 
     await user.click(toggle)
 
@@ -130,85 +133,16 @@ describe('ProjectSettingsPanel — tabs', () => {
 
     expect(mockStore.setProjectDefaultModel).toHaveBeenCalledWith('proj-1', 'gpt-5-mini')
   })
-})
 
-describe('ProjectSettingsPanel — changes audit', () => {
-  it('loads project audit sessions when opening Changes tab', async () => {
-    const api = setupMockApi()
-    api.listProjectAuditSessions.mockResolvedValue([
-      {
-        id: 'session-1',
-        projectId: 'proj-1',
-        conversationId: null,
-        agentId: null,
-        title: 'Remote edit fix',
-        source: 'remote-edit',
-        createdAt: 1000,
-        updatedAt: 1000,
-        fileCount: 1,
-      },
-    ])
-    api.listProjectAuditFiles.mockResolvedValue([
-      {
-        id: 'file-1',
-        sessionId: 'session-1',
-        sourceId: 'source-1',
-        sourceLabel: 'Workspace',
-        repositoryId: 'repo-1',
-        repositoryLabel: 'desktop',
-        repositoryAvailable: true,
-        relativePath: 'src/example.ts',
-        displayPath: 'desktop/src/example.ts',
-        status: 'modified',
-        lastOperation: 'apply',
-        branch: 'main',
-        commitHash: null,
-        legacyRepositoryUnknown: false,
-        firstTouchedAt: 1000,
-        lastTouchedAt: 1000,
-        diffAvailable: false,
-      },
-    ])
-
+  it('persists the project default thinking effort', async () => {
     render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Changes' }))
 
-    expect(await screen.findAllByText(/remote edit fix/i)).toHaveLength(2)
-    expect(api.listProjectAuditSessions).toHaveBeenCalledWith('proj-1')
-    expect(await screen.findByText('src/example.ts')).toBeInTheDocument()
-  })
+    await user.selectOptions(screen.getByRole('combobox', { name: /default thinking effort/i }), 'high')
 
-  it('shows best-effort diff warning when the project root is not a git repo', async () => {
-    mockStore = createMockAppStore({
-      projects: [PROJECT],
-      projectConfigs: {
-        'proj-1': {
-          ...BASE_CONFIG,
-          workspaceInfo: {
-            rootDirectory: '/tmp/project',
-            exists: true,
-            isLikelyCodingWorkspace: true,
-            codingMarkers: ['package.json'],
-            isGitRepo: false,
-            repoRoot: null,
-            branch: null,
-            dirty: false,
-            scannedAt: 1000,
-          },
-        },
-      },
-      activeProjectId: 'proj-1',
-      agents: [],
-      agentsLoading: false,
-      conversations: [],
-      currentConversationId: null,
-      activeAgentId: null,
-    })
-    setupStoreMock(useAppStore, mockStore)
-
-    render(<ProjectSettingsPanel projectId="proj-1" initialTab="changes" onClose={vi.fn()} />)
-
-    expect(await screen.findByText(/best-effort file audit/i)).toBeInTheDocument()
+    await vi.waitFor(() => expect(mockStore.updateProjectConfig).toHaveBeenLastCalledWith(
+      'proj-1',
+      expect.objectContaining({ defaultThinkingEffort: 'high' }),
+    ))
   })
 })
 

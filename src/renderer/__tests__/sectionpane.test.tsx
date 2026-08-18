@@ -139,6 +139,31 @@ describe("SectionPane", () => {
     render(<SectionPane section="chats" />);
     expect(screen.getByText(/no conversations yet/i)).toBeInTheDocument();
   });
+
+  it('marks the open conversation in all-chats history', () => {
+    const conversation = {
+      id: "open-chat",
+      agent_id: null,
+      title: "Open chat",
+      project_id: null as string | null,
+      pinned: 0,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
+    mockStore = createMockAppStore({
+      activeSectionPane: "chats" as const,
+      conversations: [conversation],
+      currentConversationId: conversation.id,
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<SectionPane section="chats" />);
+
+    const activeChat = screen.getByText("Open chat").closest("[aria-current='page']");
+    expect(activeChat).toBeInTheDocument();
+    expect(activeChat).toHaveClass("border-nexy-accent", "bg-nexy-accent/10");
+    expect(activeChat).not.toHaveClass("border-transparent");
+  });
 });
 
 // ── Pin/unpin toggle in Chats pane ─────────────────────────────────
@@ -760,6 +785,22 @@ describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
     render(<SectionPane section="projects" />);
     expect(screen.getByText("Project chat")).toBeInTheDocument();
     expect(screen.queryByText("Orphan chat")).not.toBeInTheDocument();
+  });
+
+  it("q2-3a: ProjectHistoryPane marks the open conversation", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+      currentConversationId: projectConv.id,
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+
+    const activeChat = screen.getByText("Project chat").closest("[aria-current='page']");
+    expect(activeChat).toBeInTheDocument();
+    expect(activeChat).toHaveClass("border-nexy-accent", "bg-nexy-accent/10", "shadow-nexy");
+    expect(activeChat).not.toHaveClass("border-transparent");
   });
 
   it("q2-4: ProjectHistoryPane with '__none__' shows only orphan conversations", () => {
