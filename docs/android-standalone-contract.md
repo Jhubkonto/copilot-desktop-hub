@@ -1,7 +1,7 @@
 # Android standalone data and capability contract
 
-Contract version: 2. Reviewed against the Android screens, `WsRepository`, `WsEvent`, desktop
-WebSocket handlers, and database migrations on 2026-07-31.
+Contract version: 3. Reviewed against the Android screens, `WsRepository`, `WsEvent`, desktop
+WebSocket handlers, and database migrations on 2026-08-15.
 
 ## Identifier policy
 
@@ -28,6 +28,8 @@ WebSocket handlers, and database migrations on 2026-07-31.
 | Wiki | `id`, project ID, title/body/tags/source conversation, timestamps | sync status/version | none |
 | Prompt | `id`, title/body/description/category/tags/scope/project ID, timestamps | sync status/version | none |
 | Skill | portable versioned configuration, ID, timestamps | sync status/version | filesystem paths and secrets |
+| Credential metadata | `id`, name, kind, provider, fingerprint, timestamps, revocation state | device-local vault value and local bindings | encrypted payload/value |
+| Credential binding | `id`, credential ID, project/agent scope, capability, approval mode, expiry, timestamps | device-local approval state | credential payload/value |
 | Attachment | attachment/message IDs, display name, MIME type, size, SHA-256 | local path and transfer state | local path; bytes travel only in verified chunks |
 
 Unknown optional JSON fields are retained in canonical payload JSON. Malformed optional JSON is
@@ -35,6 +37,13 @@ treated as an empty/default value rather than crashing or silently replacing a p
 API keys, authorization values, passwords, pairing secrets, data URLs, base64 payload fields,
 workspace/root/local paths, transient streams, logs, build state, and device settings are removed
 recursively at both synchronization boundaries.
+
+Android provider keys are stored in the device-local Keystore-backed credential vault. Existing
+standalone provider keys are migrated into the vault on first access and removed from the legacy
+provider preference entries. Standalone sync may carry credential metadata and binding scopes so
+Android can display availability and permissions, but it never carries vault payloads, encrypted
+values, or plaintext secrets. A local Android credential remains required for provider execution;
+only an explicit, human-confirmed provider-key handoff can transfer a key from desktop to Android.
 
 ## Android capability matrix
 
@@ -47,16 +56,23 @@ recursively at both synchronization boundaries.
 | Agent create/edit/delete/config | Local + queued sync | Local + queued sync | Synchronized |
 | Project create/rename/delete/portable config | Local + queued sync | Local + queued sync | Synchronized |
 | Prompt, skill, and wiki browse/search/CRUD | Local + queued sync | Local + queued sync | Synchronized |
-| Provider keys and endpoint validation | Read encrypted config | Direct provider API | Android-local keys; optional desktop provider view |
+| Provider keys and endpoint validation | Read encrypted config | Direct provider API | Android-local vault keys; optional desktop provider view |
 | Attachment selection/storage | Local content-addressed | Direct provider upload | Resumable peer synchronization |
 | Sync summary, failed-operation inspection/retry/discard | Cached status | Cached status | Active synchronization |
 | Conflict review/resolution | Review only | Review only | Resolve Android/desktop value |
 | Backup, restore, integrity check, diagnostics export | Local | Local | Local |
 | Artifacts and workspace-writing generators | Desktop required | Desktop required | Desktop execution |
+| Managed workflow authoring, review, version history, and publication | Read-only cached state; actions disabled | Desktop required | Full control through desktop execution/storage |
 | Builds, shell, Git, code changes, CLI backends | Desktop required | Desktop required | Desktop execution |
 | Local stdio MCP, desktop automation, scheduled execution | Desktop required | Desktop required | Desktop execution |
 | Tool approval or stopping an active desktop process | Disabled, never queued | Disabled, never queued | Live desktop only |
 | HTTP remote MCP | Not enabled | Not enabled | Not enabled; requires separate threat model |
+
+Managed automated workflows do not become Android-local merely because their editor is available
+on Android. Source discovery, immutable snapshots, artifact versions, model execution, scheduling,
+diff generation, destination checks, and file writes all remain desktop-authoritative. The Android
+UI must show the paired-desktop requirement and disable review, regeneration, preview, and publish
+controls while disconnected; those operations are never placed in the standalone outbox.
 
 ## State dimensions
 

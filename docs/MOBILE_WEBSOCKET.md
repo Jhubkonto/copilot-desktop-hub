@@ -37,3 +37,30 @@ for that specific paired endpoint.
 - The local certificate and private key are generated once and retained in the desktop settings
   database; regenerating the pairing token does not rotate the certificate.
 - Regenerating the pairing token invalidates existing mobile connections for both local and secure URLs.
+
+## Managed automated workflows
+
+Paired Android can author and operate managed deliverable workflows through the desktop-owned
+executor. Commands use the existing authenticated WebSocket envelope:
+
+| Command | Purpose |
+| --- | --- |
+| `automated-workflow-managed:list-sources` | List selectable project files grouped by stable project source ID |
+| `automated-workflow-managed:get-version` | Fetch one artifact version and its version history |
+| `automated-workflow-managed:get-bindings` | Fetch exact input/output provenance for a run or step |
+| `automated-workflow-managed:edit-version` | Compare-and-set edit that creates a new immutable version |
+| `automated-workflow-managed:review` | Approve or reject one exact artifact version |
+| `automated-workflow-managed:regenerate` | Reset a stale producer and its affected dependents |
+| `automated-workflow-managed:create-preview` | Create a destination-checksummed unified diff |
+| `automated-workflow-managed:confirm-publish` | Idempotently publish the previewed version |
+
+Direct replies are `automated-workflow-managed:sources`, `:version`, `:bindings`,
+`:publish-preview`, and `:publish-action`. Mutations also broadcast authoritative
+`automated-workflow-runs:detail` and `automated-workflow-runs:changed` events so both clients
+replace optimistic state after edits, reviews, regeneration, or publication. Reconnect handling
+must request current sources and run details again; a disconnected client cannot queue review or
+publish approval.
+
+Managed workflow payloads contain source IDs and project-relative paths, never desktop root paths.
+Artifact contents and diffs are returned only in direct authenticated responses and are not
+included in routine notification bodies.

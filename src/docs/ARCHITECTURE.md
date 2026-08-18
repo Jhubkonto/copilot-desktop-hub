@@ -54,6 +54,28 @@ A minimal CJS bridge. Uses `contextBridge.exposeInMainWorld` to attach `window.a
 
 A standard Vite + React 19 SPA loaded by the `BrowserWindow`. It has no direct Node or Electron access — all side effects go through `window.api`.
 
+### CLI skill-management bridge
+
+Provider chats and CLI chats share the skill-capture implementation in
+`src/main/skill-service.ts`. The service owns SKILL.md parsing, validation, provenance tags,
+and case-insensitive upsert behavior. UI approval remains outside the service so every caller
+must explicitly complete the same approval handoff before persistence.
+
+When the current user message clearly asks to save, import, keep, or create a reusable skill,
+the CLI dispatch path starts a short-lived loopback MCP bridge from
+`src/main/skill-save-mcp-bridge.ts`. The bridge:
+
+- binds only to `127.0.0.1` on an ephemeral port;
+- authenticates every request with a per-run random secret;
+- exposes only `save_skill` through a stdio worker;
+- forwards the request to Nexy's approval UI before calling the shared service;
+- ignores CLI full-auto mode for this library write; and
+- closes in the CLI dispatch `finally` block.
+
+The worker has no database or filesystem persistence access. Existing configured MCP servers
+remain governed by their normal trust policy; the Nexy skill bridge is injected only for the
+explicit skill-capture turn and is never stored as a user-configured MCP server.
+
 ---
 
 ## Source Layout
@@ -340,6 +362,35 @@ The following built-in tools are available to agents (subject to per-agent confi
 | `web_fetch` | `tools.ts` | Fetch a URL and return its content |
 
 Each tool has an approval mode: `auto` (no prompt), `always-ask` (modal per call), or `disabled`. The `ToolApproval.tsx` component handles the approval dialog.
+
+---
+
+## Managed-Artifact Automated Workflows
+
+Automated workflows support a managed deliverable path in addition to legacy text-only model
+steps. The four managed step kinds are `collect`, `model`, `review`, and `publish`:
+
+```text
+declared project files -> immutable source version -> model artifact version
+                       -> human review/version -> checked publish preview -> atomic file write
+```
+
+`automated-workflow-executor.ts` owns step transitions, while
+`automated-workflow-managed.ts` owns source confinement, version bindings, review records,
+staleness, diffs, and publication. Managed content is stored through the existing tables and
+services in `artifacts.ts`; workflow tables store lineage and decisions rather than a second copy
+of the document model.
+
+Every input binding names an exact `artifact_versions.id`. Editing creates a new immutable version
+and transitively marks dependent bindings stale. Content approval is separate from publish-action
+approval. Publication requires an unexpired preview of the approved version and unchanged
+destination checksum, confines relative paths to an authoritative project source, rejects link
+escapes, and uses a temporary file plus atomic replacement. Legacy untyped workflow steps retain
+their existing prompt-weaving behavior.
+
+Desktop IPC and the authenticated mobile WebSocket expose the same managed operations. Desktop
+remains authoritative for SQLite, artifacts, project files, model execution, and scheduling;
+paired Android is an authoring/review/control client, not a second executor.
 
 ---
 
