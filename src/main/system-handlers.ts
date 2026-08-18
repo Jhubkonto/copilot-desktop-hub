@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync, writeFileSync } from "fs";
 import path from "path";
 import { safeHandle } from "./safe-handle";
+import { setAutoStartEnabled } from "./app-lifecycle-settings";
 
 export function registerSystemHandlers(): void {
   safeHandle("app:get-version", () => {
@@ -40,10 +41,7 @@ export function registerSystemHandlers(): void {
   );
 
   safeHandle("app:set-auto-start", (_event, enabled: boolean) => {
-    app.setLoginItemSettings({
-      openAtLogin: enabled,
-      openAsHidden: true,
-    });
+    setAutoStartEnabled(enabled);
     return true;
   });
 }

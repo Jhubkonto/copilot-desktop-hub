@@ -23,4 +23,9 @@ describe('project config parsing', () => {
   it('falls back to defaults for invalid JSON config', () => {
     expect(parseProjectConfig('{')).toEqual(expect.objectContaining({ instructions: expect.any(String) }))
   })
+
+  it('normalizes the project default thinking effort', () => {
+    expect(parseProjectConfig('{"defaultThinkingEffort":"high"}').defaultThinkingEffort).toBe('high')
+    expect(parseProjectConfig('{"defaultThinkingEffort":"invalid"}').defaultThinkingEffort).toBeNull()
+  })
 })

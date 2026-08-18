@@ -15,12 +15,15 @@ import { initDebugMode, debugLog } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
 import { autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
-import { schedulerEngine } from './scheduler-engine'
+import { getSchedulerTraySummary, schedulerEngine, setSchedulerStatusChangeCallback } from './scheduler-engine'
 import { initializeActivityBadge, getUnseenActivityCount, setUnseenCountChangeCallback } from './activity-badge'
 import { cancelAllPendingUserInputs } from './user-input'
+import { applyStoredAutoStartSetting, isRunInBackgroundEnabled } from './app-lifecycle-settings'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let isQuitting = false
+let mobileClientCount = 0
 
 const isDev = !app.isPackaged
 const PROTOCOL = 'nexy'
@@ -42,7 +45,7 @@ if (!gotTheLock) {
   app.quit()
 }
 
-function createWindow(): void {
+function createWindow(showOnReady = true): void {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -84,7 +87,7 @@ function createWindow(): void {
         mainWindow?.webContents.setZoomFactor(factor)
       }
     }
-    mainWindow?.show()
+    if (showOnReady) mainWindow?.show()
     if (mainWindow) {
       void loadModelCatalog(mainWindow).catch(() => {})
     }
@@ -96,6 +99,16 @@ function createWindow(): void {
         })
         .catch(() => {})
     }
+  })
+
+  mainWindow.on('close', (event) => {
+    if (isQuitting || !isRunInBackgroundEnabled()) return
+    event.preventDefault()
+    mainWindow?.hide()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -117,9 +130,21 @@ function createWindow(): void {
   })
 }
 
-// The tray icon itself is drawn as an SVG data URL rather than loaded from resources/icon.*
-// because that directory is only used by electron-builder to embed the exe icon at build time
-// — it isn't bundled into the packaged app and so isn't readable at runtime.
+function showMainWindow(afterLoad?: () => void): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow(true)
+    if (afterLoad) mainWindow?.webContents.once('did-finish-load', afterLoad)
+    return
+  }
+  mainWindow.show()
+  mainWindow.focus()
+  afterLoad?.()
+}
+
+// The tray icon is kept inline because resources/icon.* is used by electron-builder for the
+// executable and is not bundled as a runtime file. Keep this geometry in lockstep with the
+// desktop badge: a text glyph here can disappear or render differently in Windows' overflow
+// tray, while the geometric mark remains identifiable at the 16px tray size.
 function buildTrayIcon(unseenCount: number) {
   // Rendered at 2x (32x32) so the badge stays crisp at Windows' HiDPI tray scales; the
   // badge circle is inset from the corner (not flush against it) so its stroke doesn't get
@@ -130,8 +155,12 @@ function buildTrayIcon(unseenCount: number) {
       : ''
   const svg = [
     '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">',
-    '<rect width="32" height="32" rx="6" fill="#5146C8"/>',
-    '<text x="16" y="24" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="700" fill="white">N</text>',
+    '<rect x="1" y="1" width="30" height="30" rx="7" fill="#090D18"/>',
+    '<rect x="3" y="3" width="26" height="26" rx="6" fill="#53627D"/>',
+    '<rect x="4" y="4" width="24" height="24" rx="5" fill="#121A2B"/>',
+    '<rect x="7" y="6" width="4" height="20" rx="1" fill="#8D7CFF"/>',
+    '<rect x="21" y="6" width="4" height="20" rx="1" fill="#8D7CFF"/>',
+    '<polygon points="10,6 14,6 22,26 18,26" fill="#8D7CFF"/>',
     badge,
     '</svg>',
   ].join('')
@@ -142,37 +171,65 @@ function updateTrayIcon(unseenCount: number): void {
   tray?.setImage(buildTrayIcon(unseenCount))
 }
 
-function createTray(): void {
-  tray = new Tray(buildTrayIcon(getUnseenActivityCount()))
-  setUnseenCountChangeCallback(updateTrayIcon)
+function formatTrayRunTime(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp))
+}
 
-  const contextMenu = Menu.buildFromTemplate([
+function refreshTrayPresentation(): void {
+  if (!tray) return
+  const summary = getSchedulerTraySummary()
+  const scheduleLabel = `${summary.armedCount} ${summary.armedCount === 1 ? 'schedule' : 'schedules'} armed`
+  const mobileLabel = mobileClientCount > 0
+    ? `${mobileClientCount} Android connected`
+    : 'no Android connected'
+
+  tray.setToolTip(`Nexy — ${scheduleLabel}; ${mobileLabel}`)
+  tray.setContextMenu(Menu.buildFromTemplate([
     {
       label: 'Open Nexy',
-      click: () => mainWindow?.show()
+      click: () => showMainWindow(),
     },
     {
       label: 'New Chat',
-      click: () => {
-        mainWindow?.show()
-        mainWindow?.webContents.send('chat:new')
-      }
+      click: () => showMainWindow(() => mainWindow?.webContents.send('chat:new')),
+    },
+    { type: 'separator' },
+    {
+      label: `Schedules: ${summary.armedCount} armed`,
+      enabled: false,
+    },
+    {
+      label: summary.nextRunAt === null
+        ? 'Next run: none'
+        : `Next run: ${formatTrayRunTime(summary.nextRunAt)}`,
+      enabled: false,
     },
     { type: 'separator' },
     {
       label: 'Quit',
-      click: () => app.quit()
-    }
-  ])
+      click: () => {
+        isQuitting = true
+        app.quit()
+      },
+    },
+  ]))
+}
 
-  tray.setToolTip('Nexy')
-  tray.setContextMenu(contextMenu)
+function createTray(): void {
+  tray = new Tray(buildTrayIcon(getUnseenActivityCount()))
+  setUnseenCountChangeCallback(updateTrayIcon)
+  setSchedulerStatusChangeCallback(refreshTrayPresentation)
+  refreshTrayPresentation()
 
   tray.on('click', () => {
     if (mainWindow?.isVisible()) {
       mainWindow.hide()
     } else {
-      mainWindow?.show()
+      showMainWindow()
     }
   })
 }
@@ -184,8 +241,7 @@ function registerGlobalHotkey(): void {
     if (mainWindow?.isVisible()) {
       mainWindow.hide()
     } else {
-      mainWindow?.show()
-      mainWindow?.focus()
+      showMainWindow()
     }
   })
 }
@@ -205,8 +261,7 @@ function handleDeepLink(url: string): void {
       if (!UUID_RE.test(agentId)) return
       mainWindow?.webContents.send('deeplink:open-agent', agentId)
     }
-    mainWindow?.show()
-    mainWindow?.focus()
+    showMainWindow()
   } catch {
     debugLog('app', `invalid deep link URL: ${url}`)
     console.warn('[app] invalid deep link URL:', url)
@@ -217,8 +272,7 @@ function handleDeepLink(url: string): void {
 app.on('second-instance', (_event, commandLine) => {
   const url = commandLine.find((arg) => arg.startsWith(`${PROTOCOL}://`))
   if (url) handleDeepLink(url)
-  mainWindow?.show()
-  mainWindow?.focus()
+  showMainWindow()
 })
 
 // Handle deep links on macOS
@@ -240,13 +294,17 @@ app.whenReady().then(() => {
   // Initialize database
   getDatabase()
 
+  // Keep login-item state synchronized and honor background auto-start without flashing a window.
+  applyStoredAutoStartSetting()
+
   // Start scheduler after DB is ready
   schedulerEngine.start()
 
   registerAuthHandlers()
   registerUpdaterHandlers()
 
-  createWindow()
+  const startHidden = process.argv.includes('--hidden') || app.getLoginItemSettings().wasOpenedAsHidden === true
+  createWindow(!startHidden)
   initializeActivityBadge()
   registerIpcHandlers(mainWindow ?? undefined)
   setIpChangeCallback((newUrl) => {
@@ -254,13 +312,8 @@ app.whenReady().then(() => {
   })
 
   setClientCountChangeCallback((count) => {
-    if (tray) {
-      tray.setToolTip(
-        count > 0
-          ? `Nexy — ${count} Android ${count === 1 ? 'device' : 'devices'} connected (wakelock active)`
-          : 'Nexy — No mobile clients'
-      )
-    }
+    mobileClientCount = count
+    refreshTrayPresentation()
     mainWindow?.webContents.send('ws:client-count', count)
   })
 
@@ -341,13 +394,6 @@ app.whenReady().then(() => {
     checkForUpdatesOnStartup()
   }
 
-  // Apply auto-start setting
-  const db = getDatabase()
-  const autoStartRow = db.prepare("SELECT value FROM settings WHERE key = 'autoStart'").get() as { value: string } | undefined
-  if (autoStartRow?.value === 'true') {
-    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
-  }
-
   // Initialize MCP servers
   initMcpServers().catch((err) => {
     debugLog('mcp', `init failed at startup: ${err instanceof Error ? err.message : String(err)}`)
@@ -356,18 +402,25 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      createWindow(true)
+    } else {
+      showMainWindow()
     }
   })
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && !isRunInBackgroundEnabled()) {
     app.quit()
   }
 })
 
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
 app.on('will-quit', () => {
+  setSchedulerStatusChangeCallback(null)
   cancelAllPendingUserInputs()
   globalShortcut.unregisterAll()
   shutdownMcpServers().catch(() => {})

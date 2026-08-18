@@ -10,7 +10,7 @@
  */
 
 import type { ProviderName } from './provider-core-types'
-import { getApiKey, getOpenRouterModels } from './providers'
+import { getProviderCredential, getOpenRouterModels } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { HermesAdapter } from './cli-adapters/hermes'
@@ -53,8 +53,13 @@ export function resolveEffectiveBackend(opts: {
   convCliBackend?: string | null
   selectedModel: string
   providerName: ProviderName
+  projectId?: string | null
+  agentId?: string | null
 }): EffectiveCliBackend {
-  const byokKeyForModel = getApiKey(opts.providerName)
+  const credentialForModel = getProviderCredential(opts.providerName, {
+    projectId: opts.projectId,
+    agentId: opts.agentId,
+  })
   // A model in the OpenRouter cache is BYOK unless the agent explicitly forces a CLI backend —
   // prevents a stale conversation cli_backend value from hijacking a provider chat.
   const selectedModelIsOpenRouter = getOpenRouterModels().includes(opts.selectedModel)
@@ -74,7 +79,7 @@ export function resolveEffectiveBackend(opts: {
   if (!selectedModelIsOpenRouter && opts.convCliBackend === 'hermes-cli' && HermesAdapter.isAvailable()) {
     return 'hermes-cli'
   }
-  if (retrieveAuthMode() === 'none' && !byokKeyForModel) {
+  if (retrieveAuthMode() === 'none' && !credentialForModel) {
     if (ClaudeAdapter.isAvailable()) return 'claude-cli'
     if (CodexAdapter.isAvailable()) return 'codex-cli'
     if (HermesAdapter.isAvailable()) return 'hermes-cli'

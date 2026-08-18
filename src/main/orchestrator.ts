@@ -6,7 +6,7 @@ import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   streamProviderMessage,
   sendProviderWithTools,
   type MessageContent,
@@ -44,7 +44,7 @@ export interface OrchestratorOptions {
   leaderAgentId: string
   teamAgents: OrchestratorAgent[]
   conversationId: string
-  window: BrowserWindow
+  window?: BrowserWindow
   selectedModel: string
   generationOptions: { temperature: number; maxTokens: number }
   maxDelegationDepth?: number
@@ -109,19 +109,19 @@ function buildTeamManifest(teamAgents: OrchestratorAgent[], projectName: string)
  */
 async function callLeaderStreaming(
   provider: ProviderName,
-  apiKey: string | null,
+  credential: import('./credential-vault').ProviderCredentialInput | null,
   model: string,
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   messages: ProviderMessage[],
   conversationId: string,
   generationOptions: { temperature: number; maxTokens: number }
 ): Promise<string> {
-  if (!apiKey) {
+  if (!credential) {
     throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
   }
 
-  const onChunk = (chunk: string) => window.webContents.send('chat:stream-response', chunk)
-  return streamProviderMessage(provider, apiKey, model, messages, conversationId, onChunk, generationOptions)
+  const onChunk = (chunk: string) => window?.webContents.send('chat:stream-response', chunk)
+  return streamProviderMessage(provider, credential, model, messages, conversationId, onChunk, generationOptions)
 }
 
 /**
@@ -132,21 +132,23 @@ async function callLeaderStreaming(
  */
 async function callSpecialist(
   agentId: string,
+  projectId: string,
   fallbackModel: string,
   taskContent: string,
   stepId: string,
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   conversationId: string,
   generationOptions: { temperature: number; maxTokens: number }
 ): Promise<string> {
   return runAgentTurn({
     agentId,
+    projectId,
     fallbackModel,
     taskContent,
     // Per-step request ID to avoid collision when multiple specialists run in parallel
     requestId: `${conversationId}:${stepId}`,
     generationOptions,
-    onChunk: (chunk) => window.webContents.send('chat:team-step-stream', { stepId, chunk }),
+    onChunk: (chunk) => window?.webContents.send('chat:team-step-stream', { stepId, chunk }),
   })
 }
 
@@ -173,7 +175,10 @@ export async function runOrchestration(
   // Resolve the leader's provider and model
   const leaderModel = selectedModel !== 'default' ? selectedModel : DEFAULT_PROVIDER_MODEL
   const { provider: leaderProvider, model: resolvedLeaderModel } = getProviderForAgent(leaderModel)
-  const leaderApiKey = getApiKey(leaderProvider)
+  const leaderCredential = getProviderCredential(leaderProvider, {
+    projectId: opts.projectId,
+    agentId: leaderAgentId,
+  })
 
   const leaderCfg = getAgentConfig(leaderAgentId)
   const leaderSystemPrompt =
@@ -206,7 +211,7 @@ export async function runOrchestration(
     const toolChoice = (depth === 0 && memberIds.size > 0 && supportsRequiredToolChoice) ? 'required' : 'auto'
     const result = await sendProviderWithTools(
       leaderProvider,
-      leaderApiKey,
+      leaderCredential,
       resolvedLeaderModel,
       loopMessages,
       memberIds.size > 0 ? [DELEGATE_TOOL] : [],
@@ -218,9 +223,9 @@ export async function runOrchestration(
     if (result.toolCalls.length === 0) {
       const finalContent = result.content ?? ''
       for (const char of finalContent) {
-        window.webContents.send('chat:stream-response', char)
+        window?.webContents.send('chat:stream-response', char)
       }
-      window.webContents.send('chat:stream-response', null)
+      window?.webContents.send('chat:stream-response', null)
       return { finalContent, teamActivity: teamActivitySteps }
     }
 
@@ -266,7 +271,7 @@ export async function runOrchestration(
         status: 'delegating'
       }
       teamActivitySteps.push(step)
-      window.webContents.send('chat:team-activity', { ...step })
+      window?.webContents.send('chat:team-activity', { ...step })
       broadcastToMobile({ event: 'chat:team-activity', data: { conversationId: opts.conversationId, ...step } })
       const activityId = `orchestration:${stepId}`
       startActivity({ id: activityId, kind: 'orchestration', label: `Delegating to ${targetAgent.agentName}…`, conversationId: opts.conversationId })
@@ -276,7 +281,7 @@ export async function runOrchestration(
       let specialistResult: string
       try {
         specialistResult = await callSpecialist(
-          targetAgentId, resolvedLeaderModel, taskContent, stepId, window, opts.conversationId, generationOptions
+          targetAgentId, opts.projectId, resolvedLeaderModel, taskContent, stepId, window, opts.conversationId, generationOptions
         )
         step.status = 'done'
         step.result = specialistResult
@@ -287,7 +292,7 @@ export async function runOrchestration(
       }
       endActivity(activityId)
       step.durationMs = Date.now() - delegateStart
-      window.webContents.send('chat:team-activity', { ...step })
+      window?.webContents.send('chat:team-activity', { ...step })
       broadcastToMobile({ event: 'chat:team-activity', data: { conversationId: opts.conversationId, ...step } })
       return { call, result: specialistResult }
     }))
@@ -317,7 +322,7 @@ export async function runOrchestration(
   // Depth cap reached — stream a final answer from the leader using its configured provider
   const finalResult = await callLeaderStreaming(
     leaderProvider,
-    leaderApiKey,
+    leaderCredential,
     resolvedLeaderModel,
     window,
     [
@@ -330,6 +335,6 @@ export async function runOrchestration(
     opts.conversationId,
     generationOptions
   )
-  window.webContents.send('chat:stream-response', null)
+  window?.webContents.send('chat:stream-response', null)
   return { finalContent: finalResult, teamActivity: teamActivitySteps }
 }

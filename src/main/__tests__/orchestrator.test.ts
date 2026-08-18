@@ -12,6 +12,7 @@ vi.mock('../providers', () => ({
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',
   getProviderForAgent: vi.fn((model?: string) => ({ provider: 'openai', model: model ?? 'gpt-5-mini' })),
   getApiKey: vi.fn(() => 'test-key'),
+  getProviderCredential: vi.fn(() => 'test-key'),
   getAzureEndpoint: vi.fn(() => null),
   sendProviderWithTools: mocks.sendProviderWithTools,
   streamProviderMessage: vi.fn(),

@@ -13,6 +13,7 @@ import { registerToolHandlers } from './tools'
 import { registerUserInputHandlers } from './user-input'
 import { registerMcpHandlers, initDesktopNavigatorMcp } from './mcp'
 import { registerProviderHandlers } from './providers'
+import { registerCredentialVaultHandlers } from './credential-vault'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
 import { registerModelCatalogHandlers } from './model-catalog-handlers'
 import { registerWikiHandlers } from './wiki-handlers'
@@ -35,13 +36,13 @@ import { registerScheduleGeneratorHandlers } from './scheduler-generator'
 import { registerAutomatedWorkflowGeneratorHandlers } from './automated-workflow-generator'
 import { registerAutomatedWorkflowRunHandlers } from './automated-workflow-runs'
 import { registerAutomatedWorkflowExecutorHandlers } from './automated-workflow-executor'
+import { registerManagedAutomatedWorkflowHandlers } from './automated-workflow-managed'
 import { registerVoiceHandlers } from './voice-handlers'
 import { registerSchedulerHandlers } from './scheduler-handlers'
 import { registerDebriefHandlers } from './debrief-handlers'
 import { registerQuizHandlers } from './quiz-handlers'
 import { registerTeachbackHandlers } from './teachback-handlers'
 import { registerRatingHandlers } from './rating-handlers'
-import { registerProjectAuditHandlers } from './project-audit'
 import { registerActivityHandlers } from './activity-tracker'
 import { markApplicationViewed } from './activity-badge'
 
@@ -49,7 +50,6 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
   registerProjectHandlers()
   registerProjectAgentHandlers()
-  registerProjectAuditHandlers()
   registerWikiHandlers()
   registerProjectWikiMcpHandlers()
   registerPromptHandlers()
@@ -69,6 +69,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     initDesktopNavigatorMcp(mainWindow)
   }
   registerProviderHandlers()
+  registerCredentialVaultHandlers()
   registerCliHandlers()
   registerWsHandlers()
   registerScreenCaptureHandlers()
@@ -87,6 +88,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerAutomatedWorkflowGeneratorHandlers(mainWindow)
   registerAutomatedWorkflowRunHandlers()
   registerAutomatedWorkflowExecutorHandlers()
+  registerManagedAutomatedWorkflowHandlers()
   registerArtifactHandlers()
   registerArtifactGeneratorHandlers(mainWindow)
   registerSchedulerHandlers()
