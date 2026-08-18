@@ -1782,6 +1782,150 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE mcp_servers ADD COLUMN config_encrypted INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    // Managed-artifact workflows. Runtime artifact/version identities live in normalized tables;
+    // template/run step configuration remains JSON-compatible and legacy steps keep NULL kind.
+    version: 92,
+    sql: `
+      ALTER TABLE automated_workflow_run_steps ADD COLUMN kind TEXT;
+      ALTER TABLE automated_workflow_run_steps ADD COLUMN input_bindings_json TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE automated_workflow_run_steps ADD COLUMN deliverables_json TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE automated_workflow_run_steps ADD COLUMN review_source_json TEXT;
+      ALTER TABLE automated_workflow_run_steps ADD COLUMN publish_destination_json TEXT;
+      ALTER TABLE automated_workflow_run_steps ADD COLUMN include_project_instructions INTEGER NOT NULL DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_step_artifacts (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        step_attempt INTEGER NOT NULL DEFAULT 0,
+        binding_name TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('input', 'output')),
+        artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE RESTRICT,
+        artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE RESTRICT,
+        source_step_id TEXT,
+        stale_at INTEGER,
+        created_at INTEGER NOT NULL,
+        UNIQUE(step_id, step_attempt, binding_name, direction)
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_step_artifacts_run_step
+        ON automated_workflow_step_artifacts(run_id, step_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_workflow_step_artifacts_version
+        ON automated_workflow_step_artifacts(artifact_version_id);
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_reviews (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE RESTRICT,
+        decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+        reviewed_by_client TEXT NOT NULL CHECK (reviewed_by_client IN ('desktop', 'android')),
+        reviewed_at INTEGER NOT NULL,
+        superseded_at INTEGER,
+        UNIQUE(step_id, artifact_version_id, decision)
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_reviews_step
+        ON automated_workflow_reviews(run_id, step_id, reviewed_at DESC);
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_publish_previews (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE RESTRICT,
+        project_source_id TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        destination_checksum TEXT,
+        before_content_ref TEXT,
+        diff_text TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        invalidated_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_publish_previews_step
+        ON automated_workflow_publish_previews(run_id, step_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_publish_actions (
+        id TEXT PRIMARY KEY,
+        preview_id TEXT NOT NULL REFERENCES automated_workflow_publish_previews(id) ON DELETE RESTRICT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'publishing', 'published', 'failed', 'conflicted')),
+        approved_by_client TEXT NOT NULL CHECK (approved_by_client IN ('desktop', 'android')),
+        approved_at INTEGER NOT NULL,
+        started_at INTEGER,
+        completed_at INTEGER,
+        before_recovery_ref TEXT,
+        result_checksum TEXT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_publish_actions_preview
+        ON automated_workflow_publish_actions(preview_id, approved_at DESC);
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_attention (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('review', 'stale', 'publish', 'publish-conflict', 'coalesced')),
+        resolved_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_attention_open
+        ON automated_workflow_attention(run_id, resolved_at, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_schedule_state (
+        template_id TEXT PRIMARY KEY,
+        active_run_id TEXT,
+        replacement_due_at INTEGER,
+        coalesced_count INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    // Desktop-local credential vault. Secret payloads are stored separately from metadata and
+    // encrypted by the main-process vault service when Electron safeStorage is available.
+    version: 93,
+    sql: `
+      CREATE TABLE IF NOT EXISTS credentials (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        provider TEXT,
+        encrypted_payload TEXT NOT NULL,
+        payload_encrypted INTEGER NOT NULL DEFAULT 0,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        revoked_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_credentials_provider
+        ON credentials(provider, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_credentials_name
+        ON credentials(name COLLATE NOCASE);
+    `,
+  },
+  {
+    // Secret-free permission metadata for credential records. The encrypted payload remains in
+    // credentials and is never copied into this table or the standalone sync snapshot.
+    version: 94,
+    sql: `
+      CREATE TABLE IF NOT EXISTS credential_bindings (
+        id TEXT PRIMARY KEY,
+        credential_id TEXT NOT NULL REFERENCES credentials(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+        capability TEXT NOT NULL,
+        approval_mode TEXT NOT NULL CHECK (approval_mode IN ('auto', 'always-ask')) DEFAULT 'auto',
+        expires_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_credential_bindings_lookup
+        ON credential_bindings(credential_id, capability, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_credential_bindings_project_agent
+        ON credential_bindings(project_id, agent_id, capability);
+    `,
+  },
 ];
 
 

@@ -1,6 +1,7 @@
 import { getDatabase } from "./database";
 import { setDebugEnabled } from "./debug-mode";
 import { safeHandle } from "./safe-handle";
+import { applyLifecycleSetting } from "./app-lifecycle-settings";
 
 export function registerSettingsHandlers(): void {
   const db = getDatabase();
@@ -36,6 +37,7 @@ export function registerSettingsHandlers(): void {
     db.prepare(
       "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
     ).run(key, value);
+    applyLifecycleSetting(key, value);
     if (key === "debug_logging") {
       setDebugEnabled(value === "true");
     }
