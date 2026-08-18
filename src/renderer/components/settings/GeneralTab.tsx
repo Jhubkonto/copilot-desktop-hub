@@ -30,6 +30,7 @@ interface Props {
   effectiveModel: string
   effectiveProvider: string
   autoStart: boolean
+  runInBackground: boolean
   autoClipboard: boolean
   defaultModel: string
   defaultModelSearch: string
@@ -47,6 +48,7 @@ interface Props {
   supertonicInstalling: boolean
   catalogModels: import('@shared/types').CatalogModel[] | undefined
   onToggleAutoStart: () => void
+  onToggleRunInBackground: () => void
   onToggleAutoClipboard: () => void
   onSetDefaultModel: (id: string) => void
   onSetDefaultModelSearch: (q: string) => void
@@ -70,14 +72,14 @@ interface Props {
 export function GeneralTab({
   theme, toggleTheme, uiStyle, onSetUiStyle,
   effectiveModel, effectiveProvider,
-  autoStart, autoClipboard,
+  autoStart, runInBackground, autoClipboard,
   defaultModel, defaultModelSearch, showDefaultModelMenu, defaultModelMenuRect,
   availableModelGroups, modelIds,
   temperature, maxTokens,
   whisperCppPath, whisperModelPath, whisperInstalling, whisperReady,
   supertonicStatus, supertonicInstalling,
   catalogModels,
-  onToggleAutoStart, onToggleAutoClipboard,
+  onToggleAutoStart, onToggleRunInBackground, onToggleAutoClipboard,
   onSetDefaultModel, onSetDefaultModelSearch, onSetShowDefaultModelMenu, onSetDefaultModelMenuRect,
   onSetTemperature, onSetMaxTokens, onSaveAdvanced,
   onSetWhisperCppPath, onSetWhisperModelPath, onSaveWhisper, onInstallWhisper,
@@ -200,6 +202,20 @@ export function GeneralTab({
         </div>
         <ToggleSwitch checked={autoStart} onChange={() => onToggleAutoStart()} ariaLabel="Start on login" />
       </div>
+
+      {/* Tray-resident execution */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Run in background</p>
+          <p className="text-xs text-gray-500">Closing the window keeps Nexy in the tray so scheduled tasks can run</p>
+        </div>
+        <ToggleSwitch checked={runInBackground} onChange={() => onToggleRunInBackground()} ariaLabel="Run in background" />
+      </div>
+      {runInBackground && !autoStart && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400 -mt-2">
+          Enable Start on login too if schedules should be armed automatically after you sign in.
+        </p>
+      )}
 
       {/* Auto clipboard on focus */}
       <div className="flex items-center justify-between">

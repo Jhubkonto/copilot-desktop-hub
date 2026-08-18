@@ -46,6 +46,7 @@ interface ChatMessagesProps {
   onRegenerate: (modelOverride?: string) => void | Promise<void>
   onEdit: (index: number) => void
   onDeleteAfter?: (message: ChatMessage) => void
+  onForkFromHere?: (message: ChatMessage) => void
   onRetry: () => void | Promise<void>
   onSignIn: () => void
   onPickModel: () => void
@@ -96,6 +97,9 @@ export function getThinkingBlockLabel(blockId: string): string {
 // without any extra backend plumbing.
 function isCodexThinkingBlock(blockId: string): boolean {
   return blockId.startsWith('codex-reasoning-summary')
+}
+function isPlainNarrationThinkingBlock(blockId: string): boolean {
+  return isCodexThinkingBlock(blockId) || blockId.startsWith('claude-reasoning-')
 }
 function isCodexToolCall(serverName: string | undefined): boolean {
   return serverName === 'codex-cli'
@@ -212,6 +216,7 @@ export function ChatMessagesBase({
   onRegenerate,
   onEdit,
   onDeleteAfter,
+  onForkFromHere,
   onRetry,
   onSignIn,
   onPickModel,
@@ -595,7 +600,7 @@ export function ChatMessagesBase({
                       const block = item.block
                       return (
                         <TimelineEntry key={block.blockId} colorClass={thinkingDotColor(block.done)} pulse={!block.done}>
-                          {isCodexThinkingBlock(block.blockId) ? (
+                          {isPlainNarrationThinkingBlock(block.blockId) ? (
                             <CodexActionLine kind="reasoning" content={block.content} />
                           ) : (
                             <ThinkingBlock
@@ -687,6 +692,7 @@ export function ChatMessagesBase({
                 onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
                 onEdit={main.role === 'user' ? onEdit : undefined}
                 onDeleteAfter={main.id && main.timestamp > 0 && onDeleteAfter ? () => onDeleteAfter(main) : undefined}
+                onForkFromHere={main.id && main.timestamp > 0 && onForkFromHere ? () => onForkFromHere(main) : undefined}
                 onRetry={main.isError && main.retryable ? onRetry : undefined}
                 onSignIn={
                   main.isError && main.errorType === 'auth' ? onSignIn : undefined
@@ -748,7 +754,7 @@ export function ChatMessagesBase({
                 const done = item.block.done && !isGenerating
                 return (
                   <TimelineEntry key={item.id} colorClass={thinkingDotColor(done)} pulse={!done}>
-                    {isCodexThinkingBlock(item.block.blockId) ? (
+                    {isPlainNarrationThinkingBlock(item.block.blockId) ? (
                       <CodexActionLine kind="reasoning" content={item.block.content} />
                     ) : (
                       <ThinkingBlock

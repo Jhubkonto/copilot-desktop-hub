@@ -353,8 +353,12 @@ body {
   animation: pulse 2.4s steps(4, end) infinite !important;
 }
 
+[data-ui-style='8bit'] .nexy-retro-loading-spin {
+  animation: spin 1s linear infinite !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  [data-ui-style='8bit'] :is(.animate-pulse, .nexy-retro-loading-pulse) {
+  [data-ui-style='8bit'] :is(.animate-pulse, .nexy-retro-loading-pulse, .nexy-retro-loading-spin) {
     animation: none !important;
   }
 }

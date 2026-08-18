@@ -109,6 +109,7 @@ export function NexyIcon({ name, size = 16, title, motion, className, ...props }
     )
   }
   const retroLoadingMotion = name === 'busy' && motion !== 'none'
+  const retroLoadingSpin = retroLoadingMotion && motion === 'spin'
   return (
     <svg
       viewBox="0 0 16 16"
@@ -116,7 +117,7 @@ export function NexyIcon({ name, size = 16, title, motion, className, ...props }
       height={size}
       fill="currentColor"
       shapeRendering="crispEdges"
-      className={`nexy-pixel-art shrink-0 ${retroLoadingMotion ? 'nexy-retro-loading-pulse' : ''} ${className ?? ''}`}
+      className={`nexy-pixel-art shrink-0 ${retroLoadingSpin ? 'nexy-retro-loading-spin' : retroLoadingMotion ? 'nexy-retro-loading-pulse' : ''} ${className ?? ''}`}
       aria-hidden={title ? undefined : true}
       role={title ? 'img' : undefined}
       {...props}

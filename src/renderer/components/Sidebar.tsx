@@ -5,8 +5,32 @@ import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
 import { PROJECT_COLOR_MAP, projectColorHex } from './section-pane/shared'
 import { NexyIcon } from './ui/icons'
+import { ViewportTooltip } from './ui/ViewportTooltip'
 import { useEmergencyStop } from '../hooks/useEmergencyStop'
-import { isApiError } from '../../shared/types'
+import { isApiError, type ProviderInfo } from '../../shared/types'
+
+type StatusIndicator = {
+  id: string
+  label: string
+  color: string
+}
+
+const CLI_STATUS_INDICATORS: Array<StatusIndicator & { cli: 'claude' | 'codex' | 'hermes' }> = [
+  { id: 'claude-cli', cli: 'claude', label: 'Claude CLI is available', color: '#d97706' },
+  { id: 'codex-cli', cli: 'codex', label: 'Codex CLI is available', color: '#10a37f' },
+  { id: 'hermes-agent', cli: 'hermes', label: 'Hermes Agent is available', color: '#8b5cf6' },
+]
+
+const PROVIDER_STATUS_COLORS: Record<string, string> = {
+  openai: '#10a37f',
+  anthropic: '#d97706',
+  azure: '#0078d4',
+  gemini: '#4285f4',
+  mistral: '#f97316',
+  groq: '#f43f5e',
+  xai: '#111827',
+  openrouter: '#6366f1',
+}
 
 function NavButton({
   icon,
@@ -68,8 +92,6 @@ export function Sidebar() {
   const authState = useAppStore((s) => s.authState)
 
   const newChat = useAppStore((s) => s.newChat)
-  const logout = useAppStore((s) => s.logout)
-  const setShowSettings = useAppStore((s) => s.setShowSettings)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const openSectionPane = useAppStore((s) => s.openSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
@@ -98,7 +120,7 @@ export function Sidebar() {
     .slice(0, Math.max(0, 5 - pendingNew.length))
 
   const [newArtifactCount, setNewArtifactCount] = useState(0)
-  const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
+  const [configuredProviders, setConfiguredProviders] = useState<Pick<ProviderInfo, 'name' | 'label'>[]>([])
   const [unpinningId, setUnpinningId] = useState<string | null>(null)
 
   const showSettings = useAppStore((s) => s.showSettings)
@@ -125,11 +147,21 @@ export function Sidebar() {
   useEffect(() => {
     window.api.listProviders()
       .then((providers) => {
-        const labels = providers.filter((p) => p.configured).map((p) => p.label)
-        setConfiguredProviderLabel(labels.join(' · '))
+        setConfiguredProviders(providers
+          .filter((provider) => provider.configured)
+          .map(({ name, label }) => ({ name, label })))
       })
       .catch(() => {})
   }, [showSettings])
+
+  const statusIndicators: StatusIndicator[] = [
+    ...CLI_STATUS_INDICATORS.filter(({ cli }) => authState.clis?.[cli]),
+    ...configuredProviders.map((provider) => ({
+      id: `provider-${provider.name}`,
+      label: `${provider.label} API key is active`,
+      color: PROVIDER_STATUS_COLORS[provider.name] ?? '#64748b',
+    })),
+  ]
 
   const unpinConversation = useCallback(async (id: string) => {
     if (unpinningId) return
@@ -202,9 +234,10 @@ export function Sidebar() {
                 return (
                   <div
                     key={conv.id}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`group flex items-stretch rounded-md overflow-hidden transition-colors ${
                       isActive
-                        ? 'bg-cyan-100 dark:bg-cyan-950/60'
+                        ? 'border border-cyan-500 bg-cyan-100 shadow-sm dark:border-cyan-300 dark:bg-cyan-950/60'
                         : 'hover:bg-cyan-50 dark:hover:bg-cyan-950/30'
                     }`}
                   >
@@ -324,7 +357,12 @@ export function Sidebar() {
                 <button
                   key={id}
                   onClick={() => selectConversation(id)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                  aria-current={currentConversationId === id ? 'page' : undefined}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md border text-left transition-colors ${
+                    currentConversationId === id
+                      ? 'border-blue-500 bg-blue-50 shadow-sm dark:border-blue-300 dark:bg-blue-950/40'
+                      : 'border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
                 >
                   <span title="Sending…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
                   <span className="flex-1 min-w-0">
@@ -343,10 +381,11 @@ export function Sidebar() {
                   <button
                     key={conv.id}
                     onClick={() => selectConversation(conv.id)}
-                    className={`w-full flex items-stretch rounded-md text-left transition-colors overflow-hidden ${
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`w-full flex items-stretch rounded-md border text-left transition-colors overflow-hidden ${
                       isActive
-                        ? 'bg-gray-200 dark:bg-gray-700'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                        ? 'border-blue-500 bg-blue-50 shadow-sm dark:border-blue-300 dark:bg-blue-950/40'
+                        : 'border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                   >
                     {colors
@@ -376,56 +415,24 @@ export function Sidebar() {
         )}
       </div>
 
-      <div className="p-3 border-t border-gray-200 dark:border-gray-700/80">
-        <div className="flex items-center justify-between gap-2 px-2 py-1">
-          <div className="min-w-0">
-            {(() => {
-              const cliLabel = authState.cliInstalled
-                ? [
-                    authState.clis?.claude && 'Claude CLI',
-                    authState.clis?.codex && 'Codex CLI',
-                    authState.clis?.hermes && 'Hermes Agent',
-                  ].filter(Boolean).join(' + ') || null
-                : null
-              const hasAny = cliLabel || configuredProviderLabel
-              const subtitle = hasAny
-                ? (authState.cliInstalled ? 'Ready to chat' : 'BYOK mode is active')
-                : 'Add an API key in Settings'
-              return (
-                <>
-                  {cliLabel && (
-                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">{cliLabel}</div>
-                  )}
-                  {configuredProviderLabel && (
-                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate" title={configuredProviderLabel}>{configuredProviderLabel}</div>
-                  )}
-                  {!hasAny && (
-                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">No provider configured</div>
-                  )}
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{subtitle}</div>
-                </>
-              )
-            })()}
+      {statusIndicators.length > 0 && (
+        <div className="border-t border-gray-200 px-2 py-2 dark:border-gray-700/80">
+          <div className="flex items-center gap-1.5 overflow-x-auto" aria-label="Available CLI tools and configured API providers">
+            {statusIndicators.map((indicator) => (
+              <ViewportTooltip
+                key={indicator.id}
+                label={indicator.label}
+                className="flex shrink-0"
+              >
+                <span
+                  className="h-3 w-3 rounded-full border border-white shadow-sm ring-1 ring-black/10 dark:border-gray-900 dark:ring-white/20"
+                  style={{ backgroundColor: indicator.color }}
+                />
+              </ViewportTooltip>
+            ))}
           </div>
-          {authState.authenticated ? (
-            <button
-              onClick={logout}
-              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-              title="Clear provider mode"
-            >
-              Clear
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowSettings(true)}
-              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-              title="Open settings"
-            >
-              Settings
-            </button>
-          )}
         </div>
-      </div>
+      )}
     </aside>
   )
 }

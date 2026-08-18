@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { FolderOpen, Plus, X, ChevronDown } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
 import type { ProjectConfig } from '../../store/types'
+import type { ThinkingEffort } from '../../../shared/types'
 import type { AvailableModelGroup, CatalogModel } from '../../../shared/types'
 import { ModelPicker } from '../chat/ModelPicker'
 import { PROJECT_COLOR_OPTIONS, PROJECT_COLOR_HEX_REGEX } from '../../../shared/project-colors'
@@ -71,6 +72,8 @@ interface Props {
   onRemoveVariable: (idx: number) => void
   onVarChange: (idx: number, field: 'key' | 'value', val: string) => void
   onDefaultModelChange: (model: string | null) => void
+  defaultThinkingEffort?: ThinkingEffort | null
+  onDefaultThinkingEffortChange: (value: ThinkingEffort | null) => void
 }
 
 export function GeneralTab({
@@ -81,7 +84,7 @@ export function GeneralTab({
   onSetName, onSetColor, onNameBlur, onConfirm,
   onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onAddSource, onRemoveSource, onRemoveRepository, onRescanSources, onCodingWorkspaceToggle,
   onStrategyRetrievalToggle, onTerminalSandboxBypassToggle, onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
-  onDefaultModelChange,
+  onDefaultModelChange, defaultThinkingEffort = null, onDefaultThinkingEffortChange,
 }: Props) {
   const selectedModeLabel = INSTRUCTION_MODES.find((m) => m.value === instructionMode)?.label ?? instructionMode
   const highlightParts = resolveVarHighlights(instructions, variables)
@@ -168,6 +171,31 @@ export function GeneralTab({
               onSelectAvailableModel={(_group, model) => onDefaultModelChange(model.id)}
             />
           </div>
+        </div>
+      )}
+
+      {!isDraft && (
+        <div>
+          <label htmlFor="project-default-thinking-effort" className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+            Default thinking effort
+          </label>
+          <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+            Used for new chats in this project unless the chat overrides it.
+          </p>
+          <select
+            id="project-default-thinking-effort"
+            aria-label="Default thinking effort"
+            value={defaultThinkingEffort ?? ''}
+            onChange={(e) => onDefaultThinkingEffortChange((e.target.value || null) as ThinkingEffort | null)}
+            className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+          >
+            <option value="">Agent default</option>
+            <option value="disabled">Disabled</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="max">Max</option>
+          </select>
         </div>
       )}
 
@@ -406,10 +434,10 @@ export function GeneralTab({
       <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Surface similar past strategies</p>
-            <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
-              When enabled, chats in this project are told about highly-rated past conversations that used similar
-              agents, models, tools, or skills. Off by default.
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Use proven approaches from this project</p>
+            <p className="mt-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+              When you send a message, Nexy compares it with conversations you rated in this project. If it finds a
+              match, it gives the model a short hint about how that conversation was set up.
             </p>
           </div>
           <button
@@ -422,6 +450,21 @@ export function GeneralTab({
           >
             <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${strategyRetrievalEnabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
           </button>
+        </div>
+        <div className="mt-2.5 border-t border-gray-100 pt-2.5 text-[10px] leading-4 text-gray-500 dark:border-gray-800 dark:text-gray-400">
+          <p>
+            <span className="font-medium text-gray-600 dark:text-gray-300">How it matches:</span> project, agent, model,
+            and words shared with your new message. Matching happens locally and uses up to five best matches.
+          </p>
+          <p className="mt-1">
+            <span className="font-medium text-gray-600 dark:text-gray-300">What the model sees:</span> the rating, agent,
+            tools, and optional note — not the old conversation or its full answer.
+          </p>
+          <p className="mt-1">
+            <span className="font-medium text-gray-600 dark:text-gray-300">Why use it:</span> recurring work can start
+            from approaches that worked well before. It adds a small amount of context to matching requests and is off
+            by default.
+          </p>
         </div>
       </div>
 

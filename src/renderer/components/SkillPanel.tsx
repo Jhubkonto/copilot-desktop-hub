@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { Button } from './ui/primitives'
@@ -22,6 +22,15 @@ const EMPTY_SKILL: SkillConfig = {
   knowledge: [],
 }
 
+const MIN_INSTRUCTIONS_HEIGHT = 180
+const DEFAULT_INSTRUCTIONS_HEIGHT = 280
+
+type ResizeState = {
+  pointerId: number
+  startY: number
+  startHeight: number
+}
+
 export function SkillPanel() {
   const editingSkillId = useAppStore((s) => s.editingSkillId)
   const skills = useAppStore((s) => s.skills)
@@ -34,6 +43,13 @@ export function SkillPanel() {
   const source = useMemo(() => editingSkillId ? skills.find((s) => s.id === editingSkillId) ?? null : null, [editingSkillId, skills])
   const [config, setConfig] = useState<SkillConfig>(() => source ? { ...source } : { ...EMPTY_SKILL })
   const [tagText, setTagText] = useState('')
+  const [instructionsHeight, setInstructionsHeight] = useState(DEFAULT_INSTRUCTIONS_HEIGHT)
+  const editorBodyRef = useRef<HTMLDivElement>(null)
+  const instructionsRef = useRef<HTMLTextAreaElement>(null)
+  const instructionsBoxRef = useRef<HTMLDivElement>(null)
+  const tagsRef = useRef<HTMLInputElement>(null)
+  const packageRef = useRef<HTMLElement>(null)
+  const resizeRef = useRef<ResizeState | null>(null)
 
   useEffect(() => {
     setConfig(source ? { ...source } : { ...EMPTY_SKILL })
@@ -47,6 +63,57 @@ export function SkillPanel() {
     setConfig((prev) => ({ ...prev, [key]: value }))
   }
 
+  const getMaxInstructionsHeight = () => {
+    const body = editorBodyRef.current
+    const instructionsBox = instructionsBoxRef.current
+    if (!body || !instructionsBox) return DEFAULT_INSTRUCTIONS_HEIGHT
+
+    const bodyRect = body.getBoundingClientRect()
+    const boxRect = instructionsBox.getBoundingClientRect()
+    const bodyContentTop = bodyRect.top + body.clientTop
+    const boxTop = boxRect.top - bodyContentTop + body.scrollTop
+    const lastContentElement = packageRef.current ?? tagsRef.current
+    const lastContentBottom = lastContentElement
+      ? lastContentElement.getBoundingClientRect().bottom - bodyContentTop + body.scrollTop
+      : boxRect.bottom - bodyContentTop + body.scrollTop
+    const contentBelowBox = Math.max(0, lastContentBottom - (boxRect.bottom - bodyContentTop + body.scrollTop))
+    const availableHeight = body.scrollTop + body.clientHeight - boxTop - contentBelowBox - 8
+
+    return Math.max(MIN_INSTRUCTIONS_HEIGHT, Math.min(availableHeight, window.innerHeight))
+  }
+
+  const handleResizeStart = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    if (typeof event.currentTarget.setPointerCapture === 'function') {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: instructionsHeight,
+    }
+  }
+
+  const handleResizeMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current
+    if (!resize || resize.pointerId !== event.pointerId) return
+    const maxHeight = getMaxInstructionsHeight()
+    const nextHeight = Math.max(
+      MIN_INSTRUCTIONS_HEIGHT,
+      Math.min(maxHeight, resize.startHeight + event.clientY - resize.startY),
+    )
+    setInstructionsHeight(nextHeight)
+  }
+
+  const handleResizeEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (resizeRef.current?.pointerId !== event.pointerId) return
+    resizeRef.current = null
+    if (typeof event.currentTarget.hasPointerCapture === 'function' && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
   const handleSave = () => {
     if (!canSave) return
     void saveSkill({
@@ -54,6 +121,9 @@ export function SkillPanel() {
       tags: tagText.split(',').map((tag) => tag.trim()).filter(Boolean),
     })
   }
+
+  const maxInstructionsHeight = getMaxInstructionsHeight()
+  const renderedInstructionsHeight = Math.min(instructionsHeight, maxInstructionsHeight)
 
   return (
     <div className="fixed inset-0 top-9 z-50 flex" role="dialog" aria-modal="true" aria-label="Skill configuration">
@@ -72,7 +142,7 @@ export function SkillPanel() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-5 mr-1.5">
+        <div ref={editorBodyRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-5 mr-1.5">
           <section className="space-y-2">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Skill</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -99,14 +169,32 @@ export function SkillPanel() {
               placeholder="Short description"
               className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
             />
-            <textarea
-              value={config.instructions}
-              onChange={(e) => update('instructions', e.target.value)}
-              placeholder="Reusable instructions..."
-              rows={7}
-              className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
-            />
+            <div ref={instructionsBoxRef} className="relative w-full" style={{ height: renderedInstructionsHeight }}>
+              <textarea
+                ref={instructionsRef}
+                value={config.instructions}
+                onChange={(e) => update('instructions', e.target.value)}
+                placeholder="Reusable instructions..."
+                className="h-full w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 pb-5 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+              />
+              <button
+                type="button"
+                onPointerDown={handleResizeStart}
+                onPointerMove={handleResizeMove}
+                onPointerUp={handleResizeEnd}
+                onPointerCancel={handleResizeEnd}
+                className="absolute bottom-0 left-1/2 h-4 w-12 -translate-x-1/2 cursor-ns-resize touch-none rounded-t-md text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-300"
+                aria-label="Resize skill instructions"
+                aria-valuemin={MIN_INSTRUCTIONS_HEIGHT}
+                aria-valuemax={Math.round(maxInstructionsHeight)}
+                aria-valuenow={Math.round(renderedInstructionsHeight)}
+                role="slider"
+              >
+                <span aria-hidden="true" className="mx-auto mt-1 block h-1 w-8 rounded-full bg-current" />
+              </button>
+            </div>
             <input
+              ref={tagsRef}
               value={tagText}
               onChange={(e) => setTagText(e.target.value)}
               placeholder="Tags, comma separated"
@@ -115,7 +203,7 @@ export function SkillPanel() {
           </section>
 
           {isEditing && (
-            <section className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+            <section ref={packageRef} className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/60">
               <p className="font-medium text-gray-700 dark:text-gray-200">Package</p>
               <p className="mt-1 text-gray-500 dark:text-gray-400">
                 {config.validationStatus ?? 'valid'} · {config.source ?? 'nexy'} · {config.contentHash?.slice(0, 12) ?? 'pending hash'}

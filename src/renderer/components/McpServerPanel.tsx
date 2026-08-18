@@ -93,6 +93,10 @@ function friendlyToolName(name: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+function isSensitiveEnvKey(key: string): boolean {
+  return /(?:PASSWORD|PASSWD|TOKEN|API[_-]?KEY|SECRET|PRIVATE[_-]?KEY|CREDENTIAL)/i.test(key)
+}
+
 function getToolPresentation(tool: McpTool): {
   category: Exclude<ToolCategory, 'all'>
   categoryLabel: string
@@ -173,8 +177,10 @@ function EnvEditor({
           />
           <input
             value={value}
+            type={isSensitiveEnvKey(key) ? 'password' : 'text'}
             onChange={(e) => updateEntry(key, key, e.target.value)}
             placeholder="value"
+            autoComplete="off"
             className="flex-1 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
           <button

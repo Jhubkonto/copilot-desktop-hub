@@ -75,7 +75,7 @@ export function BuildLog({ lines, running = false, finished = false, maxHeightPx
       <div className="flex items-center justify-between border-b-2 border-nexy-border bg-nexy-surface px-3 py-1.5 shrink-0">
         <span className="nexy-font-status flex items-center gap-1.5 text-nexy-muted">
           Output
-          {running && <span className="inline-flex items-center gap-1 text-[10px] text-nexy-activity"><NexyIcon name="busy" motion="pulse" className="h-3 w-3" /> running</span>}
+          {running && <span className="inline-flex items-center gap-1 text-[10px] text-nexy-activity"><NexyIcon name="busy" motion="spin" className="h-3 w-3" /> running</span>}
           {!running && finished && <span className="inline-flex items-center gap-1 text-[10px] text-nexy-success"><NexyIcon name="check" className="h-3 w-3" /> finished</span>}
         </span>
         <div className="flex items-center gap-2">

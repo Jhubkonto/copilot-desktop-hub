@@ -23,10 +23,12 @@ function specToTaskInput(spec: ScheduleGeneratorSpec): ScheduledTaskCreateInput 
     projectId: spec.projectId ?? null,
     scheduleType: spec.scheduleType,
     localTime: spec.localTime,
+    model: spec.model ?? null,
     weekday: spec.scheduleType === 'weekly' ? spec.weekday ?? 1 : null,
     monthDay: spec.scheduleType === 'monthly' ? spec.monthDay ?? 1 : null,
     timezone: spec.timezone,
     notificationPref: spec.notificationPref,
+    toolPolicy: spec.preApproved && spec.preApproved.length > 0 ? { preApproved: spec.preApproved } : undefined,
   }
 }
 

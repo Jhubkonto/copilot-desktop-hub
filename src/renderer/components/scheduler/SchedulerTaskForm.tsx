@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import type {
   AutomatedWorkflowRunSummary,
   AutomatedWorkflowSpec,
+  McpTool,
   ScheduledTask,
   ScheduledTaskCreateInput,
   ScheduledTaskTargetType,
@@ -54,6 +55,16 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Tool policy: a scheduled run is headless, so tool-loop.ts blocks any tool not pre-approved
+  // here (there's no human to approve a pause). Without this a tool-using agent silently can't
+  // call any of its tools when the task fires.
+  const [preApproved, setPreApproved] = useState<string[]>(initial?.toolPolicy?.preApproved ?? [])
+  const [availableTools, setAvailableTools] = useState<McpTool[]>([])
+  const [toolsLoading, setToolsLoading] = useState(false)
+
+  const toggleTool = (name: string) =>
+    setPreApproved((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]))
+
   // Target: a plain chat prompt (default, unchanged behavior) or one attached Automated Workflow
   // run (see src/roadmap-new/ — schedules can target a saved workflow instead of a chat message).
   const [targetType, setTargetType] = useState<ScheduledTaskTargetType>(initial?.targetType ?? 'chat')
@@ -99,6 +110,25 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
     setSelectedRunSpec(null)
   }
 
+  // Load the selected agent's available MCP tools so they can be pre-approved. Only meaningful for
+  // a chat-target task; a workflow's own steps carry their own agents/tools.
+  useEffect(() => {
+    if (targetType !== 'chat' || !agentId) {
+      setAvailableTools([])
+      return
+    }
+    let cancelled = false
+    setToolsLoading(true)
+    window.api.listMcpToolsForAgent(agentId)
+      .then((tools) => {
+        if (cancelled) return
+        setAvailableTools(Array.isArray(tools) ? tools : [])
+      })
+      .catch(() => { if (!cancelled) setAvailableTools([]) })
+      .finally(() => { if (!cancelled) setToolsLoading(false) })
+    return () => { cancelled = true }
+  }, [agentId, targetType])
+
   const handleSave = async () => {
     if (!name.trim()) { setError('Name is required'); return }
     if (targetType === 'chat' && !prompt.trim()) { setError('Prompt is required'); return }
@@ -122,6 +152,7 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
           projectId: projectId || null,
           model: model || null,
           notificationPref,
+          toolPolicy: { preApproved },
           targetType,
           workflowSpecs,
         }
@@ -142,6 +173,7 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
           projectId: projectId || null,
           model: model || null,
           notificationPref,
+          toolPolicy: { preApproved },
           enabled: true,
           targetType,
           workflowSpecs,
@@ -292,6 +324,9 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
             className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
             aria-label="Timezone"
           />
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">
+            With Run in background enabled, tasks continue while Nexy is in the desktop tray. The computer must stay awake and signed in; missed runs catch up the next time Nexy starts.
+          </p>
         </section>
 
         <section className="space-y-3">
@@ -323,6 +358,48 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
             className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
           />
         </section>
+
+        {targetType === 'chat' && (
+          <section className="space-y-2">
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Allowed tools</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500">
+              Scheduled tasks run unattended, so the agent can only call tools you pre-approve here — everything else is blocked when the task fires.
+            </p>
+            {!agentId ? (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">Select an agent to choose which of its tools may run.</p>
+            ) : toolsLoading ? (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">Loading tools…</p>
+            ) : availableTools.length === 0 ? (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">This agent has no MCP tools available.</p>
+            ) : (
+              <div className="space-y-1 max-h-44 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 p-2">
+                {availableTools.map((tool) => (
+                  <label key={`${tool.serverId}:${tool.name}`} className="flex items-start gap-2 text-[11px] text-gray-700 dark:text-gray-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preApproved.includes(tool.name)}
+                      onChange={() => toggleTool(tool.name)}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="font-medium">{tool.name}</span>
+                      <span className="text-gray-400 dark:text-gray-500"> · {tool.serverName}</span>
+                      {tool.description && <span className="block text-gray-400 dark:text-gray-500 truncate">{tool.description}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {/* Preserve pre-approved names that aren't in the currently-loaded tool list (e.g. a
+                server that's momentarily disconnected) so editing doesn't silently drop them. */}
+            {preApproved.filter((n) => !availableTools.some((t) => t.name === n)).map((name) => (
+              <label key={`extra-${name}`} className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                <input type="checkbox" checked onChange={() => toggleTool(name)} />
+                <span className="italic">{name} (unavailable)</span>
+              </label>
+            ))}
+          </section>
+        )}
 
         <section className="space-y-3">
           <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Notifications</p>

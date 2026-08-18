@@ -25,7 +25,11 @@ export function CliLockedModelBadge({
   onSelectModel,
 }: CliLockedModelBadgeProps) {
   const backendLabel = backend === 'claude-cli' ? 'Claude CLI' : backend === 'codex-cli' ? 'Codex CLI' : 'Hermes Agent'
-  const modelLabel = modelId ? getModelLabel(modelId, catalogModels) : 'default'
+  const configuredModelLabel = modelId ? models.find((model) => model.id === modelId)?.label : undefined
+  const catalogModelLabel = modelId ? getModelLabel(modelId, catalogModels) : undefined
+  const modelLabel = modelId
+    ? (catalogModelLabel && catalogModelLabel !== modelId ? catalogModelLabel : configuredModelLabel ?? modelId)
+    : 'default'
 
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)

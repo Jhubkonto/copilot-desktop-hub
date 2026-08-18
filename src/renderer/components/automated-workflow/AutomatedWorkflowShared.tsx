@@ -5,7 +5,9 @@ import type {
   AutomatedWorkflowRunStatus,
   AutomatedWorkflowRunStep,
   AutomatedWorkflowRunSummary,
+  WorkflowArtifactVersionContent,
 } from '../../../shared/types'
+import { isApiError } from '../../../shared/types'
 import { formatRelativeTime } from '../../../shared/utils'
 import { StreamingFadeText } from '../chat/StreamingFadeText'
 
@@ -119,6 +121,129 @@ export function ActionButton({
   )
 }
 
+function ManagedReviewCard({ step, header }: { step: AutomatedWorkflowRunStep; header: React.ReactNode }) {
+  const versionId = step.managed?.currentVersion?.id ?? null
+  const [version, setVersion] = useState<WorkflowArtifactVersionContent | null>(null)
+  const [draft, setDraft] = useState('')
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!versionId) return
+    let live = true
+    window.api.getManagedWorkflowVersion(versionId).then((result) => {
+      if (!live || !result || isApiError(result)) return
+      setVersion(result)
+      setDraft(result.content)
+    }).catch((reason) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
+    return () => { live = false }
+  }, [versionId])
+
+  const perform = async (name: string, operation: () => Promise<unknown>) => {
+    setBusyAction(name); setError(null)
+    try {
+      const result = await operation()
+      if (isApiError(result)) throw new Error(result.error)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally { setBusyAction(null) }
+  }
+
+  const loadVersion = async (selectedVersionId: string) => {
+    setBusyAction('version'); setError(null)
+    try {
+      const result = await window.api.getManagedWorkflowVersion(selectedVersionId)
+      if (!result || isApiError(result)) throw new Error(result && isApiError(result) ? result.error : 'Version not found')
+      setVersion(result); setDraft(result.content)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusyAction(null) }
+  }
+
+  return (
+    <div className="space-y-2 rounded-nexy-sm border-2 border-nexy-warning bg-nexy-recessed px-3 py-2">
+      {header}
+      {step.managed?.isStale && <p className="text-[10px] font-medium text-nexy-error">This deliverable is out of date. Regenerate it before approval.</p>}
+      {version && (
+        <div className="flex flex-wrap items-center gap-1 text-[10px] text-nexy-muted">
+          <span>{version.version.title} · v{version.version.versionNumber}</span>
+          {version.versions.map((candidate) => (
+            <button key={candidate.id} type="button" disabled={busyAction !== null}
+              onClick={() => void loadVersion(candidate.id)}
+              className={`border px-1.5 py-0.5 ${candidate.id === version.version.id ? 'border-nexy-accent text-nexy-accent' : 'border-nexy-border'}`}>
+              v{candidate.versionNumber}
+            </button>
+          ))}
+        </div>
+      )}
+      <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={10}
+        aria-label={`Managed Markdown for ${step.title}`}
+        className="w-full resize-y rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised px-2.5 py-2 font-mono text-[10px] text-nexy-text focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-nexy-warning" />
+      {error && <p className="text-[10px] text-nexy-error">{error}</p>}
+      <div className="flex flex-wrap items-center gap-1">
+        <ActionButton icon="edit" disabled={!versionId || busyAction !== null || draft === version?.content}
+          onClick={() => void perform('save', () => window.api.editManagedWorkflowVersion({
+            runId: step.runId, stepDbId: step.dbId, expectedVersionId: versionId!, content: draft, client: 'desktop',
+          }))}>Save new version</ActionButton>
+        <ActionButton icon="check" variant="primary" disabled={!versionId || busyAction !== null || step.managed?.isStale || draft !== version?.content || version?.version.id !== versionId}
+          onClick={() => void perform('approve', () => window.api.reviewManagedWorkflowVersion({
+            runId: step.runId, stepDbId: step.dbId, artifactVersionId: versionId!, decision: 'approved', client: 'desktop',
+          }))}>Approve content</ActionButton>
+        <ActionButton icon="error" disabled={!versionId || busyAction !== null}
+          onClick={() => void perform('reject', () => window.api.reviewManagedWorkflowVersion({
+            runId: step.runId, stepDbId: step.dbId, artifactVersionId: versionId!, decision: 'rejected', client: 'desktop',
+          }))}>Reject</ActionButton>
+        <ActionButton icon="refresh" disabled={busyAction !== null}
+          onClick={() => void perform('regenerate', () => window.api.regenerateManagedWorkflowSteps(step.runId, step.dbId))}>
+          Regenerate affected
+        </ActionButton>
+      </div>
+      <details className="text-[10px] text-nexy-muted">
+        <summary className="cursor-pointer">Version provenance</summary>
+        <div className="mt-1 space-y-0.5 font-mono">
+          {(step.managed?.bindings ?? []).map((binding) => (
+            <p key={binding.id}>{binding.direction} · {binding.bindingName} · {binding.artifactVersionId.slice(0, 12)}{binding.staleAt ? ' · stale' : ''}</p>
+          ))}
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function ManagedPublishCard({ step, header }: { step: AutomatedWorkflowRunStep; header: React.ReactNode }) {
+  const preview = step.managed?.publishPreview ?? null
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [idempotencyKey] = useState(() => `${step.runId}:${step.dbId}:${preview?.id ?? 'preview'}`)
+  const perform = async (name: string, operation: () => Promise<unknown>) => {
+    setBusyAction(name); setError(null)
+    try {
+      const result = await operation()
+      if (isApiError(result)) throw new Error(result.error)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusyAction(null) }
+  }
+  return (
+    <div className="space-y-2 rounded-nexy-sm border-2 border-nexy-warning bg-nexy-recessed px-3 py-2">
+      {header}
+      <p className="text-[10px] text-nexy-muted">Publishing approved version {preview?.artifactVersionId.slice(0, 12)} to <span className="font-mono text-nexy-text">{preview?.relativePath}</span>.</p>
+      {preview?.invalidatedAt && <p className="text-[10px] text-nexy-error">This preview is no longer valid. Refresh it before publishing.</p>}
+      {preview && <pre className="max-h-72 overflow-auto whitespace-pre font-mono text-[10px] selectable rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-2 text-nexy-text">{preview.diffText || 'No content changes.'}</pre>}
+      {step.managed?.publishAction && <p className="text-[10px] text-nexy-muted">Publish status: {step.managed.publishAction.status}{step.managed.publishAction.error ? ` · ${step.managed.publishAction.error}` : ''}</p>}
+      {error && <p className="text-[10px] text-nexy-error">{error}</p>}
+      <div className="flex flex-wrap gap-1">
+        <ActionButton icon="refresh" disabled={!preview || busyAction !== null}
+          onClick={() => void perform('preview', () => window.api.createManagedWorkflowPublishPreview({
+            runId: step.runId, stepDbId: step.dbId, artifactVersionId: preview!.artifactVersionId,
+          }))}>Refresh preview</ActionButton>
+        <ActionButton icon="upload" variant="primary" disabled={!preview || Boolean(preview.invalidatedAt) || busyAction !== null}
+          onClick={() => void perform('publish', () => window.api.confirmManagedWorkflowPublish({
+            runId: step.runId, stepDbId: step.dbId, previewId: preview!.id, idempotencyKey, client: 'desktop',
+          }))}>Confirm file write</ActionButton>
+      </div>
+    </div>
+  )
+}
+
 export function StepCard({
   step,
   confirmationMode,
@@ -151,7 +276,9 @@ export function StepCard({
     ? step.agentName
     : step.model
       ? `Model: ${step.model}`
-      : 'Unassigned'
+      : step.kind === 'collect' || step.kind === 'review' || step.kind === 'publish'
+        ? 'Nexy managed step'
+        : 'Unassigned'
 
   const header = (
     <div className="flex items-start justify-between gap-3">
@@ -160,7 +287,7 @@ export function StepCard({
           {step.stepIndex + 1}. {step.title}
         </p>
         <p className="text-[10px] text-gray-500 dark:text-gray-400">
-          {fulfilledByLabel}{step.expectedOutput ? ` · Output: ${step.expectedOutput}` : ''}
+          {step.kind ? `${step.kind[0].toUpperCase()}${step.kind.slice(1)} · ` : ''}{fulfilledByLabel}{step.expectedOutput ? ` · Output: ${step.expectedOutput}` : ''}
         </p>
         {waitingOn && waitingOn.length > 0 && (
           <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Waiting on: {waitingOn.join(', ')}</p>
@@ -175,6 +302,13 @@ export function StepCard({
       Open conversation
     </ActionButton>
   ) : null
+
+  if (step.kind === 'review' && step.status === 'awaiting_confirmation') {
+    return <ManagedReviewCard step={step} header={header} />
+  }
+  if (step.kind === 'publish' && step.status === 'awaiting_confirmation') {
+    return <ManagedPublishCard step={step} header={header} />
+  }
 
   if (step.status === 'running') {
     return (
@@ -228,7 +362,7 @@ export function StepCard({
         {step.error && <p className="text-[10px] text-red-600 dark:text-red-400">{step.error}</p>}
         <div className="flex items-center gap-1 flex-wrap">
           <ActionButton icon="refresh" disabled={busy} onClick={() => onRetry(step)}>Retry</ActionButton>
-          <ActionButton icon="chevron-right" disabled={busy} onClick={() => onSkip(step)}>Skip</ActionButton>
+          {(!step.kind || step.kind === 'model') && <ActionButton icon="chevron-right" disabled={busy} onClick={() => onSkip(step)}>Skip</ActionButton>}
           {openConversationButton}
         </div>
       </div>
@@ -247,6 +381,9 @@ export function StepCard({
             <pre className="whitespace-pre-wrap rounded-nexy-sm border border-nexy-border bg-nexy-recessed px-2.5 py-2 text-[10px] text-nexy-text">
               {step.output}
             </pre>
+          )}
+          {step.managed?.currentVersion && (
+            <p className="text-[10px] text-nexy-muted">Artifact: {step.managed.currentVersion.title} · v{step.managed.currentVersion.versionNumber} · {step.managed.currentVersion.checksum?.slice(0, 12) ?? 'checksum unavailable'}</p>
           )}
           {openConversationButton && <div className="flex">{openConversationButton}</div>}
         </div>

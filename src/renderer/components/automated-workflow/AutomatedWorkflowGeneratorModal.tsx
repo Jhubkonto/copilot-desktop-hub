@@ -5,6 +5,8 @@ import type {
   AutomatedWorkflowGeneratorMessage,
   AutomatedWorkflowRunDetail,
   AutomatedWorkflowSpec,
+  AutomatedWorkflowStep,
+  WorkflowSourceOption,
 } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
@@ -28,6 +30,12 @@ interface AutomatedWorkflowGeneratorModalProps {
   onClose: () => void
   onCreated: (run: AutomatedWorkflowRunDetail) => void
 }
+
+const MANAGED_WORKFLOW_STARTERS = [
+  { label: 'Weekly report', prompt: 'Create a weekly report workflow from selected project notes. Let me review the Markdown draft, then publish it to reports/weekly.md.' },
+  { label: 'Release notes', prompt: 'Create release notes from selected changelog and project files. Let me edit and approve the Markdown, then publish it to RELEASE_NOTES.md.' },
+  { label: 'Design draft', prompt: 'Create a design document from selected requirements. Include a review step, then publish the approved Markdown to docs/design.md.' },
+] as const
 
 // Same overlay/modal chrome as every other AI generator (ScheduleGeneratorModal, SkillGeneratorModal,
 // AgentGeneratorModal, ArtifactGeneratorModal) — the automated workflow generator was previously
@@ -54,6 +62,7 @@ export function AutomatedWorkflowGeneratorModal({
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [showVariablePicker, setShowVariablePicker] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [sourceOptions, setSourceOptions] = useState<WorkflowSourceOption[]>([])
   // The plan generated so far, already persisted as a 'pending' run — kept open (not committed
   // to the caller) so the user can keep chatting to refine it. Each subsequent spec-ready updates
   // this same run in place rather than creating a new one, as long as it's still all-pending
@@ -75,6 +84,39 @@ export function AutomatedWorkflowGeneratorModal({
   useEffect(() => {
     window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!projectId) { setSourceOptions([]); return }
+    window.api.listManagedWorkflowSources(projectId).then((result) => {
+      if (!isApiError(result)) setSourceOptions(result)
+    }).catch(() => setSourceOptions([]))
+  }, [projectId])
+
+  const updateManagedStep = async (stepId: string, update: (step: AutomatedWorkflowStep) => AutomatedWorkflowStep) => {
+    const current = savedRunRef.current
+    if (!current || saving) return
+    const steps = current.steps.map((step): AutomatedWorkflowStep => {
+      const specStep: AutomatedWorkflowStep = {
+        id: step.id, kind: step.kind, title: step.title, summary: step.summary,
+        agentId: step.agentId, agentName: step.agentName, model: step.model,
+        prompt: step.prompt, expectedOutput: step.expectedOutput,
+        dependsOnStepIds: step.dependsOnStepIds, inputBindings: step.inputBindings,
+        deliverables: step.deliverables, reviewSource: step.reviewSource,
+        publishDestination: step.publishDestination,
+        includeProjectInstructions: step.includeProjectInstructions,
+      }
+      return step.id === stepId ? update(specStep) : specStep
+    })
+    setSaving(true)
+    try {
+      const result = await window.api.saveAutomatedWorkflowRunFromSpec(projectId, {
+        title: current.title, goalSummary: current.goalSummary, assumptions: current.assumptions, steps,
+      }, genModelRef.current, current.id)
+      if (!isApiError(result)) setSavedRun(result)
+      else throw new Error(result.error)
+    } catch (error) { addToast(error instanceof Error ? error.message : 'Failed to update workflow', 'error') }
+    finally { setSaving(false) }
+  }
 
   useEffect(() => {
     const offToken = window.api.onAutomatedWorkflowGeneratorToken((chunk) => {
@@ -213,6 +255,16 @@ export function AutomatedWorkflowGeneratorModal({
                       </div>
                     ))}
                   </div>
+                  {projectId && (
+                    <div className="flex max-w-[360px] flex-wrap justify-center gap-1.5" aria-label="Managed workflow starters">
+                      {MANAGED_WORKFLOW_STARTERS.map((starter) => (
+                        <button key={starter.label} type="button" onClick={() => setInputText(starter.prompt)}
+                          className="rounded-nexy-sm border border-nexy-border bg-nexy-raised px-2 py-1 text-[10px] text-nexy-text hover:border-nexy-accent hover:text-nexy-accent">
+                          {starter.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {messages.map((msg, i) => <ChatBubble key={i} role={msg.role} content={msg.content} />)}
@@ -233,18 +285,60 @@ export function AutomatedWorkflowGeneratorModal({
           </div>
 
           {savedRun && !isGenerating && (
-            <div className="flex shrink-0 items-center justify-between gap-2 rounded-nexy-sm border-2 border-nexy-success bg-nexy-recessed px-3 py-2">
-              <div className="min-w-0">
-                <p className="truncate text-[11px] font-medium text-nexy-success">Plan ready: {savedRun.title}</p>
-                <p className="text-[10px] text-nexy-muted">{savedRun.stepCounts.total} step{savedRun.stepCounts.total === 1 ? '' : 's'} · keep chatting to refine, or use it now</p>
+            <div className="shrink-0 space-y-2 rounded-nexy-sm border-2 border-nexy-success bg-nexy-recessed px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[11px] font-medium text-nexy-success">Plan ready: {savedRun.title}</p>
+                  <p className="text-[10px] text-nexy-muted">Review what Nexy will read, create, ask you to approve, and write.</p>
+                </div>
+                <button type="button" onClick={() => { onCreated(savedRun); onClose() }}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-nexy-sm border-2 border-nexy-success bg-nexy-success px-2.5 py-1.5 text-[11px] font-medium text-white shadow-nexy-sm">
+                  Use this plan
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => { onCreated(savedRun); onClose() }}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-nexy-sm border-2 border-nexy-success bg-nexy-success px-2.5 py-1.5 text-[11px] font-medium text-white shadow-nexy-sm"
-              >
-                Use this plan
-              </button>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto">
+                {savedRun.steps.map((step) => (
+                  <div key={step.dbId} className="rounded-nexy-sm border border-nexy-border bg-nexy-raised p-2 text-[10px]">
+                    <p className="font-semibold text-nexy-text">{step.stepIndex + 1}. {step.kind ? `${step.kind[0].toUpperCase()}${step.kind.slice(1)}` : 'Model'} — {step.title}</p>
+                    {step.kind === 'collect' && (step.inputBindings ?? []).map((binding) => binding.source.type === 'project-files' && (
+                      <div key={binding.bindingId} className="mt-1 grid grid-cols-[110px_1fr] gap-1">
+                        <select aria-label={`Source for ${step.title}`} value={binding.source.projectSourceId}
+                          onChange={(event) => void updateManagedStep(step.id, (draft) => ({ ...draft,
+                            inputBindings: (draft.inputBindings ?? []).map((item) => item.bindingId === binding.bindingId && item.source.type === 'project-files'
+                              ? { ...item, source: { ...item.source, projectSourceId: event.target.value } } : item),
+                          }))}
+                          className="border border-nexy-border bg-nexy-recessed px-1 text-nexy-text">
+                          {[...new Map(sourceOptions.map((option) => [option.projectSourceId, option.label])).entries()].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                        </select>
+                        <input aria-label={`Files for ${step.title}`} defaultValue={binding.source.include.join(', ')}
+                          onBlur={(event) => void updateManagedStep(step.id, (draft) => ({ ...draft,
+                            inputBindings: (draft.inputBindings ?? []).map((item) => item.bindingId === binding.bindingId && item.source.type === 'project-files'
+                              ? { ...item, source: { ...item.source, include: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) } } : item),
+                          }))}
+                          className="border border-nexy-border bg-nexy-recessed px-1 font-mono text-nexy-text" />
+                      </div>
+                    ))}
+                    {step.kind === 'model' && <p className="mt-0.5 text-nexy-muted">Creates {step.deliverables?.[0]?.title ?? step.expectedOutput} from {(step.inputBindings ?? []).map((binding) => binding.bindingId).join(', ') || 'declared inputs'}.</p>}
+                    {step.kind === 'review' && <p className="mt-0.5 text-nexy-muted">You edit and approve {step.reviewSource?.outputName ?? 'the deliverable'}.</p>}
+                    {step.kind === 'publish' && step.publishDestination && (
+                      <div className="mt-1 grid grid-cols-[110px_1fr] gap-1">
+                        <select aria-label={`Publish source for ${step.title}`} value={step.publishDestination.projectSourceId}
+                          onChange={(event) => void updateManagedStep(step.id, (draft) => ({ ...draft,
+                            publishDestination: draft.publishDestination ? { ...draft.publishDestination, projectSourceId: event.target.value } : undefined,
+                          }))}
+                          className="border border-nexy-border bg-nexy-recessed px-1 text-nexy-text">
+                          {[...new Map(sourceOptions.map((option) => [option.projectSourceId, option.label])).entries()].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                        </select>
+                        <input aria-label={`Destination for ${step.title}`} defaultValue={step.publishDestination.relativePath}
+                          onBlur={(event) => void updateManagedStep(step.id, (draft) => ({ ...draft,
+                            publishDestination: draft.publishDestination ? { ...draft.publishDestination, relativePath: event.target.value.trim() } : undefined,
+                          }))}
+                          className="border border-nexy-border bg-nexy-recessed px-1 font-mono text-nexy-text" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

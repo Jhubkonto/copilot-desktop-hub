@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, BookmarkPlus, Volume2, Sparkles, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, BookmarkPlus, Volume2, Sparkles, MoreHorizontal, Trash2, GitFork } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -113,6 +113,7 @@ interface MessageBubbleProps {
   onRegenerate?: () => void
   onEdit?: (index: number) => void
   onDeleteAfter?: () => void
+  onForkFromHere?: () => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onSaveAsArtifact?: (messageId: string, content: string) => void
   hasWikiEntry?: boolean
@@ -167,6 +168,7 @@ export function MessageBubbleBase({
   onRegenerate,
   onEdit,
   onDeleteAfter,
+  onForkFromHere,
   onSaveToWiki,
   onSaveAsArtifact,
   hasWikiEntry,
@@ -214,6 +216,7 @@ export function MessageBubbleBase({
     || onSaveToWiki
     || (onSaveAsArtifact && !isDocumentLike)
     || onDeleteAfter
+    || onForkFromHere
     || (isLastAssistant && onRegenerate)
   )
 
@@ -382,6 +385,12 @@ export function MessageBubbleBase({
                         setAssistantMenuOpen(false)
                         onDeleteAfter()
                       }} tone="danger" />
+                    )}
+                    {onForkFromHere && (
+                      <MessageMenuItem icon={GitFork} label="Fork from here" onClick={() => {
+                        setAssistantMenuOpen(false)
+                        onForkFromHere()
+                      }} />
                     )}
                   </div>
                 </DropdownPanel>
@@ -554,6 +563,9 @@ export function MessageBubbleBase({
             )}
             {onDeleteAfter && (
               <ActionButton icon={Trash2} label="Delete from here" onClick={onDeleteAfter} tone="danger" />
+            )}
+            {onForkFromHere && (
+              <ActionButton icon={GitFork} label="Fork from here" onClick={onForkFromHere} />
             )}
           </div>
         )}

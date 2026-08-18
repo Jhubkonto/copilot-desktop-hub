@@ -120,6 +120,7 @@ export function ChatWindow() {
 
   const availableGroups = useAppStore((state) => state.availableModelGroups)
   const availableModelsLoaded = useAppStore((state) => state.availableModelsLoaded)
+  const [profileAvailableGroups, setProfileAvailableGroups] = useState<AvailableModelGroup[] | null>(null)
   const pendingComposerPrefill = useAppStore((state) => state.pendingComposerPrefill)
   const setPendingComposerPrefill = useAppStore((state) => state.setPendingComposerPrefill)
   const [pendingModel, setPendingModel] = useState<string | null>(null)
@@ -157,6 +158,7 @@ export function ChatWindow() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
   const [projectWorkflowMode, setProjectWorkflowMode] = useState<ProjectConfig['workflowMode'] | null>(null)
+  const [projectDefaultThinkingEffort, setProjectDefaultThinkingEffort] = useState<ProjectConfig['defaultThinkingEffort']>(null)
   const [activeWorkflowRun, setActiveWorkflowRun] = useState<AutomatedWorkflowRunDetail | null>(null)
   const [dismissedWorkflowStepId, setDismissedWorkflowStepId] = useState<string | null>(null)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
@@ -173,6 +175,7 @@ export function ChatWindow() {
   const [continueModel, setContinueModel] = useState<string>('default')
   const [continueAgentId, setContinueAgentId] = useState<string | null>(null)
   const [continueProjectId, setContinueProjectId] = useState<string | null>(null)
+  const [continueCutoffTimestamp, setContinueCutoffTimestamp] = useState<number | null>(null)
   const [continueCliModels, setContinueCliModels] = useState<{ id: string; label: string }[]>([])
   const [isForking, setIsForking] = useState(false)
   const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
@@ -274,31 +277,53 @@ export function ChatWindow() {
   const chatAgentId = isNewChat ? activeAgentId : (currentConversation?.agent_id ?? null)
   const chatAgent = chatAgentId ? (agents.find((agent) => agent.id === chatAgentId) ?? null) : null
   const projectDefaultModel = chatProject?.default_model ?? null
+  const displayedThinkingEffort = pendingModeFields.has('thinkingEffortOverride')
+    ? pendingThinkingEffortOverride
+    : (currentConversation?.thinking_effort_override ?? projectDefaultThinkingEffort)
 
   // An agent requires tool-capable models when it has MCP servers assigned.
   const agentNeedsTools = !!(chatAgent && (chatAgent.mcpServers?.length ?? 0) > 0)
 
   const nonDefault = (v: string | null | undefined): string | null =>
     v && v !== 'default' ? v : null
+  const chatAgentBackend = chatAgent?.backend
+  const chatAgentCliModel = nonDefault(chatAgent?.cliModel ?? null)
+  const hermesProfile = chatAgentBackend === 'hermes-cli' ? chatAgent?.hermesProfile : undefined
+  useEffect(() => {
+    if (!hermesProfile) {
+      setProfileAvailableGroups(null)
+      return
+    }
+    let cancelled = false
+    window.api.listAvailableModels(hermesProfile)
+      .then((groups) => {
+        if (!cancelled) setProfileAvailableGroups(groups)
+      })
+      .catch(() => {
+        if (!cancelled) setProfileAvailableGroups(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hermesProfile])
+  const chatAvailableGroups = profileAvailableGroups ?? availableGroups
   const isAvailableModel = (model: string | null | undefined): model is string =>
     !!nonDefault(model) && (
       !availableModelsLoaded ||
-      availableGroups.some((group) => group.models.some((entry) => entry.id === model))
+      chatAvailableGroups.some((group) => group.models.some((entry) => entry.id === model))
     )
 
-  const chatAgentBackend = chatAgent?.backend
-  const chatAgentCliModel = nonDefault(chatAgent?.cliModel ?? null)
   const lockModelToAgentBackend =
-    chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
+    chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli' || chatAgentBackend === 'hermes-cli'
   const conversationCliModelForAgentBackend =
-    lockModelToAgentBackend && !pendingModelDirty && nonDefault(conversationModel) && availableGroups.some((group) =>
+    lockModelToAgentBackend && !pendingModelDirty && nonDefault(conversationModel) && chatAvailableGroups.some((group) =>
       group.sourceKey === chatAgentBackend &&
       group.models.some((model) => model.id === nonDefault(conversationModel)),
     )
       ? nonDefault(conversationModel)
       : null
   const pendingCliModelForAgentBackend =
-    lockModelToAgentBackend && pendingModelDirty && nonDefault(pendingModel) && availableGroups.some((group) =>
+    lockModelToAgentBackend && pendingModelDirty && nonDefault(pendingModel) && chatAvailableGroups.some((group) =>
       group.sourceKey === chatAgentBackend && group.models.some((model) => model.id === pendingModel),
     )
       ? pendingModel
@@ -306,7 +331,7 @@ export function ChatWindow() {
 
   let effectiveModel: string
   let modelSourceLabel: string | undefined
-  if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli') {
+  if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli' || chatAgentBackend === 'hermes-cli') {
     // Forced CLI agents only honor per-conversation model choices within that backend.
     effectiveModel = pendingCliModelForAgentBackend ?? conversationCliModelForAgentBackend ?? chatAgentCliModel ?? 'default'
   } else if (nonDefault(pendingModel)) {
@@ -601,12 +626,15 @@ export function ChatWindow() {
     if (!chatProjectId || chatProjectId === '__none__') {
       setProjectRootDir(null)
       setProjectWorkflowMode(null)
+      setProjectDefaultThinkingEffort(null)
       return
     }
 
+    let cancelled = false
     window.api
       .getProjectConfig(chatProjectId)
       .then((config: unknown) => {
+        if (cancelled) return
         const rootDir =
           config && typeof config === 'object' && 'rootDirectory' in config && typeof (config as Record<string, unknown>).rootDirectory === 'string'
             ? ((config as Record<string, unknown>).rootDirectory as string)
@@ -617,11 +645,19 @@ export function ChatWindow() {
             ? ((config as Record<string, unknown>).workflowMode as ProjectConfig['workflowMode'])
             : null
         setProjectWorkflowMode(workflowMode ?? null)
+        const thinkingEffort =
+          config && typeof config === 'object' && 'defaultThinkingEffort' in config
+            ? ((config as Record<string, unknown>).defaultThinkingEffort as ProjectConfig['defaultThinkingEffort'])
+            : null
+        setProjectDefaultThinkingEffort(thinkingEffort ?? null)
       })
       .catch(() => {
+        if (cancelled) return
         setProjectRootDir(null)
         setProjectWorkflowMode(null)
+        setProjectDefaultThinkingEffort(null)
       })
+    return () => { cancelled = true }
   }, [chatProjectId])
 
   const loadActiveWorkflowRun = useCallback((projectId: string) => {
@@ -1022,9 +1058,22 @@ export function ChatWindow() {
     setContinueModel(effectiveModel === 'default' ? 'default' : effectiveModel)
     setContinueAgentId(chatAgentId)
     setContinueProjectId(chatProjectId)
+    setContinueCutoffTimestamp(null)
     setMenuExportOpen(false)
     setMenuContinueOpen(true)
   }, [chatAgentId, chatProjectId, effectiveModel])
+
+  const handleOpenForkFromHere = useCallback((message: ChatMessage) => {
+    if (!conversationId || message.timestamp <= 0) return
+    setContinueModel(effectiveModel === 'default' ? 'default' : effectiveModel)
+    setContinueAgentId(chatAgentId)
+    setContinueProjectId(chatProjectId)
+    setContinueCutoffTimestamp(message.timestamp)
+    setMenuExportOpen(false)
+    setMenuRatingOpen(false)
+    setShowActionsMenu(true)
+    setMenuContinueOpen(true)
+  }, [chatAgentId, chatProjectId, conversationId, effectiveModel])
 
   const handleContinueWith = useCallback(async () => {
     if (!conversationId) return
@@ -1034,10 +1083,12 @@ export function ChatWindow() {
         model: continueModel,
         agentId: continueAgentId,
         projectId: continueProjectId,
+        cutoffTimestamp: continueCutoffTimestamp,
       })
       await loadConversations()
       selectConversation(result.conversation.id)
       setMenuContinueOpen(false)
+      setShowActionsMenu(false)
       const details = [
         result.rewritten_message_count > 0 ? `${result.rewritten_message_count} converted for compatibility` : null,
         result.compressed_message_count > 0 ? `${result.compressed_message_count} compressed for context` : null,
@@ -1045,8 +1096,8 @@ export function ChatWindow() {
       ].filter(Boolean)
       addToast(
         details.length > 0
-          ? `Forked ${result.message_count} messages (${details.join(', ')})`
-          : `Forked ${result.message_count} messages`,
+          ? `${continueCutoffTimestamp !== null ? 'Forked from here' : 'Forked'} ${result.message_count} messages (${details.join(', ')})`
+          : `${continueCutoffTimestamp !== null ? 'Forked from here' : 'Forked'} ${result.message_count} messages`,
         'success',
       )
     } catch {
@@ -1054,7 +1105,7 @@ export function ChatWindow() {
     } finally {
       setIsForking(false)
     }
-  }, [addToast, continueAgentId, continueModel, continueProjectId, conversationId, loadConversations, selectConversation])
+  }, [addToast, continueAgentId, continueCutoffTimestamp, continueModel, continueProjectId, conversationId, loadConversations, selectConversation])
 
   useEffect(() => {
     if (!menuContinueOpen) return
@@ -1199,7 +1250,7 @@ export function ChatWindow() {
         return
       }
       if (group.sourceType === 'cli') {
-        void actions.handleSetCliBackendAndModel(group.sourceKey as 'claude-cli' | 'codex-cli', model.id)
+        void actions.handleSetCliBackendAndModel(group.sourceKey as CliBackend, model.id)
         // Also update the UI immediately when there is no conversation yet;
         // the backend is staged for the first send inside useChatWindowActions.
       } else {
@@ -1412,11 +1463,7 @@ export function ChatWindow() {
         setPendingModel(model)
         setPendingModelDirty(true)
       }}
-      conversationThinkingEffortOverride={
-        pendingModeFields.has('thinkingEffortOverride') || !currentConversation
-          ? pendingThinkingEffortOverride
-          : (currentConversation.thinking_effort_override ?? null)
-      }
+      conversationThinkingEffortOverride={displayedThinkingEffort}
       conversationFullAutoApproveOverride={
         pendingModeFields.has('fullAutoApproveOverride') || !currentConversation
           ? pendingFullAutoApproveOverride
@@ -1468,7 +1515,7 @@ export function ChatWindow() {
       onSend={actions.handleSend}
       cliLockedModels={
         lockModelToAgentBackend
-          ? (availableGroups.find((g) => g.sourceKey === chatAgentBackend)?.models ?? [])
+          ? (chatAvailableGroups.find((g) => g.sourceKey === chatAgentBackend)?.models ?? [])
           : undefined
       }
       onSelectCliModel={
@@ -1811,12 +1858,16 @@ export function ChatWindow() {
                       className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isForking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      <span className="flex-1">Continue with</span>
+                      <span className="flex-1">{continueCutoffTimestamp !== null ? 'Fork from here' : 'Continue with'}</span>
                       {menuContinueOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                     </button>
                     {menuContinueOpen && (
                       <div className="mx-1 mb-2 mt-1 rounded-md border border-gray-100 dark:border-gray-700 p-2">
-                        <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">Fork this chat into a new conversation.</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+                          {continueCutoffTimestamp !== null
+                            ? 'Fork the conversation up to this message into a new project or model.'
+                            : 'Fork this chat into a new conversation.'}
+                        </div>
                         <label className="block mb-2">
                           <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Model</span>
                           <ModelPicker
@@ -1883,7 +1934,7 @@ export function ChatWindow() {
                             disabled={isForking}
                             className="rounded-md bg-gray-900 dark:bg-gray-100 px-2 py-1 text-xs font-medium text-white dark:text-gray-900 disabled:opacity-60"
                           >
-                            {isForking ? 'Forking...' : 'Create fork'}
+                            {isForking ? 'Forking...' : continueCutoffTimestamp !== null ? 'Fork from here' : 'Create fork'}
                           </button>
                         </div>
                       </div>
@@ -1957,6 +2008,7 @@ export function ChatWindow() {
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}
           onDeleteAfter={conversationId ? (message) => setDeleteAfterTarget({ conversationId, message }) : undefined}
+          onForkFromHere={conversationId ? handleOpenForkFromHere : undefined}
           onRetry={actions.handleRetry}
           onSignIn={() => addToast('No provider configured. Add an API key in Settings.', 'info')}
           onPickModel={handlePickModel}

@@ -58,6 +58,14 @@ describe('NexyIcon', () => {
     expect(container.querySelector('svg')).toHaveClass('nexy-retro-loading-pulse')
   })
 
+  it('maps explicit spin indicators to a retro loading spin in 8-bit', () => {
+    document.documentElement.dataset.uiStyle = '8bit'
+    const { container } = render(<NexyIcon name="busy" motion="spin" />)
+
+    expect(container.querySelector('svg')).toHaveClass('nexy-retro-loading-spin')
+    expect(container.querySelector('svg')).not.toHaveClass('nexy-retro-loading-pulse')
+  })
+
   it('allows callers to suppress busy motion in either UI style', () => {
     document.documentElement.dataset.uiStyle = 'classic'
     const { container, rerender } = render(<NexyIcon name="busy" motion="none" />)

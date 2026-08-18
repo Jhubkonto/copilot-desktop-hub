@@ -5,8 +5,49 @@ import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { ArtifactGeneratorModal } from './ArtifactGeneratorModal'
 import { DeleteArtifactDialog } from './DeleteArtifactDialog'
+import { MarkdownRenderer } from './MarkdownRenderer'
 import { ArtifactKindBadge, artifactDisplayTitle } from './artifacts/artifactDisplay'
 import { Button, ModalShell } from './ui/primitives'
+
+function primaryMarkdownFile(artifact: ArtifactRow) {
+  const file = artifact.currentVersion?.files?.find((candidate) => candidate.role === 'primary')
+    ?? artifact.currentVersion?.files?.[0]
+  if (!file) return null
+  const isMarkdown = file.mediaType.toLowerCase() === 'text/markdown' || file.relativePath.toLowerCase().endsWith('.md')
+  return isMarkdown ? file : null
+}
+
+function MarkdownArtifactTab({ artifact }: { artifact: ArtifactRow }) {
+  const [content, setContent] = useState<string | null | undefined>(undefined)
+  const file = primaryMarkdownFile(artifact)
+
+  useEffect(() => {
+    let cancelled = false
+    setContent(undefined)
+    if (!artifact.currentVersionId || !file) {
+      setContent(null)
+      return () => { cancelled = true }
+    }
+
+    window.api.artifactGetFileContent(artifact.currentVersionId, file.relativePath)
+      .then((result) => { if (!cancelled) setContent(result.content) })
+      .catch(() => { if (!cancelled) setContent(null) })
+
+    return () => { cancelled = true }
+  }, [artifact.currentVersionId, file?.relativePath])
+
+  return (
+    <div className="h-full overflow-y-auto p-5">
+      {content === undefined ? (
+        <p className="text-xs text-gray-400">Loading Markdown…</p>
+      ) : content === null ? (
+        <p className="text-xs text-gray-400">Markdown content is unavailable.</p>
+      ) : (
+        <MarkdownRenderer content={content} />
+      )}
+    </div>
+  )
+}
 
 function ArtifactStatusBadge({ status }: { status: string }) {
   const colorClass = status === 'ready' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
@@ -377,7 +418,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
 
   const [artifact, setArtifact] = useState<ArtifactRow | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'details' | 'history'>('details')
+  const [tab, setTab] = useState<'markdown' | 'details' | 'history'>('details')
   const [width, setWidth] = useState(440)
   const [showReviseGenerator, setShowReviseGenerator] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -393,7 +434,10 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
   useEffect(() => {
     setLoading(true)
     window.api.artifactGet(artifactId)
-      .then((a) => setArtifact(a))
+      .then((a) => {
+        setArtifact(a)
+        setTab(a?.kind === 'plan' && primaryMarkdownFile(a) ? 'markdown' : 'details')
+      })
       .catch(() => addToast('Failed to load artifact', 'error'))
       .finally(() => setLoading(false))
   }, [artifactId, addToast])
@@ -489,6 +533,18 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
 
       {/* Tabs */}
       <div className="flex items-center gap-0 border-b border-gray-200 dark:border-gray-700 shrink-0 px-4">
+        {artifact?.kind === 'plan' && primaryMarkdownFile(artifact) && (
+          <button
+            onClick={() => setTab('markdown')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              tab === 'markdown'
+                ? 'border-purple-500 text-purple-600 dark:text-purple-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            Markdown
+          </button>
+        )}
         {([
           { id: 'details', label: 'Details', Icon: Info },
           { id: 'history', label: 'History', Icon: History },
@@ -514,6 +570,9 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
           <p className="p-4 text-xs text-gray-400">Loading artifact…</p>
         ) : artifact ? (
           <>
+            {tab === 'markdown' && artifact.kind === 'plan' && (
+              <MarkdownArtifactTab artifact={artifact} />
+            )}
             {tab === 'details' && (
               <DetailsTab
                 artifact={artifact}

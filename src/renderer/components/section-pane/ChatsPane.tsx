@@ -56,10 +56,11 @@ export function ChatsPane() {
       <div
         key={conv.id}
         onClick={() => selectConversation(conv.id)}
-        className={`group flex items-stretch gap-0 rounded-nexy-sm border border-transparent cursor-pointer transition-colors overflow-hidden ${
+        aria-current={isActive ? 'page' : undefined}
+        className={`group flex items-stretch gap-0 rounded-nexy-sm border cursor-pointer transition-colors overflow-hidden ${
           isActive
-            ? 'border-nexy-border bg-nexy-raised'
-            : 'hover:border-nexy-border-soft hover:bg-nexy-recessed'
+            ? 'border-nexy-accent bg-nexy-accent/10 shadow-nexy'
+            : 'border-transparent hover:border-nexy-border-soft hover:bg-nexy-recessed'
         }`}
       >
         {colors
@@ -169,7 +170,12 @@ export function ChatsPane() {
                 <div
                   key={id}
                   onClick={() => selectConversation(id)}
-                  className="group flex items-start gap-2 px-3 py-2 rounded-nexy-sm border border-transparent cursor-pointer transition-colors hover:border-nexy-border-soft hover:bg-nexy-recessed"
+                  aria-current={currentConversationId === id ? 'page' : undefined}
+                  className={`group flex items-start gap-2 px-3 py-2 rounded-nexy-sm border cursor-pointer transition-colors ${
+                    currentConversationId === id
+                      ? 'border-nexy-accent bg-nexy-raised shadow-nexy'
+                      : 'border-transparent hover:border-nexy-border-soft hover:bg-nexy-recessed'
+                  }`}
                 >
                   <span title="Sending…"><Loader2 className="w-3.5 h-3.5 text-nexy-activity animate-spin shrink-0 mt-0.5" /></span>
                   <div className="flex-1 min-w-0">

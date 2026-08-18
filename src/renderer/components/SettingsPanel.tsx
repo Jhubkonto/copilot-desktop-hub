@@ -94,6 +94,7 @@ export function SettingsPanel() {
   }, [visible, settingsInitialTab, setSettingsInitialTab])
 
   const [autoStart, setAutoStart] = useState(false)
+  const [runInBackground, setRunInBackground] = useState(false)
   const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
@@ -202,6 +203,7 @@ export function SettingsPanel() {
     if (!visible) return
     window.api.getSettings().then((settings: Record<string, string>) => {
       setAutoStart(settings['autoStart'] === 'true')
+      setRunInBackground(settings['runInBackground'] === 'true')
       setAutoClipboard(settings['autoClipboard'] === 'true')
       setDefaultModel(settings['default_model'] || 'gpt-5-mini')
       setTemperature(Number.parseFloat(settings['temperature'] || '0.7') || 0.7)
@@ -779,6 +781,17 @@ export function SettingsPanel() {
     }
   }
 
+  const handleRunInBackgroundToggle = async () => {
+    const next = !runInBackground
+    setRunInBackground(next)
+    try {
+      await window.api.setSetting('runInBackground', String(next))
+    } catch {
+      setRunInBackground(!next)
+      addToast('Failed to update background execution setting', 'error')
+    }
+  }
+
   const handleSaveKey = async () => {
     if (!editingProvider || !apiKeyInput.trim()) return
     try {
@@ -974,6 +987,7 @@ export function SettingsPanel() {
             effectiveModel={effectiveModel}
             effectiveProvider={effectiveProvider}
             autoStart={autoStart}
+            runInBackground={runInBackground}
             autoClipboard={autoClipboard}
             defaultModel={defaultModel}
             defaultModelSearch={defaultModelSearch}
@@ -991,6 +1005,7 @@ export function SettingsPanel() {
             supertonicInstalling={supertonicInstalling}
             catalogModels={catalogModels}
             onToggleAutoStart={() => void handleAutoStartToggle()}
+            onToggleRunInBackground={() => void handleRunInBackgroundToggle()}
             onToggleAutoClipboard={() => void handleAutoClipboardToggle()}
             onSetDefaultModel={setDefaultModel}
             onSetDefaultModelSearch={setDefaultModelSearch}

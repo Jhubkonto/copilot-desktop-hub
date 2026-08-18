@@ -34,6 +34,7 @@ export function SchedulerTaskDetail({ task, onBack, onEdit, onDeleted, onTaskUpd
   const [runs, setRuns] = useState<ScheduledRun[]>([])
   const [loadingRuns, setLoadingRuns] = useState(true)
   const [running, setRunning] = useState(false)
+  const [resumingId, setResumingId] = useState<string | null>(null)
 
   useEffect(() => {
     void loadRuns()
@@ -49,9 +50,10 @@ export function SchedulerTaskDetail({ task, onBack, onEdit, onDeleted, onTaskUpd
         const next = [...prev]; next[idx] = run; return next
       })
       if (run.status !== 'running' && run.status !== 'pending') setRunning(false)
+      if (run.status !== 'running' && run.status !== 'pending' && run.id === resumingId) setResumingId(null)
     })
     return off
-  }, [task.id])
+  }, [task.id, resumingId])
 
   async function loadRuns() {
     setLoadingRuns(true)
@@ -66,6 +68,12 @@ export function SchedulerTaskDetail({ task, onBack, onEdit, onDeleted, onTaskUpd
   async function handleRunNow() {
     setRunning(true)
     await window.api.schedulerRunNow(task.id)
+  }
+
+  async function handleResume(runId: string) {
+    setResumingId(runId)
+    const result = await window.api.schedulerResumeRun(runId)
+    if (isApiError(result)) setResumingId(null)
   }
 
   async function handleToggleEnabled() {
@@ -196,6 +204,15 @@ export function SchedulerTaskDetail({ task, onBack, onEdit, onDeleted, onTaskUpd
                       {run.startedAt ? formatTs(run.startedAt) : formatTs(run.createdAt)}
                     </p>
                   </div>
+                  {run.status === 'approval_required' && (
+                    <button
+                      onClick={() => void handleResume(run.id)}
+                      disabled={resumingId === run.id}
+                      className="text-[10px] font-medium px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50"
+                    >
+                      {resumingId === run.id ? 'Resuming…' : 'Approve & resume'}
+                    </button>
+                  )}
                   {run.error && (
                     <span className="text-[10px] text-red-400 truncate max-w-[120px]" title={run.error}>{run.error}</span>
                   )}
