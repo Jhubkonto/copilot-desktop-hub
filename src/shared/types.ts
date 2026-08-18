@@ -437,7 +437,7 @@ export interface SkillConfig {
   /** SHA-256 of every package file, used to invalidate trust when package contents change. */
   contentHash?: string
   scope?: 'user' | 'project' | 'bundled'
-  source?: 'nexy' | 'filesystem' | 'codex' | 'claude' | 'import'
+  source?: 'nexy' | 'filesystem' | 'codex' | 'claude' | 'hermes' | 'import'
   validationStatus?: 'valid' | 'warning' | 'invalid'
   /** Portable package contents used by sync/import/export. Never contains a host filesystem path. */
   packageFiles?: SkillPackageFile[]
@@ -458,10 +458,15 @@ export interface DiscoveredSkill {
   description: string
   icon: string
   scope: 'user' | 'project'
-  source: 'filesystem' | 'codex' | 'claude'
+  source: 'filesystem' | 'codex' | 'claude' | 'hermes'
   /** Human-readable location label, e.g. `~/.claude/skills`. */
   rootLabel: string
   validationStatus: 'valid' | 'warning' | 'invalid'
+  /** Validation details shown when an external package cannot be imported. */
+  validationErrors?: string[]
+  validationWarnings?: string[]
+  /** False only when the package cannot be read. Readable packages are normalized on import. */
+  importable?: boolean
   contentHash?: string
   /** True when a managed skill already has identical package contents. */
   alreadyImported: boolean
@@ -597,7 +602,11 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
   // outside this project's rootDirectory, instead of being confined to it. Widens filesystem
   // access — can be overridden per-conversation via conversations.terminal_sandbox_override.
   terminalSandboxBypass: boolean
+  /** Optional project-level fallback used when a chat and its agent have no override. */
+  defaultThinkingEffort?: ThinkingEffort | null
 }
+
+export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max' | 'disabled'
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   instructions: '',
@@ -618,6 +627,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   milestones: [],
   strategyRetrievalEnabled: false,
   terminalSandboxBypass: false,
+  defaultThinkingEffort: null,
 }
 
 export interface McpServerConfig {
@@ -643,6 +653,7 @@ export interface AppSettings {
   theme: 'light' | 'dark'
   globalHotkey: string
   autoStart: boolean
+  runInBackground: boolean
   autoUpdate: boolean
 }
 
@@ -807,7 +818,14 @@ export interface ScheduleGeneratorSpec {
   timezone: string
   agentId?: string
   projectId?: string
+  /** Optional model id the fired chat should run on (same format as `ScheduledTask.model`). When
+   *  omitted the task runs on the app/agent default model. */
+  model?: string
   notificationPref: 'always' | 'failures_only' | 'off'
+  /** Tool names the fired chat may call unattended. A scheduled run blocks any tool not listed
+   *  here (see the tool-policy enforcement in tool-loop.ts), so a tool-using agent needs its tools
+   *  pre-approved to do anything. */
+  preApproved?: string[]
   /** Defaults to `'chat'`. `'automated_workflow'` requires `sourceRunId` — attaches an existing
    *  saved Automated Workflow run rather than authoring a new spec inline (see src/roadmap-new/). */
   targetType?: ScheduledTaskTargetType
@@ -819,8 +837,41 @@ export interface ScheduleGeneratorMessage {
   content: string
 }
 
+export type AutomatedWorkflowStepKind = 'collect' | 'model' | 'review' | 'publish'
+
+export interface WorkflowArtifactBinding {
+  /** Human-readable name used in prompts and run provenance (for example `project-notes`). */
+  bindingId: string
+  source:
+    | { type: 'project-files'; projectSourceId: string; include: string[] }
+    | { type: 'step-output'; stepId: string; outputName: string }
+  required: boolean
+}
+
+export interface WorkflowDeliverableDefinition {
+  name: string
+  title: string
+  kind: ArtifactKind
+  primaryPath: string
+  mediaType: string
+}
+
+export interface WorkflowPublishDestination {
+  type: 'project-file'
+  projectSourceId: string
+  relativePath: string
+  conflictPolicy: 'require-new-preview'
+}
+
+export interface WorkflowReviewSource {
+  stepId: string
+  outputName: string
+}
+
 export interface AutomatedWorkflowStep {
   id: string
+  /** Missing means a legacy text-output model step. Legacy behavior is preserved deliberately. */
+  kind?: AutomatedWorkflowStepKind
   title: string
   summary: string
   /** Alternative to `model`, not additional to it — a step is fulfilled by exactly one of the
@@ -833,6 +884,16 @@ export interface AutomatedWorkflowStep {
   prompt: string
   expectedOutput: string
   dependsOnStepIds?: string[]
+  /** Explicit, immutable inputs used only by managed steps. */
+  inputBindings?: WorkflowArtifactBinding[]
+  /** Named artifact outputs. The Markdown MVP permits one primary file per definition. */
+  deliverables?: WorkflowDeliverableDefinition[]
+  /** Exact upstream deliverable selected by a review step. */
+  reviewSource?: WorkflowReviewSource
+  /** Declared project-scoped side-effect boundary for a publish step. */
+  publishDestination?: WorkflowPublishDestination
+  /** Managed prompts are isolated from project instructions unless explicitly enabled. */
+  includeProjectInstructions?: boolean
 }
 
 export interface AutomatedWorkflowSpec {
@@ -867,6 +928,134 @@ export interface AutomatedWorkflowRunStep extends AutomatedWorkflowStep {
   conversationId: string | null
   startedAt: number | null
   completedAt: number | null
+  managed?: WorkflowManagedStepState
+}
+
+export type WorkflowArtifactBindingDirection = 'input' | 'output'
+
+export interface WorkflowArtifactBindingRecord {
+  id: string
+  runId: string
+  stepDbId: string
+  stepAttempt: number
+  bindingName: string
+  direction: WorkflowArtifactBindingDirection
+  artifactId: string
+  artifactVersionId: string
+  sourceStepDbId: string | null
+  staleAt: number | null
+  createdAt: number
+}
+
+export type WorkflowReviewDecision = 'approved' | 'rejected'
+export type WorkflowClientKind = 'desktop' | 'android'
+
+export interface WorkflowReviewRecord {
+  id: string
+  runId: string
+  stepDbId: string
+  artifactVersionId: string
+  decision: WorkflowReviewDecision
+  reviewedByClient: WorkflowClientKind
+  reviewedAt: number
+  supersededAt: number | null
+}
+
+export interface WorkflowArtifactVersionSummary {
+  id: string
+  artifactId: string
+  versionNumber: number
+  title: string
+  primaryPath: string
+  mediaType: string
+  sizeBytes: number
+  checksum: string | null
+  createdAt: number
+}
+
+export interface WorkflowManagedStepState {
+  isManaged: boolean
+  isStale: boolean
+  currentVersion: WorkflowArtifactVersionSummary | null
+  bindings: WorkflowArtifactBindingRecord[]
+  latestReview: WorkflowReviewRecord | null
+  publishPreview: WorkflowPublishPreview | null
+  publishAction: WorkflowPublishAction | null
+}
+
+export interface WorkflowArtifactVersionContent {
+  version: WorkflowArtifactVersionSummary
+  content: string
+  manifestJson: string
+  versions: WorkflowArtifactVersionSummary[]
+}
+
+export interface WorkflowPublishPreview {
+  id: string
+  runId: string
+  stepDbId: string
+  artifactVersionId: string
+  projectSourceId: string
+  relativePath: string
+  destinationChecksum: string | null
+  diffText: string
+  createdAt: number
+  expiresAt: number | null
+  invalidatedAt: number | null
+}
+
+export type WorkflowPublishActionStatus =
+  'pending' | 'publishing' | 'published' | 'failed' | 'conflicted'
+
+export interface WorkflowPublishAction {
+  id: string
+  previewId: string
+  idempotencyKey: string
+  status: WorkflowPublishActionStatus
+  approvedByClient: WorkflowClientKind
+  approvedAt: number
+  startedAt: number | null
+  completedAt: number | null
+  resultChecksum: string | null
+  error: string | null
+}
+
+export interface WorkflowSourceOption {
+  projectSourceId: string
+  projectId: string
+  label: string
+  relativePath: string
+  sizeBytes: number
+}
+
+export interface WorkflowEditVersionInput {
+  runId: string
+  stepDbId: string
+  expectedVersionId: string
+  content: string
+  client: WorkflowClientKind
+}
+
+export interface WorkflowReviewInput {
+  runId: string
+  stepDbId: string
+  artifactVersionId: string
+  decision: WorkflowReviewDecision
+  client: WorkflowClientKind
+}
+
+export interface WorkflowPublishPreviewInput {
+  runId: string
+  stepDbId: string
+  artifactVersionId: string
+}
+
+export interface WorkflowPublishConfirmInput {
+  runId: string
+  stepDbId: string
+  previewId: string
+  idempotencyKey: string
+  client: WorkflowClientKind
 }
 
 export interface AutomatedWorkflowRunSummary {
@@ -1833,6 +2022,67 @@ export interface ProviderTestResult {
   error?: string
 }
 
+export type CredentialKind = 'api-key' | 'token' | 'password' | 'secret-file' | 'env-bundle'
+
+/** Metadata returned to the renderer. Secret payloads are intentionally absent. */
+export interface CredentialMetadata {
+  id: string
+  name: string
+  kind: CredentialKind
+  provider: string | null
+  fingerprint: string | null
+  createdAt: number
+  updatedAt: number
+  lastUsedAt: number | null
+  revokedAt: number | null
+}
+
+export interface CredentialCreateInput {
+  name: string
+  kind: CredentialKind
+  provider?: string | null
+  value: string
+}
+
+export interface CredentialUpdateInput {
+  name?: string
+  provider?: string | null
+  value?: string
+  revoked?: boolean
+}
+
+export type CredentialApprovalMode = 'auto' | 'always-ask'
+
+/** Secret-free permission metadata for a vault record. */
+export interface CredentialBindingMetadata {
+  id: string
+  credentialId: string
+  projectId: string | null
+  agentId: string | null
+  capability: string
+  approvalMode: CredentialApprovalMode
+  expiresAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CredentialBindingCreateInput {
+  credentialId: string
+  projectId?: string | null
+  agentId?: string | null
+  capability: string
+  approvalMode?: CredentialApprovalMode
+  expiresAt?: number | null
+}
+
+export interface CredentialBindingUpdateInput {
+  projectId?: string | null
+  agentId?: string | null
+  capability?: string
+  approvalMode?: CredentialApprovalMode
+  expiresAt?: number | null
+}
+
 export interface AvailableModelEntry { id: string; label: string }
 export interface AvailableModelGroup {
   sourceKey: string
@@ -2118,9 +2368,6 @@ export type IpcReturnMap = {
   'project:set-default-model': boolean
   'project:set-primary-agent': boolean
   'project:update-config': boolean
-  'project-audit:list-sessions': ProjectEditSession[]
-  'project-audit:list-files': ProjectTouchedFile[]
-  'project-audit:get-diff': ProjectFileDiff | null
   'automated-workflow-generator:chat': { started: boolean }
   'automated-workflow-generator:token': void
   'automated-workflow-generator:spec-ready': void
@@ -2143,6 +2390,14 @@ export type IpcReturnMap = {
   'automated-workflow-runs:set-confirmation-mode': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:run-again': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:step-stream': void
+  'automated-workflow-managed:list-sources': WorkflowSourceOption[]
+  'automated-workflow-managed:get-version': WorkflowArtifactVersionContent | null
+  'automated-workflow-managed:get-bindings': WorkflowArtifactBindingRecord[]
+  'automated-workflow-managed:edit-version': AutomatedWorkflowRunDetail
+  'automated-workflow-managed:review': AutomatedWorkflowRunDetail
+  'automated-workflow-managed:regenerate': AutomatedWorkflowRunDetail | null
+  'automated-workflow-managed:create-preview': WorkflowPublishPreview
+  'automated-workflow-managed:confirm-publish': WorkflowPublishAction
   'automated-workflow-templates:list': AutomatedWorkflowTemplateSummary[]
   'automated-workflow-templates:get': AutomatedWorkflowTemplateDetail | null
   'automated-workflow-templates:delete': boolean
@@ -2154,6 +2409,7 @@ export type IpcReturnMap = {
   'scheduler:delete': boolean
   'scheduler:set-enabled': ScheduledTask
   'scheduler:run-now': ScheduledRun
+  'scheduler:resume-run': ScheduledRun
   'scheduler:list-runs': ScheduledRun[]
   'scheduler:list-workflow-templates': AutomatedWorkflowRunSummary[]
   'scheduler:task-updated': void
@@ -2220,6 +2476,14 @@ export type IpcReturnMap = {
   'wiki:mcp-stop': boolean
   'wiki:mcp-status': ProjectWikiMcpStatus
   // Provider
+  'credential:list': CredentialMetadata[]
+  'credential:create': CredentialMetadata
+  'credential:update': CredentialMetadata
+  'credential:delete': boolean
+  'credential-binding:list': CredentialBindingMetadata[]
+  'credential-binding:create': CredentialBindingMetadata
+  'credential-binding:update': CredentialBindingMetadata
+  'credential-binding:delete': boolean
   'provider:get-azure-endpoint': string
   'provider:has-key': boolean
   'provider:list': ProviderInfo[]
@@ -2556,9 +2820,6 @@ export type IpcChannels =
   | 'project:set-default-model'
   | 'project:set-primary-agent'
   | 'project:update-config'
-  | 'project-audit:list-sessions'
-  | 'project-audit:list-files'
-  | 'project-audit:get-diff'
   | 'automated-workflow-generator:chat'
   | 'automated-workflow-generator:token'
   | 'automated-workflow-generator:spec-ready'
@@ -2581,6 +2842,14 @@ export type IpcChannels =
   | 'automated-workflow-runs:set-confirmation-mode'
   | 'automated-workflow-runs:run-again'
   | 'automated-workflow-runs:step-stream'
+  | 'automated-workflow-managed:list-sources'
+  | 'automated-workflow-managed:get-version'
+  | 'automated-workflow-managed:get-bindings'
+  | 'automated-workflow-managed:edit-version'
+  | 'automated-workflow-managed:review'
+  | 'automated-workflow-managed:regenerate'
+  | 'automated-workflow-managed:create-preview'
+  | 'automated-workflow-managed:confirm-publish'
   | 'automated-workflow-templates:list'
   | 'automated-workflow-templates:get'
   | 'automated-workflow-templates:delete'
@@ -2591,6 +2860,7 @@ export type IpcChannels =
   | 'scheduler:delete'
   | 'scheduler:set-enabled'
   | 'scheduler:run-now'
+  | 'scheduler:resume-run'
   | 'scheduler:list-runs'
   | 'scheduler:list-workflow-templates'
   | 'scheduler:task-updated'
@@ -2602,6 +2872,14 @@ export type IpcChannels =
   | 'prompt:list'
   | 'prompt:rollback'
   | 'prompt:update'
+  | 'credential:list'
+  | 'credential:create'
+  | 'credential:update'
+  | 'credential:delete'
+  | 'credential-binding:list'
+  | 'credential-binding:create'
+  | 'credential-binding:update'
+  | 'credential-binding:delete'
   | 'provider:get-azure-endpoint'
   | 'provider:has-key'
   | 'provider:list'
