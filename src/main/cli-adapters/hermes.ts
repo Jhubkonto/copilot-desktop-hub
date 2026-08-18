@@ -22,7 +22,7 @@ export const HermesAdapter: CliAgentAdapter = {
   },
 
   send(
-    _window: BrowserWindow,
+    _window: BrowserWindow | undefined,
     req: CliAdapterRequest,
     onChunk: (chunk: string) => void,
     _onEvent?: Parameters<CliAgentAdapter['send']>[3]

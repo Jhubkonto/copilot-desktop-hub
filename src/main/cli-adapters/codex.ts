@@ -849,7 +849,7 @@ export const CodexAdapter: CliAgentAdapter = {
   },
 
   send(
-    _window: BrowserWindow,
+    _window: BrowserWindow | undefined,
     req: CliAdapterRequest,
     onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: Parameters<CliAgentAdapter['send']>[3],

@@ -64,7 +64,7 @@ export class HermesAcpAdapter implements CliAgentAdapter {
   isAvailable(): boolean { return resolveCliPath('hermes') !== null }
 
   async send(
-    _window: BrowserWindow,
+    _window: BrowserWindow | undefined,
     req: CliAdapterRequest,
     onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: (event: CliStreamEvent) => void,

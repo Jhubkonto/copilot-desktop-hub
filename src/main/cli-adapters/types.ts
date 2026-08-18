@@ -69,7 +69,7 @@ export type CliStreamEvent =
 export interface CliAgentAdapter {
   readonly name: string
   send(
-    window: BrowserWindow,
+    window: BrowserWindow | undefined,
     req: CliAdapterRequest,
     // blockId identifies which contiguous text burst this chunk belongs to (see
     // ChatAssistantTextDeltaEvent) — adapters that segment text around tool calls pass

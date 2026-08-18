@@ -61,9 +61,9 @@ describe('ClaudeAdapter — batch-mode thinking emit order', () => {
 
     await promise
 
-    // Find the sequence for thinking-0
-    const thinkingChunkIdx = events.findIndex((e) => e.type === 'thinking_chunk' && e.blockId === 'thinking-0')
-    const thinkingEndIdx = events.findIndex((e) => e.type === 'thinking_end' && e.blockId === 'thinking-0')
+    // Find the sequence for the first Claude reasoning block
+    const thinkingChunkIdx = events.findIndex((e) => e.type === 'thinking_chunk' && e.blockId === 'claude-reasoning-0')
+    const thinkingEndIdx = events.findIndex((e) => e.type === 'thinking_end' && e.blockId === 'claude-reasoning-0')
 
     expect(thinkingChunkIdx).toBeGreaterThanOrEqual(0)
     expect(thinkingEndIdx).toBeGreaterThanOrEqual(0)
@@ -101,7 +101,7 @@ describe('ClaudeAdapter — batch-mode thinking emit order', () => {
     await promise
 
     // thinking_end must fire (even for empty block) but thinking_chunk must NOT (empty text)
-    expect(events.find((e) => e.type === 'thinking_end' && e.blockId === 'thinking-0')).toBeDefined()
-    expect(events.find((e) => e.type === 'thinking_chunk' && e.blockId === 'thinking-0')).toBeUndefined()
+    expect(events.find((e) => e.type === 'thinking_end' && e.blockId === 'claude-reasoning-0')).toBeDefined()
+    expect(events.find((e) => e.type === 'thinking_chunk' && e.blockId === 'claude-reasoning-0')).toBeUndefined()
   })
 })

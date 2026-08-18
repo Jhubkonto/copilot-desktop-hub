@@ -151,7 +151,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
   },
 
   async send(
-    _window: BrowserWindow,
+    _window: BrowserWindow | undefined,
     req: CliAdapterRequest,
     onChunk: (chunk: string, blockId?: string) => void,
     onEvent?: Parameters<CliAgentAdapter['send']>[3],
@@ -321,11 +321,14 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // The Anthropic content-block index resets to 0 for every new `assistant` message,
       // and one CLI turn can emit several such messages as it works through tool calls —
       // so a later, unrelated reasoning burst that happens to land at index 0 again would
-      // otherwise collide with an earlier one under the same blockId (`thinking-0`) and
+      // otherwise collide with an earlier one under the same blockId (`claude-reasoning-0`) and
       // silently merge into it. Track reasoning as an "open block" instead: it's reused
       // across consecutive thinking events, but any other event in between (text, a tool
       // call) or an explicit end closes it, so the next reasoning burst gets a fresh id.
-      const reasoningBlocks = createOpenBlockTracker('thinking')
+      // Keep the provider in the ID because Claude CLI models can emit visible thinking
+      // blocks selectively (Haiku does this more often than Sonnet). The renderer uses
+      // this identity to keep Claude CLI reasoning in the compact CLI-style timeline.
+      const reasoningBlocks = createOpenBlockTracker('claude-reasoning')
       const nextReasoningBlockId = (): string => reasoningBlocks.next()
       const interruptReasoning = () => reasoningBlocks.interrupt()
 
