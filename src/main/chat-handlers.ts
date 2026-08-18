@@ -8,7 +8,7 @@ import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   abortActiveStream,
   getOpenRouterModels,
   type MessageContentPart,
@@ -23,6 +23,8 @@ import { cancelPendingUserInputsForConversation, requestUserInput, userInputQues
 import { getAdapter } from './cli-adapters/registry'
 import { getSkillConfigsForAgent } from './skills'
 import { bridgeSkillsForCliRun, releaseBridgedSkills, type BridgedSkill } from './cli-skill-bridge'
+import { requestsSkillCapture } from './skill-service'
+import { startSkillSaveMcpBridge, type SkillSaveMcpBridge } from './skill-save-mcp-bridge'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendChatCompleteNotification, generateSpokenSummary } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -250,7 +252,7 @@ const CLAUDE_CLI_BUILT_IN_TOOLS: Array<{
 // write, only the tool_start/tool_end events the adapter surfaces. Unlike BYOK chat's
 // write_project_file (chat-context-builder.ts), which records recordProjectAuditChange itself
 // at the point of writing, CLI-driven edits used to have no equivalent at all: they rendered as
-// a plain ToolCallBlock with no diff, no undo, and no entry in Project Settings -> Changes,
+// a plain ToolCallBlock with no diff or undo,
 // fragmenting the audit trail depending on which backend a given chat happened to use.
 // ---------------------------------------------------------------------------
 
@@ -443,7 +445,7 @@ function buildClaudeCliProjectTeam(
 }
 
 async function requestClaudeCliToolPermission(
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   agentConfig: Record<string, unknown> | null,
   agentId: string | null,
   sendActivity: (activity: MobileChatActivity) => void,
@@ -479,7 +481,7 @@ async function requestClaudeCliToolPermission(
     if (plan) onPlanFinalized?.(plan)
     sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
     const approved = await requestApproval(
-      window.webContents,
+      window?.webContents,
       'exit_plan_mode',
       input,
       'Approve this plan and start implementing?',
@@ -496,7 +498,7 @@ async function requestClaudeCliToolPermission(
   if (!tool) {
     sendActivity({ state: 'approval', label: `Waiting for ${toolName} approval`, toolName })
     return requestApproval(
-      window.webContents,
+      window?.webContents,
       `claude-cli:${toolName}`,
       input,
       `Allow Claude CLI to use ${toolName}?`,
@@ -515,7 +517,7 @@ async function requestClaudeCliToolPermission(
 
   sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
   return requestApproval(
-    window.webContents,
+    window?.webContents,
     tool.approvalTool,
     input,
     tool.description,
@@ -542,7 +544,7 @@ const CODEX_APPROVAL_LABELS: Record<string, string> = {
 // the turn until this resolves, so the user gets a live prompt instead of Codex silently
 // auto-accepting/declining based on skipPermissions.
 async function requestCodexToolPermission(
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   sendActivity: (activity: MobileChatActivity) => void,
   autoApprove: boolean,
   toolName: string,
@@ -553,7 +555,7 @@ async function requestCodexToolPermission(
   const label = CODEX_APPROVAL_LABELS[toolName] ?? toolName
   sendActivity({ state: 'approval', label: `Waiting for ${label} approval`, toolName: label })
   return requestApproval(
-    window.webContents,
+    window?.webContents,
     `codex-cli:${toolName}`,
     input,
     label === 'Run Command' ? 'Allow Codex to run this command?' : `Allow Codex to ${label.toLowerCase()}?`,
@@ -562,7 +564,7 @@ async function requestCodexToolPermission(
 }
 
 async function requestHermesToolPermission(
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   sendActivity: (activity: MobileChatActivity) => void,
   toolName: string,
   input: Record<string, unknown>,
@@ -570,7 +572,7 @@ async function requestHermesToolPermission(
 ): Promise<boolean> {
   sendActivity({ state: 'approval', label: `Waiting for ${toolName} approval`, toolName })
   return requestApproval(
-    window.webContents,
+    window?.webContents,
     `hermes-acp:${toolName}`,
     input,
     `Allow Hermes to use ${toolName}?`,
@@ -608,7 +610,7 @@ function clearPersistedPlanMode(conversationId: string, backend: 'claude' | 'cod
 }
 
 export async function dispatchChatSend(
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   conversationId: string,
   content: string,
   options?: ChatSendOptions,
@@ -617,9 +619,11 @@ export async function dispatchChatSend(
   const db = getDatabase()
 
   const turnEmitter = new ChatTurnEmitter(conversationId, {
-    sendDesktop: (channel, ...args) => {
-      if (!window.webContents.isDestroyed()) window.webContents.send(channel, ...args)
-    },
+    sendDesktop: window
+      ? (channel, ...args) => {
+          if (!window.webContents.isDestroyed()) window.webContents.send(channel, ...args)
+        }
+      : undefined,
     broadcastMobile: broadcastToMobile,
   })
   turnEmitter.started()
@@ -696,6 +700,13 @@ export async function dispatchChatSend(
   const projectId = options?.projectId
   const contextSnapshot = options?.contextSnapshot ?? null
   const toolPolicy = options?.toolPolicy ?? null
+  const scheduledToolDecision = (toolName: string): boolean | null => {
+    if (!toolPolicy) return null
+    const shortName = toolName.split('__').pop() ?? toolName
+    const matches = (candidate: string) => candidate === toolName || candidate === shortName || candidate.split('__').pop() === shortName
+    if (toolPolicy.neverAllow.some(matches)) return false
+    return toolPolicy.preApproved.some(matches)
+  }
   let newUserMsgId: string | null = null
 
   debugLog('chat', `dispatch: conv=${conversationId} agent=${agentId ?? 'none'} regenerate=${regenerate} cliBackend=${cliBackend ?? 'none'} model=${options?.model ?? 'default'} content="${content.slice(0, 60)}${content.length > 60 ? '…' : ''}"`)
@@ -851,6 +862,9 @@ export async function dispatchChatSend(
   const terminalSandboxProjectRow = terminalSandboxProjectId
     ? (db.prepare('SELECT config_json FROM projects WHERE id = ?').get(terminalSandboxProjectId) as { config_json: string | null } | undefined)
     : undefined
+  const projectConfig = terminalSandboxProjectRow
+    ? parseProjectConfig(terminalSandboxProjectRow.config_json ?? null)
+    : null
   const terminalSandboxProjectDefault = terminalSandboxProjectRow
     ? parseProjectConfig(terminalSandboxProjectRow.config_json ?? null).terminalSandboxBypass
     : false
@@ -874,7 +888,7 @@ export async function dispatchChatSend(
   const generationOptions = {
     temperature: Number.isFinite(temperatureSetting) ? Math.min(2, Math.max(0, temperatureSetting)) : 0.7,
     maxTokens: Number.isFinite(maxTokensSetting) ? Math.min(16384, Math.max(256, maxTokensSetting)) : 4096,
-    thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as string | undefined,
+    thinkingEffort: (convRow?.thinking_effort_override ?? projectConfig?.defaultThinkingEffort ?? agentCfg2?.thinkingEffort) as string | undefined,
   }
   const agenticMode =
     convRow?.agentic_mode_override === 1 ? true
@@ -886,7 +900,7 @@ export async function dispatchChatSend(
     if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((entry) => entry.id === model)) return true
     if (HermesAdapter.isAvailable() && getCliModels('hermes-cli').some((entry) => entry.id === model)) return true
     const { provider } = getProviderForAgent(model)
-    return !!getApiKey(provider)
+    return !!getProviderCredential(provider, { projectId: terminalSandboxProjectId, agentId: effectiveAgentId })
   }
   const conversationModelIsAvailable = !!conversationModel &&
     conversationModel !== 'default' &&
@@ -942,11 +956,12 @@ export async function dispatchChatSend(
         fullAutoApprove: effectiveFullAutoApprove,
         agenticMode,
         terminalSandboxBypass: effectiveTerminalSandboxBypass,
+        toolPolicy: toolPolicy ?? undefined,
         planMode: effectivePermissionMode === 'plan',
         onPlanFinalized: (plan) => { finalizedPlan = plan },
         onContextProgress: sendContextProgress,
       },
-      window.webContents,
+      window?.webContents,
       sendActivity,
     )
 
@@ -1107,16 +1122,18 @@ export async function dispatchChatSend(
     ? (agentCfg2.mcpServers as string[])
     : []
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
-  const byokKeyForModel = getApiKey(providerName)
+  const credentialForModel = getProviderCredential(providerName, { projectId: orchProjId, agentId: effectiveAgentId })
   const fallbackCliBackend = resolveEffectiveBackend({
     cliBackend,
     agentBackend,
     convCliBackend: convRow?.cli_backend,
     selectedModel,
     providerName,
+    projectId: orchProjId,
+    agentId: effectiveAgentId,
   })
   const effectiveBackend = fallbackCliBackend ?? agentBackend
-  debugLog('chat', `routing: authMode=${retrieveAuthMode()} byokKey=${byokKeyForModel ? 'yes' : 'no'} agentBackend=${agentBackend ?? 'none'} fallbackCli=${fallbackCliBackend ?? 'none'} effectiveBackend=${effectiveBackend ?? 'byok'}`)
+  debugLog('chat', `routing: authMode=${retrieveAuthMode()} credential=${credentialForModel ? 'available' : 'missing'} agentBackend=${agentBackend ?? 'none'} fallbackCli=${fallbackCliBackend ?? 'none'} effectiveBackend=${effectiveBackend ?? 'byok'}`)
 
   if (effectiveBackend) {
     const adapter = getAdapter(effectiveBackend)
@@ -1252,6 +1269,7 @@ export async function dispatchChatSend(
       }
 
       let bridgedSkills: BridgedSkill[] = []
+      let skillSaveBridge: SkillSaveMcpBridge | null = null
       try {
         turnEmitter.model(cliModelForRequest || effectiveBackend)
         sendActivity({ state: 'thinking', label: 'Starting CLI agent' })
@@ -1315,10 +1333,17 @@ export async function dispatchChatSend(
 
             if (serverFullyBlocked) continue
 
+            if (toolPolicy) {
+              if (serverTools.some((tool) => scheduledToolDecision(tool.name) === true)) {
+                approvedServerIds.add(serverId)
+              }
+              continue
+            }
+
             if (serverNeedsApproval) {
               const cliFullAuto = effectiveFullAutoApprove
               const approved = await requestApproval(
-                window.webContents,
+              window?.webContents,
                 `mcp__${server.key}`,
                 {},
                 `Allow agent to use ${mcpServers.get(serverId)?.config.name ?? server.key} tools for this message?`,
@@ -1336,11 +1361,13 @@ export async function dispatchChatSend(
             if (!approvedServerIds.has(tool.serverId)) return []
             const server = cliMcpServers.find((s) => s.id === tool.serverId)
             if (!server) return []
+            const qualifiedName = `mcp__${server.key}__${tool.name}`
+            if (toolPolicy && scheduledToolDecision(qualifiedName) !== true) return []
             const override = db
               .prepare('SELECT enabled, approval FROM agent_mcp_tool_overrides WHERE agent_id=? AND server_id=? AND tool_name=?')
               .get(agentIdForTrust, tool.serverId, tool.name) as { enabled: number; approval: string } | undefined
             if (override && (override.enabled === 0 || override.approval === 'disabled')) return []
-            return [`mcp__${server.key}__${tool.name}`]
+            return [qualifiedName]
           })
 
           const filteredServers = cliMcpServers.filter((s) => approvedServerIds.has(s.id))
@@ -1352,15 +1379,49 @@ export async function dispatchChatSend(
         })()
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
           ? getClaudeCliAllowedBuiltInTools(agentCfg2, effectiveAgentId, effectiveFullAutoApprove)
+              .filter((toolName) => scheduledToolDecision(toolName) !== false)
           : []
+        if (requestsSkillCapture(content) && scheduledToolDecision('save_skill') !== false) {
+          skillSaveBridge = await startSkillSaveMcpBridge(
+            async (name) => {
+              sendActivity({ state: 'approval', label: `Waiting for approval to save skill: ${name}`, toolName: 'save_skill' })
+              // Skill persistence is a library write, so it remains approval-gated even when
+              // the surrounding CLI turn is running in full-auto mode.
+              return requestApproval(
+                window?.webContents,
+                'save_skill',
+                { name },
+                `Save skill to library: ${name}`,
+                {
+                  noRemember: true,
+                  conversationId,
+                  ...(toolPolicy ? { autoApprove: scheduledToolDecision('save_skill') === true } : {}),
+                },
+              )
+            },
+            ({ skill, created }) => {
+              if (window && !window.webContents.isDestroyed()) window.webContents.send('skill:library-updated')
+              broadcastToMobile({
+                event: created ? 'skill:created' : 'skill:updated',
+                data: { skill },
+              })
+              sendActivity({ state: 'tool', label: `Saved skill: ${skill.name}`, toolName: 'save_skill' })
+            },
+          )
+          sendActivity({ state: 'thinking', label: 'Skill save approval is available' })
+        }
+        const cliMcpServersForRequest = skillSaveBridge
+          ? [...(cliMcpServersFiltered ?? []), skillSaveBridge.server]
+          : cliMcpServersFiltered
         const cliAllowedTools = [...new Set([
           ...cliAllowedBuiltInTools,
           ...(cliAllowedMcpTools ?? []),
+          ...(skillSaveBridge ? [skillSaveBridge.allowedTool] : []),
           // Claude has renamed its subagent launcher across releases. Grant both aliases;
           // unsupported names are harmless, while the live system prompt targets Agent.
           ...(claudeCliProjectTeam ? ['Agent', 'Task'] : []),
         ])]
-        debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
+        debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersForRequest?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0} skillSave=${skillSaveBridge ? 'yes' : 'no'}`)
 
         const cliProjectDirectories = projectDirectories.filter((directory) => existsSync(directory))
         const cliCwd = (() => {
@@ -1435,9 +1496,9 @@ export async function dispatchChatSend(
             cwd: cliCwd,
             model: cliModelForRequest,
             conversationId,
-            mcpServers: cliMcpServersFiltered,
+            mcpServers: cliMcpServersForRequest,
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
-            thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
+            thinkingEffort: generationOptions.thinkingEffort as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
             skipPermissions: effectiveFullAutoApprove,
             permissionMode: effectivePermissionMode,
             executionMode: effectiveCodexExecutionMode,
@@ -1453,35 +1514,37 @@ export async function dispatchChatSend(
             // create Nexy's PermissionRequest bridge in that mode; the adapter also guards
             // this invariant so direct callers cannot accidentally re-enable prompts.
             requestPermission: effectiveBackend === 'claude-cli' && effectivePermissionMode !== 'bypassPermissions'
-              ? (toolName, input) => requestClaudeCliToolPermission(
-                  window,
-                  agentCfg2,
-                  effectiveAgentId,
-                  sendActivity,
-                  effectiveFullAutoApprove,
-                  effectivePermissionMode,
-                  toolName,
-                  input,
-                  conversationId,
-                  (plan) => { finalizedPlan = plan },
-                )
+              ? (toolName, input) => {
+                  const decision = scheduledToolDecision(toolName)
+                  return decision === null
+                    ? requestClaudeCliToolPermission(
+                        window,
+                        agentCfg2,
+                        effectiveAgentId,
+                        sendActivity,
+                        effectiveFullAutoApprove,
+                        effectivePermissionMode,
+                        toolName,
+                        input,
+                        conversationId,
+                        (plan) => { finalizedPlan = plan },
+                      )
+                    : Promise.resolve(decision)
+                }
               : effectiveBackend === 'codex-cli' && effectiveCodexExecutionMode === 'plan'
-              ? (toolName, input) => requestCodexToolPermission(
-                  window,
-                  sendActivity,
-                  effectiveFullAutoApprove,
-                  toolName,
-                  input,
-                  conversationId,
-                )
+              ? (toolName, input) => {
+                  const decision = scheduledToolDecision(toolName)
+                  return decision === null
+                    ? requestCodexToolPermission(window, sendActivity, effectiveFullAutoApprove, toolName, input, conversationId)
+                    : Promise.resolve(decision)
+                }
               : effectiveBackend === 'hermes-cli' && !effectiveFullAutoApprove
-              ? (toolName, input) => requestHermesToolPermission(
-                  window,
-                  sendActivity,
-                  toolName,
-                  input,
-                  conversationId,
-                )
+              ? (toolName, input) => {
+                  const decision = scheduledToolDecision(toolName)
+                  return decision === null
+                    ? requestHermesToolPermission(window, sendActivity, toolName, input, conversationId)
+                    : Promise.resolve(decision)
+                }
               : undefined,
             requestUserInput: effectiveBackend === 'codex-cli' && effectiveCodexExecutionMode === 'plan'
               ? (questions) => requestUserInput(turnEmitter, 'codex', questions, collectResolvedUserInput)
@@ -1491,7 +1554,6 @@ export async function dispatchChatSend(
           },
           cliSendChunk,
           (event) => {
-            if (window.webContents.isDestroyed()) return
             if (event.type === 'tool_start') {
               if (event.name === 'mcp__nexy_user_input__ask_user' || event.name.endsWith('nexy_user_input.ask_user')) {
                 userInputToolIds.add(event.id)
@@ -1568,11 +1630,15 @@ export async function dispatchChatSend(
             finalizedPlan = plan
             sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
             const approved = await requestApproval(
-              window.webContents,
+              window?.webContents,
               'exit_plan_mode',
               { plan },
               'Review the completed plan and choose what Codex should do next.',
-              { noRemember: true, conversationId },
+              {
+                noRemember: true,
+                conversationId,
+                ...(toolPolicy ? { autoApprove: scheduledToolDecision('exit_plan_mode') === true } : {}),
+              },
             )
             if (approved) {
               clearPersistedPlanMode(conversationId, 'codex')
@@ -1606,7 +1672,7 @@ export async function dispatchChatSend(
           setTimeout(() => {
             const implementationPrompt =
               'Implement the approved plan now. Continue until it is fully complete, then verify the result.'
-            if (!window.webContents.isDestroyed()) {
+            if (window && !window.webContents.isDestroyed()) {
               window.webContents.send('chat:remote-message', {
                 conversationId,
                 content: implementationPrompt,
@@ -1654,6 +1720,7 @@ export async function dispatchChatSend(
         )
         return { assistantMsgId }
       } finally {
+        skillSaveBridge?.close()
         // Remove the skills this run bridged (unless another in-flight run still references them).
         if (bridgedSkills.length > 0) releaseBridgedSkills(bridgedSkills)
       }
@@ -1661,7 +1728,7 @@ export async function dispatchChatSend(
   }
 
   // ── BYOK provider dispatch ─────────────────────────────────────────────────
-  const byokKey = byokKeyForModel
+  const credential = credentialForModel
 
   const historyRows = db
     .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC')
@@ -1846,14 +1913,21 @@ export async function dispatchChatSend(
     : hasFileTools
       ? 'You have read-only access to project files through read_project_file. Use it to inspect the files needed for the plan, but do not claim that you can edit them while Plan mode is active.'
     : ''
-  const hasSkillTools = skillToolDefs.length > 0
-  const skillDirective = hasSkillTools
-    ? 'Available skills are advertised by name and description only. When one clearly matches the task, call activate_skill before following it; never treat availability as activation. ' +
-      'After activation, read only the supporting files you actually need with read_skill_resource. Skill packages cannot grant tools or bypass the current permission policy. ' +
-      'You also have a save_skill tool that persists a reusable skill to the user\'s Nexy skill library. ' +
-      'Use it only when the user asks to save/keep a skill, or when you have read an external SKILL.md the user wants imported — never spontaneously. ' +
-      'You may pass either a complete SKILL.md `markdown` document or the structured fields (name is required). Saving always requires user approval.'
-    : ''
+  const hasSkillActivationTools = skillToolDefs.some((tool) =>
+    tool.function.name === 'activate_skill' || tool.function.name === 'read_skill_resource',
+  )
+  const hasSkillCaptureTool = skillToolDefs.some((tool) => tool.function.name === 'save_skill')
+  const skillDirective = [
+    hasSkillActivationTools
+      ? 'Available skills are advertised by name and description only. When one clearly matches the task, call activate_skill before following it; never treat availability as activation. ' +
+        'After activation, read only the supporting files you actually need with read_skill_resource. Skill packages cannot grant tools or bypass the current permission policy.'
+      : '',
+    hasSkillCaptureTool
+      ? 'You also have a save_skill tool that persists a reusable skill to the user\'s Nexy skill library. ' +
+        'Use it only when the user asks to save/keep a skill, or when you have read an external SKILL.md the user wants imported — never spontaneously. ' +
+        'You may pass either a complete SKILL.md `markdown` document or the structured fields (name is required). Saving always requires user approval.'
+      : '',
+  ].filter(Boolean).join(' ')
   const hasPlanTools = planToolDefs.length > 0
   const planDirective = hasPlanTools
     ? 'This chat is in PLAN MODE. You are read-only: you may read files and research, but you must NOT edit files or run commands. ' +
@@ -1918,14 +1992,14 @@ export async function dispatchChatSend(
     debugLog('chat', `byok: dispatching to ${providerName}/${providerModel} mcpTools=${mcpTools.length} wikiTools=${wikiToolDefs.length} contextMsgs=${effectiveContextMessages.length}`)
     sendActivity({ state: 'thinking', label: 'Contacting model' })
 
-    if (!byokKey) {
+    if (!credential) {
       throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
     }
 
     responseContent = await dispatchToProvider({
       providerName,
       providerModel,
-      byokKey,
+      credential,
       chatMessages,
       toolDefs,
       toolMap,
@@ -1935,7 +2009,7 @@ export async function dispatchChatSend(
       toolDirective,
       generationOptions,
       conversationId,
-      webContents: window.webContents,
+      webContents: window?.webContents,
       sendChunk: byokSendChunk,
       sendActivity,
       onModel: handleStreamModel,

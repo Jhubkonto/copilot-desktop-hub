@@ -30,7 +30,9 @@ const state = vi.hoisted(() => {
   const allOverrides = new Map<string, unknown[]>()
   const recordProjectAuditChange = vi.fn()
   const saveFinalizedPlanArtifact = vi.fn()
-  return { handlers, messages, modelUpdates, conversationInserts, modeClears, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange, saveFinalizedPlanArtifact }
+  const startSkillSaveMcpBridge = vi.fn()
+  const getApiKey = vi.fn(() => 'test-key')
+  return { handlers, messages, modelUpdates, conversationInserts, modeClears, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange, saveFinalizedPlanArtifact, startSkillSaveMcpBridge, getApiKey }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -142,6 +144,7 @@ vi.mock('../mcp', () => ({
 }))
 vi.mock('../orchestrator', () => ({ runOrchestration: vi.fn() }))
 vi.mock('../tool-loop', () => ({ runProviderMcpToolLoop: vi.fn() }))
+vi.mock('../skill-save-mcp-bridge', () => ({ startSkillSaveMcpBridge: state.startSkillSaveMcpBridge }))
 vi.mock('../cli-adapters/registry', () => ({ getAdapter: vi.fn(() => null) }))
 vi.mock('../cli-adapters/claude', () => ({ ClaudeAdapter: { isAvailable: vi.fn(() => false) } }))
 vi.mock('../cli-adapters/codex', () => ({
@@ -175,7 +178,8 @@ vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'gpt-5-mini',
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',
   getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-4o' })),
-  getApiKey: vi.fn(() => 'test-key'),
+  getApiKey: state.getApiKey,
+  getProviderCredential: state.getApiKey,
   getOpenRouterModels: vi.fn(() => []),
   toOpenAICompatibleMessages: vi.fn((messages) => messages),
   sendOpenAIMessage: vi.fn(async (_conversationId, _apiKey, _model, _messages, onChunk) => {
@@ -199,7 +203,7 @@ import { CodexAdapter } from '../cli-adapters/codex'
 import { retrieveAuthMode } from '../auth'
 import { getAgentConfig } from '../agents'
 import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
-import { getApiKey, sendOpenAIMessage } from '../providers'
+import { getApiKey, getProviderForAgent, sendOpenAIMessage } from '../providers'
 import { requestApproval, denyPendingApprovalsForConversation } from '../tools'
 import { runOrchestration } from '../orchestrator'
 import { runProviderMcpToolLoop } from '../tool-loop'
@@ -208,6 +212,7 @@ import { getActivitySnapshot } from '../activity-tracker'
 import { parseProjectConfig } from '../project-handlers'
 import { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 import { getActiveChatTurnSnapshot, recordActiveChatTurnEvent } from '../active-chat-turns'
+import { startSkillSaveMcpBridge } from '../skill-save-mcp-bridge'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -246,6 +251,7 @@ describe('chat handlers', () => {
       return response
     })
     vi.mocked(requestApproval).mockResolvedValue(false)
+    vi.mocked(startSkillSaveMcpBridge).mockReset()
     state.recordProjectAuditChange.mockClear()
     registerChatHandlers()
   })
@@ -286,6 +292,22 @@ describe('chat handlers', () => {
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:complete'))
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:messages'))
     expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
+  })
+
+  it('uses the project default thinking effort when the chat has no override', async () => {
+    vi.mocked(parseProjectConfig).mockReturnValueOnce({
+      ...DEFAULT_PROJECT_CONFIG,
+      defaultThinkingEffort: 'high',
+    })
+    vi.mocked(getProviderForAgent).mockReturnValue({ provider: 'openai', model: 'o3' })
+    vi.mocked(sendOpenAIMessage).mockClear()
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-project-thinking', 'Think carefully', { projectId: 'proj-1' })
+
+    const generationOptions = vi.mocked(sendOpenAIMessage).mock.calls.at(-1)?.[5]
+    expect(generationOptions).toEqual(expect.objectContaining({ thinkingEffort: 'high' }))
+    vi.mocked(getProviderForAgent).mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
   })
 
   it('binds a project chat to the project primary agent when no agent is supplied (Android parity)', async () => {
@@ -1297,7 +1319,7 @@ describe('chat handlers', () => {
   it('records a CLI-driven file edit in Project Audit with a real diff, matching what write_project_file already does for BYOK chat', async () => {
     // Regression: Claude CLI / Codex CLI edit files directly inside their own subprocess, so
     // Nexy only ever saw a plain ToolCallBlock for these edits — no diff, no undo, no entry in
-    // Project Settings -> Changes — unlike write_project_file (BYOK chat's own file tool), which
+    // The CLI audit path — unlike write_project_file (BYOK chat's own file tool), which
     // has always called recordProjectAuditChange. This exercises the tool_start (snapshot
     // "before") / tool_end (diff against "after") flow added to close that gap.
     const testRoot = path.join(process.cwd(), '.test-chat-cli-audit')
@@ -1384,7 +1406,7 @@ describe('chat handlers', () => {
 
   it('attaches a real diff when write_project_file overwrites an existing file, matching the CLI-driven audit path', async () => {
     // Regression: write_project_file recorded a Project Audit entry with no diff at all
-    // (diff omitted entirely), so AuditTab.tsx's "View diff" only ever lit up for
+    // (diff omitted entirely), so the audit diff is only available for
     // Code-Changes-sourced rows even though every source rendered the same affordance.
     const testRoot = path.join(process.cwd(), '.test-chat-write-project-file')
     const targetFile = path.join(testRoot, 'notes.md')
@@ -1488,6 +1510,77 @@ describe('chat handlers', () => {
       'Approve this plan and start implementing?',
       { noRemember: true, conversationId: 'conv-provider-plan' },
     )
+  })
+
+  it('injects the approval-gated Nexy skill bridge for an explicit CLI skill-save request', async () => {
+    const capturedReqs: Array<{ mcpServers?: Array<{ key: string }>; allowedTools?: string[] }> = []
+    const close = vi.fn()
+    let approveSkill: ((name: string, args: Record<string, unknown>) => Promise<boolean>) | undefined
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { mcpServers?: Array<{ key: string }>; allowedTools?: string[] }) => {
+        capturedReqs.push({ mcpServers: req.mcpServers, allowedTools: req.allowedTools })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(startSkillSaveMcpBridge).mockImplementation(async (approval) => {
+      approveSkill = approval
+      return {
+        server: { id: 'nexy-skill-save', key: 'nexy_skill', command: 'node', args: [], env: {} },
+        allowedTool: 'mcp__nexy_skill__save_skill',
+        close,
+      }
+    })
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    vi.mocked(requestApproval).mockResolvedValue(true)
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli-save-skill', 'Create a reusable skill and save it into Nexy.', { cliBackend: 'claude-cli' })
+
+    expect(startSkillSaveMcpBridge).toHaveBeenCalledOnce()
+    expect(capturedReqs[0].mcpServers).toEqual([{ id: 'nexy-skill-save', key: 'nexy_skill', command: 'node', args: [], env: {} }])
+    expect(capturedReqs[0].allowedTools).toEqual(['mcp__nexy_skill__save_skill'])
+    await expect(approveSkill?.('demo', { name: 'demo' })).resolves.toBe(true)
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.anything(),
+      'save_skill',
+      { name: 'demo' },
+      'Save skill to library: demo',
+      { noRemember: true, conversationId: 'conv-cli-save-skill' },
+    )
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('exposes save_skill to a normal provider chat when the user asks to save a skill', async () => {
+    const stubDb = {
+      prepare: (sql: string) => ({
+        get: () => {
+          if (sql.includes('COUNT(*)')) return { count: 0 }
+          return { agent_id: null }
+        },
+        all: () => [],
+        run: () => ({ changes: 1 }),
+      }),
+    } as unknown as Parameters<typeof buildChatContext>[0]
+    const stubWebContents = {
+      isDestroyed: () => false,
+      send: vi.fn(),
+    } as unknown as Parameters<typeof buildChatContext>[4]
+
+    const built = await buildChatContext(
+      stubDb,
+      'conv-provider-save-skill',
+      'Create a reusable skill for this workflow and save it into Nexy.',
+      {},
+      stubWebContents,
+      vi.fn(),
+    )
+
+    expect(built.skillToolDefs.map((tool) => tool.function.name)).toEqual(['save_skill'])
+    expect(built.skillInlineHandlers.has('save_skill')).toBe(true)
   })
 
   it('broadcasts messages and stream-end to mobile after orchestration completes', async () => {

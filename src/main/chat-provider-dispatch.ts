@@ -25,6 +25,7 @@ import { resolveToolsSupported } from '../shared/models'
 import { getCachedCatalog } from './model-catalog'
 import { debugLog } from './debug-mode'
 import { PROVIDER_THINKING_SUPPORT } from '../shared/types'
+import type { ProviderCredentialInput } from './credential-vault'
 
 function stripImageParts(msgs: ProviderMessage[]): ProviderMessage[] {
   return msgs.map((msg) => {
@@ -37,7 +38,10 @@ function stripImageParts(msgs: ProviderMessage[]): ProviderMessage[] {
 export type ProviderDispatchOptions = {
   providerName: string
   providerModel: string
-  byokKey: string
+  /** Opaque vault reference used by production callers. */
+  credential?: ProviderCredentialInput
+  /** @deprecated Test/legacy compatibility only; production callers must use credential. */
+  byokKey?: ProviderCredentialInput
   chatMessages: ProviderMessage[]
   toolDefs: ToolDefinition[]
   toolMap: Map<string, { serverId: string; toolName: string }>
@@ -47,7 +51,7 @@ export type ProviderDispatchOptions = {
   toolDirective: string
   generationOptions: { temperature: number; maxTokens: number; thinkingEffort?: string }
   conversationId: string
-  webContents: WebContents
+  webContents: WebContents | undefined
   sendChunk: (chunk: string) => void
   sendActivity: (a: MobileChatActivity) => void
   onModel?: (model: string) => void
@@ -107,7 +111,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   const {
     providerName,
     providerModel,
-    byokKey,
+    credential,
+    byokKey: legacyByokKey,
     toolDefs,
     toolMap,
     effectiveAgentId,
@@ -129,6 +134,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     fullAutoApprove,
     forceFirstToolChoice,
   } = opts
+  const byokKey = credential ?? legacyByokKey
+  if (!byokKey) throw new Error('No provider credential reference supplied')
   let { chatMessages, systemPrompt } = opts
 
   // Strip thinking effort for providers that don't support it (H5).
@@ -141,7 +148,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     thinkingSupport === false
   ) {
     debugLog('provider', `${providerName}: thinking not supported — stripping thinkingEffort=${effectiveGenerationOptions.thinkingEffort} model=${providerModel}`)
-    webContents.send('chat:activity-global', { label: `Thinking effort ignored: not supported by ${providerName}` })
+    webContents?.send('chat:activity-global', { label: `Thinking effort ignored: not supported by ${providerName}` })
     effectiveGenerationOptions.thinkingEffort = 'disabled'
   } else if (
     effectiveGenerationOptions.thinkingEffort &&
@@ -195,14 +202,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       if (callerOnThinkingChunk) {
         callerOnThinkingChunk(blockId, chunk)
       } else {
-        webContents.send('chat:thinking-delta', { blockId, chunk })
+        webContents?.send('chat:thinking-delta', { blockId, chunk })
       }
     },
     onThinkingEnd: (blockId: string) => {
       if (callerOnThinkingEnd) {
         callerOnThinkingEnd(blockId)
       } else {
-        webContents.send('chat:thinking-end', { blockId })
+        webContents?.send('chat:thinking-end', { blockId })
       }
     },
   }

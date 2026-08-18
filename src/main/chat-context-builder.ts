@@ -14,8 +14,8 @@ import { applyWikiChangeProposal, listRecentWikiEntries, proposeWikiChange } fro
 import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './diff-utils'
-import { getSkillConfigsForAgent, upsertSkillConfigByName } from './skills'
-import { parseSkillMarkdown } from './skill-markdown'
+import { getSkillConfigsForAgent } from './skills'
+import { persistSkillCapture, prepareSkillCapture, requestsSkillCapture } from './skill-service'
 import { portableSkillName, readSkillResource, skillEntryMarkdown } from './skill-packages'
 import type { ArtifactKind, SkillConfig } from '../shared/types'
 import { extractKeywords } from './rating-handlers'
@@ -47,6 +47,7 @@ export type ChatContextOptions = {
   fullAutoApprove?: boolean
   agenticMode?: boolean
   terminalSandboxBypass?: boolean
+  toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
   /** When true, the chat is in plan mode: mutating tools (write/terminal) are withheld and an
    *  `exit_plan_mode` tool is exposed so the model can present a finalized plan for approval. */
   planMode?: boolean
@@ -113,6 +114,11 @@ const ATTACHED_FOLDER_IGNORES = new Set([
 const ATTACHED_FOLDER_FILE_LIMIT = 100
 const ATTACHED_FOLDER_CHAR_LIMIT = 200_000
 
+/**
+ * A normal chat only receives the mutating skill tool when the user has clearly asked for a
+ * skill to be kept somewhere. This avoids adding another callable tool to unrelated chats while
+ * still allowing the natural "create this skill and save it in Nexy" workflow.
+ */
 function readAttachedFolder(folderPath: string, label: string): string {
   const blocks: string[] = []
   let fileCount = 0
@@ -262,7 +268,7 @@ export async function buildChatContext(
   conversationId: string,
   content: string,
   options: ChatContextOptions,
-  webContents: WebContents,
+  webContents: WebContents | undefined,
   sendActivity: (a: MobileChatActivity) => void,
 ): Promise<BuiltContext> {
   const {
@@ -276,6 +282,12 @@ export async function buildChatContext(
     planMode,
     onPlanFinalized,
   } = options
+  const isPreApproved = (toolName: string) => options.toolPolicy?.preApproved.some(
+    (allowed) => allowed === toolName || allowed.split('__').pop() === toolName,
+  ) === true
+  const scheduledAutoApprove = (toolName: string) => options.toolPolicy
+    ? { autoApprove: isPreApproved(toolName) }
+    : {}
 
   // ── Attachment and image processing ────────────────────────────────────────
   const attachedImages: { id: string; name: string; dataUrl: string }[] = [...pastedImages]
@@ -697,7 +709,7 @@ export async function buildChatContext(
       const wikiBlock = formatWikiSection(wikiEntries)
       augmentedContent = `${wikiBlock}\n\n${augmentedContent}`
       reportContextProgress('Collecting project wiki')
-      if (!webContents.isDestroyed()) {
+      if (webContents && !webContents.isDestroyed()) {
         webContents.send('chat:wiki-injected', { count: wikiEntries.length })
       }
     }
@@ -804,8 +816,6 @@ export async function buildChatContext(
     })
 
     wikiInlineHandlers.set('propose_wiki_entry', async (args) => {
-      if (capturedWebContents.isDestroyed())
-        return { success: false, error: 'Window closed — cannot request approval' }
       const title = typeof args.title === 'string' ? args.title : String(args.title ?? '')
       const body = typeof args.body === 'string' ? args.body : String(args.body ?? '')
       const tags = Array.isArray(args.tags) ? (args.tags as string[]).map(String) : []
@@ -829,7 +839,7 @@ export async function buildChatContext(
         'propose_wiki_entry',
         proposal as unknown as Record<string, unknown>,
         `${actionLabel} with "${proposal.title}"`,
-        { noRemember: true, conversationId: capturedConversationId },
+        { noRemember: true, conversationId: capturedConversationId, ...scheduledAutoApprove('propose_wiki_entry') },
       )
       if (!approved) return { success: false, error: 'User declined the wiki proposal' }
       const entry = applyWikiChangeProposal(capturedDb, proposal, { conversationId: capturedConversationId })
@@ -944,15 +954,13 @@ export async function buildChatContext(
       const fileContent = typeof args.content === 'string' ? args.content : String(args.content ?? '')
       const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
-      if (capturedWebContentsForFiles.isDestroyed())
-        return { success: false, error: 'Window closed — cannot request approval' }
       sendActivity({ state: 'approval', label: 'Waiting for file write approval', toolName: 'write_project_file' })
       const approved = await requestApproval(
         capturedWebContentsForFiles,
         'write_project_file',
         { path: requestedPath },
         `Write file: ${requestedPath}`,
-        { noRemember: true, autoApprove: capturedFullAutoApprove || capturedAgenticMode },
+        { noRemember: true, autoApprove: capturedFullAutoApprove || capturedAgenticMode || isPreApproved('write_project_file') },
       )
       if (!approved) return { success: false, error: 'User declined file write' }
       try {
@@ -982,14 +990,13 @@ export async function buildChatContext(
       const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
       if (!existsSync(resolvedPath)) return { success: false, error: `Path not found: ${requestedPath}` }
-      if (capturedWebContentsForFiles.isDestroyed()) return { success: false, error: 'Window closed — cannot request approval' }
       sendActivity({ state: 'approval', label: 'Waiting for artifact copy approval', toolName: 'copy_path_to_artifact' })
       const approved = await requestApproval(
         capturedWebContentsForFiles,
         'copy_path_to_artifact',
         { path: requestedPath, title: args.title, kind: args.kind },
         `Copy to Nexy artifact: ${requestedPath}`,
-        { noRemember: true, conversationId, autoApprove: capturedFullAutoApprove || capturedAgenticMode },
+        { noRemember: true, conversationId, autoApprove: capturedFullAutoApprove || capturedAgenticMode || isPreApproved('copy_path_to_artifact') },
       )
       if (!approved) return { success: false, error: 'User declined artifact copy' }
       try {
@@ -1063,15 +1070,13 @@ export async function buildChatContext(
           return { success: false, error: `Working directory not found: ${requestedCwd}` }
         }
 
-        if (capturedWebContentsForFiles.isDestroyed())
-          return { success: false, error: 'Window closed — cannot request approval' }
         sendActivity({ state: 'approval', label: 'Waiting for terminal command approval', toolName: 'run_terminal_command' })
         const approved = await requestApproval(
           capturedWebContentsForFiles,
           'run_terminal_command',
           { command, cwd: resolvedCwd },
           `Run command: ${command}`,
-          { noRemember: true, autoApprove: capturedFullAutoApprove || capturedAgenticMode || capturedTerminalApprovalAuto },
+          { noRemember: true, autoApprove: capturedFullAutoApprove || capturedAgenticMode || capturedTerminalApprovalAuto || isPreApproved('run_terminal_command') },
         )
         if (!approved) return { success: false, error: 'User declined command execution' }
         sendActivity({ state: 'tool', label: `Running: ${command}`, toolName: 'run_terminal_command' })
@@ -1119,17 +1124,15 @@ export async function buildChatContext(
     }
   }
 
-  // ── Skill capture tool (persists a skill to the global library) ────────────
-  // Exposed only for agent-backed chats: lets a model, mid-conversation, save a skill it
-  // authored or read from an external `SKILL.md` into Nexy's skill library. Writing to the
-  // global library always requires explicit user approval, and captured skills are tagged
-  // with their provenance so the library never silently fills with model-authored entries.
+  // ── Skill tools ────────────────────────────────────────────────────────────
+  // Agent-backed chats get the complete skill activation/resource surface. A normal chat gets
+  // only save_skill when the current request clearly asks to create/import and retain a skill.
+  // Writing to the global library always requires explicit user approval, and captured skills are
+  // tagged with their provenance so the library never silently fills with model-authored entries.
   const skillToolDefs: ToolDefinition[] = []
   const skillInlineHandlers = new Map<string, InlineHandler>()
 
   if (effectiveAgentId) {
-    const capturedWebContentsForSkill = webContents
-
     skillToolDefs.push({
       type: 'function' as const,
       function: {
@@ -1183,6 +1186,11 @@ export async function buildChatContext(
       }
     })
 
+  }
+
+  if (effectiveAgentId || requestsSkillCapture(content)) {
+    const capturedWebContentsForSkill = webContents
+
     skillToolDefs.push({
       type: 'function' as const,
       function: {
@@ -1211,28 +1219,10 @@ export async function buildChatContext(
     })
 
     skillInlineHandlers.set('save_skill', async (args) => {
-      if (capturedWebContentsForSkill.isDestroyed())
-        return { success: false, error: 'Window closed — cannot request approval' }
-
-      // Build a partial SkillConfig from either the markdown document or the structured fields.
-      let partial: Partial<SkillConfig>
-      const markdown = typeof args.markdown === 'string' ? args.markdown.trim() : ''
-      if (markdown) {
-        partial = parseSkillMarkdown(markdown)
-      } else {
-        partial = {
-          name: typeof args.name === 'string' ? args.name : undefined,
-          description: typeof args.description === 'string' ? args.description : undefined,
-          instructions: typeof args.instructions === 'string' ? args.instructions : undefined,
-          icon: typeof args.icon === 'string' ? args.icon : undefined,
-          tags: Array.isArray(args.tags) ? args.tags.filter((t): t is string => typeof t === 'string') : undefined,
-        }
-      }
-
-      const name = (partial.name ?? '').trim()
-      if (!name) return { success: false, error: 'A skill name is required (provide `name` or a `markdown` document with a name).' }
-      if (!partial.instructions?.trim())
-        return { success: false, error: 'A skill needs instructions (provide `instructions` or a `markdown` body).' }
+      // Parse and validate either the markdown document or the structured fields before asking.
+      const prepared = prepareSkillCapture(args)
+      if ('error' in prepared) return { success: false, error: prepared.error }
+      const { name } = prepared
 
       sendActivity({ state: 'approval', label: `Waiting for approval to save skill: ${name}`, toolName: 'save_skill' })
       const approved = await requestApproval(
@@ -1240,27 +1230,27 @@ export async function buildChatContext(
         'save_skill',
         { name },
         `Save skill to library: ${name}`,
-        { noRemember: true, conversationId },
+        { noRemember: true, conversationId, ...scheduledAutoApprove('save_skill') },
       )
       if (!approved) return { success: false, error: 'User declined saving the skill' }
 
-      // Tag provenance so model-captured skills are distinguishable in the library.
-      const provenanceTags = Array.from(new Set([
-        ...(partial.tags ?? []),
-        ...(markdown ? ['imported'] : []),
-        'auto-captured',
-      ]))
-      const { skill, created } = upsertSkillConfigByName({ ...partial, name, tags: provenanceTags })
+      try {
+        const { skill, created } = persistSkillCapture(prepared)
 
-      capturedWebContentsForSkill.send('skill:library-updated')
-      broadcastToMobile({
-        event: created ? 'skill:created' : 'skill:updated',
-        data: { skill },
-      })
-      sendActivity({ state: 'tool', label: `Saved skill: ${name}`, toolName: 'save_skill' })
-      return {
-        success: true,
-        result: `${created ? 'Created' : 'Updated'} skill "${name}" (id: ${skill.id}) in the Nexy skill library.`,
+        if (capturedWebContentsForSkill && !capturedWebContentsForSkill.isDestroyed()) {
+          capturedWebContentsForSkill.send('skill:library-updated')
+        }
+        broadcastToMobile({
+          event: created ? 'skill:created' : 'skill:updated',
+          data: { skill },
+        })
+        sendActivity({ state: 'tool', label: `Saved skill: ${name}`, toolName: 'save_skill' })
+        return {
+          success: true,
+          result: `${created ? 'Created' : 'Updated'} skill "${name}" (id: ${skill.id}) in the Nexy skill library.`,
+        }
+      } catch (error) {
+        return { success: false, error: `Could not save skill "${name}": ${error instanceof Error ? error.message : String(error)}` }
       }
     })
   }
@@ -1297,8 +1287,6 @@ export async function buildChatContext(
     })
 
     planInlineHandlers.set('exit_plan_mode', async (args) => {
-      if (capturedWebContentsForPlan.isDestroyed())
-        return { success: false, error: 'Window closed — cannot request approval' }
       const plan = typeof args.plan === 'string' ? args.plan.trim() : ''
       if (!plan) return { success: false, error: 'Provide the finalized plan as the `plan` argument.' }
 
@@ -1309,7 +1297,7 @@ export async function buildChatContext(
         'exit_plan_mode',
         { plan },
         'Approve this plan and start implementing?',
-        { noRemember: true, conversationId },
+        { noRemember: true, conversationId, ...scheduledAutoApprove('exit_plan_mode') },
       )
       if (!approved) {
         return {
