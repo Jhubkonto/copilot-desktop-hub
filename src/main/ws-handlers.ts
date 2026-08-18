@@ -5,6 +5,7 @@ import type { UserInputAnswer, UserInputRequest } from '../shared/chat-turn-type
 import { createHash, randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
+import { applyLifecycleSetting, setAutoStartEnabled } from './app-lifecycle-settings'
 import {
   generateAiSpokenOutput,
   getAssistantMessageContext,
@@ -84,7 +85,18 @@ import {
   skipAutomatedWorkflowStep,
   abortAutomatedWorkflowRun,
   setAutomatedWorkflowConfirmationMode,
+  advanceAutomatedWorkflowRun,
 } from './automated-workflow-executor'
+import {
+  confirmManagedPublish,
+  createManagedPublishPreview,
+  editManagedWorkflowVersion,
+  getManagedArtifactVersionContent,
+  getManagedBindings,
+  listManagedWorkflowSources,
+  recordManagedWorkflowReview,
+  resetManagedWorkflowFromStep,
+} from './automated-workflow-managed'
 import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion, AutomatedWorkflowGeneratorMessage, AutomatedWorkflowStepStatus } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
@@ -132,6 +144,7 @@ import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-ha
 import { listDirectoryEntriesForRemote, readTextFileForRemote, getFsStartRoots, getFsAuthorizedRoots } from './file-handlers'
 import {
   createSkillConfig,
+  discoverSkills,
   deleteSkillConfig,
   duplicateSkillConfig,
   getSkillAgentLinks,
@@ -142,6 +155,7 @@ import {
   setSkillAgentAttachment,
   updateSkillConfig,
 } from './skills'
+import { importDiscoveredSkill } from './skill-discovery'
 import { skillForTransport } from './skill-packages'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
@@ -425,7 +439,7 @@ export function registerWsHandlers(): void {
         // Enable auto-start on first successful pairing if not already set
         const settings = app.getLoginItemSettings()
         if (!settings.openAtLogin) {
-          app.setLoginItemSettings({ openAtLogin: true })
+          setAutoStartEnabled(true)
         }
       }
       return
@@ -1476,6 +1490,14 @@ export function registerWsHandlers(): void {
         db.prepare('UPDATE projects SET default_model = ?, updated_at = ? WHERE id = ?')
           .run(defaultModel, Date.now(), id)
       }
+      if ('defaultThinkingEffort' in data) {
+        const requestedThinkingEffort = typeof data.defaultThinkingEffort === 'string'
+          ? data.defaultThinkingEffort.trim()
+          : ''
+        patch.defaultThinkingEffort = ['low', 'medium', 'high', 'max', 'disabled'].includes(requestedThinkingEffort)
+          ? requestedThinkingEffort
+          : null
+      }
       if (typeof data.instructionMode === 'string') patch.instructionMode = data.instructionMode
       if (typeof data.instructionsEnabled === 'boolean') patch.instructionsEnabled = data.instructionsEnabled
       if (Array.isArray(data.inScope)) patch.inScope = data.inScope
@@ -1826,6 +1848,7 @@ export function registerWsHandlers(): void {
       const value = typeof data.value === 'string' ? data.value : ''
       if (!key) return
       db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
+      applyLifecycleSetting(key, value)
       reply({ event: 'app:setting-set', data: { key, value } })
       return
     }
@@ -2121,6 +2144,12 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'skill:discover') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      reply({ event: 'skill:discover', data: { skills: await discoverSkills(projectId) } })
+      return
+    }
+
     if (command === 'skill:get') {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
@@ -2171,6 +2200,36 @@ export function registerWsHandlers(): void {
       const rawSkill = (typeof data.skill === 'object' && data.skill !== null ? data.skill : data) as Partial<SkillConfig>
       const skill = createSkillConfig(rawSkill)
       broadcastToMobile({ event: 'skill:created', data: { skill: skillForTransport(skill) } })
+      return
+    }
+
+    if (command === 'skill:import-discovered') {
+      const requested = typeof data.discovery === 'object' && data.discovery !== null
+        ? data.discovery as { packagePath?: unknown }
+        : null
+      const packagePath = typeof requested?.packagePath === 'string' ? requested.packagePath : ''
+      if (!packagePath) {
+        reply({ event: 'skill:discovery-error', data: { message: 'The discovered skill package path is missing.' } })
+        return
+      }
+      // Resolve the package from a fresh scan instead of trusting an arbitrary path supplied by
+      // the companion. This also handles a package that was removed or changed after scanning.
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const discovery = (await discoverSkills(projectId)).find((item) => item.packagePath === packagePath)
+      if (!discovery || discovery.importable === false) {
+        reply({ event: 'skill:discovery-error', data: { message: 'That skill is no longer available or cannot be read.' } })
+        return
+      }
+      try {
+        const skill = importDiscoveredSkill(discovery, {})
+        if (!skill) {
+          reply({ event: 'skill:discovery-error', data: { message: 'The skill could not be imported.' } })
+          return
+        }
+        broadcastToMobile({ event: 'skill:created', data: { skill: skillForTransport(skill) } })
+      } catch (error) {
+        reply({ event: 'skill:discovery-error', data: { message: error instanceof Error ? error.message : 'The skill could not be imported.' } })
+      }
       return
     }
 
@@ -2593,7 +2652,7 @@ export function registerWsHandlers(): void {
         : undefined
       try {
         const result = forkConversation(db, conversationId, { cutoffTimestamp, ...(projectId !== undefined ? { projectId } : {}) })
-        broadcastToMobile({ event: 'conversation:forked', data: { conversationId: result.conversation.id, title: result.conversation.title, messageCount: result.message_count } })
+        broadcastToMobile({ event: 'conversation:forked', data: { conversationId: result.conversation.id, title: result.conversation.title, messageCount: result.message_count, projectId: result.conversation.project_id } })
       } catch (err) {
         reply({ event: 'conversation:fork-error', data: { message: String(err) } })
       }
@@ -3069,6 +3128,96 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'automated-workflow-managed:list-sources') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      try {
+        reply({ event: 'automated-workflow-managed:sources', data: { projectId, sources: listManagedWorkflowSources(projectId) } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-managed:get-version') {
+      const versionId = typeof data.versionId === 'string' ? data.versionId : ''
+      try {
+        reply({ event: 'automated-workflow-managed:version', data: { version: getManagedArtifactVersionContent(versionId) } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-managed:get-bindings') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      const stepDbId = typeof data.stepDbId === 'string' ? data.stepDbId : undefined
+      reply({ event: 'automated-workflow-managed:bindings', data: { runId, stepDbId, bindings: getManagedBindings(runId, stepDbId) } })
+      return
+    }
+
+    if (command === 'automated-workflow-managed:edit-version') {
+      try {
+        const detail = editManagedWorkflowVersion({
+          runId: String(data.runId ?? ''), stepDbId: String(data.stepDbId ?? ''),
+          expectedVersionId: String(data.expectedVersionId ?? ''), content: String(data.content ?? ''), client: 'android',
+        })
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-managed:review') {
+      const runId = String(data.runId ?? '')
+      try {
+        const decision = data.decision === 'rejected' ? 'rejected' : 'approved'
+        let detail = recordManagedWorkflowReview({ runId, stepDbId: String(data.stepDbId ?? ''),
+          artifactVersionId: String(data.artifactVersionId ?? ''), decision, client: 'android' })
+        if (decision === 'approved' && detail.status !== 'done') detail = (await advanceAutomatedWorkflowRun(runId)) ?? detail
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-managed:regenerate') {
+      const runId = String(data.runId ?? '')
+      try {
+        resetManagedWorkflowFromStep(runId, String(data.stepDbId ?? ''))
+        const detail = await advanceAutomatedWorkflowRun(runId)
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-managed:create-preview') {
+      try {
+        const preview = createManagedPublishPreview({ runId: String(data.runId ?? ''),
+          stepDbId: String(data.stepDbId ?? ''), artifactVersionId: String(data.artifactVersionId ?? '') })
+        reply({ event: 'automated-workflow-managed:publish-preview', data: { preview } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-managed:confirm-publish') {
+      const runId = String(data.runId ?? '')
+      try {
+        const action = confirmManagedPublish({ runId, stepDbId: String(data.stepDbId ?? ''),
+          previewId: String(data.previewId ?? ''), idempotencyKey: String(data.idempotencyKey ?? ''), client: 'android' })
+        if (action.status === 'published' && getAutomatedWorkflowRun(runId)?.status === 'pending') await advanceAutomatedWorkflowRun(runId)
+        reply({ event: 'automated-workflow-managed:publish-action', data: { action } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
     if (command === 'automated-workflow-runs:save-spec') {
       const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const specRaw = data.spec
@@ -3508,6 +3657,15 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'scheduler:resume-run') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      if (!runId) return
+      void schedulerEngine.resumeRun(runId)
+        .then((run) => reply({ event: 'scheduler:run-updated', data: run }))
+        .catch((err: unknown) => reply({ event: 'scheduler:run-error', data: { runId, error: String(err) } }))
+      return
+    }
+
     if (command === 'scheduler:list-runs') {
       const taskId = typeof data.taskId === 'string' ? data.taskId : ''
       const limit = typeof data.limit === 'number' ? data.limit : 50
@@ -3782,7 +3940,7 @@ export function registerWsHandlers(): void {
   })
 
   safeHandle('ws:set-auto-start-enabled', (_event, enabled: boolean) => {
-    app.setLoginItemSettings({ openAtLogin: enabled })
+    setAutoStartEnabled(enabled)
     return app.getLoginItemSettings().openAtLogin
   })
 }

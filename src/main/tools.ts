@@ -16,7 +16,7 @@ function setToolPreference(toolName: string, value: string): void {
 
 const pendingApprovals = new Map<
   string,
-  { toolName: string; resolve: (approved: boolean) => void; webContents: Electron.WebContents; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string; conversationId?: string }
+  { toolName: string; resolve: (approved: boolean) => void; webContents?: Electron.WebContents; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string; conversationId?: string }
 >()
 
 /**
@@ -30,14 +30,14 @@ const pendingApprovals = new Map<
  * turn gets aborted/replaced (see `denyPendingApprovalsForConversation`).
  */
 export async function requestApproval(
-  webContents: Electron.WebContents,
+  webContents: Electron.WebContents | undefined,
   toolName: string,
   args: Record<string, unknown>,
   description: string,
   options?: { noRemember?: boolean; onRemember?: (approved: boolean) => void; autoApprove?: boolean; agentId?: string; conversationId?: string }
 ): Promise<boolean> {
   if (options?.autoApprove === true) {
-    if (!webContents.isDestroyed()) {
+    if (webContents && !webContents.isDestroyed()) {
       webContents.send('tool:auto-approved', { toolName, args })
     }
     return true
@@ -48,7 +48,9 @@ export async function requestApproval(
     // the Android WebSocket client can answer immediately; publishing first creates a race where
     // that answer is treated as stale and the request later times out as a false denial.
     pendingApprovals.set(requestId, { toolName, resolve, webContents, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId, conversationId: options?.conversationId })
-    webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
+    if (webContents && !webContents.isDestroyed()) {
+      webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
+    }
     broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description, conversationId: options?.conversationId } })
     recordUnseenDestination(`approval:${requestId}`)
     if (!isMobileInForeground()) {
@@ -71,8 +73,8 @@ export async function requestApproval(
  * it, so approving it there is a silent no-op. Correlating by requestId dismisses exactly the
  * stale request (see roadmap/bugs/bug-in-progress/cli-approval-relay-concurrent-turns.md).
  */
-function notifyApprovalCancelled(requestId: string, webContents: Electron.WebContents): void {
-  if (!webContents.isDestroyed()) {
+function notifyApprovalCancelled(requestId: string, webContents: Electron.WebContents | undefined): void {
+  if (webContents && !webContents.isDestroyed()) {
     webContents.send('tool:approval-resolved', requestId)
   }
   broadcastToMobile({ event: 'tool:approval-cancel', data: { requestId } })
@@ -111,7 +113,7 @@ export function approvePendingApprovalsForConversation(conversationId: string): 
       pending.resolve(true)
       pendingApprovals.delete(requestId)
       clearUnseenDestination(`approval:${requestId}`)
-      if (!pending.webContents.isDestroyed()) {
+      if (pending.webContents && !pending.webContents.isDestroyed()) {
         pending.webContents.send('tool:approval-resolved', requestId)
       }
     }

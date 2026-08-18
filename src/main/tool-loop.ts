@@ -133,7 +133,7 @@ export async function runProviderMcpToolLoop(
   toolMap: Map<string, { serverId: string; toolName: string }>,
   agentId: string,
   conversationId: string | null,
-  webContents: Electron.WebContents,
+  webContents: Electron.WebContents | undefined,
   onChunk: (chunk: string) => void,
   onModel?: (model: string) => void,
   agenticMode?: boolean,
@@ -188,7 +188,7 @@ export async function runProviderMcpToolLoop(
   let forcedToolChoice: 'required' | null = forceFirstToolChoice ? 'required' : null
 
   const sendActivity = (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => {
-    if (!webContents.isDestroyed()) webContents.send('chat:activity', event)
+    if (webContents && !webContents.isDestroyed()) webContents.send('chat:activity', event)
     onActivity?.(event)
   }
   const sendToolFinished = (event: ToolLoopToolFinishedEvent) => {
@@ -203,7 +203,7 @@ export async function runProviderMcpToolLoop(
       onToolFinished(event)
       return
     }
-    if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', event)
+    if (webContents && !webContents.isDestroyed()) webContents.send('chat:tool-call-event', event)
     broadcastToMobile({ event: 'chat:tool-call-event', data: event })
   }
   const sendToolStarted = (event: ToolLoopToolStartedEvent) => {
@@ -381,8 +381,8 @@ export async function runProviderMcpToolLoop(
           loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
           continue
         }
-        if (!isPreApproved && !inlineHandler) {
-          // Tool is not pre-approved and not an inline handler — block it
+        if (!isPreApproved) {
+          // Every scheduled tool, including Nexy's inline tools, must be explicitly pre-approved.
           toolResultContent = `Error: Tool "${toolShortName}" is not in the pre-approved list for this scheduled task. Add it to the task's tool policy to allow it.`
           const notApprovedPayload = {
             id: call.id,

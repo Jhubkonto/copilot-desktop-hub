@@ -1,6 +1,7 @@
 import type { ProviderNonStreamResult, ToolChoice, ToolDefinition } from './provider-types'
 import type { ProviderName } from './provider-core-types'
 import type { ProviderMessage } from './provider-core-types'
+import type { ProviderCredentialInput } from './credential-vault'
 import { getAzureEndpoint } from './provider-secrets'
 import { PROVIDERS } from './provider-registry'
 import { sendAnthropicWithTools } from './providers/anthropic-provider'
@@ -21,7 +22,7 @@ export const NO_PROVIDER_CONFIGURED_MESSAGE = 'No provider configured. Add an AP
  */
 export async function sendProviderWithTools(
   provider: ProviderName,
-  apiKey: string | null,
+  apiKey: ProviderCredentialInput | null,
   model: string,
   messages: ProviderMessage[],
   tools: ToolDefinition[],
@@ -58,7 +59,7 @@ export async function sendProviderWithTools(
  */
 export async function sendProviderNonStreaming(
   provider: ProviderName,
-  apiKey: string | null,
+  apiKey: ProviderCredentialInput | null,
   model: string,
   messages: ProviderMessage[],
   options: { maxTokens?: number; temperature?: number } = {}
