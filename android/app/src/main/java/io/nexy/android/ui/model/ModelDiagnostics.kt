@@ -8,7 +8,7 @@ fun modelSourceTitle(source: ModelListSource?): String =
     source?.label?.takeIf { it.isNotBlank() } ?: "Model source unknown"
 
 fun modelSourceDetail(source: ModelListSource?, modelCount: Int): String {
-    if (source == null) return "Open a chat or refresh models to load backend details."
+    if (source == null) return "Open a chat to load backend details."
     return when (source.type) {
         "cli" -> {
             val backend = backendDisplayName(source.backend)
@@ -59,7 +59,7 @@ fun agentBackendLockDetail(agent: Agent?): String? {
 fun emptyModelListDetail(source: ModelListSource?): String =
     when (source?.type) {
         "none" -> "Configure Claude CLI, Codex CLI, Hermes Agent, or an API provider on desktop to choose models here."
-        null -> "Model options have not loaded yet. Refresh models or check the desktop connection."
+        null -> "Model options have not loaded yet. Check the desktop connection."
         else -> "No selectable models were returned for ${modelSourceTitle(source)}."
     }
 

@@ -75,6 +75,7 @@ private val cliModeSections: Map<String, CliModeSection> = mapOf(
 @Composable
 fun ChatModeSheet(
     thinkingEffortOverride: String?,
+    projectDefaultThinkingEffort: String? = null,
     fullAutoApproveOverride: Boolean?,
     agenticModeOverride: Boolean?,
     terminalSandboxOverride: Boolean?,
@@ -89,6 +90,7 @@ fun ChatModeSheet(
     onSetCliMode: (String?) -> Unit = {},
     onSetCodexExecutionMode: (String?) -> Unit = {},
 ) {
+    val displayedThinkingEffort = thinkingEffortOverride ?: projectDefaultThinkingEffort
     val cliModeSection = activeCliBackend?.let { cliModeSections[it] }
     // Claude's permission mode includes its approval policy, while Codex approval policy and
     // filesystem sandbox are independent. Codex therefore shows both controls, matching desktop.
@@ -108,7 +110,7 @@ fun ChatModeSheet(
             )
             ChoiceChipRow(
                 options = thinkingOptions,
-                selected = thinkingEffortOverride,
+                selected = displayedThinkingEffort,
                 onSelect = onSetThinkingEffort,
                 selectedColor = AutoApproveColor,
             )

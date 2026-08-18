@@ -52,7 +52,6 @@ fun UpdatesScreen(
                 runningBuild = vm.runningBuild,
                 lastInstallVerification = installVerification,
                 updateInstallState = updateInstallState,
-                onRefresh = { vm.refreshUpdateManifest() },
                 onInstallUpdate = { vm.installUpdate(it) },
             )
         }

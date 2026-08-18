@@ -26,6 +26,27 @@ class ModelFilteringTest {
     }
 
     @Test
+    fun forcedAgentBackendOnlyShowsItsModels() {
+        val hermesModel = ModelOption(
+            "anthropic/claude-sonnet-4-6",
+            "Claude Sonnet 4.6",
+            "Hermes Agent",
+            isCliSourced = true,
+            backend = "hermes-cli",
+        )
+        val otherCliModel = cliModel.copy(backend = "claude-cli")
+
+        assertEquals(
+            listOf(hermesModel),
+            filterModelsForBackend(listOf(apiModel, otherCliModel, hermesModel), "hermes-cli"),
+        )
+        assertEquals(
+            listOf(apiModel, otherCliModel, hermesModel),
+            filterModelsForBackend(listOf(apiModel, otherCliModel, hermesModel), null),
+        )
+    }
+
+    @Test
     fun disconnectedShowsAllModels() {
         val result = filterModelsForMode(listOf(apiModel, cliModel), EffectiveConnectionMode.DISCONNECTED)
         assertEquals(listOf(apiModel, cliModel), result)
@@ -197,6 +218,12 @@ class ModelFilteringTest {
     fun cliBackendForModelMatchesCodexCliVendor() {
         val codexCli = ModelOption("gpt-5.5", "GPT-5.5", "Codex CLI", isCliSourced = true)
         assertEquals("codex-cli", cliBackendForModel(codexCli))
+    }
+
+    @Test
+    fun cliBackendForModelMatchesHermesVendor() {
+        val hermes = ModelOption("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6", "Hermes Agent", isCliSourced = true)
+        assertEquals("hermes-cli", cliBackendForModel(hermes))
     }
 
     @Test

@@ -287,7 +287,7 @@ class NexySpeechService : Service() {
         )
         val status = _state.value.status
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(io.nexy.android.R.drawable.ic_notification)
             .setContentTitle(
                 when (kind) {
                     SpokenOutputKind.QUICK_RECAP -> "Short version"

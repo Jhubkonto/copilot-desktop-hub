@@ -366,7 +366,7 @@ private fun StoryContent(
             }
             item {
                 OutlinedButton(onClick = onRetell) {
-                    NexyIcon(NexyIconName.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                    NexyIcon(NexyIconName.Play, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Retell")
                 }

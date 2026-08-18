@@ -98,6 +98,11 @@ class SchedulerViewModel(app: Application) : AndroidViewModel(app) {
         WsRepository.schedulerRunNow(taskId)
     }
 
+    fun resumeRun(runId: String) {
+        _actionError.value = null
+        WsRepository.schedulerResumeRun(runId)
+    }
+
     fun dismissError() { _error.value = null }
     fun dismissActionError() { _actionError.value = null }
 }

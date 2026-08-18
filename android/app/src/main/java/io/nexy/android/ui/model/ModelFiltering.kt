@@ -17,6 +17,18 @@ fun filterModelsForMode(
 }
 
 /**
+ * Limits a chat model list to the backend forced by the selected agent. A forced CLI agent must
+ * never inherit a provider/global model, even briefly while the model-list request is refreshing.
+ */
+fun filterModelsForBackend(
+    models: List<ModelOption>,
+    backend: String?,
+): List<ModelOption> {
+    if (backend.isNullOrBlank()) return models
+    return models.filter { it.backend == backend }
+}
+
+/**
  * Splits models into "available now" vs. "requires desktop connection" for the Models settings
  * screen. Returns null when the split isn't meaningful (i.e. not standalone-by-choice), signaling
  * callers to render the flat, undifferentiated list instead.
@@ -78,6 +90,7 @@ fun cliBackendForModel(model: ModelOption?): String? {
     return when (model.vendor?.trim()?.lowercase()) {
         "claude cli" -> "claude-cli"
         "codex cli" -> "codex-cli"
+        "hermes agent" -> "hermes-cli"
         else -> null
     }
 }

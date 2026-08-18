@@ -235,7 +235,6 @@ fun ModelsSection(
     models: List<ModelOption>,
     modelSource: ModelListSource?,
     effectiveMode: EffectiveConnectionMode,
-    onRefresh: () -> Unit,
 ) {
     SettingsSectionHeader("Models")
 
@@ -253,7 +252,6 @@ fun ModelsSection(
                     Text(modelSourceTitle(modelSource), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                     Text(modelSourceDetail(modelSource, models.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onRefresh) { NexyIcon(NexyIconName.Refresh, contentDescription = "Refresh models") }
             }
 
             if (models.isEmpty()) {
@@ -300,8 +298,6 @@ fun ModelsSection(
 fun NotificationsSection(
     notificationDiagnostics: NotificationDiagnostics,
     onOpenNotificationSettings: () -> Unit,
-    onRefresh: () -> Unit,
-    refreshed: Boolean = false,
 ) {
     SettingsSectionHeader("Notifications")
 
@@ -325,25 +321,6 @@ fun NotificationsSection(
             }
 
             NexySecondaryButton(text = "Open Android settings", onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth())
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (refreshed) {
-            Text("Status updated", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-        FilledTonalButton(onClick = onRefresh) {
-            NexyIcon(NexyIconName.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Refresh")
         }
     }
 
@@ -407,7 +384,6 @@ fun UpdatesSection(
     runningBuild: RunningBuildIdentity,
     lastInstallVerification: String?,
     updateInstallState: UpdateInstallState,
-    onRefresh: () -> Unit,
     onInstallUpdate: (AndroidUpdateManifest) -> Unit,
 ) {
     val updateCanInstall = canInstallUpdate(androidUpdateManifest, clientVersionCode)
@@ -468,17 +444,6 @@ fun UpdatesSection(
                                 updateStatusDetail(androidUpdateManifest, clientVersionCode),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(onClick = onRefresh) {
-                            NexyIcon(
-                                name = NexyIconName.Refresh,
-                                contentDescription = "Refresh update manifest",
-                                tint = if (updateCanInstall) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
                             )
                         }
                     }
@@ -576,7 +541,7 @@ fun UpdatesSection(
                         }
                     }
                     Text(
-                        "Updates are published from Nexy Desktop to the local network feed; tap Refresh to check now. " +
+                        "Updates are published from Nexy Desktop to the local network feed and checked when this screen opens. " +
                             "To roll back, restore an older version from desktop Settings → Developer → Android, uninstall this app, then install the update here.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),

@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,10 +27,10 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,6 +48,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +80,7 @@ import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 private enum class AutomatedWorkflowView { Workspace, List, Detail }
 
@@ -116,6 +121,7 @@ fun AutomatedWorkflowScreen(
     // wouldn't exist yet client-side) to know when to navigate into the freshly spawned run.
     var pendingRunAgainTemplateId by remember { mutableStateOf<String?>(null) }
     val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsStateWithLifecycle()
+    val managedSources by WsRepository.managedWorkflowSources.collectAsStateWithLifecycle()
 
     // Mirrors the TopAppBar's onBack step-back logic below — without this, the system/gesture
     // back button skips past Detail/List and exits the screen in one tap instead of stepping
@@ -144,6 +150,7 @@ fun AutomatedWorkflowScreen(
     LaunchedEffect(projectId, disconnected) {
         if (!disconnected) {
             WsRepository.listAutomatedWorkflowRuns(projectId)
+            if (projectId != null) WsRepository.listManagedWorkflowSources(projectId)
             activeRun?.let { WsRepository.getAutomatedWorkflowRun(it.id) }
         }
     }
@@ -351,6 +358,21 @@ fun AutomatedWorkflowScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (projectId != null) {
+                                Text("Start from a managed deliverable", style = MaterialTheme.typography.labelMedium)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    listOf(
+                                        "Weekly report" to "Create a weekly report workflow from selected project notes. Let me review the Markdown draft, then publish it to reports/weekly.md.",
+                                        "Release notes" to "Create release notes from selected changelog and project files. Let me edit and approve the Markdown, then publish it to RELEASE_NOTES.md.",
+                                        "Design draft" to "Create a design document from selected requirements. Include a review step, then publish the approved Markdown to docs/design.md.",
+                                    ).forEach { (label, prompt) ->
+                                        TextButton(onClick = { messageInput = prompt }) { Text(label) }
+                                    }
+                                }
+                            }
                         }
                     } else {
                         // Plan header, step cards, and the chat log all live in this single scrollable
@@ -409,7 +431,7 @@ fun AutomatedWorkflowScreen(
                                 }
                             }
                             itemsIndexed(activeSession.steps) { index, step ->
-                                AutomatedWorkflowStepPreviewCard(index = index, step = step)
+                                AutomatedWorkflowStepPreviewCard(index = index, step = step, sourceOptions = managedSources)
                             }
                             if (activeSession.steps.isNotEmpty() && activeSession.rawSpec != null) {
                                 item {
@@ -500,16 +522,24 @@ fun AutomatedWorkflowScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AutomatedWorkflowStepPreviewCard(index: Int, step: AutomatedWorkflowStepInfo) {
+internal fun AutomatedWorkflowStepPreviewCard(
+    index: Int,
+    step: AutomatedWorkflowStepInfo,
+    sourceOptions: List<io.nexy.android.data.model.ManagedWorkflowSourceOption> = emptyList(),
+) {
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     // Exactly one of agentName/model applies — a step is fulfilled by EITHER an agent (its own
     // attached skills apply) OR a bare model (no skills at all). Never show both, never neither.
     val metaLine = buildString {
-        append(step.agentName ?: step.model?.let { "Model: $it" } ?: "Unassigned")
+        if (step.kind != null) append("${step.kind.replaceFirstChar { it.uppercase() }} · ")
+        append(step.agentName ?: step.model?.let { "Model: $it" } ?: if (step.kind != null) "Nexy managed step" else "Unassigned")
         if (step.expectedOutput.isNotBlank()) append(" · Output: ${step.expectedOutput}")
     }
+    var showSourcePicker by remember(step.id) { mutableStateOf(false) }
+    val distinctSources = sourceOptions.distinctBy { it.projectSourceId }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -520,6 +550,32 @@ internal fun AutomatedWorkflowStepPreviewCard(index: Int, step: AutomatedWorkflo
             Text(metaLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (step.summary.isNotBlank()) {
                 Text(step.summary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+            }
+            if (step.kind == "collect") {
+                Text(
+                    if (step.includePaths.isEmpty()) "No source files selected" else step.includePaths.joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (step.includePaths.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = { showSourcePicker = true }, enabled = sourceOptions.isNotEmpty()) {
+                    Text(if (sourceOptions.isEmpty()) "No desktop project sources" else "Choose source files")
+                }
+            }
+            if (step.kind == "publish") {
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    distinctSources.forEach { source ->
+                        TextButton(onClick = {
+                            WsRepository.updateManagedWorkflowDraftStep(step.id, publishProjectSourceId = source.projectSourceId)
+                        }) { Text(if (source.projectSourceId == step.publishProjectSourceId) "✓ ${source.label}" else source.label) }
+                    }
+                }
+                OutlinedTextField(
+                    value = step.publishRelativePath.orEmpty(),
+                    onValueChange = { WsRepository.updateManagedWorkflowDraftStep(step.id, publishRelativePath = it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Project-relative destination") },
+                )
             }
             if (step.prompt.isNotBlank()) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -533,6 +589,35 @@ internal fun AutomatedWorkflowStepPreviewCard(index: Int, step: AutomatedWorkflo
                     }
                 }
             }
+        }
+    }
+
+    if (showSourcePicker) {
+        ModalBottomSheet(onDismissRequest = { showSourcePicker = false }) {
+            Text("Choose files to snapshot", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+                items(sourceOptions, key = { "${it.projectSourceId}:${it.relativePath}" }) { option ->
+                    val selected = option.projectSourceId == step.projectSourceId && option.relativePath in step.includePaths
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = selected, onCheckedChange = { checked ->
+                            val paths = if (option.projectSourceId != step.projectSourceId) {
+                                if (checked) listOf(option.relativePath) else emptyList()
+                            } else if (checked) (step.includePaths + option.relativePath).distinct() else step.includePaths - option.relativePath
+                            WsRepository.updateManagedWorkflowDraftStep(
+                                step.id, projectSourceId = option.projectSourceId, includePaths = paths,
+                            )
+                        })
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(option.relativePath, style = MaterialTheme.typography.bodySmall)
+                            Text(option.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            Button(onClick = { showSourcePicker = false }, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Done") }
         }
     }
 }
@@ -695,7 +780,7 @@ internal fun SavedWorkflowRunDetailView(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         TextButton(onClick = { onRunAgain(templateId) }) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp).padding(end = 2.dp))
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp).padding(end = 2.dp))
                             Text("Run again")
                         }
                     }
@@ -763,7 +848,10 @@ private fun AutomatedWorkflowRunStepCard(
             Text(
                 // Exactly one of agentName/model applies — see AutomatedWorkflowStepPreviewCard's
                 // comment for why a step never shows both or neither.
-                step.agentName ?: step.model?.let { "Model: $it" } ?: "Unassigned",
+                buildString {
+                    if (step.kind != null) append("${step.kind.replaceFirstChar { it.uppercase() }} · ")
+                    append(step.agentName ?: step.model?.let { "Model: $it" } ?: if (step.kind != null) "Nexy managed step" else "Unassigned")
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -788,19 +876,25 @@ private fun AutomatedWorkflowRunStepCard(
                     }
                 }
                 "awaiting_confirmation" -> {
-                    OutlinedTextField(
-                        value = draftOutput,
-                        onValueChange = { draftOutput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        maxLines = 8,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Button(onClick = { onApprove(step, draftOutput) }) { Text("Approve & continue") }
-                        if (step.conversationId != null) {
-                            TextButton(onClick = { onOpenConversation(step.conversationId) }) {
-                                Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.padding(end = 4.dp).size(16.dp))
-                                Text("Open conversation")
+                    when (step.kind) {
+                        "review" -> ManagedWorkflowReviewControls(step)
+                        "publish" -> ManagedWorkflowPublishControls(step)
+                        else -> {
+                            OutlinedTextField(
+                                value = draftOutput,
+                                onValueChange = { draftOutput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 8,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Button(onClick = { onApprove(step, draftOutput) }) { Text("Approve & continue") }
+                                if (step.conversationId != null) {
+                                    TextButton(onClick = { onOpenConversation(step.conversationId) }) {
+                                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.padding(end = 4.dp).size(16.dp))
+                                        Text("Open conversation")
+                                    }
+                                }
                             }
                         }
                     }
@@ -811,7 +905,7 @@ private fun AutomatedWorkflowRunStepCard(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { onRetry(step) }) { Text("Retry") }
-                        TextButton(onClick = { onSkip(step) }) { Text("Skip") }
+                        if (step.kind == null || step.kind == "model") TextButton(onClick = { onSkip(step) }) { Text("Skip") }
                         if (step.conversationId != null) {
                             TextButton(onClick = { onOpenConversation(step.conversationId) }) { Text("Open conversation") }
                         }
@@ -841,6 +935,136 @@ private fun AutomatedWorkflowRunStepCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ManagedWorkflowReviewControls(step: AutomatedWorkflowRunStepData) {
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val connected = connectionState == ConnectionState.CONNECTED
+    val versions by WsRepository.managedWorkflowVersions.collectAsStateWithLifecycle()
+    val currentVersionId = step.managed?.currentVersion?.id
+    var selectedVersionId by remember(currentVersionId) { mutableStateOf(currentVersionId) }
+    val selected = selectedVersionId?.let(versions::get)
+    var draft by remember(selectedVersionId) { mutableStateOf("") }
+    var loadedContent by remember(selectedVersionId) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(selectedVersionId, connected) {
+        if (connected && selectedVersionId != null && versions[selectedVersionId] == null) {
+            WsRepository.getManagedWorkflowVersion(selectedVersionId!!)
+        }
+    }
+    LaunchedEffect(selected?.content) {
+        val content = selected?.content ?: return@LaunchedEffect
+        if (loadedContent == null) {
+            draft = content
+            loadedContent = content
+        }
+    }
+
+    if (!connected) {
+        Text("Connect to your paired desktop to manage this workflow.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (step.managed?.isStale == true) {
+        Text("This deliverable is out of date and cannot be approved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    selected?.let { content ->
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            content.versions.forEach { version ->
+                TextButton(onClick = { selectedVersionId = version.id; loadedContent = null }, enabled = connected) {
+                    Text("v${version.versionNumber}")
+                }
+            }
+        }
+        Text("${content.version.title} · v${content.version.versionNumber}", style = MaterialTheme.typography.labelSmall)
+    }
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { draft = it },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = 6,
+        maxLines = 14,
+        enabled = connected && selected != null,
+        label = { Text("Markdown") },
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = {
+                    if (currentVersionId != null) WsRepository.editManagedWorkflowVersion(step.runId, step.dbId, currentVersionId, draft)
+                },
+                enabled = connected && currentVersionId != null && draft != selected?.content,
+            ) { Text("Save version") }
+            Button(
+                onClick = {
+                    if (currentVersionId != null) WsRepository.reviewManagedWorkflowVersion(step.runId, step.dbId, currentVersionId, "approved")
+                },
+                enabled = connected && currentVersionId != null && selectedVersionId == currentVersionId &&
+                    draft == selected?.content && step.managed?.isStale != true,
+            ) { Text("Approve") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = {
+                    if (currentVersionId != null) WsRepository.reviewManagedWorkflowVersion(step.runId, step.dbId, currentVersionId, "rejected")
+                },
+                enabled = connected && currentVersionId != null,
+            ) { Text("Reject") }
+            TextButton(onClick = { WsRepository.regenerateManagedWorkflow(step.runId, step.dbId) }, enabled = connected) {
+                Text("Regenerate affected")
+            }
+        }
+    }
+    if (!step.managed?.bindings.isNullOrEmpty()) {
+        Text("Provenance", style = MaterialTheme.typography.labelSmall)
+        step.managed?.bindings?.forEach { binding ->
+            Text(
+                "${binding.direction} · ${binding.bindingName} · ${binding.artifactVersionId.take(12)}${if (binding.staleAt != null) " · stale" else ""}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ManagedWorkflowPublishControls(step: AutomatedWorkflowRunStepData) {
+    val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
+    val connected = connectionState == ConnectionState.CONNECTED
+    val preview = step.managed?.publishPreview
+    val idempotencyKey = remember(preview?.id) { "android:${step.runId}:${step.dbId}:${preview?.id}:${UUID.randomUUID()}" }
+    if (!connected) {
+        Text("Connect to your paired desktop to manage this workflow.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (preview != null) {
+        Text("Write approved version to ${preview.relativePath}", style = MaterialTheme.typography.bodySmall)
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.extraSmall) {
+            SelectionContainer {
+                Text(
+                    preview.diffText.ifBlank { "No content changes." },
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(8.dp),
+                )
+            }
+        }
+        if (preview.invalidatedAt != null) {
+            Text("The destination changed. Refresh the preview before publishing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        step.managed?.publishAction?.let { action ->
+            Text("Publish status: ${action.status}${action.error?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.labelSmall)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = { WsRepository.refreshManagedPublishPreview(step.runId, step.dbId, preview.artifactVersionId) },
+                enabled = connected,
+            ) { Text("Refresh preview") }
+            Button(
+                onClick = { WsRepository.confirmManagedPublish(step.runId, step.dbId, preview.id, idempotencyKey) },
+                enabled = connected && preview.invalidatedAt == null,
+            ) { Text("Confirm file write") }
+        }
+    } else {
+        Text("Preparing publish preview…", style = MaterialTheme.typography.bodySmall)
     }
 }
 

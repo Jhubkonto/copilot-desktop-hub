@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -277,9 +276,6 @@ fun ArtifactsScreen(
                         IconButton(onClick = { showSortSheet = true }) {
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort artifacts")
                         }
-                    }
-                    IconButton(onClick = { vm.refresh(projectId) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh artifacts")
                     }
                 },
             )

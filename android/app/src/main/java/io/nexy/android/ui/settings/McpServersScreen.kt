@@ -583,7 +583,7 @@ internal fun McpServerRow(
                             )
                             DropdownMenuItem(
                                 text = { Text("Restart") },
-                                leadingIcon = { NexyIcon(NexyIconName.Refresh, contentDescription = null) },
+                                leadingIcon = { NexyIcon(NexyIconName.Tool, contentDescription = null) },
                                 onClick = { showMenu = false; onRestart() },
                             )
                             DropdownMenuItem(

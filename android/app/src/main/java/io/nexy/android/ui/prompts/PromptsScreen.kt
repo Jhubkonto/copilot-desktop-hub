@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -164,7 +163,6 @@ fun PromptsScreen(
             onCancelEdit = { vm.cancelEdit() },
             onSaveEdit = { vm.saveEdit() },
             onDelete = { vm.deleteEntry(selected.id); vm.clearSelection() },
-            onRefreshVersions = { vm.loadVersions(selected.id) },
             onRollback = { vm.rollbackTo(it) },
             onInsert = if (onInsert != null) {{ vm.insertPrompt(selected.body) }} else null,
             onTitleChange = { vm.setEditTitle(it) },
@@ -208,9 +206,6 @@ fun PromptsScreen(
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort prompts")
                         }
                     }
-                    IconButton(onClick = { vm.load(projectId) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh prompts")
-                    }
                 },
             )
         },
@@ -237,9 +232,6 @@ fun PromptsScreen(
                     NexyEmptyState(
                         title = "No prompts yet.",
                         detail = "Tap + to create one.",
-                        action = {
-                            TextButton(onClick = { vm.load(projectId) }) { Text("Refresh") }
-                        },
                     )
                 }
             } else {
@@ -400,7 +392,6 @@ private fun PromptDetailScreen(
     onCancelEdit: () -> Unit,
     onSaveEdit: () -> Unit,
     onDelete: () -> Unit,
-    onRefreshVersions: () -> Unit,
     onRollback: (Int) -> Unit,
     onInsert: (() -> Unit)?,
     onTitleChange: (String) -> Unit,
@@ -476,7 +467,6 @@ private fun PromptDetailScreen(
                     versions = versions,
                     isLoading = versionsLoading,
                     currentVersion = versions.maxOfOrNull { it.version },
-                    onRefresh = onRefreshVersions,
                     onRollback = onRollback,
                 )
             }
@@ -489,7 +479,6 @@ private fun PromptVersionHistory(
     versions: List<PromptVersion>,
     isLoading: Boolean,
     currentVersion: Int?,
-    onRefresh: () -> Unit,
     onRollback: (Int) -> Unit,
 ) {
     var rollbackVersion by remember { mutableStateOf<PromptVersion?>(null) }
@@ -513,7 +502,9 @@ private fun PromptVersionHistory(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("Version history", style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = onRefresh) { Text(if (isLoading) "Loading" else "Refresh") }
+        if (isLoading) {
+            Text("Loading", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
     if (versions.isEmpty()) {
         Text(

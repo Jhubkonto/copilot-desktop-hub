@@ -338,7 +338,7 @@ private fun RepoDetailSection(
                     Spacer(modifier = Modifier.height(10.dp))
                     val unstagedPaths = remember(state.changedFiles) { state.changedFiles.filterNot { it.staged }.map { it.relativePath }.toSet() }
                     val actionButtons = buildList {
-                        add(ActionButtonSpec("Fetch", NexyIconName.Refresh, !state.isActionInProgress) { vm.fetch() })
+                        add(ActionButtonSpec("Fetch", NexyIconName.Download, !state.isActionInProgress) { vm.fetch() })
                         add(ActionButtonSpec("Pull", NexyIconName.Download, !state.isActionInProgress) { vm.pull() })
                         add(ActionButtonSpec("Push", NexyIconName.Upload, !state.isActionInProgress) { vm.pushBranch() })
                         add(ActionButtonSpec("Stage all", NexyIconName.Add, !state.isActionInProgress && unstagedPaths.isNotEmpty()) { vm.stageFiles(unstagedPaths) })
@@ -347,7 +347,7 @@ private fun RepoDetailSection(
                         add(ActionButtonSpec("Merge…", NexyIconName.Fork, !state.isActionInProgress && mergeCandidateCount > 0) { mergeDialogOpen = true })
                         add(ActionButtonSpec("Stash", NexyIconName.Archive, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { stashConfirmOpen = true })
                         if (state.stashCount > 0) {
-                            add(ActionButtonSpec("Stash pop (${state.stashCount})", NexyIconName.Refresh, !state.isActionInProgress) { vm.stashPop() })
+                            add(ActionButtonSpec("Stash pop (${state.stashCount})", NexyIconName.Import, !state.isActionInProgress) { vm.stashPop() })
                         }
                     }
                     ActionButtonGrid(buttons = actionButtons)
@@ -486,7 +486,7 @@ private fun RepoDetailSection(
                                         text = "Unstage selected (${state.selectedChangedFiles.size})",
                                         onClick = { vm.unstageFiles() },
                                         enabled = !state.isActionInProgress,
-                                        leadingNexyIcon = NexyIconName.Refresh,
+                                        leadingNexyIcon = NexyIconName.Close,
                                     )
                                 }
                                 NexyGhostButton(text = "Clear selection", onClick = { vm.clearFileSelection() })
@@ -678,7 +678,7 @@ private fun ChangedFileRow(
                 }
                 IconButton(onClick = onDiscard, modifier = Modifier.size(32.dp)) {
                     NexyIcon(
-                        NexyIconName.Refresh,
+                        NexyIconName.Delete,
                         contentDescription = "Discard changes",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.jsonObjectToMap
 import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.DiscoveredSkill
+import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +19,9 @@ import org.json.JSONObject
 
 data class SkillsUiState(
     val skills: List<SkillConfig> = emptyList(),
+    val discoveredSkills: List<DiscoveredSkill> = emptyList(),
+    val discoveryProjects: List<Project> = emptyList(),
+    val discoveryProjectId: String? = null,
     val mcpServers: List<McpServerInfo> = emptyList(),
     val usageBySkillId: Map<String, Int> = emptyMap(),
     val selectedSkill: SkillConfig? = null,
@@ -41,6 +46,8 @@ data class SkillsUiState(
     val editMcpToolOverrides: String = "",
     val editKnowledge: String = "",
     val isLoading: Boolean = false,
+    val isDiscovering: Boolean = false,
+    val showDiscoveryDialog: Boolean = false,
     val error: String? = null,
     val exportJson: String? = null,
     val showImportSheet: Boolean = false,
@@ -54,6 +61,8 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private var pendingDiscoveryImportPath: String? = null
 
     init {
         viewModelScope.launch {
@@ -71,6 +80,16 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch {
+            WsRepository.discoveredSkills.collect { discovered ->
+                _state.value = _state.value.copy(discoveredSkills = discovered)
+            }
+        }
+        viewModelScope.launch {
+            WsRepository.projects.collect { projects ->
+                _state.value = _state.value.copy(discoveryProjects = projects)
+            }
+        }
+        viewModelScope.launch {
             WsRepository.mcpServers.collect { servers ->
                 _state.value = _state.value.copy(mcpServers = servers)
             }
@@ -79,7 +98,28 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
             WsRepository.events.collect { event ->
                 when (event) {
                     is WsEvent.SkillList -> { _state.value = _state.value.copy(isLoading = false); _isRefreshing.value = false }
-                    is WsEvent.SkillCreated -> _state.value = _state.value.copy(showCreateSheet = false, showImportSheet = false, importJson = "", isLoading = false)
+                    is WsEvent.SkillDiscoveryList -> _state.value = _state.value.copy(isDiscovering = false, error = null)
+                    is WsEvent.SkillDiscoveryError -> {
+                        pendingDiscoveryImportPath = null
+                        _state.value = _state.value.copy(isDiscovering = false, isLoading = false, error = event.message)
+                    }
+                    is WsEvent.SkillCreated -> {
+                        val importedPath = pendingDiscoveryImportPath
+                        pendingDiscoveryImportPath = null
+                        _state.value = _state.value.copy(
+                            showCreateSheet = false,
+                            showImportSheet = false,
+                            importJson = "",
+                            isLoading = false,
+                            discoveredSkills = if (importedPath == null) {
+                                _state.value.discoveredSkills
+                            } else {
+                                _state.value.discoveredSkills.map { discovered ->
+                                    if (discovered.packagePath == importedPath) discovered.copy(alreadyImported = true) else discovered
+                                }
+                            },
+                        )
+                    }
                     is WsEvent.SkillUpdated -> _state.value = _state.value.copy(selectedSkill = event.skill, isEditing = false, isLoading = false)
                     is WsEvent.SkillDeleted -> _state.value = _state.value.copy(selectedSkill = null, isEditing = false, isLoading = false)
                     is WsEvent.SkillDuplicated -> _state.value = _state.value.copy(isLoading = false)
@@ -101,6 +141,27 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
         WsRepository.listSkills()
         WsRepository.getSkillAgentUsage()
         WsRepository.getMcpServers()
+    }
+
+    fun openDiscovery() {
+        _state.value = _state.value.copy(showDiscoveryDialog = true)
+        discover(_state.value.discoveryProjectId)
+    }
+
+    fun dismissDiscovery() {
+        _state.value = _state.value.copy(showDiscoveryDialog = false)
+    }
+
+    fun discover(projectId: String? = _state.value.discoveryProjectId) {
+        _state.value = _state.value.copy(isDiscovering = true, error = null, discoveryProjectId = projectId)
+        WsRepository.discoverSkills(projectId)
+    }
+
+    fun importDiscoveredSkill(skill: DiscoveredSkill) {
+        if (skill.alreadyImported || !skill.importable) return
+        pendingDiscoveryImportPath = skill.packagePath
+        _state.value = _state.value.copy(isLoading = true, error = null)
+        WsRepository.importDiscoveredSkill(skill, _state.value.discoveryProjectId)
     }
 
     fun selectSkill(skill: SkillConfig) {

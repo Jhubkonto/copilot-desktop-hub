@@ -115,9 +115,50 @@ class FileExplorerViewModel(app: Application) : AndroidViewModel(app) {
         newHistory.lastOrNull()?.let { WsRepository.listDirectory(it) }
     }
 
+    /** Move to the filesystem parent of the current directory. */
+    fun goUpOneLevel() {
+        val currentPath = _state.value.currentPath ?: return
+
+        // Prefer the existing navigation stack so going up after drilling into a folder does
+        // not create duplicate breadcrumb entries. A directly opened project root has no parent
+        // in history, so replace it with its filesystem parent instead.
+        if (_state.value.history.size > 1) {
+            navigateTo(_state.value.history.size - 2)
+            return
+        }
+
+        currentPath.parentPath()?.let { parent ->
+            _state.value = _state.value.copy(
+                history = listOf(parent),
+                loading = true,
+                error = null,
+                entries = emptyList(),
+            )
+            WsRepository.listDirectory(parent)
+        }
+    }
+
     fun retry() {
         val path = _state.value.currentPath ?: return
         _state.value = _state.value.copy(loading = true, error = null)
         WsRepository.listDirectory(path)
+    }
+}
+
+/** Returns the parent while preserving a Unix root or Windows drive root. */
+internal fun String.parentPath(): String? {
+    val path = trimEnd('/', '\\')
+    if (path.isBlank()) return null
+
+    val separatorIndex = maxOf(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+    if (separatorIndex < 0) return null
+    if (separatorIndex == 0) return path.substring(0, 1)
+
+    val parent = path.substring(0, separatorIndex)
+    return if (parent.length == 2 && parent[1] == ':') {
+        // Keep a drive root recognizable as a directory for the next navigation.
+        "$parent${path[separatorIndex]}"
+    } else {
+        parent
     }
 }

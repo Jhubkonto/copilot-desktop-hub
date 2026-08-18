@@ -162,10 +162,6 @@ fun McpAndCliScreen(onBack: () -> Unit) {
                 }
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = { WsRepository.getCliStatus() }, enabled = !disconnected) { Text("Refresh") }
-            }
-
             McpCliSectionHeader("MCP Servers")
 
             if (disconnected) {
@@ -184,11 +180,10 @@ fun McpAndCliScreen(onBack: () -> Unit) {
                 }
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
                 TextButton(onClick = { WsRepository.listMcpTools(); showTools = !showTools }, enabled = !disconnected) {
                     Text(if (showTools) "Hide tools" else "Show all tools")
                 }
-                Button(onClick = { WsRepository.getMcpServers() }, enabled = !disconnected) { Text("Refresh") }
             }
 
             if (showTools) {
@@ -259,7 +254,7 @@ private fun McpServerCard(
                 if (status != null) Text(status, style = MaterialTheme.typography.labelSmall, color = statusColor)
             }
             Row {
-                IconButton(onClick = onRestart) { NexyIcon(NexyIconName.Refresh, contentDescription = "Restart", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onRestart) { NexyIcon(NexyIconName.Tool, contentDescription = "Restart", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = onEdit) { NexyIcon(NexyIconName.Edit, contentDescription = "Edit") }
                 IconButton(onClick = onDelete) { NexyIcon(NexyIconName.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
             }

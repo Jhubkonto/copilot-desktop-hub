@@ -83,6 +83,12 @@ enum class NexyIconName {
     Warning,
 }
 
+enum class NexyIconMotion {
+    Default,
+    Spin,
+    None,
+}
+
 private val patterns: Map<NexyIconName, List<String>> = mapOf(
     NexyIconName.Add to listOf(
         "        ", "   ##   ", "   ##   ", " ###### ",
@@ -288,9 +294,10 @@ fun NexyIcon(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     tint: Color = LocalContentColor.current,
+    motion: NexyIconMotion = NexyIconMotion.Default,
 ) {
     if (!LocalNexyEightBit.current) {
-        val classicModifier = if (name == NexyIconName.Busy) {
+        val classicModifier = if (name == NexyIconName.Busy && motion != NexyIconMotion.None) {
             val transition = rememberInfiniteTransition(label = "classic-busy-icon")
             val rotation by transition.animateFloat(
                 initialValue = 0f,
@@ -311,12 +318,17 @@ fun NexyIcon(
         return
     }
     val density = LocalDensity.current
-    val retroPulseEnabled = name == NexyIconName.Busy &&
+    val retroMotionEnabled = name == NexyIconName.Busy &&
+        motion != NexyIconMotion.None &&
         !LocalInspectionMode.current &&
         ValueAnimator.areAnimatorsEnabled()
-    val retroAlpha = if (retroPulseEnabled) {
-        val retroPulse = rememberInfiniteTransition(label = "retro-busy-icon")
-        val alpha by retroPulse.animateFloat(
+    val retroTransition = if (retroMotionEnabled) {
+        rememberInfiniteTransition(label = "retro-busy-icon")
+    } else {
+        null
+    }
+    val retroAlpha = if (retroMotionEnabled && motion != NexyIconMotion.Spin) {
+        val alpha by retroTransition!!.animateFloat(
             initialValue = 1f,
             targetValue = 0.58f,
             animationSpec = infiniteRepeatable(
@@ -329,12 +341,23 @@ fun NexyIcon(
     } else {
         1f
     }
+    val retroRotation = if (retroMotionEnabled && motion == NexyIconMotion.Spin) {
+        val rotation by retroTransition!!.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(1_000, easing = LinearEasing)),
+            label = "retro-busy-rotation",
+        )
+        rotation
+    } else {
+        0f
+    }
     val semanticModifier = if (contentDescription == null) {
         modifier
     } else {
         modifier.semantics { this.contentDescription = contentDescription }
     }
-    Canvas(modifier = semanticModifier.graphicsLayer(alpha = retroAlpha).size(24.dp)) {
+    Canvas(modifier = semanticModifier.graphicsLayer(alpha = retroAlpha, rotationZ = retroRotation).size(24.dp)) {
         drawPattern(patterns.getValue(name), tint, density.density)
     }
 }

@@ -73,7 +73,7 @@ class ScheduleGeneratorViewModel(
                 scheduleType = "daily",
                 localTime = "09:00",
                 timezone = java.util.TimeZone.getDefault().id,
-                notificationPref = "always",
+                notificationPref = "failures_only",
             ),
         )
     }
@@ -91,6 +91,8 @@ class ScheduleGeneratorViewModel(
         monthDay?.let { payload["monthDay"] = it }
         agentId?.let { payload["agentId"] = it }
         projectId?.let { payload["projectId"] = it }
+        model?.let { payload["model"] = it }
+        if (preApproved.isNotEmpty()) payload["preApproved"] = preApproved
         payload["targetType"] = targetType
         sourceRunId?.let { payload["sourceRunId"] = it }
         payload

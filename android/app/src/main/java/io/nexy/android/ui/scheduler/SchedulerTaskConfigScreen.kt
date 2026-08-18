@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -86,6 +87,13 @@ fun SchedulerTaskConfigScreen(
     var notificationPref by rememberSaveable(initial) { mutableStateOf(initial?.notificationPref ?: "failures_only") }
     var nameError by remember { mutableStateOf<String?>(null) }
 
+    // Tool policy: a scheduled run is headless, so the desktop blocks any tool not pre-approved
+    // here. Without this a tool-using agent silently can't call any of its tools when it fires.
+    val preApproved = remember(initial) {
+        mutableStateListOf<String>().apply { initial?.toolPolicy?.preApproved?.let { addAll(it) } }
+    }
+    val agentTools = remember { mutableStateListOf<io.nexy.android.data.model.McpToolInfo>() }
+
     // Target: a plain chat prompt (default, unchanged behavior) or one attached Automated
     // Workflow run (see src/roadmap-new/ — schedules can target a saved workflow instead of a
     // chat message).
@@ -104,8 +112,21 @@ fun SchedulerTaskConfigScreen(
                 is WsEvent.AutomatedWorkflowRunDetailReady -> {
                     if (event.run != null && event.run.id == selectedRunId) selectedRunDetail = event.run
                 }
+                is WsEvent.McpToolList -> {
+                    if (event.agentId == agentId) {
+                        agentTools.clear()
+                        agentTools.addAll(event.tools)
+                    }
+                }
                 else -> {}
             }
+        }
+    }
+
+    LaunchedEffect(agentId, targetType) {
+        agentTools.clear()
+        if (targetType == "chat" && agentId.isNotBlank()) {
+            WsRepository.listMcpToolsForAgent(agentId)
         }
     }
 
@@ -293,6 +314,12 @@ fun SchedulerTaskConfigScreen(
                 placeholder = { Text("America/New_York") },
             )
 
+            Text(
+                "With Run in background enabled, tasks continue while Nexy is in the desktop tray. The computer must stay awake and signed in; missed runs catch up the next time Nexy starts.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             if (agents.isNotEmpty()) {
                 DropdownField(
                     label = "Agent (optional)",
@@ -322,6 +349,59 @@ fun SchedulerTaskConfigScreen(
                 placeholder = { Text("claude-sonnet-4-6") },
             )
 
+            if (targetType == "chat") {
+                Text(
+                    "Allowed tools",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Text(
+                    "Scheduled tasks run unattended, so the agent can only call tools you pre-approve here — everything else is blocked when the task fires.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                when {
+                    agentId.isBlank() -> Text(
+                        "Select an agent to choose which of its tools may run.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    agentTools.isEmpty() -> Text(
+                        "This agent has no MCP tools available.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> agentTools.forEach { tool ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = preApproved.contains(tool.name),
+                                onCheckedChange = { checked ->
+                                    if (checked) { if (!preApproved.contains(tool.name)) preApproved.add(tool.name) }
+                                    else preApproved.remove(tool.name)
+                                },
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(tool.name, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    tool.serverName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                // Keep pre-approved names whose server isn't currently loaded so editing doesn't drop them.
+                preApproved.filter { name -> agentTools.none { it.name == name } }.forEach { name ->
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = true, onCheckedChange = { preApproved.remove(name) })
+                        Text("$name (unavailable)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
             DropdownField(
                 label = "Notifications",
                 options = NOTIFICATION_PREFS,
@@ -349,6 +429,9 @@ fun SchedulerTaskConfigScreen(
                         put("projectId", projectId.ifBlank { null })
                         put("model", model.ifBlank { null })
                         put("notificationPref", notificationPref)
+                        if (targetType == "chat") {
+                            put("toolPolicy", mapOf("preApproved" to preApproved.toList()))
+                        }
                         put("targetType", targetType)
                         if (targetType == "automated_workflow") {
                             val detail = selectedRunDetail

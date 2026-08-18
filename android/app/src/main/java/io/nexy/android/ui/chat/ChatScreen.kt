@@ -128,6 +128,7 @@ import io.nexy.android.ui.model.resolveAvailableProjectDefault
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.cliBackendForModel
+import io.nexy.android.ui.model.filterModelsForBackend
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -292,13 +293,22 @@ fun ChatScreen(
     val chatAgentId = conversation?.agent_id ?: agentId
         ?: (conversation?.project_id ?: projectId)?.let { projectPrimaryAgents[it] }
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
-    val activeCliBackend = (chatAgent?.backend ?: modelSource?.backend)
-        ?.takeIf { it == "claude-cli" || it == "codex-cli" }
+    val forcedAgentBackend = chatAgent?.backend?.takeIf {
+        it == "claude-cli" || it == "codex-cli" || it == "hermes-cli"
+    }
+    val chatModels = filterModelsForBackend(models, forcedAgentBackend)
+    val activeCliBackend = (forcedAgentBackend ?: modelSource?.backend)
+        ?.takeIf { it == "claude-cli" || it == "codex-cli" || it == "hermes-cli" }
         ?: cliBackendForModel(models.find { it.id == selectedModel })
     val chatBackend = chatAgent?.backend
     val statusProjectId = conversation?.project_id ?: projectId
     val chatProject = statusProjectId?.let { id -> projects.find { it.id == id } }
-    val availableProjectDefault = resolveAvailableProjectDefault(chatProject?.defaultModel, models)
+    val projectDefaultThinkingEffort = chatProject?.defaultThinkingEffort
+    val availableProjectDefault = if (forcedAgentBackend == null) {
+        resolveAvailableProjectDefault(chatProject?.defaultModel, models)
+    } else {
+        null
+    }
     val projectDefaultApplied = conversation?.model.isNullOrBlank() &&
         availableProjectDefault != null &&
         selectedModel == availableProjectDefault
@@ -371,6 +381,7 @@ fun ChatScreen(
     var showModeSheet by remember { mutableStateOf(false) }
     val modeSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
+    var showForkFromHereProjectPicker by remember { mutableStateOf(false) }
     var showEmergencyStopConfirmation by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
     val promptSheetState = rememberModalBottomSheetState()
@@ -530,6 +541,8 @@ fun ChatScreen(
     var addToProjectMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var addToProjectTitle by remember { mutableStateOf("") }
     var branchPending by remember { mutableStateOf(false) }
+    var forkFromHereTimestamp by remember { mutableStateOf<Long?>(null) }
+    var forkFromHereProjectId by remember { mutableStateOf<String?>(null) }
     var promoteArtifactMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var promoteArtifactTitle by remember { mutableStateOf("") }
     var promoteArtifactKind by remember { mutableStateOf("document") }
@@ -820,11 +833,15 @@ fun ChatScreen(
             }
     }
 
-    LaunchedEffect(conversation?.model, availableProjectDefault) {
+    LaunchedEffect(conversation?.model, availableProjectDefault, forcedAgentBackend, chatAgent?.cliModel, chatModels) {
         val storedModel = conversation?.model?.takeIf { modelId ->
-            modelId.isNotBlank() && modelId != "default" && models.any { it.id == modelId }
+            modelId.isNotBlank() && modelId != "default" && chatModels.any { it.id == modelId }
         }
-        vm.loadModel(storedModel ?: availableProjectDefault)
+        val agentModel = chatAgent?.cliModel?.takeIf { modelId ->
+            modelId.isNotBlank() && modelId != "default" &&
+                (chatModels.isEmpty() || chatModels.any { it.id == modelId })
+        }
+        vm.loadModel(storedModel ?: agentModel ?: availableProjectDefault)
     }
 
     val requestModelList = {
@@ -861,6 +878,12 @@ fun ChatScreen(
                     if (branchPending) {
                         branchPending = false
                         onOpenFork?.invoke(event.conversationId)
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.ConversationForkError -> {
+                    if (branchPending) {
+                        branchPending = false
+                        snackbarHostState.showSnackbar(event.message)
                     }
                 }
                 is io.nexy.android.data.model.WsEvent.VoiceAiRecap -> {
@@ -1052,7 +1075,7 @@ fun ChatScreen(
         ) {
             ModelPickerSheet(
                 title = "Chat model",
-                models = models,
+                models = chatModels,
                 cliStatus = cliStatus,
                 selectedModelId = activeModelId,
                 subtitle = backendLockDetail,
@@ -1073,6 +1096,7 @@ fun ChatScreen(
         ) {
             ChatModeSheet(
                 thinkingEffortOverride = chatThinkingEffortOverride,
+                projectDefaultThinkingEffort = projectDefaultThinkingEffort,
                 fullAutoApproveOverride = chatFullAutoApproveOverride,
                 agenticModeOverride = chatAgenticModeOverride,
                 terminalSandboxOverride = chatTerminalSandboxOverride,
@@ -1105,6 +1129,28 @@ fun ChatScreen(
                 if (emergencyStopActive) WsRepository.resumeConversations()
                 else showEmergencyStopConfirmation = true
             },
+        )
+    }
+
+    if (showForkFromHereProjectPicker) {
+        ForkProjectPickerDialog(
+            projects = projects,
+            selectedProjectId = forkFromHereProjectId,
+            onProjectSelected = { forkFromHereProjectId = it },
+            onConfirm = {
+                val cutoff = forkFromHereTimestamp
+                showForkFromHereProjectPicker = false
+                if (cutoff != null) {
+                    branchPending = true
+                    WsRepository.forkConversation(
+                        conversationId = conversationId,
+                        cutoffTimestamp = cutoff,
+                        projectId = forkFromHereProjectId,
+                        includeProject = true,
+                    )
+                }
+            },
+            onDismiss = { showForkFromHereProjectPicker = false },
         )
     }
 
@@ -1749,10 +1795,10 @@ fun ChatScreen(
                                 }
                             }
                             is ChatRenderItem.ThinkingBlockItem -> {
-                                if (isCodexReasoning(listOf(item.block))) {
+                                if (isPlainNarrationReasoning(listOf(item.block))) {
                                     ChatTimelineGroup {
                                         ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !item.block.done), pulse = !item.block.done) {
-                                            CodexReasoningActionLine(listOf(item.block))
+                                            CliReasoningActionLine(listOf(item.block))
                                         }
                                     }
                                 } else {
@@ -1770,20 +1816,16 @@ fun ChatScreen(
                                 }
                             }
                             is ChatRenderItem.LiveThinking -> {
-                                if (isCodexReasoning(item.blocks)) {
-                                    ChatTimelineGroup {
-                                        item.blocks.forEachIndexed { index, block ->
-                                            key("${block.blockId}:$index") {
+                                ChatTimelineGroup {
+                                    item.blocks.forEachIndexed { index, block ->
+                                        key("${block.blockId}:$index") {
+                                            if (isPlainNarrationReasoning(listOf(block))) {
                                                 ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
-                                                    CodexReasoningActionLine(listOf(block))
+                                                    CliReasoningActionLine(listOf(block))
                                                 }
+                                            } else {
+                                                ThinkingHistoryBubble(listOf(block), isLive = true)
                                             }
-                                        }
-                                    }
-                                } else {
-                                    ChatTimelineGroup {
-                                        item.blocks.forEachIndexed { index, block ->
-                                            key("${block.blockId}:$index") { ThinkingHistoryBubble(listOf(block), isLive = true) }
                                         }
                                     }
                                 }
@@ -1827,6 +1869,13 @@ fun ChatScreen(
                                     onResend = { vm.retryMessage(msg.id, msg.text) },
                                     onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                     onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                    onBranch = if (msg.timestamp > 0L) {
+                                        {
+                                            forkFromHereTimestamp = msg.timestamp
+                                            forkFromHereProjectId = chatProjectId
+                                            showForkFromHereProjectPicker = true
+                                        }
+                                    } else null,
                                     onSaveAsPrompt = if (msg.text.isNotBlank()) {
                                         {
                                             val body = stripInjectedContextBlocks(msg.text).trim()
@@ -1842,7 +1891,6 @@ fun ChatScreen(
                                     isHighlighted = msg.id == highlightedMessageId,
                                     onRetry = null,
                                     onEditAssistant = null,
-                                    onBranch = null,
                                     onAddToProject = null,
                                     onShare = null,
                                     onReadAloud = null,
@@ -1862,38 +1910,31 @@ fun ChatScreen(
                                     val hasTimelineContent = item.liveThinkingBlocks.isNotEmpty() ||
                                         msg.toolCalls.isNotEmpty()
                                     if (hasTimelineContent) {
-                                        if (isCodexReasoning(item.liveThinkingBlocks) || isCodexReasoning(msg.thinkingBlocks)) {
-                                            ChatTimelineGroup {
-                                                item.liveThinkingBlocks.forEachIndexed { index, block ->
-                                                    key("${block.blockId}:$index") {
+                                        ChatTimelineGroup {
+                                            // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard).
+                                            // Each block is its own bubble — desktop shows each reasoning phase
+                                            // separately (ThinkingBlock.tsx renders once per block), so joining
+                                            // every block's content into one combined bubble here (the old
+                                            // behavior) collapsed a multi-phase turn into a single "> 2k chars"
+                                            // blob instead of one bubble per phase.
+                                            item.liveThinkingBlocks.forEachIndexed { index, block ->
+                                                key("${block.blockId}:$index") {
+                                                    if (isPlainNarrationReasoning(listOf(block))) {
                                                         ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
-                                                            CodexReasoningActionLine(listOf(block))
-                                                        }
-                                                    }
-                                                }
-                                                msg.toolCalls.forEach { tc ->
-                                                    if (isCodexToolCall(tc.serverName)) {
-                                                        ChatTimelineEntry(beadColor = toolCallBeadColor(inProgress = tc.isStreaming, success = tc.toolSuccess), pulse = tc.isStreaming) {
-                                                            CodexToolActionLine(tc, inProgress = tc.isStreaming)
+                                                            CliReasoningActionLine(listOf(block))
                                                         }
                                                     } else {
-                                                        ToolCallBubble(tc, inProgress = tc.isStreaming)
+                                                        ThinkingHistoryBubble(listOf(block), isLive = true)
                                                     }
                                                 }
                                             }
-                                        } else {
-                                            ChatTimelineGroup {
-                                                // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard).
-                                                // Each block is its own bubble — desktop shows each reasoning phase
-                                                // separately (ThinkingBlock.tsx renders once per block), so joining
-                                                // every block's content into one combined bubble here (the old
-                                                // behavior) collapsed a multi-phase turn into a single "> 2k chars"
-                                                // blob instead of one bubble per phase.
-                                                item.liveThinkingBlocks.forEachIndexed { index, block ->
-                                                    key("${block.blockId}:$index") { ThinkingHistoryBubble(listOf(block), isLive = true) }
-                                                }
-                                                // Tool calls grouped inline above the response text
-                                                msg.toolCalls.forEach { tc ->
+                                            // Tool calls grouped inline above the response text.
+                                            msg.toolCalls.forEach { tc ->
+                                                if (isCodexToolCall(tc.serverName)) {
+                                                    ChatTimelineEntry(beadColor = toolCallBeadColor(inProgress = tc.isStreaming, success = tc.toolSuccess), pulse = tc.isStreaming) {
+                                                        CodexToolActionLine(tc, inProgress = tc.isStreaming)
+                                                    }
+                                                } else {
                                                     ToolCallBubble(tc, inProgress = tc.isStreaming)
                                                 }
                                             }
@@ -1919,7 +1960,11 @@ fun ChatScreen(
                                             }
                                         } else null,
                                         onBranch = if (msg.timestamp > 0L) {
-                                            { branchPending = true; WsRepository.forkConversation(conversationId, msg.timestamp) }
+                                            {
+                                                forkFromHereTimestamp = msg.timestamp
+                                                forkFromHereProjectId = chatProjectId
+                                                showForkFromHereProjectPicker = true
+                                            }
                                         } else null,
                                         onAddToProject = if (chatProjectId != null && msg.text.isNotBlank()) {
                                             { addToProjectMessage = msg; addToProjectTitle = "" }

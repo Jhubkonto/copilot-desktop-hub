@@ -171,6 +171,13 @@ fun FileExplorerScreen(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val canGoUp = state.currentPath?.parentPath() != null
+                    TextButton(
+                        onClick = { vm.goUpOneLevel() },
+                        enabled = canGoUp,
+                    ) {
+                        NexyIcon(NexyIconName.ChevronUp, contentDescription = "Go up one level")
+                    }
                     TextButton(onClick = { vm.navigateTo(-1) }) {
                         NexyIcon(NexyIconName.Home, contentDescription = "Root")
                     }

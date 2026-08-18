@@ -24,7 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
@@ -337,7 +337,7 @@ fun VoiceDock(
                             },
                             modifier = Modifier.size(44.dp),
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Reset microphone position", modifier = Modifier.size(21.dp))
+                            Icon(Icons.Default.CenterFocusStrong, contentDescription = "Reset microphone position", modifier = Modifier.size(21.dp))
                         }
                         IconButton(
                             onClick = {

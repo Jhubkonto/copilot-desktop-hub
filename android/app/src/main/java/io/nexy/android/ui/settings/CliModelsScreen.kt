@@ -3,7 +3,6 @@ package io.nexy.android.ui.settings
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,10 +24,8 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.ui.components.NexyEmptyState
-import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
-import io.nexy.android.ui.icons.NexyIconName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,19 +79,6 @@ fun CliModelsScreen(onBack: () -> Unit) {
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                NexySecondaryButton(
-                    text = "Refresh",
-                    onClick = { WsRepository.getCliStatus() },
-                    enabled = !disconnected,
-                    leadingNexyIcon = NexyIconName.Refresh,
-                )
-            }
         }
     }
 }

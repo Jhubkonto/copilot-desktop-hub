@@ -24,8 +24,8 @@ class ChatTimelineWidthTest {
         composeRule.setContent {
             ChatTimelineGroup {
                 ChatTimelineEntry(beadColor = androidx.compose.ui.graphics.Color.Gray) {
-                    CodexReasoningActionLine(
-                        listOf(ThinkingBlock("reasoning-1", content, done = true)),
+                    CliReasoningActionLine(
+                        listOf(ThinkingBlock("claude-reasoning-0", content, done = true)),
                     )
                 }
             }

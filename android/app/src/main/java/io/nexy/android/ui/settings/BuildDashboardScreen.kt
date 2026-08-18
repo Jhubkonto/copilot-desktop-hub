@@ -62,6 +62,7 @@ import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.icons.NexyIconMotion
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -529,7 +530,6 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
                                     onClick = { workspacePathDraft?.trim()?.let { WsRepository.setAndroidWorkspacePath(it) } },
                                     enabled = workspacePathDraft != null && workspacePathDraft != (info?.path ?: ""),
                                 ) { Text("Save path") }
-                                OutlinedButton(onClick = { WsRepository.getAndroidWorkspaceInfo() }) { Text("Refresh") }
                             }
                         }
                         Spacer(Modifier.height(16.dp))
@@ -689,7 +689,13 @@ private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, log
             else -> MaterialTheme.colorScheme.error
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (isRunning) NexyIcon(NexyIconName.Busy, contentDescription = null, modifier = Modifier.size(14.dp), tint = statusColor)
+            if (isRunning) NexyIcon(
+                NexyIconName.Busy,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = statusColor,
+                motion = NexyIconMotion.Spin,
+            )
             Text(status.uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor)
         }
     }

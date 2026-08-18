@@ -871,10 +871,6 @@ fun AgentConfigScreen(
                         skills = skills,
                         attachedSkillIds = attachedSkillIds,
                         disabled = saving || disconnected,
-                        onRefresh = {
-                            WsRepository.listSkills()
-                            WsRepository.getSkillAgentLinks(agentId)
-                        },
                         onToggleSkill = { skillId, attach ->
                             WsRepository.attachSkillToAgent(agentId, skillId, attach)
                         },
@@ -1497,7 +1493,6 @@ private fun SkillAttachmentsSection(
     skills: List<SkillConfig>,
     attachedSkillIds: List<String>,
     disabled: Boolean,
-    onRefresh: () -> Unit,
     onToggleSkill: (skillId: String, attach: Boolean) -> Unit,
     onMoveSkill: (skillId: String, direction: Int) -> Unit,
 ) {
@@ -1516,7 +1511,6 @@ private fun SkillAttachmentsSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = onRefresh, enabled = !disabled) { Text("Refresh") }
             }
         }
         return

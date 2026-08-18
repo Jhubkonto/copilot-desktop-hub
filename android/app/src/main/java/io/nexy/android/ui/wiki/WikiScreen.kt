@@ -86,6 +86,9 @@ fun WikiScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var wikiMcpStatusLoading by remember(projectId) { mutableStateOf(true) }
+    var wikiMcpActionLoading by remember(projectId) { mutableStateOf(false) }
+    var wikiMcpStatusError by remember(projectId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.error) {
         val err = state.error ?: return@LaunchedEffect
@@ -94,13 +97,30 @@ fun WikiScreen(
     }
 
     LaunchedEffect(projectId) {
+        wikiMcpStatusLoading = true
+        wikiMcpStatusError = null
         vm.load(projectId)
         WsRepository.getWikiMcpStatus(projectId)
     }
     LaunchedEffect(projectId) {
         WsRepository.events.collect { event ->
-            if (event is io.nexy.android.data.model.WsEvent.WikiMcpError && event.projectId == projectId) {
-                snackbarHostState.showSnackbar(event.message)
+            when (event) {
+                is io.nexy.android.data.model.WsEvent.WikiMcpStatus -> {
+                    if (event.status.projectId == projectId) {
+                        wikiMcpStatusLoading = false
+                        wikiMcpStatusError = null
+                        wikiMcpActionLoading = false
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.WikiMcpError -> {
+                    if (event.projectId == projectId) {
+                        wikiMcpStatusLoading = false
+                        wikiMcpStatusError = event.message
+                        wikiMcpActionLoading = false
+                        snackbarHostState.showSnackbar(event.message)
+                    }
+                }
+                else -> Unit
             }
         }
     }
@@ -184,8 +204,24 @@ fun WikiScreen(
             WikiMcpAccessCard(
                 status = wikiMcpStatus,
                 connected = connectionState == ConnectionState.CONNECTED,
-                onConnect = { WsRepository.startWikiMcp(projectId) },
-                onDisconnect = { WsRepository.stopWikiMcp(projectId) },
+                statusLoading = wikiMcpStatusLoading,
+                actionLoading = wikiMcpActionLoading,
+                statusError = wikiMcpStatusError,
+                onRetry = {
+                    wikiMcpStatusLoading = true
+                    wikiMcpStatusError = null
+                    WsRepository.getWikiMcpStatus(projectId)
+                },
+                onConnect = {
+                    wikiMcpActionLoading = true
+                    wikiMcpStatusError = null
+                    WsRepository.startWikiMcp(projectId)
+                },
+                onDisconnect = {
+                    wikiMcpActionLoading = true
+                    wikiMcpStatusError = null
+                    WsRepository.stopWikiMcp(projectId)
+                },
                 onCopy = { status ->
                     val config = status.toMcpClientConfig()
                     if (config != null) {
@@ -208,6 +244,8 @@ fun WikiScreen(
                 isRefreshing = state.isLoading,
                 onRefresh = {
                     vm.load(projectId)
+                    wikiMcpStatusLoading = true
+                    wikiMcpStatusError = null
                     WsRepository.getWikiMcpStatus(projectId)
                 },
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -245,6 +283,10 @@ fun WikiScreen(
 private fun WikiMcpAccessCard(
     status: ProjectWikiMcpStatus?,
     connected: Boolean,
+    statusLoading: Boolean,
+    actionLoading: Boolean,
+    statusError: String?,
+    onRetry: () -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onCopy: (ProjectWikiMcpStatus) -> Unit,
@@ -258,21 +300,27 @@ private fun WikiMcpAccessCard(
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("External LLM access", style = MaterialTheme.typography.titleSmall)
             Text(
-                if (!connected) "Connect to the Nexy desktop to control this project's MCP bridge."
+                if (statusLoading) "Checking whether the project MCP bridge is already running…"
+                else if (statusError != null) "Could not determine the project MCP bridge status."
+                else if (!connected) "Connect to the Nexy desktop to control this project's MCP bridge."
                 else if (running) "The desktop bridge is running. External clients can use this project's capability packs."
                 else "Expose this project to an external MCP client through the paired desktop.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (running) {
-                    TextButton(onClick = onDisconnect) { Text("Disconnect") }
+                if (statusLoading) {
+                    TextButton(onClick = {}, enabled = false) { Text("Checking…") }
+                } else if (statusError != null) {
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                } else if (running) {
+                    TextButton(onClick = onDisconnect, enabled = !actionLoading) { Text(if (actionLoading) "Stopping…" else "Disconnect") }
                     if (status?.stdio != null) {
                         TextButton(onClick = { onCopy(status) }) { Text("Copy config") }
                         TextButton(onClick = { onShare(status) }) { Text("Share") }
                     }
                 } else {
-                    TextButton(onClick = onConnect, enabled = connected) { Text("Connect") }
+                    TextButton(onClick = onConnect, enabled = connected && !actionLoading) { Text(if (actionLoading) "Starting…" else "Connect") }
                 }
             }
         }

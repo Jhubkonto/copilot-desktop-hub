@@ -249,10 +249,7 @@ fun ChatsTab(
                 NexyEmptyState(
                     title = "No conversations yet.",
                     action = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            TextButton(onClick = onRefresh) { Text("Refresh") }
-                            TextButton(onClick = onDisconnect) { Text("Disconnect") }
-                        }
+                        TextButton(onClick = onDisconnect) { Text("Disconnect") }
                     },
                 )
             }

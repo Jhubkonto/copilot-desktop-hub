@@ -1,10 +1,19 @@
 package io.nexy.android.ui.chat
 
 import io.nexy.android.data.model.ThinkingBlock
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRenderItemTest {
+    @Test
+    fun cliReasoningIdsUseCompactNarrationButGenericReasoningDoesNot() {
+        assertTrue(isPlainNarrationReasoning(listOf(ThinkingBlock("codex-reasoning-summary-0", "Codex", done = true))))
+        assertTrue(isPlainNarrationReasoning(listOf(ThinkingBlock("claude-reasoning-0", "Claude", done = true))))
+        assertFalse(isPlainNarrationReasoning(listOf(ThinkingBlock("thinking-0", "Generic", done = true))))
+    }
+
     @Test
     fun projectsTheActiveTurnInCanonicalEventOrder() {
         var turn = emptyChatTurnState("conv-1")

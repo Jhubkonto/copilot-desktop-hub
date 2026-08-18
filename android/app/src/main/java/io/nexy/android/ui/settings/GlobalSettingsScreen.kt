@@ -75,6 +75,7 @@ fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
     var temperature by remember { mutableStateOf("") }
     var maxTokens by remember { mutableStateOf("") }
     var autoStart by remember { mutableStateOf(false) }
+    var runInBackground by remember { mutableStateOf(false) }
     var autoClipboard by remember { mutableStateOf(false) }
 
     val hasResolvableDefaultModel = hasResolvableDefaultModel(
@@ -89,8 +90,9 @@ fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
         WsRepository.send("settings:get-default-standalone-model", emptyMap())
         WsRepository.send("settings:get-default-temperature", emptyMap())
         WsRepository.send("settings:get-default-max-tokens", emptyMap())
-        WsRepository.getSetting("auto_start")
-        WsRepository.getSetting("auto_clipboard")
+        WsRepository.getSetting("autoStart")
+        WsRepository.getSetting("runInBackground")
+        WsRepository.getSetting("autoClipboard")
     }
 
     LaunchedEffect(Unit) {
@@ -101,13 +103,15 @@ fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
                     "defaultStandaloneModel" -> defaultStandaloneModel = event.value.orEmpty()
                     "defaultTemperature" -> temperature = event.value.orEmpty()
                     "defaultMaxTokens" -> maxTokens = event.value.orEmpty()
-                    "auto_start" -> autoStart = event.value == "true"
-                    "auto_clipboard" -> autoClipboard = event.value == "true"
+                    "autoStart" -> autoStart = event.value == "true"
+                    "runInBackground" -> runInBackground = event.value == "true"
+                    "autoClipboard" -> autoClipboard = event.value == "true"
                     else -> {}
                 }
                 is WsEvent.SettingSet -> when (event.key) {
-                    "auto_start" -> autoStart = event.value == "true"
-                    "auto_clipboard" -> autoClipboard = event.value == "true"
+                    "autoStart" -> autoStart = event.value == "true"
+                    "runInBackground" -> runInBackground = event.value == "true"
+                    "autoClipboard" -> autoClipboard = event.value == "true"
                     else -> {}
                 }
                 else -> {}
@@ -237,15 +241,34 @@ fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
             GlobalSettingsSectionHeader("Behaviour")
 
             GlobalSettingsToggleRow(
-                title = "Auto-start",
-                subtitle = "Automatically begin a new chat on app launch",
+                title = "Start Nexy desktop on login",
+                subtitle = "Launch Nexy in the desktop tray when you sign in on the computer",
                 checked = autoStart,
                 enabled = !disconnected,
                 onCheckedChange = {
                     autoStart = it
-                    WsRepository.setSetting("auto_start", it.toString())
+                    WsRepository.setSetting("autoStart", it.toString())
                 },
             )
+
+            GlobalSettingsToggleRow(
+                title = "Run Nexy desktop in background",
+                subtitle = "Closing its window keeps the desktop scheduler running in the tray",
+                checked = runInBackground,
+                enabled = !disconnected,
+                onCheckedChange = {
+                    runInBackground = it
+                    WsRepository.setSetting("runInBackground", it.toString())
+                },
+            )
+
+            if (runInBackground && !autoStart) {
+                Text(
+                    "Enable Start Nexy desktop on login too if schedules should be armed automatically after you sign in.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
 
             GlobalSettingsToggleRow(
                 title = "Auto-clipboard",
@@ -254,13 +277,13 @@ fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
                 enabled = !disconnected,
                 onCheckedChange = {
                     autoClipboard = it
-                    WsRepository.setSetting("auto_clipboard", it.toString())
+                    WsRepository.setSetting("autoClipboard", it.toString())
                 },
             )
 
             if (disconnected) {
                 Text(
-                    "Not connected — auto-start and auto-clipboard changes will be applied when the desktop reconnects.",
+                    "Connect to the desktop to change its startup, background, or clipboard settings.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -60,17 +60,20 @@ import io.nexy.android.ui.theme.Red600
 // doesn't lay out (and so can't be selected/copied) anything past the visible rows.
 private const val RESULT_VISIBLE_LINES = 4
 
-// A "codex-cli" serverName / "codex-reasoning-summary" blockId prefix are the same detection
-// convention the desktop client uses (CodexActionLine.tsx) — the backend payload is identical
-// for paired-Android and desktop chat requests, both routed through the same dispatchChatSend
-// pipeline, so this check applies unmodified.
+// These provider-specific IDs are the same detection convention the desktop client uses
+// (ChatMessages.tsx). The backend payload is identical for paired-Android and desktop chat
+// requests, both routed through the same dispatchChatSend pipeline.
 internal const val CODEX_SERVER_NAME = "codex-cli"
 internal const val CODEX_REASONING_BLOCK_PREFIX = "codex-reasoning-summary"
+internal const val CLAUDE_REASONING_BLOCK_PREFIX = "claude-reasoning-"
 
 internal fun isCodexToolCall(serverName: String?): Boolean = serverName == CODEX_SERVER_NAME
 
-internal fun isCodexReasoning(blocks: List<ThinkingBlock>): Boolean =
-    blocks.any { it.blockId.startsWith(CODEX_REASONING_BLOCK_PREFIX) }
+internal fun isPlainNarrationReasoning(blocks: List<ThinkingBlock>): Boolean =
+    blocks.any {
+        it.blockId.startsWith(CODEX_REASONING_BLOCK_PREFIX) ||
+            it.blockId.startsWith(CLAUDE_REASONING_BLOCK_PREFIX)
+    }
 
 internal fun collapsedReasoningPreview(content: String): String {
     val withoutControlCharacters = content.filter { character ->
@@ -224,13 +227,13 @@ private fun CodexToolResultFullscreenDialog(
 }
 
 /**
- * Compact reasoning-summary line for Codex-CLI thinking blocks — non-monospace, matching
- * desktop's reasoning bullet style (CodexActionLine.tsx:46-48). One bullet per block, mirroring
+ * Compact reasoning-summary line for CLI thinking blocks — non-monospace, matching
+ * desktop's reasoning bullet style (ChatMessages.tsx). One bullet per block, mirroring
  * desktop rendering one reasoning-summary line per phase rather than joining every phase's
  * content into a single run-on paragraph.
  */
 @Composable
-fun CodexReasoningActionLine(blocks: List<ThinkingBlock>) {
+fun CliReasoningActionLine(blocks: List<ThinkingBlock>) {
     val isDark = LocalNexyColors.current.isDark
     val glyphColor = if (isDark) Gray500 else Gray400
     val textColor = if (isDark) Gray400 else Gray600

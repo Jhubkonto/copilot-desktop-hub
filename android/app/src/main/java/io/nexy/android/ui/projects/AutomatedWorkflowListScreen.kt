@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,7 +69,7 @@ private val WORKFLOW_STAGES: List<Pair<ImageVector, String>> = listOf(
     Icons.Default.Edit to "Describe your goal",
     Icons.Default.Description to "Review the generated plan",
     Icons.Default.PlayArrow to "Run it whenever you're ready — step-by-step or automatic",
-    Icons.Default.Refresh to "Reuse it later with \"Run again\" — no need to re-describe the goal",
+    Icons.Default.PlayArrow to "Reuse it later with \"Run again\" — no need to re-describe the goal",
 )
 
 /**

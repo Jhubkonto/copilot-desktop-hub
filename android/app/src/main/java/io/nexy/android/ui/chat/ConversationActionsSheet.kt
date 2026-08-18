@@ -35,10 +35,53 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.NexyInfoDialog
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
 import java.io.File
+
+@Composable
+fun ForkProjectPickerDialog(
+    projects: List<Project>,
+    selectedProjectId: String?,
+    onProjectSelected: (String?) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fork into project") },
+        text = {
+            Column {
+                Text(
+                    "Choose where the new conversation should live.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Text(
+                    if (selectedProjectId == null) "✓ No project" else "No project",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onProjectSelected(null) }
+                        .padding(vertical = 10.dp),
+                )
+                projects.forEach { project ->
+                    Text(
+                        if (selectedProjectId == project.id) "✓ ${project.name}" else project.name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onProjectSelected(project.id) }
+                            .padding(vertical = 10.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Create fork") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,38 +191,15 @@ fun ConversationActionsSheet(
     }
 
     if (showForkProjectPicker) {
-        AlertDialog(
-            onDismissRequest = { showForkProjectPicker = false },
-            title = { Text("Fork into project") },
-            text = {
-                Column {
-                    Text(
-                        "Choose where the new conversation should live.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                    Text(
-                        if (forkProjectId == null) "✓ No project" else "No project",
-                        modifier = Modifier.fillMaxWidth().clickable { forkProjectId = null }.padding(vertical = 10.dp),
-                    )
-                    projects.forEach { project ->
-                        Text(
-                            if (forkProjectId == project.id) "✓ ${project.name}" else project.name,
-                            modifier = Modifier.fillMaxWidth().clickable { forkProjectId = project.id }.padding(vertical = 10.dp),
-                        )
-                    }
-                }
+        ForkProjectPickerDialog(
+            projects = projects,
+            selectedProjectId = forkProjectId,
+            onProjectSelected = { forkProjectId = it },
+            onConfirm = {
+                showForkProjectPicker = false
+                vm.fork(conversationId, forkProjectId)
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showForkProjectPicker = false
-                    vm.fork(conversationId, forkProjectId)
-                }) { Text("Create fork") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showForkProjectPicker = false }) { Text("Cancel") }
-            },
+            onDismiss = { showForkProjectPicker = false },
         )
     }
 

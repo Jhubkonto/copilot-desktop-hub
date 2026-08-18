@@ -48,7 +48,6 @@ fun ModelsScreen(
                 models = models,
                 modelSource = modelSource,
                 effectiveMode = effectiveMode,
-                onRefresh = { vm.refreshModels() },
             )
         }
     }

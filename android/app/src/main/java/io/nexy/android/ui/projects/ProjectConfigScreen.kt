@@ -110,6 +110,15 @@ private val instructionModeDescriptions = mapOf(
     "standalone" to "Currently behaves the same as Replace: project instructions take the place of the agent's own system instructions.",
 )
 
+private val thinkingEffortOptions = listOf(
+    null to "Agent default",
+    "disabled" to "Disabled",
+    "low" to "Low",
+    "medium" to "Medium",
+    "high" to "High",
+    "max" to "Max",
+)
+
 private val milestoneStatuses = listOf("upcoming", "active", "completed")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,6 +149,8 @@ fun ProjectConfigScreen(
     var showTeamActivity by remember { mutableStateOf(true) }
     var instructionModeExpanded by remember { mutableStateOf(false) }
     var defaultModel by remember { mutableStateOf<String?>(null) }
+    var defaultThinkingEffort by remember { mutableStateOf<String?>(null) }
+    var defaultThinkingEffortExpanded by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -153,6 +164,7 @@ fun ProjectConfigScreen(
     var loadedMaxDelegationDepth by remember { mutableStateOf("5") }
     var loadedShowTeamActivity by remember { mutableStateOf(true) }
     var loadedDefaultModel by remember { mutableStateOf<String?>(null) }
+    var loadedDefaultThinkingEffort by remember { mutableStateOf<String?>(null) }
     val variables = remember { mutableStateListOf<Map<String, String>>() }
     val inScope = remember { mutableStateListOf<Map<String, String>>() }
     val outOfScope = remember { mutableStateListOf<Map<String, String>>() }
@@ -188,7 +200,8 @@ fun ProjectConfigScreen(
         workflowMode != loadedWorkflowMode ||
         maxDelegationDepth != loadedMaxDelegationDepth ||
         showTeamActivity != loadedShowTeamActivity ||
-        defaultModel != loadedDefaultModel
+        defaultModel != loadedDefaultModel ||
+        defaultThinkingEffort != loadedDefaultThinkingEffort
     )
 
     // Navigating to the file explorer (from "Project files" or the "Choose folder…" picker)
@@ -217,6 +230,7 @@ fun ProjectConfigScreen(
                     maxDelegationDepth = event.config.maxDelegationDepth.toString()
                     showTeamActivity = event.config.showTeamActivity
                     defaultModel = event.config.defaultModel
+                    defaultThinkingEffort = event.config.defaultThinkingEffort
                     variables.replaceWith(event.config.variables)
                     inScope.replaceWith(event.config.inScope)
                     outOfScope.replaceWith(event.config.outOfScope)
@@ -231,6 +245,7 @@ fun ProjectConfigScreen(
                     loadedMaxDelegationDepth = event.config.maxDelegationDepth.toString()
                     loadedShowTeamActivity = event.config.showTeamActivity
                     loadedDefaultModel = event.config.defaultModel
+                    loadedDefaultThinkingEffort = event.config.defaultThinkingEffort
                     loaded = true
                 }
                 is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) {
@@ -244,6 +259,7 @@ fun ProjectConfigScreen(
                     loadedMaxDelegationDepth = maxDelegationDepth
                     loadedShowTeamActivity = showTeamActivity
                     loadedDefaultModel = defaultModel
+                    loadedDefaultThinkingEffort = defaultThinkingEffort
                     if (isNew) {
                         WsRepository.pendingHighlightProjectId.value = projectId
                         onBack()
@@ -439,6 +455,7 @@ fun ProjectConfigScreen(
                                     outOfScope = outOfScope.toList(),
                                     milestones = milestones.toList(),
                                     defaultModel = defaultModel,
+                                    defaultThinkingEffort = defaultThinkingEffort,
                                 ),
                             )
                         },
@@ -607,6 +624,35 @@ fun ProjectConfigScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    ExposedDropdownMenuBox(
+                        expanded = defaultThinkingEffortExpanded,
+                        onExpandedChange = { if (!saving && !disconnected) defaultThinkingEffortExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = thinkingEffortOptions.find { it.first == defaultThinkingEffort }?.second ?: "Agent default",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Default thinking effort") },
+                            supportingText = { Text("Used for new chats in this project unless the chat overrides it") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = defaultThinkingEffortExpanded) },
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = defaultThinkingEffortExpanded,
+                            onDismissRequest = { defaultThinkingEffortExpanded = false },
+                        ) {
+                            thinkingEffortOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        defaultThinkingEffort = value
+                                        defaultThinkingEffortExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -651,7 +697,7 @@ fun ProjectConfigScreen(
                                 },
                                 enabled = !saving && !sourcesUpdating,
                             ) {
-                                NexyIcon(NexyIconName.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                NexyIcon(NexyIconName.Scan, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.size(6.dp))
                                 Text(if (sourcesUpdating) "Rescanning…" else "Rescan")
                             }

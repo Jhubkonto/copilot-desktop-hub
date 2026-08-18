@@ -176,7 +176,11 @@ fun SchedulerTaskDetailScreen(
                 }
             } else {
                 items(runs, key = { it.id }) { run ->
-                    RunRow(run)
+                    RunRow(
+                        run = run,
+                        isConnected = isConnected,
+                        onResume = { viewModel.resumeRun(run.id) },
+                    )
                     HorizontalDivider()
                 }
             }
@@ -248,7 +252,7 @@ private fun ActionButtons(
 }
 
 @Composable
-private fun RunRow(run: ScheduledRun) {
+private fun RunRow(run: ScheduledRun, isConnected: Boolean, onResume: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -261,6 +265,11 @@ private fun RunRow(run: ScheduledRun) {
             Text(label, style = MaterialTheme.typography.bodySmall)
             if (run.error != null) {
                 Text(run.error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
+            }
+        }
+        if (run.status == "approval_required") {
+            TextButton(onClick = onResume, enabled = isConnected) {
+                Text("Approve & resume")
             }
         }
         StatusBadge(run.status)
@@ -281,6 +290,7 @@ private fun StatusBadge(status: String) {
         "success" -> MaterialTheme.colorScheme.primary
         "failed" -> MaterialTheme.colorScheme.error
         "running" -> MaterialTheme.colorScheme.tertiary
+        "approval_required" -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(

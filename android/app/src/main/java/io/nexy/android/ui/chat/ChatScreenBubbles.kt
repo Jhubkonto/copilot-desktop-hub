@@ -762,7 +762,7 @@ private fun ThinkingFullscreenDialog(
 /**
  * A single settled piece of the assistant's response. This is deliberately a response-only
  * component: it has no collapsed state, click handler, line cap, or ellipsis. Reasoning uses
- * ThinkingHistoryBubble/CodexReasoningActionLine instead and is the only content allowed to
+ * ThinkingHistoryBubble/CliReasoningActionLine instead and is the only content allowed to
  * expose expand/collapse controls.
  */
 @Composable
@@ -856,7 +856,7 @@ fun MessageBubble(
                     if (onSaveAsPrompt != null) DropdownMenuItem(text = { Text("Save as prompt") }, onClick = { menuExpanded = false; onSaveAsPrompt() })
                     if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { menuExpanded = false; onRetry() })
                     if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { menuExpanded = false; onEditAssistant() })
-                    if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
+                    if (onBranch != null) DropdownMenuItem(text = { Text("Fork from here") }, onClick = { menuExpanded = false; onBranch() })
                     if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { menuExpanded = false; onAddToProject() })
                     if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
@@ -1044,7 +1044,7 @@ fun MessageBubble(
                             if (onSaveAsPrompt != null) DropdownMenuItem(text = { Text("Save as prompt") }, onClick = { overflowExpanded = false; onSaveAsPrompt() })
                             if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { overflowExpanded = false; onRetry() })
                             if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { overflowExpanded = false; onEditAssistant() })
-                            if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { overflowExpanded = false; onBranch() })
+                            if (onBranch != null) DropdownMenuItem(text = { Text("Fork from here") }, onClick = { overflowExpanded = false; onBranch() })
                             if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { overflowExpanded = false; onAddToProject() })
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
