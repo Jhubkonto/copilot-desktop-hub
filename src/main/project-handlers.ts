@@ -9,6 +9,7 @@ import {
   DEFAULT_PROJECT_CONFIG,
   type ProjectConfig,
   type ProjectWorkspaceMetadata,
+  type ThinkingEffort,
 } from "../shared/types";
 import {
   addProjectSource,
@@ -23,6 +24,8 @@ import {
 import { normalizeProjectColor, PROJECT_COLOR_NAMES } from '../shared/project-colors'
 
 export { DEFAULT_PROJECT_CONFIG };
+
+const THINKING_EFFORTS = new Set<ThinkingEffort>(['low', 'medium', 'high', 'max', 'disabled']);
 
 const CODING_MARKERS = [
   'package.json',
@@ -163,6 +166,9 @@ export function parseProjectConfig(
     raw.workflowMode = workflowMode
     raw.orchestrationEnabled = workflowMode === 'orchestrated'
     raw.codingWorkspace = raw.codingWorkspace === true
+    raw.defaultThinkingEffort = typeof raw.defaultThinkingEffort === 'string' && THINKING_EFFORTS.has(raw.defaultThinkingEffort as ThinkingEffort)
+      ? raw.defaultThinkingEffort
+      : null
     raw.sources = Array.isArray(raw.sources) ? raw.sources : []
     raw.repositories = Array.isArray(raw.repositories) ? raw.repositories : []
     if (typeof raw.workspaceInfo !== 'object' || raw.workspaceInfo === null) {
@@ -211,6 +217,11 @@ function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<st
   if (Object.prototype.hasOwnProperty.call(normalized, 'workspaceInfo')) {
     normalized.workspaceInfo = normalized.workspaceInfo && typeof normalized.workspaceInfo === 'object'
       ? normalized.workspaceInfo
+      : null
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'defaultThinkingEffort')) {
+    normalized.defaultThinkingEffort = typeof normalized.defaultThinkingEffort === 'string' && THINKING_EFFORTS.has(normalized.defaultThinkingEffort as ThinkingEffort)
+      ? normalized.defaultThinkingEffort
       : null
   }
   return normalized

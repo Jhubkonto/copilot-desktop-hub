@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync, statSync } from 'fs'
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
-import { getProviderForAgent, getApiKey, DEFAULT_PROVIDER_MODEL, PROVIDERS, isProviderConfigured, getOpenRouterModels } from './providers'
+import { getProviderForAgent, getProviderCredential, DEFAULT_PROVIDER_MODEL, PROVIDERS, isProviderConfigured, getOpenRouterModels } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import { getAdapter } from './cli-adapters/registry'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -262,7 +262,7 @@ async function runProviderChat(
   }
 
   const { provider, model } = getProviderForAgent(selectedModel)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
   const systemPrompt = typeof providerMessages[0]?.content === 'string'
     ? providerMessages[0].content
     : ARTIFACT_GENERATOR_SYSTEM_PROMPT
@@ -270,7 +270,8 @@ async function runProviderChat(
   return dispatchToProvider({
     providerName: provider,
     providerModel: model,
-    byokKey: apiKey ?? '',
+    credential: credential ?? undefined,
+    byokKey: credential ?? undefined,
     chatMessages: providerMessages,
     toolDefs: [],
     toolMap: new Map(),

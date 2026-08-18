@@ -5,7 +5,7 @@ import {
   PROVIDERS,
   getOpenRouterModels,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   isProviderConfigured,
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
@@ -273,7 +273,7 @@ async function runProjectGeneratorProviderChat(
 
   // ── BYOK / provider path ─────────────────────────────────────────────────────
   const { provider, model } = getProviderForAgent(selectedModel)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
   const systemPrompt = typeof providerMessages[0]?.content === 'string'
     ? providerMessages[0].content
     : PROJECT_GENERATOR_SYSTEM_PROMPT
@@ -281,7 +281,8 @@ async function runProjectGeneratorProviderChat(
   return dispatchToProvider({
     providerName: provider,
     providerModel: model,
-    byokKey: apiKey ?? '',
+    credential: credential ?? undefined,
+    byokKey: credential ?? undefined,
     chatMessages: providerMessages,
     toolDefs: [],
     toolMap: new Map(),

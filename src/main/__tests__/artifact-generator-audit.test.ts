@@ -33,6 +33,7 @@ vi.mock('../providers', () => ({
   PROVIDERS: [{ name: 'openai', models: ['gpt-5-mini'] }],
   getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-5-mini' })),
   getApiKey: vi.fn(() => 'sk-test'),
+  getProviderCredential: vi.fn(() => 'sk-test'),
   isProviderConfigured: vi.fn(() => true),
   getOpenRouterModels: vi.fn(() => []),
 }))

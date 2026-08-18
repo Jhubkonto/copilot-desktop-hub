@@ -1,7 +1,6 @@
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
-import { safeHandle } from './safe-handle'
 import type {
   ProjectEditSession,
   ProjectEditSource,
@@ -392,18 +391,4 @@ export function getProjectAuditDiff(sessionId: string, relativePath: string, fil
     relativePath,
     ...(JSON.parse(row.diff_json) as { hunks: unknown[] }),
   } as ProjectFileDiff
-}
-
-export function registerProjectAuditHandlers(): void {
-  safeHandle('project-audit:list-sessions', (_event, projectId?: string | null) => {
-    return listProjectAuditSessions(projectId)
-  })
-
-  safeHandle('project-audit:list-files', (_event, sessionId: string) => {
-    return listProjectAuditFiles(sessionId)
-  })
-
-  safeHandle('project-audit:get-diff', (_event, sessionId: string, relativePath: string, fileId?: string | null) => {
-    return getProjectAuditDiff(sessionId, relativePath, fileId)
-  })
 }

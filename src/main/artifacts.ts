@@ -12,8 +12,8 @@ import type {
 } from '../shared/types'
 import { exportArtifactVersion } from './artifact-export'
 import { app, shell, BrowserWindow, dialog } from 'electron'
-import { randomUUID } from 'crypto'
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
+import { createHash, randomUUID } from 'crypto'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
 import { broadcastToMobile } from './ws-server'
 
@@ -23,6 +23,7 @@ function broadcastArtifactUpdated(artifactId: string, projectId: string | null):
   BrowserWindow.getAllWindows().forEach((w) => {
     if (!w.isDestroyed()) w.webContents.send('artifact:updated', { artifactId, projectId })
   })
+  broadcastToMobile({ event: 'artifact:updated', data: { artifactId, projectId } })
 }
 
 const ARTIFACT_REF_PREFIX = '__artifact-ref:'
@@ -166,12 +167,20 @@ function rowToArtifact(r: Record<string, unknown>, currentVersion?: ArtifactVers
   }
 }
 
-function getVersionWithFiles(versionId: string): ArtifactVersion | undefined {
+export function getArtifactVersion(versionId: string): ArtifactVersion | undefined {
   const db = getDatabase()
   const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(versionId) as Record<string, unknown> | undefined
   if (!vRow) return undefined
   const fileRows = db.prepare('SELECT * FROM artifact_files WHERE version_id = ?').all(versionId) as Record<string, unknown>[]
   return rowToVersion(vRow, fileRows.map(rowToFile))
+}
+
+const getVersionWithFiles = getArtifactVersion
+
+export function listArtifactVersionsForArtifact(artifactId: string): ArtifactVersion[] {
+  const rows = getDatabase().prepare('SELECT id FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC')
+    .all(artifactId) as Array<{ id: string }>
+  return rows.map((row) => getArtifactVersion(row.id)).filter((version): version is ArtifactVersion => Boolean(version))
 }
 
 function getVersionsWithFilesBatch(versionIds: string[]): Map<string, ArtifactVersion> {
@@ -555,6 +564,116 @@ export function readArtifactVersionFile(versionId: string, relativePath: string)
   return readFileSync(file.absolutePath, 'utf8')
 }
 
+export interface ManagedArtifactFileInput {
+  relativePath: string
+  mediaType: string
+  role: 'primary' | 'supporting' | 'source'
+  content: string
+}
+
+/**
+ * Creates an immutable artifact version for workflow-owned content. Unlike conversation helpers,
+ * this has no chat side effects and accepts an explicit manifest/provenance payload.
+ */
+export function writeManagedArtifactVersion(input: {
+  projectId: string | null
+  artifactId?: string
+  title: string
+  kind: ArtifactKind
+  description: string
+  files: ManagedArtifactFileInput[]
+  manifest: Record<string, unknown>
+  notes?: string
+  sourceConversationId?: string | null
+  createdByAgentIds?: string[]
+}): { artifactId: string; versionId: string } {
+  if (input.files.length === 0) throw new Error('A managed artifact version requires at least one file')
+  const db = getDatabase()
+  const existing = input.artifactId
+    ? db.prepare('SELECT * FROM artifacts WHERE id = ?').get(input.artifactId) as Record<string, unknown> | undefined
+    : undefined
+  if (input.artifactId && !existing) throw new Error('Managed artifact not found')
+  if (existing && (existing.project_id ?? null) !== input.projectId) throw new Error('Managed artifact belongs to another project')
+
+  const artifactId = input.artifactId ?? randomUUID()
+  const versionId = randomUUID()
+  const now = Date.now()
+  const versionNumber = Number((db.prepare('SELECT COALESCE(MAX(version_number), 0) AS value FROM artifact_versions WHERE artifact_id = ?')
+    .get(artifactId) as { value: number } | undefined)?.value ?? 0) + 1
+  const storageRoot = getStorageRoot()
+  const versionDir = path.join(
+    storageRoot,
+    input.projectId ? 'projects' : 'global',
+    input.projectId ?? '',
+    `${slugify(input.title)}-${artifactId.slice(0, 8)}`,
+    `v${versionNumber}`,
+  )
+  try {
+    const writtenFiles = input.files.map((file) => {
+    const relativePath = sanitizeRelativeArtifactPath(file.relativePath)
+    const absolutePath = path.join(versionDir, ...relativePath.split('/'))
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, file.content, 'utf8')
+    const bytes = Buffer.from(file.content, 'utf8')
+    return {
+      ...file,
+      relativePath,
+      absolutePath,
+      sizeBytes: bytes.byteLength,
+      checksum: createHash('sha256').update(bytes).digest('hex'),
+    }
+  })
+  const manifestJson = JSON.stringify({
+    ...input.manifest,
+    artifactId,
+    versionId,
+    version: versionNumber,
+    title: input.title,
+    kind: input.kind,
+    createdAt: now,
+    files: writtenFiles.map((file) => ({
+      path: file.relativePath, mediaType: file.mediaType, role: file.role,
+      sizeBytes: file.sizeBytes, checksum: file.checksum,
+    })),
+  })
+
+  db.transaction(() => {
+    if (existing) {
+      db.prepare(`UPDATE artifacts SET title = ?, description = ?, current_version_id = ?,
+        status = 'ready', error_message = NULL, updated_at = ? WHERE id = ?`)
+        .run(input.title, input.description, versionId, now, artifactId)
+    } else {
+      db.prepare(`INSERT INTO artifacts
+        (id, project_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`)
+        .run(artifactId, input.projectId, input.title, input.kind, input.description, storageRoot, versionId, now, now)
+    }
+    db.prepare(`INSERT INTO artifact_versions
+      (id, artifact_id, version_number, title, notes, spec_json, manifest_json,
+       source_conversation_id, source_message_id, created_by_agent_ids, created_at)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?)`)
+      .run(versionId, artifactId, versionNumber, input.title, input.notes ?? null, manifestJson,
+        input.sourceConversationId ?? null,
+        input.createdByAgentIds?.length ? JSON.stringify(input.createdByAgentIds) : null, now)
+    const insertFile = db.prepare(`INSERT INTO artifact_files
+      (id, version_id, relative_path, absolute_path, media_type, role, size_bytes, checksum)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    for (const file of writtenFiles) {
+      insertFile.run(randomUUID(), versionId, file.relativePath, file.absolutePath, file.mediaType,
+        file.role, file.sizeBytes, file.checksum)
+    }
+  })()
+
+    broadcastArtifactUpdated(artifactId, input.projectId)
+    return { artifactId, versionId }
+  } catch (error) {
+    // A filesystem failure or rejected DB transaction must not leave an untracked version tree.
+    // Existing artifact versions live in sibling directories and are unaffected.
+    rmSync(versionDir, { recursive: true, force: true })
+    throw error
+  }
+}
+
 /**
  * Writes (or overwrites) a single supporting file onto an *existing* artifact version, without
  * minting a new version. Used for content that's lazily derived from a version's primary file
@@ -776,6 +895,11 @@ export function saveFinalizedPlanArtifact(input: {
  */
 export function deleteArtifactVersion(versionId: string): { deleted: boolean; artifactId?: string } {
   const db = getDatabase()
+  const workflowReference = db.prepare(`SELECT 1 FROM automated_workflow_step_artifacts WHERE artifact_version_id = ?
+    UNION SELECT 1 FROM automated_workflow_reviews WHERE artifact_version_id = ?
+    UNION SELECT 1 FROM automated_workflow_publish_previews WHERE artifact_version_id = ? LIMIT 1`)
+    .get(versionId, versionId, versionId)
+  if (workflowReference) throw new Error('This artifact version is retained by workflow provenance and cannot be deleted.')
   const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(versionId) as Record<string, unknown> | undefined
   if (!vRow) return { deleted: false }
   const artifactId = String(vRow.artifact_id)
