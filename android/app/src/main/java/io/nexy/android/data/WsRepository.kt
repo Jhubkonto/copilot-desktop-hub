@@ -29,12 +29,15 @@ import io.nexy.android.data.model.ProjectWikiMcpStatus
 import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
+import io.nexy.android.data.model.ManagedWorkflowSourceOption
+import io.nexy.android.data.model.ManagedWorkflowVersionContent
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.SkillPackageFile
+import io.nexy.android.data.model.DiscoveredSkill
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.local.LocalDataRepository
@@ -258,6 +261,9 @@ object WsRepository : WsClient {
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
     val skills: StateFlow<List<SkillConfig>> = _skills
 
+    private val _discoveredSkills = MutableStateFlow<List<DiscoveredSkill>>(emptyList())
+    val discoveredSkills: StateFlow<List<DiscoveredSkill>> = _discoveredSkills
+
     private val _skillAgentUsage = MutableStateFlow<Map<String, Int>>(emptyMap())
     val skillAgentUsage: StateFlow<Map<String, Int>> = _skillAgentUsage
 
@@ -438,6 +444,10 @@ object WsRepository : WsClient {
     // leftover text before new chunks arrive (mirrors the desktop AutomatedWorkflowTab.tsx pattern).
     private val _automatedWorkflowStepStreamText = MutableStateFlow<Map<String, String>>(emptyMap())
     val automatedWorkflowStepStreamText: StateFlow<Map<String, String>> = _automatedWorkflowStepStreamText
+    private val _managedWorkflowVersions = MutableStateFlow<Map<String, ManagedWorkflowVersionContent>>(emptyMap())
+    val managedWorkflowVersions: StateFlow<Map<String, ManagedWorkflowVersionContent>> = _managedWorkflowVersions
+    private val _managedWorkflowSources = MutableStateFlow<List<ManagedWorkflowSourceOption>>(emptyList())
+    val managedWorkflowSources: StateFlow<List<ManagedWorkflowSourceOption>> = _managedWorkflowSources
 
     fun pruneAutomatedWorkflowStepStreamText(runningStepDbIds: Set<String>) {
         _automatedWorkflowStepStreamText.value = _automatedWorkflowStepStreamText.value.filterKeys { it in runningStepDbIds }
@@ -608,6 +618,98 @@ object WsRepository : WsClient {
      *  as :start/:save-spec, so no new WsEvent parse case is needed. */
     fun runAgainAutomatedWorkflow(templateId: String) {
         send("automated-workflow-runs:run-again", mapOf("templateId" to templateId))
+    }
+
+    /** Updates the paired-mode authoring projection and its raw spec together, so Android can
+     * configure managed sources/destinations without exposing artifact IDs or JSON. */
+    fun updateManagedWorkflowDraftStep(
+        stepId: String,
+        projectSourceId: String? = null,
+        includePaths: List<String>? = null,
+        publishProjectSourceId: String? = null,
+        publishRelativePath: String? = null,
+    ) {
+        val current = _automatedWorkflowSession.value ?: return
+        val raw = current.rawSpec ?: return
+        @Suppress("UNCHECKED_CAST")
+        val rawSteps = raw["steps"] as? List<Any?> ?: return
+        val updatedRawSteps = rawSteps.map { item ->
+            @Suppress("UNCHECKED_CAST")
+            val step = item as? Map<String, Any?> ?: return@map item
+            if (step["id"] != stepId) return@map item
+            val mutable = step.toMutableMap()
+            if (projectSourceId != null || includePaths != null) {
+                @Suppress("UNCHECKED_CAST")
+                val bindings = (step["inputBindings"] as? List<Any?>).orEmpty().map { bindingItem ->
+                    @Suppress("UNCHECKED_CAST")
+                    val binding = bindingItem as? Map<String, Any?> ?: return@map bindingItem
+                    @Suppress("UNCHECKED_CAST")
+                    val source = binding["source"] as? Map<String, Any?> ?: return@map bindingItem
+                    if (source["type"] != "project-files") return@map bindingItem
+                    binding.toMutableMap().apply {
+                        put("source", source.toMutableMap().apply {
+                            if (projectSourceId != null) put("projectSourceId", projectSourceId)
+                            if (includePaths != null) put("include", includePaths)
+                        })
+                    }
+                }
+                mutable["inputBindings"] = bindings
+            }
+            if (publishProjectSourceId != null || publishRelativePath != null) {
+                @Suppress("UNCHECKED_CAST")
+                val destination = (step["publishDestination"] as? Map<String, Any?>).orEmpty().toMutableMap()
+                if (publishProjectSourceId != null) destination["projectSourceId"] = publishProjectSourceId
+                if (publishRelativePath != null) destination["relativePath"] = publishRelativePath
+                mutable["publishDestination"] = destination
+            }
+            mutable
+        }
+        val updatedRaw = raw.toMutableMap().apply { put("steps", updatedRawSteps) }
+        val updatedSteps = current.steps.map { step ->
+            if (step.id != stepId) step else step.copy(
+                projectSourceId = projectSourceId ?: step.projectSourceId,
+                includePaths = includePaths ?: step.includePaths,
+                publishProjectSourceId = publishProjectSourceId ?: step.publishProjectSourceId,
+                publishRelativePath = publishRelativePath ?: step.publishRelativePath,
+            )
+        }
+        _automatedWorkflowSession.value = current.copy(rawSpec = updatedRaw, steps = updatedSteps, savedRunId = null)
+    }
+
+    fun listManagedWorkflowSources(projectId: String) {
+        send("automated-workflow-managed:list-sources", mapOf("projectId" to projectId))
+    }
+
+    fun getManagedWorkflowVersion(versionId: String) {
+        send("automated-workflow-managed:get-version", mapOf("versionId" to versionId))
+    }
+
+    fun editManagedWorkflowVersion(runId: String, stepDbId: String, expectedVersionId: String, content: String) {
+        send("automated-workflow-managed:edit-version", mapOf(
+            "runId" to runId, "stepDbId" to stepDbId, "expectedVersionId" to expectedVersionId, "content" to content,
+        ))
+    }
+
+    fun reviewManagedWorkflowVersion(runId: String, stepDbId: String, artifactVersionId: String, decision: String) {
+        send("automated-workflow-managed:review", mapOf(
+            "runId" to runId, "stepDbId" to stepDbId, "artifactVersionId" to artifactVersionId, "decision" to decision,
+        ))
+    }
+
+    fun regenerateManagedWorkflow(runId: String, stepDbId: String) {
+        send("automated-workflow-managed:regenerate", mapOf("runId" to runId, "stepDbId" to stepDbId))
+    }
+
+    fun refreshManagedPublishPreview(runId: String, stepDbId: String, artifactVersionId: String) {
+        send("automated-workflow-managed:create-preview", mapOf(
+            "runId" to runId, "stepDbId" to stepDbId, "artifactVersionId" to artifactVersionId,
+        ))
+    }
+
+    fun confirmManagedPublish(runId: String, stepDbId: String, previewId: String, idempotencyKey: String) {
+        send("automated-workflow-managed:confirm-publish", mapOf(
+            "runId" to runId, "stepDbId" to stepDbId, "previewId" to previewId, "idempotencyKey" to idempotencyKey,
+        ))
     }
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
@@ -1029,6 +1131,14 @@ object WsRepository : WsClient {
                             this[event.stepDbId] = (this[event.stepDbId] ?: "") + event.chunk
                         }
                     }
+                    is WsEvent.ManagedWorkflowSources -> {
+                        _managedWorkflowSources.value = event.sources
+                    }
+                    is WsEvent.ManagedWorkflowVersionReady -> {
+                        event.version?.let { version ->
+                            _managedWorkflowVersions.value = _managedWorkflowVersions.value + (version.version.id to version)
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -1355,6 +1465,7 @@ object WsRepository : WsClient {
             wikiMcpStatuses = _wikiMcpStatuses,
             skills = _skills,
             skillAgentUsage = _skillAgentUsage,
+            discoveredSkills = _discoveredSkills,
             artifacts = _artifacts,
             wikiEntries = _wikiEntries,
             promptEntries = _promptEntries,
@@ -2080,12 +2191,18 @@ object WsRepository : WsClient {
             "conversation:fork" -> {
                 val conversationId = data["conversationId"] as? String ?: return true
                 val cutoff = (data["cutoffTimestamp"] as? Number)?.toLong()
+                val projectWasSelected = data.containsKey("projectId")
+                val targetProjectId = (data["projectId"] as? String)?.takeIf { it.isNotBlank() }
                 scope.launch {
-                    val fork = local.forkConversation(conversationId, cutoff)
-                    if (fork == null) {
-                        _events.emit(WsEvent.ConversationForkError("Conversation is not available locally."))
-                    } else {
-                        _events.emit(WsEvent.ConversationForked(fork.first.id, fork.first.title, fork.second))
+                    try {
+                        val fork = local.forkConversation(conversationId, cutoff, targetProjectId, projectWasSelected)
+                        if (fork == null) {
+                            _events.emit(WsEvent.ConversationForkError("Conversation is not available locally."))
+                        } else {
+                            _events.emit(WsEvent.ConversationForked(fork.first.id, fork.first.title, fork.second, fork.first.project_id))
+                        }
+                    } catch (error: Exception) {
+                        _events.emit(WsEvent.ConversationForkError(error.message ?: "Fork failed."))
                     }
                 }
             }
@@ -2641,6 +2758,9 @@ object WsRepository : WsClient {
     )
 
     fun listSkills() { send("skill:list", emptyMap()) }
+    fun discoverSkills(projectId: String? = null) {
+        send("skill:discover", if (projectId.isNullOrBlank()) emptyMap() else mapOf("projectId" to projectId))
+    }
     fun getSkill(id: String) { send("skill:get", mapOf("id" to id)) }
     fun createSkill(
         name: String,
@@ -2678,6 +2798,26 @@ object WsRepository : WsClient {
     fun duplicateSkill(id: String) { send("skill:duplicate", mapOf("id" to id)) }
     fun exportSkill(id: String) { send("skill:export", mapOf("id" to id)) }
     fun importSkill(skill: Map<String, Any>) { send("skill:import", mapOf("skill" to skill)) }
+    fun importDiscoveredSkill(skill: DiscoveredSkill, projectId: String? = null) {
+        val discovery = mapOf(
+            "packagePath" to skill.packagePath,
+            "name" to skill.name,
+            "description" to skill.description,
+            "icon" to skill.icon,
+            "scope" to skill.scope,
+            "source" to skill.source,
+            "rootLabel" to skill.rootLabel,
+            "validationStatus" to skill.validationStatus,
+            "validationErrors" to skill.validationErrors,
+            "validationWarnings" to skill.validationWarnings,
+            "importable" to skill.importable,
+            "contentHash" to (skill.contentHash ?: ""),
+            "alreadyImported" to skill.alreadyImported,
+        )
+        val data = mutableMapOf<String, Any>("discovery" to discovery)
+        if (!projectId.isNullOrBlank()) data["projectId"] = projectId
+        send("skill:import-discovered", data)
+    }
     fun getSkillAgentLinks(agentId: String) { send("skill:get-agent-links", mapOf("agentId" to agentId)) }
     fun attachSkillToAgent(agentId: String, skillId: String, attach: Boolean) {
         send("skill:attach-to-agent", mapOf("agentId" to agentId, "skillId" to skillId, "attach" to attach))
@@ -2972,6 +3112,7 @@ object WsRepository : WsClient {
     fun schedulerDelete(taskId: String) { send("scheduler:delete", mapOf("id" to taskId)) }
     fun schedulerSetEnabled(taskId: String, enabled: Boolean) { send("scheduler:set-enabled", mapOf("id" to taskId, "enabled" to enabled)) }
     fun schedulerRunNow(taskId: String) { send("scheduler:run-now", mapOf("id" to taskId)) }
+    fun schedulerResumeRun(runId: String) { send("scheduler:resume-run", mapOf("runId" to runId)) }
     fun schedulerListRuns(taskId: String, limit: Int = 50) { send("scheduler:list-runs", mapOf("taskId" to taskId, "limit" to limit)) }
     /** Candidate saved Automated Workflow runs for the "attach an existing workflow" picker. */
     fun schedulerListWorkflowTemplates() { send("scheduler:list-workflow-templates", emptyMap()) }
@@ -3122,6 +3263,8 @@ fun ScheduleGeneratorSpec.toPayload(): Map<String, Any> {
     monthDay?.let { payload["monthDay"] = it }
     agentId?.let { payload["agentId"] = it }
     projectId?.let { payload["projectId"] = it }
+    model?.let { payload["model"] = it }
+    if (preApproved.isNotEmpty()) payload["preApproved"] = preApproved
     payload["targetType"] = targetType
     sourceRunId?.let { payload["sourceRunId"] = it }
     return payload

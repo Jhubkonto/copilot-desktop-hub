@@ -47,7 +47,8 @@ class ProjectConfigRoundTripTest {
                   "inScope": [{ "id": "in-1", "description": "Android app", "pathGlob": "android/**" }],
                   "outOfScope": [{ "id": "out-1", "description": "Build output" }],
                   "milestones": [{ "id": "m-1", "title": "Parity", "description": "Close gaps", "status": "active" }],
-                  "defaultModel": "openrouter/test-model"
+                  "defaultModel": "openrouter/test-model",
+                  "defaultThinkingEffort": "high"
                 }
               }
             }
@@ -69,6 +70,7 @@ class ProjectConfigRoundTripTest {
         assertEquals(listOf(mapOf("id" to "out-1", "description" to "Build output")), payload["outOfScope"])
         assertEquals(listOf(mapOf("id" to "m-1", "title" to "Parity", "description" to "Close gaps", "status" to "active")), payload["milestones"])
         assertEquals("openrouter/test-model", payload["defaultModel"])
+        assertEquals("high", payload["defaultThinkingEffort"])
     }
 
     @Test

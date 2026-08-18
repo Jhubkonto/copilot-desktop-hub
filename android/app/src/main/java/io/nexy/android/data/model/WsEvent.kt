@@ -300,6 +300,8 @@ sealed class WsEvent {
     data class McpRegistryError(val message: String) : WsEvent()
     data class McpTestResult(val ok: Boolean, val toolNames: List<String> = emptyList(), val error: String? = null) : WsEvent()
     data class SkillList(val skills: List<SkillConfig>) : WsEvent()
+    data class SkillDiscoveryList(val skills: List<DiscoveredSkill>) : WsEvent()
+    data class SkillDiscoveryError(val message: String) : WsEvent()
     data class SkillDetail(val skill: SkillConfig?) : WsEvent()
     data class SkillCreated(val skill: SkillConfig) : WsEvent()
     data class SkillUpdated(val skill: SkillConfig) : WsEvent()
@@ -330,7 +332,12 @@ sealed class WsEvent {
     data class PromptError(val message: String) : WsEvent()
     data class ConversationExportPackResult(val pack: ConversationExportPackData) : WsEvent()
     data class ConversationExportError(val message: String) : WsEvent()
-    data class ConversationForked(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
+    data class ConversationForked(
+        val conversationId: String,
+        val title: String,
+        val messageCount: Int,
+        val projectId: String? = null,
+    ) : WsEvent()
     data class ConversationForkError(val message: String) : WsEvent()
     data class ConversationImported(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
     data class ConversationImportError(val message: String) : WsEvent()
@@ -512,6 +519,11 @@ sealed class WsEvent {
     /** Live token stream for a step actually being executed by the automated runner — distinct
      *  from AutomatedWorkflowToken, which streams the plan-generation chat, not a step's own run. */
     data class AutomatedWorkflowStepStream(val runId: String, val stepDbId: String, val chunk: String) : WsEvent()
+    data class ManagedWorkflowSources(val projectId: String, val sources: List<ManagedWorkflowSourceOption>) : WsEvent()
+    data class ManagedWorkflowVersionReady(val version: ManagedWorkflowVersionContent?) : WsEvent()
+    data class ManagedWorkflowBindingsReady(val runId: String, val stepDbId: String?, val bindings: List<ManagedWorkflowBindingRecord>) : WsEvent()
+    data class ManagedWorkflowPublishPreviewReady(val preview: ManagedWorkflowPublishPreview) : WsEvent()
+    data class ManagedWorkflowPublishActionReady(val action: ManagedWorkflowPublishAction) : WsEvent()
     /** automated-workflow-runs:* commands reply with this on failure (a bad spec, a DB error) —
      *  see ws-handlers.ts's try/catch-with-reply — so the UI can surface it instead of a
      *  permanently-stuck "Saving…" button with no explanation. */
@@ -713,6 +725,102 @@ data class AutomatedWorkflowStepInfo(
     val expectedOutput: String,
     // Alternative to agentName — a bare-model step (no agent) gets no skill augmentation at all.
     val model: String? = null,
+    val kind: String? = null,
+    val projectSourceId: String? = null,
+    val includePaths: List<String> = emptyList(),
+    val outputName: String? = null,
+    val reviewOutputName: String? = null,
+    val publishProjectSourceId: String? = null,
+    val publishRelativePath: String? = null,
+)
+
+data class ManagedWorkflowBindingRecord(
+    val id: String,
+    val runId: String,
+    val stepDbId: String,
+    val stepAttempt: Int,
+    val bindingName: String,
+    val direction: String,
+    val artifactId: String,
+    val artifactVersionId: String,
+    val sourceStepDbId: String?,
+    val staleAt: Long?,
+    val createdAt: Long,
+)
+
+data class ManagedWorkflowVersionSummary(
+    val id: String,
+    val artifactId: String,
+    val versionNumber: Int,
+    val title: String,
+    val primaryPath: String,
+    val mediaType: String,
+    val sizeBytes: Long,
+    val checksum: String?,
+    val createdAt: Long,
+)
+
+data class ManagedWorkflowReviewRecord(
+    val id: String,
+    val runId: String,
+    val stepDbId: String,
+    val artifactVersionId: String,
+    val decision: String,
+    val reviewedByClient: String,
+    val reviewedAt: Long,
+    val supersededAt: Long?,
+)
+
+data class ManagedWorkflowPublishPreview(
+    val id: String,
+    val runId: String,
+    val stepDbId: String,
+    val artifactVersionId: String,
+    val projectSourceId: String,
+    val relativePath: String,
+    val destinationChecksum: String?,
+    val diffText: String,
+    val createdAt: Long,
+    val expiresAt: Long?,
+    val invalidatedAt: Long?,
+)
+
+data class ManagedWorkflowPublishAction(
+    val id: String,
+    val previewId: String,
+    val idempotencyKey: String,
+    val status: String,
+    val approvedByClient: String,
+    val approvedAt: Long,
+    val startedAt: Long?,
+    val completedAt: Long?,
+    val resultChecksum: String?,
+    val error: String?,
+)
+
+data class ManagedWorkflowStepState(
+    val isManaged: Boolean = true,
+    val isStale: Boolean = false,
+    val currentVersion: ManagedWorkflowVersionSummary? = null,
+    val bindings: List<ManagedWorkflowBindingRecord> = emptyList(),
+    val latestReview: ManagedWorkflowReviewRecord? = null,
+    val publishPreview: ManagedWorkflowPublishPreview? = null,
+    val publishAction: ManagedWorkflowPublishAction? = null,
+)
+
+data class ManagedWorkflowVersionContent(
+    val version: ManagedWorkflowVersionSummary,
+    val content: String,
+    val manifestJson: String,
+    val versions: List<ManagedWorkflowVersionSummary> = emptyList(),
+)
+
+data class ManagedWorkflowSourceOption(
+    val projectSourceId: String,
+    val projectId: String,
+    val label: String,
+    val relativePath: String,
+    val sizeBytes: Long,
 )
 
 /** Mirrors desktop's `AutomatedWorkflowRunStep` (src/shared/types.ts). */
@@ -738,6 +846,8 @@ data class AutomatedWorkflowRunStepData(
     // Alternative to agentId, not additional to it — a step fulfilled by a bare model gets no
     // skill augmentation at all (skills are strictly agent-gated).
     val model: String? = null,
+    val kind: String? = null,
+    val managed: ManagedWorkflowStepState? = null,
 )
 
 /** Mirrors desktop's `AutomatedWorkflowRunDetail extends AutomatedWorkflowRunSummary` (src/shared/types.ts).
@@ -896,6 +1006,22 @@ data class SkillPackageFile(
     val encoding: String,
     val content: String,
     val sizeBytes: Long,
+)
+
+data class DiscoveredSkill(
+    val packagePath: String,
+    val name: String,
+    val description: String,
+    val icon: String,
+    val scope: String,
+    val source: String,
+    val rootLabel: String,
+    val validationStatus: String,
+    val validationErrors: List<String> = emptyList(),
+    val validationWarnings: List<String> = emptyList(),
+    val importable: Boolean = true,
+    val contentHash: String? = null,
+    val alreadyImported: Boolean = false,
 )
 
 data class SkillTools(
@@ -1134,6 +1260,7 @@ data class ProjectSettingsConfig(
     val outOfScope: List<Map<String, String>> = emptyList(),
     val milestones: List<Map<String, String>> = emptyList(),
     val defaultModel: String?,
+    val defaultThinkingEffort: String? = null,
 )
 
 data class AgentGeneratorSpec(

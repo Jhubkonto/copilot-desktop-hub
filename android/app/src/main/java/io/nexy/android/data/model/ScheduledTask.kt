@@ -23,6 +23,15 @@ data class ScheduledTask(
     // "automated_workflow" fires the attached workflowSpecs instead (one or many, sequentially).
     val targetType: String = "chat",
     val workflowSpecs: List<ScheduledTaskWorkflowSpec> = emptyList(),
+    // Tool names the fired chat may call unattended. A scheduled run blocks any tool NOT listed in
+    // preApproved, so a tool-using agent needs its tools pre-approved to do anything.
+    val toolPolicy: ScheduledTaskToolPolicy = ScheduledTaskToolPolicy(),
+)
+
+data class ScheduledTaskToolPolicy(
+    val preApproved: List<String> = emptyList(),
+    val alwaysAsk: List<String> = emptyList(),
+    val neverAllow: List<String> = emptyList(),
 )
 
 /** One Automated Workflow spec attached to a schedule. workflowSpecJson is a frozen copy of the

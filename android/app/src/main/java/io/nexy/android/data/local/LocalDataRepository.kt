@@ -11,6 +11,7 @@ import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.CredentialVault
 import io.nexy.android.data.parsePromptEntry
 import io.nexy.android.data.parseAgentFullConfig
 import io.nexy.android.data.parseProjectSettingsConfig
@@ -73,6 +74,7 @@ class LocalDataRepository private constructor(
     context: Context,
 ) : ConversationRepository, MessageRepository, AgentRepository, ProjectRepository, SyncRepository {
     private val database = NexyDatabase.get(context)
+    private val credentialVault = CredentialVault.get(context)
     private val identityStore = DeviceIdentityStore(context)
     private val attachmentDirectory = File(context.filesDir, "standalone-attachments").apply { mkdirs() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -360,8 +362,16 @@ class LocalDataRepository private constructor(
     override suspend fun searchConversations(query: String): List<Conversation> =
         database.conversations().search(query.trim()).map(ConversationEntity::toModel)
 
-    suspend fun forkConversation(conversationId: String, cutoffTimestamp: Long?): Pair<Conversation, Int>? {
+    suspend fun forkConversation(
+        conversationId: String,
+        cutoffTimestamp: Long?,
+        targetProjectId: String? = null,
+        projectWasSelected: Boolean = false,
+    ): Pair<Conversation, Int>? {
         val source = database.conversations().get(conversationId) ?: return null
+        if (projectWasSelected && targetProjectId != null && projects.value.none { it.id == targetProjectId }) {
+            throw IllegalArgumentException("Target project not found.")
+        }
         val sourceMessages = database.messages().getForConversation(conversationId)
             .filter { cutoffTimestamp == null || it.timestamp <= cutoffTimestamp }
             .filterNot { message ->
@@ -383,6 +393,12 @@ class LocalDataRepository private constructor(
             createdAt = now,
             updatedAt = now,
             lastMessage = sourceMessages.lastOrNull()?.content,
+            projectId = if (projectWasSelected) targetProjectId else source.projectId,
+            projectName = if (projectWasSelected) {
+                targetProjectId?.let { id -> projects.value.firstOrNull { it.id == id }?.name }
+            } else {
+                source.projectName
+            },
             pinned = false,
             completedAt = null,
             deleted = false,
@@ -1068,6 +1084,12 @@ class LocalDataRepository private constructor(
 
         applyTombstones(snapshot.optJSONArray("tombstones"))
         applySyncConflicts(snapshot.optJSONArray("conflicts")?.toString() ?: "[]")
+        // These arrays contain metadata and permission scopes only. Credential payloads remain
+        // device-local in the Keystore-backed vault.
+        credentialVault.applyRemoteMetadata(
+            snapshot.optJSONArray("credentials"),
+            snapshot.optJSONArray("credentialBindings"),
+        )
         lastSuccessfulSyncAt.value = System.currentTimeMillis()
     }
 
@@ -1466,6 +1488,25 @@ class LocalDataRepository private constructor(
                     it.copy(pinned = event.pinned, remoteVersion = it.remoteVersion + 1),
                 )
             }
+            is WsEvent.ConversationForked -> {
+                val current = database.conversations().get(event.conversationId)
+                if (current == null) {
+                    val now = System.currentTimeMillis()
+                    val projectName = event.projectId?.let { id -> database.projects().get(id)?.name }
+                    database.conversations().upsert(
+                        ConversationEntity(
+                            id = event.conversationId,
+                            title = event.title,
+                            createdAt = now,
+                            updatedAt = now,
+                            projectId = event.projectId,
+                            projectName = projectName,
+                            remoteVersion = 1,
+                            syncStatus = SyncStatus.SYNCED,
+                        ),
+                    )
+                }
+            }
             else -> Unit
         }
     }
@@ -1757,6 +1798,11 @@ private fun ProjectEntity.toModel() = Project(
     rootDirectory = rootDirectory,
     defaultModel = runCatching {
         JSONObject(configJson).optString("defaultModel").takeIf { it.isNotBlank() && it != "null" }
+    }.getOrNull(),
+    defaultThinkingEffort = runCatching {
+        JSONObject(configJson).optString("defaultThinkingEffort").takeIf {
+            it in setOf("low", "medium", "high", "max", "disabled")
+        }
     }.getOrNull(),
 )
 

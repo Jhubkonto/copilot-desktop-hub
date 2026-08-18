@@ -417,6 +417,96 @@ class AutomatedWorkflowEventParserTest {
         assertEquals("Missing runId or invalid mode", event.message)
     }
 
+    @Test
+    fun managedVersionParsesContentHistoryAndChecksum() = runTest {
+        val event = parseEvent(
+            """
+            {
+              "event": "automated-workflow-managed:version",
+              "data": {
+                "version": {
+                  "version": { "id": "v2", "artifactId": "a1", "versionNumber": 2, "title": "Weekly report", "primaryPath": "report.md", "mediaType": "text/markdown", "sizeBytes": 12, "checksum": "sha-2", "createdAt": 20 },
+                  "content": "# Report\n",
+                  "manifestJson": "{}",
+                  "versions": [
+                    { "id": "v2", "artifactId": "a1", "versionNumber": 2, "title": "Weekly report", "primaryPath": "report.md", "mediaType": "text/markdown", "sizeBytes": 12, "checksum": "sha-2", "createdAt": 20 },
+                    { "id": "v1", "artifactId": "a1", "versionNumber": 1, "title": "Weekly report", "primaryPath": "report.md", "mediaType": "text/markdown", "sizeBytes": 10, "checksum": "sha-1", "createdAt": 10 }
+                  ],
+                  "futureOptionalField": true
+                }
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.ManagedWorkflowVersionReady
+
+        val version = requireNotNull(event.version)
+        assertEquals("v2", version.version.id)
+        assertEquals("# Report\n", version.content)
+        assertEquals(listOf(2, 1), version.versions.map { it.versionNumber })
+        assertEquals("sha-2", version.version.checksum)
+    }
+
+    @Test
+    fun managedRunDetailParsesReviewProvenanceAndStaleState() = runTest {
+        val event = parseEvent(
+            """
+            {
+              "event": "automated-workflow-runs:detail",
+              "data": { "run": {
+                "id": "run-1", "projectId": "proj-1", "title": "Weekly report", "goalSummary": "G",
+                "model": null, "status": "awaiting_confirmation", "confirmationMode": "auto", "currentStepId": "review-db", "lastError": null,
+                "stepCounts": { "total": 1, "pending": 0, "running": 0, "awaitingConfirmation": 1, "done": 0, "failed": 0, "skipped": 0 },
+                "createdAt": 1, "updatedAt": 2, "assumptions": [],
+                "steps": [{
+                  "id": "review", "dbId": "review-db", "runId": "run-1", "stepIndex": 0, "title": "Review", "summary": "",
+                  "agentId": null, "agentName": null, "prompt": "Review", "expectedOutput": "Approved", "dependsOnStepIds": ["draft"],
+                  "status": "awaiting_confirmation", "attempt": 1, "output": "", "error": null, "conversationId": null,
+                  "startedAt": 10, "completedAt": null, "kind": "review",
+                  "managed": {
+                    "isManaged": true, "isStale": true,
+                    "currentVersion": { "id": "v2", "artifactId": "a1", "versionNumber": 2, "title": "Weekly report", "primaryPath": "report.md", "mediaType": "text/markdown", "sizeBytes": 12, "checksum": "sha-2", "createdAt": 20 },
+                    "bindings": [{ "id": "b1", "runId": "run-1", "stepDbId": "review-db", "stepAttempt": 1, "bindingName": "draft", "direction": "input", "artifactId": "a1", "artifactVersionId": "v2", "staleAt": 30, "createdAt": 20 }],
+                    "latestReview": null, "publishPreview": null, "publishAction": null
+                  }
+                }]
+              }}
+            }
+            """.trimIndent()
+        ) as WsEvent.AutomatedWorkflowRunDetailReady
+
+        val step = requireNotNull(event.run).steps.single()
+        assertEquals("review", step.kind)
+        assertTrue(requireNotNull(step.managed).isStale)
+        assertEquals("v2", step.managed?.currentVersion?.id)
+        assertEquals(30L, step.managed?.bindings?.single()?.staleAt)
+    }
+
+    @Test
+    fun managedPublishPreviewAndActionParseConflictSafeFields() = runTest {
+        val previewEvent = parseEvent(
+            """
+            { "event": "automated-workflow-managed:publish-preview", "data": { "preview": {
+              "id": "p1", "runId": "r1", "stepDbId": "s1", "artifactVersionId": "v1", "projectSourceId": "src1",
+              "relativePath": "reports/weekly.md", "destinationChecksum": null, "diffText": "@@ -0,0 +1 @@\n+# Weekly", "createdAt": 10, "expiresAt": 20, "invalidatedAt": null
+            }}}
+            """.trimIndent()
+        ) as WsEvent.ManagedWorkflowPublishPreviewReady
+        assertEquals("reports/weekly.md", previewEvent.preview.relativePath)
+        assertNull(previewEvent.preview.destinationChecksum)
+
+        val actionEvent = parseEvent(
+            """
+            { "event": "automated-workflow-managed:publish-action", "data": { "action": {
+              "id": "action-1", "previewId": "p1", "idempotencyKey": "request-1", "status": "published",
+              "approvedByClient": "android", "approvedAt": 11, "startedAt": 12, "completedAt": 13,
+              "beforeRecoveryRef": null, "resultChecksum": "sha-final", "error": null
+            }}}
+            """.trimIndent()
+        ) as WsEvent.ManagedWorkflowPublishActionReady
+        assertEquals("published", actionEvent.action.status)
+        assertEquals("sha-final", actionEvent.action.resultChecksum)
+    }
+
     private suspend fun TestScope.parseEvent(raw: String): WsEvent {
         val events = MutableSharedFlow<WsEvent>(replay = 1, extraBufferCapacity = 8)
         parseWsEvent(

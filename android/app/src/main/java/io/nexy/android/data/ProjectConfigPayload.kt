@@ -18,4 +18,5 @@ internal fun buildProjectConfigPayload(id: String, config: ProjectSettingsConfig
         "outOfScope" to config.outOfScope,
         "milestones" to config.milestones,
         "defaultModel" to config.defaultModel.orEmpty(),
+        "defaultThinkingEffort" to config.defaultThinkingEffort.orEmpty(),
     )

@@ -6,6 +6,35 @@ import org.junit.Test
 
 class SkillPackageParserTest {
     @Test
+    fun `parses discovered external skill metadata and preserves import state`() {
+        val skill = parseDiscoveredSkill(
+            JSONObject(
+                """
+                {
+                  "packagePath": "C:/Users/test/.claude/skills/review",
+                  "name": "review",
+                  "description": "Review code",
+                  "icon": "🔎",
+                  "scope": "user",
+                  "source": "claude",
+                  "rootLabel": "~/.claude/skills",
+                  "validationStatus": "warning",
+                  "validationWarnings": ["Provider metadata was normalized."],
+                  "importable": true,
+                  "alreadyImported": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("review", skill.name)
+        assertEquals("claude", skill.source)
+        assertEquals("warning", skill.validationStatus)
+        assertEquals(true, skill.importable)
+        assertEquals(listOf("Provider metadata was normalized."), skill.validationWarnings)
+    }
+
+    @Test
     fun `parses portable skill package files without a desktop path`() {
         val skill = parseSkillConfig(
             JSONObject(

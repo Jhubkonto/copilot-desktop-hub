@@ -9,12 +9,17 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class StandaloneProviderConfig(
     val provider: String,
-    val apiKey: String,
+    /** Opaque device-local vault record ID; never the credential value. */
+    val credentialId: String,
     val baseUrl: String,
     val defaultModel: String,
+    val projectId: String? = null,
+    val agentId: String? = null,
 )
 
 class StandaloneProviderStore private constructor(context: Context) {
+    // Keep non-secret provider defaults/base URLs in the existing encrypted
+    // preference file. CredentialVault migrates and removes only api_key_*.
     private val preferences = EncryptedSharedPreferences.create(
         context,
         "nexy_standalone_providers",
@@ -24,22 +29,24 @@ class StandaloneProviderStore private constructor(context: Context) {
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
+    private val vault = CredentialVault.get(context)
 
     private val _providers = MutableStateFlow(providerInfos())
     val providers: StateFlow<List<ProviderInfo>> = _providers
 
     fun setKey(provider: String, key: String) {
         require(provider in SUPPORTED_PROVIDERS) { "Unsupported standalone provider: $provider" }
-        preferences.edit().putString(keyName(provider), key.trim()).apply()
+        vault.upsertApiKey(provider, key)
         _providers.value = providerInfos()
     }
 
     fun removeKey(provider: String) {
-        preferences.edit().remove(keyName(provider)).apply()
+        vault.removeApiKey(provider)
         _providers.value = providerInfos()
     }
 
-    fun hasKey(provider: String): Boolean = !preferences.getString(keyName(provider), null).isNullOrBlank()
+    fun hasKey(provider: String, projectId: String? = null, agentId: String? = null): Boolean =
+        vault.hasApiKey(provider, projectId, agentId)
 
     fun setDefault(provider: String, model: String) {
         require(provider in SUPPORTED_PROVIDERS)
@@ -54,39 +61,44 @@ class StandaloneProviderStore private constructor(context: Context) {
         preferences.edit().putString(baseUrlName(provider), baseUrl.trim().trimEnd('/')).apply()
     }
 
-    fun resolve(modelOverride: String?): StandaloneProviderConfig? {
+    fun resolve(modelOverride: String?, projectId: String? = null, agentId: String? = null): StandaloneProviderConfig? {
         val explicitModel = modelOverride?.takeIf { it.isNotBlank() && it != "default" }
         val preferred = when {
             explicitModel?.startsWith("claude-") == true -> "anthropic"
-            explicitModel?.contains("/") == true && hasKey("openrouter") -> "openrouter"
+            explicitModel?.contains("/") == true && hasKey("openrouter", projectId, agentId) -> "openrouter"
             explicitModel?.startsWith("gpt-") == true || explicitModel?.startsWith("o") == true -> "openai"
             else -> preferences.getString(KEY_DEFAULT_PROVIDER, null)
         }
         val provider = sequenceOf(preferred, "anthropic", "openai", "openrouter")
             .filterNotNull()
             .distinct()
-            .firstOrNull(::hasKey)
+            .firstOrNull { hasKey(it, projectId, agentId) }
             ?: return null
-        val key = preferences.getString(keyName(provider), null) ?: return null
+        val credentialId = vault.apiKeyCredentialId(provider, projectId, agentId) ?: return null
         val model = explicitModel
             ?: preferences.getString(KEY_DEFAULT_MODEL, null)?.takeIf(String::isNotBlank)
             ?: DEFAULT_MODELS.getValue(provider)
         val baseUrl = preferences.getString(baseUrlName(provider), null)?.takeIf(String::isNotBlank)
             ?: DEFAULT_BASE_URLS.getValue(provider)
-        return StandaloneProviderConfig(provider, key, baseUrl, model)
+        return StandaloneProviderConfig(provider, credentialId, baseUrl, model, projectId, agentId)
     }
 
     fun configured(): List<StandaloneProviderConfig> = SUPPORTED_PROVIDERS.mapNotNull { provider ->
-        val key = preferences.getString(keyName(provider), null)?.takeIf(String::isNotBlank)
-            ?: return@mapNotNull null
+        val credentialId = vault.apiKeyCredentialId(provider) ?: return@mapNotNull null
         StandaloneProviderConfig(
             provider = provider,
-            apiKey = key,
+            credentialId = credentialId,
             baseUrl = preferences.getString(baseUrlName(provider), null)?.takeIf(String::isNotBlank)
                 ?: DEFAULT_BASE_URLS.getValue(provider),
             defaultModel = DEFAULT_MODELS.getValue(provider),
         )
     }
+
+    /** Resolves a credential only for the immediately constructing local HTTP request. */
+    fun resolveCredential(config: StandaloneProviderConfig): String? =
+        if (vault.apiKeyCredentialId(config.provider, config.projectId, config.agentId) == config.credentialId) {
+            vault.resolveCredential(config.credentialId)
+        } else null
 
     private fun providerInfos(): List<ProviderInfo> = listOf(
         ProviderInfo("anthropic", "Anthropic", hasKey("anthropic")),
@@ -94,7 +106,6 @@ class StandaloneProviderStore private constructor(context: Context) {
         ProviderInfo("openrouter", "OpenRouter", hasKey("openrouter")),
     )
 
-    private fun keyName(provider: String) = "api_key_$provider"
     private fun baseUrlName(provider: String) = "base_url_$provider"
 
     companion object {

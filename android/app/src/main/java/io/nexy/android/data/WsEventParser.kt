@@ -69,6 +69,14 @@ import io.nexy.android.data.model.AndroidPublishManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.FsEntry
 import io.nexy.android.data.model.ModelOption
+import io.nexy.android.data.model.ManagedWorkflowBindingRecord
+import io.nexy.android.data.model.ManagedWorkflowPublishAction
+import io.nexy.android.data.model.ManagedWorkflowPublishPreview
+import io.nexy.android.data.model.ManagedWorkflowReviewRecord
+import io.nexy.android.data.model.ManagedWorkflowSourceOption
+import io.nexy.android.data.model.ManagedWorkflowStepState
+import io.nexy.android.data.model.ManagedWorkflowVersionContent
+import io.nexy.android.data.model.ManagedWorkflowVersionSummary
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProjectAuditDiff
 import io.nexy.android.data.model.ProjectAuditFile
@@ -78,6 +86,7 @@ import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillAgentLink
 import io.nexy.android.data.model.SkillAgentUsage
 import io.nexy.android.data.model.SkillConfig
+import io.nexy.android.data.model.DiscoveredSkill
 import io.nexy.android.data.model.SkillKnowledge
 import io.nexy.android.data.model.SkillMcpServerTrust
 import io.nexy.android.data.model.SkillMcpToolOverride
@@ -206,6 +215,7 @@ fun parseWsEvent(
     desktopIsPackaged: MutableStateFlow<Boolean?> = MutableStateFlow(null),
     mcpCatalog: MutableStateFlow<List<McpCatalogEntry>> = MutableStateFlow(emptyList()),
     wikiMcpStatuses: MutableStateFlow<Map<String, ProjectWikiMcpStatus>> = MutableStateFlow(emptyMap()),
+    discoveredSkills: MutableStateFlow<List<DiscoveredSkill>> = MutableStateFlow(emptyList()),
 ) {
     // Older desktop builds can send the entire message database in one reconnect frame. Refuse
     // that frame before JSONObject expands it into a much larger object graph; connected chat
@@ -1350,6 +1360,19 @@ fun parseWsEvent(
                 WsEvent.SkillList(list)
             }
 
+            "skill:discover" -> {
+                val arr = data?.optJSONArray("skills") ?: JSONArray()
+                val list = (0 until arr.length()).mapNotNull { i ->
+                    arr.optJSONObject(i)?.let(::parseDiscoveredSkill)
+                }
+                discoveredSkills.value = list
+                WsEvent.SkillDiscoveryList(list)
+            }
+
+            "skill:discovery-error" -> WsEvent.SkillDiscoveryError(
+                data?.optString("message")?.takeIf { it.isNotBlank() } ?: "Skill discovery failed.",
+            )
+
             "skill:detail" -> WsEvent.SkillDetail(
                 skill = data?.optJSONObject("skill")?.let { parseSkillConfig(it) }
             )
@@ -1686,6 +1709,7 @@ fun parseWsEvent(
                 conversationId = data?.optString("conversationId") ?: "",
                 title = data?.optString("title") ?: "",
                 messageCount = data?.optInt("messageCount", 0) ?: 0,
+                projectId = data?.nullableString("projectId"),
             )
 
             "conversation:fork-error" -> WsEvent.ConversationForkError(
@@ -2484,6 +2508,14 @@ fun parseWsEvent(
                 val stepsArr = spec.optJSONArray("steps") ?: JSONArray()
                 val steps = (0 until stepsArr.length()).map { i ->
                     val step = stepsArr.getJSONObject(i)
+                    val projectBinding = step.optJSONArray("inputBindings")?.let { bindings ->
+                        (0 until bindings.length()).mapNotNull { bindings.optJSONObject(it) }
+                            .firstOrNull { it.optJSONObject("source")?.optString("type") == "project-files" }
+                            ?.optJSONObject("source")
+                    }
+                    val deliverable = step.optJSONArray("deliverables")?.optJSONObject(0)
+                    val reviewSource = step.optJSONObject("reviewSource")
+                    val publishDestination = step.optJSONObject("publishDestination")
                     io.nexy.android.data.model.AutomatedWorkflowStepInfo(
                         id = step.optString("id", i.toString()),
                         title = step.optString("title", ""),
@@ -2492,6 +2524,15 @@ fun parseWsEvent(
                         prompt = step.optString("prompt", ""),
                         expectedOutput = step.optString("expectedOutput", ""),
                         model = step.optString("model").takeIf(String::isNotBlank),
+                        kind = step.optString("kind").takeIf(String::isNotBlank),
+                        projectSourceId = projectBinding?.nullableString("projectSourceId"),
+                        includePaths = projectBinding?.optJSONArray("include")?.let { includes ->
+                            (0 until includes.length()).map { includes.optString(it) }
+                        } ?: emptyList(),
+                        outputName = deliverable?.nullableString("name"),
+                        reviewOutputName = reviewSource?.nullableString("outputName"),
+                        publishProjectSourceId = publishDestination?.nullableString("projectSourceId"),
+                        publishRelativePath = publishDestination?.nullableString("relativePath"),
                     )
                 }
                 WsEvent.AutomatedWorkflowReady(sessionId, title, goalSummary, assumptions, steps, rawSpec = jsonObjectToMap(spec))
@@ -2557,6 +2598,47 @@ fun parseWsEvent(
             "automated-workflow-runs:error" -> {
                 val message = data?.optString("message") ?: return
                 WsEvent.AutomatedWorkflowRunsError(message)
+            }
+
+            "automated-workflow-managed:sources" -> {
+                val sources = data?.optJSONArray("sources") ?: JSONArray()
+                WsEvent.ManagedWorkflowSources(
+                    projectId = data?.optString("projectId").orEmpty(),
+                    sources = (0 until sources.length()).mapNotNull { index ->
+                        sources.optJSONObject(index)?.let { source ->
+                            ManagedWorkflowSourceOption(
+                                projectSourceId = source.optString("projectSourceId"),
+                                projectId = source.optString("projectId"),
+                                label = source.optString("label"),
+                                relativePath = source.optString("relativePath"),
+                                sizeBytes = source.optLong("sizeBytes", 0L),
+                            )
+                        }
+                    },
+                )
+            }
+
+            "automated-workflow-managed:version" -> {
+                WsEvent.ManagedWorkflowVersionReady(data?.optJSONObject("version")?.let(::parseManagedWorkflowVersionContent))
+            }
+
+            "automated-workflow-managed:bindings" -> {
+                val bindings = data?.optJSONArray("bindings") ?: JSONArray()
+                WsEvent.ManagedWorkflowBindingsReady(
+                    runId = data?.optString("runId").orEmpty(),
+                    stepDbId = data?.nullableString("stepDbId"),
+                    bindings = (0 until bindings.length()).mapNotNull { bindings.optJSONObject(it)?.let(::parseManagedWorkflowBinding) },
+                )
+            }
+
+            "automated-workflow-managed:publish-preview" -> {
+                val preview = data?.optJSONObject("preview") ?: return
+                WsEvent.ManagedWorkflowPublishPreviewReady(parseManagedWorkflowPreview(preview))
+            }
+
+            "automated-workflow-managed:publish-action" -> {
+                val action = data?.optJSONObject("action") ?: return
+                WsEvent.ManagedWorkflowPublishActionReady(parseManagedWorkflowAction(action))
             }
 
             "fs:list-directory" -> {
@@ -2740,6 +2822,28 @@ internal fun parseSkillConfig(obj: JSONObject): SkillConfig {
                 sizeBytes = item.optLong("sizeBytes", 0L),
             )
         },
+    )
+}
+
+internal fun parseDiscoveredSkill(obj: JSONObject): DiscoveredSkill {
+    fun strList(key: String): List<String> {
+        val arr = obj.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    return DiscoveredSkill(
+        packagePath = obj.optString("packagePath"),
+        name = obj.optString("name", "Unnamed skill"),
+        description = obj.optString("description", ""),
+        icon = obj.optString("icon", "✨"),
+        scope = obj.optString("scope", "user"),
+        source = obj.optString("source", "filesystem"),
+        rootLabel = obj.optString("rootLabel", "External skill store"),
+        validationStatus = obj.optString("validationStatus", "valid"),
+        validationErrors = strList("validationErrors"),
+        validationWarnings = strList("validationWarnings"),
+        importable = !obj.has("importable") || obj.optBoolean("importable", true),
+        contentHash = obj.optString("contentHash").takeIf { it.isNotBlank() },
+        alreadyImported = obj.optBoolean("alreadyImported", false),
     )
 }
 
@@ -2978,6 +3082,68 @@ internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConf
         outOfScope = objectList("outOfScope"),
         milestones = objectList("milestones"),
         defaultModel = config.nullableString("defaultModel"),
+        defaultThinkingEffort = config.nullableString("defaultThinkingEffort")?.takeIf {
+            it in setOf("low", "medium", "high", "max", "disabled")
+        },
+    )
+}
+
+private fun parseManagedWorkflowBinding(obj: JSONObject) = ManagedWorkflowBindingRecord(
+    id = obj.optString("id"), runId = obj.optString("runId"), stepDbId = obj.optString("stepDbId"),
+    stepAttempt = obj.optInt("stepAttempt", 0), bindingName = obj.optString("bindingName"),
+    direction = obj.optString("direction"), artifactId = obj.optString("artifactId"),
+    artifactVersionId = obj.optString("artifactVersionId"), sourceStepDbId = obj.nullableString("sourceStepDbId"),
+    staleAt = if (obj.isNull("staleAt")) null else obj.optLong("staleAt"), createdAt = obj.optLong("createdAt", 0L),
+)
+
+private fun parseManagedWorkflowVersionSummary(obj: JSONObject) = ManagedWorkflowVersionSummary(
+    id = obj.optString("id"), artifactId = obj.optString("artifactId"), versionNumber = obj.optInt("versionNumber", 0),
+    title = obj.optString("title"), primaryPath = obj.optString("primaryPath"), mediaType = obj.optString("mediaType"),
+    sizeBytes = obj.optLong("sizeBytes", 0L), checksum = obj.nullableString("checksum"), createdAt = obj.optLong("createdAt", 0L),
+)
+
+private fun parseManagedWorkflowReview(obj: JSONObject) = ManagedWorkflowReviewRecord(
+    id = obj.optString("id"), runId = obj.optString("runId"), stepDbId = obj.optString("stepDbId"),
+    artifactVersionId = obj.optString("artifactVersionId"), decision = obj.optString("decision"),
+    reviewedByClient = obj.optString("reviewedByClient"), reviewedAt = obj.optLong("reviewedAt", 0L),
+    supersededAt = if (obj.isNull("supersededAt")) null else obj.optLong("supersededAt"),
+)
+
+private fun parseManagedWorkflowPreview(obj: JSONObject) = ManagedWorkflowPublishPreview(
+    id = obj.optString("id"), runId = obj.optString("runId"), stepDbId = obj.optString("stepDbId"),
+    artifactVersionId = obj.optString("artifactVersionId"), projectSourceId = obj.optString("projectSourceId"),
+    relativePath = obj.optString("relativePath"), destinationChecksum = obj.nullableString("destinationChecksum"),
+    diffText = obj.optString("diffText"), createdAt = obj.optLong("createdAt", 0L),
+    expiresAt = if (obj.isNull("expiresAt")) null else obj.optLong("expiresAt"),
+    invalidatedAt = if (obj.isNull("invalidatedAt")) null else obj.optLong("invalidatedAt"),
+)
+
+private fun parseManagedWorkflowAction(obj: JSONObject) = ManagedWorkflowPublishAction(
+    id = obj.optString("id"), previewId = obj.optString("previewId"), idempotencyKey = obj.optString("idempotencyKey"),
+    status = obj.optString("status"), approvedByClient = obj.optString("approvedByClient"), approvedAt = obj.optLong("approvedAt", 0L),
+    startedAt = if (obj.isNull("startedAt")) null else obj.optLong("startedAt"),
+    completedAt = if (obj.isNull("completedAt")) null else obj.optLong("completedAt"),
+    resultChecksum = obj.nullableString("resultChecksum"), error = obj.nullableString("error"),
+)
+
+private fun parseManagedWorkflowStepState(obj: JSONObject): ManagedWorkflowStepState {
+    val bindings = obj.optJSONArray("bindings") ?: JSONArray()
+    return ManagedWorkflowStepState(
+        isManaged = obj.optBoolean("isManaged", true), isStale = obj.optBoolean("isStale", false),
+        currentVersion = obj.optJSONObject("currentVersion")?.let(::parseManagedWorkflowVersionSummary),
+        bindings = (0 until bindings.length()).mapNotNull { bindings.optJSONObject(it)?.let(::parseManagedWorkflowBinding) },
+        latestReview = obj.optJSONObject("latestReview")?.let(::parseManagedWorkflowReview),
+        publishPreview = obj.optJSONObject("publishPreview")?.let(::parseManagedWorkflowPreview),
+        publishAction = obj.optJSONObject("publishAction")?.let(::parseManagedWorkflowAction),
+    )
+}
+
+private fun parseManagedWorkflowVersionContent(obj: JSONObject): ManagedWorkflowVersionContent {
+    val versions = obj.optJSONArray("versions") ?: JSONArray()
+    return ManagedWorkflowVersionContent(
+        version = parseManagedWorkflowVersionSummary(obj.optJSONObject("version") ?: JSONObject()),
+        content = obj.optString("content"), manifestJson = obj.optString("manifestJson", "{}"),
+        versions = (0 until versions.length()).mapNotNull { versions.optJSONObject(it)?.let(::parseManagedWorkflowVersionSummary) },
     )
 }
 
@@ -3004,6 +3170,8 @@ private fun parseAutomatedWorkflowRunStep(obj: JSONObject): io.nexy.android.data
         startedAt = if (obj.isNull("startedAt")) null else obj.optLong("startedAt"),
         completedAt = if (obj.isNull("completedAt")) null else obj.optLong("completedAt"),
         model = obj.nullableString("model"),
+        kind = obj.nullableString("kind"),
+        managed = obj.optJSONObject("managed")?.let(::parseManagedWorkflowStepState),
     )
 }
 
@@ -3133,7 +3301,9 @@ private fun parseScheduleGeneratorSpec(data: JSONObject?): ScheduleGeneratorSpec
         timezone = d.optString("timezone", "UTC"),
         agentId = d.nullableString("agentId"),
         projectId = d.nullableString("projectId"),
-        notificationPref = d.optString("notificationPref", "always"),
+        model = d.nullableString("model"),
+        notificationPref = d.optString("notificationPref", "failures_only"),
+        preApproved = d.optJSONArray("preApproved").toStringList(),
         targetType = d.optString("targetType", "chat"),
         sourceRunId = d.nullableString("sourceRunId"),
     )
@@ -3422,7 +3592,17 @@ private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(
     workflowSpecs = obj.optJSONArray("workflowSpecs")?.let { arr ->
         (0 until arr.length()).map { parseScheduledTaskWorkflowSpec(arr.getJSONObject(it)) }
     } ?: emptyList(),
+    toolPolicy = obj.optJSONObject("toolPolicy")?.let { tp ->
+        io.nexy.android.data.model.ScheduledTaskToolPolicy(
+            preApproved = tp.optJSONArray("preApproved").toStringList(),
+            alwaysAsk = tp.optJSONArray("alwaysAsk").toStringList(),
+            neverAllow = tp.optJSONArray("neverAllow").toStringList(),
+        )
+    } ?: io.nexy.android.data.model.ScheduledTaskToolPolicy(),
 )
+
+private fun JSONArray?.toStringList(): List<String> =
+    this?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
 
 private fun parseScheduledRun(obj: JSONObject) = ScheduledRun(
     id = obj.optString("id"),

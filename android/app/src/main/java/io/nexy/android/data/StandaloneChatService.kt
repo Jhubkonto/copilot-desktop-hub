@@ -97,7 +97,7 @@ class StandaloneChatService(
             localData.markMessageFailed(user.id, false)
             if (retryMessageId == null) localData.persistDataUrlAttachments(user.id, images + files)
             turn.event("user_message_committed", JSONObject().put("messageId", user.id))
-            val provider = providerStore.resolve(modelOverride)
+            val provider = providerStore.resolve(modelOverride, projectId, agentId)
             if (provider == null) {
                 localData.markMessageFailed(user.id, true)
                 failTurn(
@@ -248,14 +248,15 @@ class StandaloneChatService(
 
     suspend fun listModels(config: StandaloneProviderConfig): List<ModelOption> =
         withContext(Dispatchers.IO) {
+            val apiKey = providerStore.resolveCredential(config) ?: return@withContext emptyList()
             val request = Request.Builder()
                 .url("${config.baseUrl}/models")
                 .apply {
                     if (config.provider == "anthropic") {
-                        header("x-api-key", config.apiKey)
+                        header("x-api-key", apiKey)
                         header("anthropic-version", "2023-06-01")
                     } else {
-                        header("Authorization", "Bearer ${config.apiKey}")
+                        header("Authorization", "Bearer $apiKey")
                     }
                 }
                 .get()
@@ -301,6 +302,8 @@ class StandaloneChatService(
         agentConfig: AgentFullConfig?,
         conversationSummary: String?,
     ): Request {
+        val apiKey = providerStore.resolveCredential(config)
+            ?: throw IOException("Standalone provider credential is unavailable")
         val messages = JSONArray()
         history.filter { it.role == "user" || it.role == "assistant" }.forEachIndexed { index, message ->
             val body = JSONObject().put("role", message.role)
@@ -349,7 +352,7 @@ class StandaloneChatService(
         }
         return Request.Builder()
             .url("${config.baseUrl}/messages")
-            .header("x-api-key", config.apiKey)
+            .header("x-api-key", apiKey)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .post(payload.toString().toRequestBody(JSON))
@@ -418,6 +421,8 @@ class StandaloneChatService(
         agentConfig: AgentFullConfig?,
         conversationSummary: String?,
     ): Request {
+        val apiKey = providerStore.resolveCredential(config)
+            ?: throw IOException("Standalone provider credential is unavailable")
         val messages = JSONArray()
         combineSystemPrompt(agentConfig?.systemPrompt, conversationSummary)?.let {
             messages.put(JSONObject().put("role", "system").put("content", it))
@@ -453,7 +458,7 @@ class StandaloneChatService(
             .put("messages", messages)
         return Request.Builder()
             .url("${config.baseUrl}/chat/completions")
-            .header("Authorization", "Bearer ${config.apiKey}")
+            .header("Authorization", "Bearer $apiKey")
             .header("content-type", "application/json")
             .apply {
                 if (config.provider == "openrouter") {
@@ -490,6 +495,8 @@ class StandaloneChatService(
         history: List<HistoryMessage>,
         previousSummary: String?,
     ): String {
+        val apiKey = providerStore.resolveCredential(provider)
+            ?: throw IOException("Standalone provider credential is unavailable")
         val transcript = history.joinToString("\n\n") { "${it.role.uppercase()}:\n${it.content}" }
             .takeLast(90_000)
         val instruction = """
@@ -512,7 +519,7 @@ class StandaloneChatService(
                 )
             Request.Builder()
                 .url("${provider.baseUrl}/messages")
-                .header("x-api-key", provider.apiKey)
+                .header("x-api-key", apiKey)
                 .header("anthropic-version", "2023-06-01")
                 .post(body.toString().toRequestBody(JSON))
                 .build()
@@ -527,7 +534,7 @@ class StandaloneChatService(
                 )
             Request.Builder()
                 .url("${provider.baseUrl}/chat/completions")
-                .header("Authorization", "Bearer ${provider.apiKey}")
+                .header("Authorization", "Bearer $apiKey")
                 .post(body.toString().toRequestBody(JSON))
                 .build()
         }
