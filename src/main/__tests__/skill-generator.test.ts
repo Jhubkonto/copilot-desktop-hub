@@ -43,6 +43,7 @@ vi.mock('../providers', () => ({
     return { provider: 'openai', model: normalized }
   }),
   getApiKey: vi.fn((provider: string) => `${provider}-key`),
+  getProviderCredential: vi.fn((provider: string) => `${provider}-key`),
   isProviderConfigured: vi.fn((provider: string) => state.configured.has(provider)),
 }))
 

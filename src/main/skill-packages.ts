@@ -11,6 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'fs'
+import { readFile as readFileAsync, readdir as readdirAsync } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { homedir, tmpdir } from 'os'
 import { app } from 'electron'
@@ -181,6 +182,31 @@ export function hashSkillPackage(packagePath: string): string {
   return hash.digest('hex')
 }
 
+async function walkFilesAsync(current: string): Promise<string[]> {
+  const files: string[] = []
+  const entries = await readdirAsync(current, { withFileTypes: true })
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.isSymbolicLink()) continue
+    const path = join(current, entry.name)
+    if (entry.isDirectory()) files.push(...await walkFilesAsync(path))
+    else if (entry.isFile()) files.push(path)
+  }
+  return files
+}
+
+/** Async counterpart used by on-disk discovery so a large external skill package cannot block
+ * Electron's main-process event loop while it is being hashed. */
+export async function hashSkillPackageAsync(packagePath: string): Promise<string> {
+  const hash = createHash('sha256')
+  for (const file of await walkFilesAsync(packagePath)) {
+    hash.update(relative(packagePath, file).replace(/\\/g, '/'))
+    hash.update('\0')
+    hash.update(await readFileAsync(file))
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
 function uniquePackagePath(root: string, slug: string, current?: string): string {
   const candidate = join(root, slug)
   if (!existsSync(candidate) || resolve(candidate) === resolve(current ?? '')) return candidate
@@ -213,7 +239,16 @@ export function writeManagedSkillPackage(skill: SkillConfig, previousPath?: stri
     source: skill.source ?? 'nexy',
   }
   writeFileSync(join(packagePath, SKILL_ENTRY_FILE), skillToMarkdown(materialised), 'utf8')
-  const validation = validateSkillPackage(materialised, packagePath)
+  // Validate the portable form that was emitted. External frontmatter may contain a display name
+  // or provider-specific spelling that skillToMarkdown deliberately normalizes for interchange.
+  const portableName = portableSkillName(String(materialised.name))
+  const portableDescription = materialised.description.trim() ||
+    `Reusable guidance for ${materialised.name}. Use when the task matches this skill's instructions.`
+  const validation = validateSkillPackage({
+    ...materialised,
+    description: portableDescription,
+    frontmatter: { ...(materialised.frontmatter ?? {}), name: portableName },
+  }, packagePath)
   return {
     ...materialised,
     contentHash: hashSkillPackage(packagePath),
@@ -226,7 +261,7 @@ export function importSkillPackage(sourcePath: string, skill: SkillConfig): Skil
   const packagePath = uniquePackagePath(managedRoot, portableSkillName(String(skill.frontmatter?.name ?? skill.name)))
   cpSync(sourcePath, packagePath, { recursive: true, dereference: false, errorOnExist: true })
   // Preserve a discovered package's origin (codex/claude/filesystem); otherwise record it as a manual import.
-  const source = skill.source === 'codex' || skill.source === 'claude' || skill.source === 'filesystem' ? skill.source : 'import'
+  const source = skill.source === 'codex' || skill.source === 'claude' || skill.source === 'hermes' || skill.source === 'filesystem' ? skill.source : 'import'
   return writeManagedSkillPackage({ ...skill, source }, packagePath)
 }
 
@@ -252,6 +287,20 @@ export function loadSkillPackage(packagePath: string): Partial<SkillConfig> {
     ...parsed,
     packagePath: resolve(packagePath),
     contentHash: hashSkillPackage(packagePath),
+    validationStatus: validation.status,
+  }
+}
+
+/** Async package loader for discovery. Import/export paths intentionally keep their synchronous
+ * implementations because they are explicit user actions; discovery must not freeze the window. */
+export async function loadSkillPackageAsync(packagePath: string): Promise<Partial<SkillConfig>> {
+  const entryPath = join(packagePath, SKILL_ENTRY_FILE)
+  const parsed = parseSkillMarkdown(await readFileAsync(entryPath, 'utf8'))
+  const validation = validateSkillPackage(parsed)
+  return {
+    ...parsed,
+    packagePath: resolve(packagePath),
+    contentHash: await hashSkillPackageAsync(packagePath),
     validationStatus: validation.status,
   }
 }

@@ -1,8 +1,9 @@
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, type Dirent } from 'fs'
+import { readdir as readdirAsync } from 'fs/promises'
 import { homedir } from 'os'
-import { basename, join, resolve } from 'path'
+import { basename, dirname, join, resolve } from 'path'
 import type { DiscoveredSkill, SkillConfig } from '../shared/types'
-import { SKILL_ENTRY_FILE, cliHarnessSkillsRoot, loadSkillPackage } from './skill-packages'
+import { SKILL_ENTRY_FILE, cliHarnessSkillsRoot, loadSkillPackage, loadSkillPackageAsync, validateSkillPackage } from './skill-packages'
 import { createSkillConfig } from './skills'
 
 /**
@@ -15,7 +16,7 @@ export interface SkillDiscoveryRoot {
   /** Human-readable label surfaced in the UI, e.g. `~/.claude/skills`. */
   label: string
   scope: 'user' | 'project'
-  source: 'filesystem' | 'codex' | 'claude'
+  source: 'filesystem' | 'codex' | 'claude' | 'hermes'
 }
 
 function homeRoot(...segments: string[]): SkillDiscoveryRoot['path'] {
@@ -28,10 +29,47 @@ function harnessRootLabel(resolvedPath: string, defaultLabel: string, defaultSeg
   return resolvedPath === homeRoot(...defaultSegments) ? defaultLabel : resolvedPath
 }
 
+function hermesRoot(): string {
+  const nativeRoot = process.platform === 'win32'
+    ? join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'hermes')
+    : homeRoot('.hermes')
+  const configured = (process.env.HERMES_HOME ?? '').trim()
+  if (!configured) return nativeRoot
+  const resolved = resolve(configured)
+  // Hermes can launch with HERMES_HOME pointing at a profile. Climb back to the shared root so
+  // all sibling profiles remain discoverable, matching the CLI's own profile resolution.
+  return basename(dirname(resolved)) === 'profiles' ? dirname(dirname(resolved)) : resolved
+}
+
+async function hermesSkillDiscoveryRoots(): Promise<SkillDiscoveryRoot[]> {
+  const root = hermesRoot()
+  const roots: SkillDiscoveryRoot[] = [{
+    path: join(root, 'skills'),
+    label: `${root}/skills`,
+    scope: 'user',
+    source: 'hermes',
+  }]
+  const profilesPath = join(root, 'profiles')
+  try {
+    for (const entry of await readdirAsync(profilesPath, { withFileTypes: true })) {
+      if (entry.isSymbolicLink() || !entry.isDirectory()) continue
+      roots.push({
+        path: join(profilesPath, entry.name, 'skills'),
+        label: `${root}/profiles/${entry.name}/skills`,
+        scope: 'user',
+        source: 'hermes',
+      })
+    }
+  } catch {
+    // Keep the standard roots available if the profile directory is inaccessible.
+  }
+  return roots
+}
+
 /** User-scoped skill locations shared across every project on this machine. Claude and Codex roots
  * honour `CLAUDE_CONFIG_DIR` / `CODEX_HOME` so a custom harness home is scanned instead of the
  * default `~/.claude` / `~/.codex`. */
-export function userSkillDiscoveryRoots(): SkillDiscoveryRoot[] {
+export async function userSkillDiscoveryRoots(): Promise<SkillDiscoveryRoot[]> {
   const claudeRoot = cliHarnessSkillsRoot('claude')
   const codexRoot = cliHarnessSkillsRoot('codex')
   return [
@@ -48,6 +86,7 @@ export function userSkillDiscoveryRoots(): SkillDiscoveryRoot[] {
       source: 'codex',
     },
     { path: homeRoot('.agents', 'skills'), label: '~/.agents/skills', scope: 'user', source: 'filesystem' },
+    ...(await hermesSkillDiscoveryRoots()),
   ]
 }
 
@@ -73,13 +112,14 @@ export function projectSkillDiscoveryRoots(sourceRoots: string[]): SkillDiscover
   return roots
 }
 
-function describePackage(
+async function describePackage(
   packagePath: string,
   root: SkillDiscoveryRoot,
   knownHashes: Set<string>,
-): DiscoveredSkill {
+): Promise<DiscoveredSkill> {
   try {
-    const loaded = loadSkillPackage(packagePath)
+    const loaded = await loadSkillPackageAsync(packagePath)
+    const validation = validateSkillPackage(loaded, packagePath)
     const contentHash = typeof loaded.contentHash === 'string' ? loaded.contentHash : undefined
     const frontmatterName = loaded.frontmatter && typeof loaded.frontmatter.name === 'string'
       ? loaded.frontmatter.name
@@ -92,7 +132,10 @@ function describePackage(
       scope: root.scope,
       source: root.source,
       rootLabel: root.label,
-      validationStatus: loaded.validationStatus ?? 'valid',
+      validationStatus: validation.status,
+      validationErrors: validation.errors,
+      validationWarnings: validation.warnings,
+      importable: true,
       contentHash,
       alreadyImported: contentHash ? knownHashes.has(contentHash) : false,
     }
@@ -108,37 +151,57 @@ function describePackage(
       source: root.source,
       rootLabel: root.label,
       validationStatus: 'invalid',
+      validationErrors: ['SKILL.md could not be read or parsed.'],
+      importable: false,
       alreadyImported: false,
     }
   }
 }
 
 /**
- * Scans the given roots for `SKILL.md` packages. Symlinked entries are skipped, a package
- * reachable from multiple roots is reported once, and packages whose contents already match a
- * managed skill (by content hash) are flagged `alreadyImported`.
+ * Scans the given roots for `SKILL.md` packages. Skill stores may group packages in category
+ * directories, so the walk continues until it finds an entry file and then treats that directory
+ * as the package boundary. Symlinked entries are skipped, a package reachable from multiple roots
+ * is reported once, and packages whose contents already match a managed skill (by content hash) are
+ * flagged `alreadyImported`.
  */
-export function discoverSkillPackages(
+export async function discoverSkillPackages(
   roots: SkillDiscoveryRoot[],
   knownHashes: Set<string>,
-): DiscoveredSkill[] {
+): Promise<DiscoveredSkill[]> {
   const seen = new Set<string>()
   const results: DiscoveredSkill[] = []
   for (const root of roots) {
-    if (!root.path || !existsSync(root.path)) continue
-    let entries
+    if (!root.path) continue
+    let entries: Dirent<string>[]
     try {
-      entries = readdirSync(root.path, { withFileTypes: true })
+      entries = await readdirAsync(root.path, { withFileTypes: true })
     } catch {
       continue
     }
+    const visit = async (directory: string): Promise<void> => {
+      let children: Dirent<string>[]
+      try {
+        children = await readdirAsync(directory, { withFileTypes: true })
+      } catch {
+        return
+      }
+      if (children.some((child) => !child.isSymbolicLink() && child.isFile() && child.name === SKILL_ENTRY_FILE)) {
+        const packagePath = resolve(directory)
+        if (!seen.has(packagePath)) {
+          seen.add(packagePath)
+          results.push(await describePackage(packagePath, root, knownHashes))
+        }
+        return
+      }
+      for (const child of children) {
+        if (child.isSymbolicLink() || !child.isDirectory()) continue
+        await visit(join(directory, child.name))
+      }
+    }
     for (const entry of entries) {
       if (entry.isSymbolicLink() || !entry.isDirectory()) continue
-      const packagePath = resolve(join(root.path, entry.name))
-      if (seen.has(packagePath)) continue
-      if (!existsSync(join(packagePath, SKILL_ENTRY_FILE))) continue
-      seen.add(packagePath)
-      results.push(describePackage(packagePath, root, knownHashes))
+      await visit(join(root.path, entry.name))
     }
   }
   return results
@@ -146,8 +209,9 @@ export function discoverSkillPackages(
 
 /**
  * Imports a discovered package into the managed library by copying it (never moving or mutating
- * the external source) and persisting a new skill row. The package's provenance
- * (`codex`/`claude`/`filesystem`) is preserved. Returns null if the package has gone away.
+ * the external source) and persisting a new skill row. Readable packages are accepted across
+ * providers; the managed writer supplies portable fallback metadata when a provider omits it.
+ * The package's provenance is preserved. Returns null if the package has gone away or cannot parse.
  */
 export function importDiscoveredSkill(
   discovery: DiscoveredSkill,
@@ -156,8 +220,16 @@ export function importDiscoveredSkill(
   if (!discovery || typeof discovery.packagePath !== 'string' || !existsSync(discovery.packagePath)) return null
   if (!existsSync(join(discovery.packagePath, SKILL_ENTRY_FILE))) return null
   const loaded = loadSkillPackage(discovery.packagePath)
+  const importedName = typeof loaded.name === 'string' && loaded.name.trim()
+    ? loaded.name.trim()
+    : discovery.name.trim() || basename(discovery.packagePath)
+  const importedDescription = typeof loaded.description === 'string' && loaded.description.trim()
+    ? loaded.description
+    : `Reusable guidance for ${importedName}. Use when the task matches this skill's instructions.`
   const input: Partial<SkillConfig> = {
     ...loaded,
+    name: importedName,
+    description: importedDescription,
     ...overrides,
     // createSkillConfig copies from packageSourcePath into the managed root; drop the external
     // path and stale hash so the managed package becomes the canonical source.

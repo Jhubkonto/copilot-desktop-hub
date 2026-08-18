@@ -67,7 +67,7 @@ export function normalizeSkillConfig(input: Partial<SkillConfig> & Record<string
     packagePath: typeof input.packagePath === 'string' ? input.packagePath : undefined,
     contentHash: typeof input.contentHash === 'string' ? input.contentHash : undefined,
     scope: input.scope === 'project' || input.scope === 'bundled' ? input.scope : 'user',
-    source: input.source === 'filesystem' || input.source === 'codex' || input.source === 'claude' || input.source === 'import'
+    source: input.source === 'filesystem' || input.source === 'codex' || input.source === 'claude' || input.source === 'hermes' || input.source === 'import'
       ? input.source
       : 'nexy',
     validationStatus: input.validationStatus === 'invalid' || input.validationStatus === 'warning' ? input.validationStatus : 'valid',
@@ -296,11 +296,11 @@ function projectSourceRoots(projectId: string): string[] {
 }
 
 /** Scans standard filesystem locations for skill packages not yet in the managed library. */
-export function discoverSkills(projectId = ''): DiscoveredSkill[] {
+export async function discoverSkills(projectId = ''): Promise<DiscoveredSkill[]> {
   const knownHashes = new Set(
     listSkillConfigs().map((s) => s.contentHash).filter((h): h is string => typeof h === 'string'),
   )
-  const roots = [...userSkillDiscoveryRoots(), ...projectSkillDiscoveryRoots(projectSourceRoots(projectId))]
+  const roots = [...await userSkillDiscoveryRoots(), ...projectSkillDiscoveryRoots(projectSourceRoots(projectId))]
   return discoverSkillPackages(roots, knownHashes)
 }
 
@@ -383,7 +383,7 @@ export function registerSkillHandlers(): void {
     }
   })
 
-  safeHandle('skill:discover', (_event, projectId?: string) => discoverSkills(typeof projectId === 'string' ? projectId : ''))
+  safeHandle('skill:discover', async (_event, projectId?: string) => discoverSkills(typeof projectId === 'string' ? projectId : ''))
 
   safeHandle('skill:import-discovered', (_event, discovery: DiscoveredSkill) => {
     if (!discovery || typeof discovery.packagePath !== 'string') return null

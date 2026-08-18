@@ -43,21 +43,38 @@ function root(path: string): SkillDiscoveryRoot {
 }
 
 describe('skill discovery roots', () => {
-  it('builds user roots for the standard harness locations', () => {
-    const built = userSkillDiscoveryRoots()
+  it('builds user roots for the standard harness locations', async () => {
+    const built = await userSkillDiscoveryRoots()
     expect(built.map((r) => r.source)).toEqual(expect.arrayContaining(['claude', 'codex', 'filesystem']))
     expect(built.every((r) => r.scope === 'user')).toBe(true)
     expect(built.some((r) => r.label === '~/.claude/skills')).toBe(true)
   })
 
-  it('honours CODEX_HOME / CLAUDE_CONFIG_DIR overrides and labels them by absolute path', () => {
+  it('discovers skills from Hermes profile roots when HERMES_HOME is relocated', async () => {
+    const saved = process.env.HERMES_HOME
+    const hermesHome = tempRoot()
+    mkdirSync(join(hermesHome, 'profiles', 'local', 'skills'), { recursive: true })
+    try {
+      process.env.HERMES_HOME = join(hermesHome, 'profiles', 'local')
+      const built = await userSkillDiscoveryRoots()
+      expect(built).toContainEqual(expect.objectContaining({
+        path: join(hermesHome, 'profiles', 'local', 'skills'),
+        source: 'hermes',
+      }))
+    } finally {
+      if (saved === undefined) delete process.env.HERMES_HOME
+      else process.env.HERMES_HOME = saved
+    }
+  })
+
+  it('honours CODEX_HOME / CLAUDE_CONFIG_DIR overrides and labels them by absolute path', async () => {
     const saved = { CODEX_HOME: process.env.CODEX_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }
     const codexHome = tempRoot()
     const claudeHome = tempRoot()
     try {
       process.env.CODEX_HOME = codexHome
       process.env.CLAUDE_CONFIG_DIR = claudeHome
-      const built = userSkillDiscoveryRoots()
+      const built = await userSkillDiscoveryRoots()
       const codex = built.find((r) => r.source === 'codex')!
       const claude = built.find((r) => r.source === 'claude')!
       expect(codex.path).toBe(join(codexHome, 'skills'))
@@ -80,45 +97,58 @@ describe('skill discovery roots', () => {
 })
 
 describe('discoverSkillPackages', () => {
-  it('finds valid SKILL.md packages and ignores non-package directories', () => {
+  it('finds valid SKILL.md packages and ignores non-package directories', async () => {
     const dir = tempRoot()
     writePackage(dir, 'release-notes')
     mkdirSync(join(dir, 'not-a-skill'), { recursive: true }) // no SKILL.md
 
-    const found = discoverSkillPackages([root(dir)], new Set())
+    const found = await discoverSkillPackages([root(dir)], new Set())
     expect(found).toHaveLength(1)
     expect(found[0]).toMatchObject({ name: 'release-notes', validationStatus: 'valid', alreadyImported: false })
+    expect(found[0].validationErrors).toEqual([])
     expect(found[0].description).toContain('release-notes')
+    expect(found[0].importable).toBe(true)
   })
 
-  it('flags packages whose content hash matches a managed skill as alreadyImported', () => {
+  it('finds packages nested below category directories', async () => {
+    const dir = tempRoot()
+    writePackage(join(dir, 'coding'), 'issue-writer')
+
+    const found = await discoverSkillPackages([root(dir)], new Set())
+    expect(found).toHaveLength(1)
+    expect(found[0].name).toBe('issue-writer')
+  })
+
+  it('flags packages whose content hash matches a managed skill as alreadyImported', async () => {
     const dir = tempRoot()
     const pkg = writePackage(dir, 'changelog')
     const hash = hashSkillPackage(pkg)
 
-    const found = discoverSkillPackages([root(dir)], new Set([hash]))
+    const found = await discoverSkillPackages([root(dir)], new Set([hash]))
     expect(found[0].alreadyImported).toBe(true)
   })
 
-  it('reports a malformed package as invalid instead of throwing', () => {
+  it('reports a malformed package as invalid instead of throwing', async () => {
     const dir = tempRoot()
     const pkg = join(dir, 'broken')
     mkdirSync(pkg, { recursive: true })
     writeFileSync(join(pkg, 'SKILL.md'), 'no frontmatter here', 'utf8')
 
-    const found = discoverSkillPackages([root(dir)], new Set())
+    const found = await discoverSkillPackages([root(dir)], new Set())
     expect(found).toHaveLength(1)
     expect(found[0].validationStatus).toBe('invalid')
+    expect(found[0].validationErrors).toContain('description is required and must explain when to use the skill')
+    expect(found[0].importable).toBe(true)
   })
 
-  it('deduplicates a package reachable from multiple roots', () => {
+  it('deduplicates a package reachable from multiple roots', async () => {
     const dir = tempRoot()
     writePackage(dir, 'shared')
-    const found = discoverSkillPackages([root(dir), root(dir)], new Set())
+    const found = await discoverSkillPackages([root(dir), root(dir)], new Set())
     expect(found).toHaveLength(1)
   })
 
-  it('skips symlinked entries', () => {
+  it('skips symlinked entries', async () => {
     const dir = tempRoot()
     const real = writePackage(dir, 'real-skill')
     try {
@@ -126,12 +156,12 @@ describe('discoverSkillPackages', () => {
     } catch {
       return // symlink creation can require privileges on Windows; the real package still validates the scan
     }
-    const found = discoverSkillPackages([root(dir)], new Set())
+    const found = await discoverSkillPackages([root(dir)], new Set())
     expect(found).toHaveLength(1)
     expect(found[0].name).toBe('real-skill')
   })
 
-  it('returns nothing for roots that do not exist', () => {
-    expect(discoverSkillPackages([root(join(tmpdir(), 'nexy-missing-root-xyz'))], new Set())).toEqual([])
+  it('returns nothing for roots that do not exist', async () => {
+    await expect(discoverSkillPackages([root(join(tmpdir(), 'nexy-missing-root-xyz'))], new Set())).resolves.toEqual([])
   })
 })
