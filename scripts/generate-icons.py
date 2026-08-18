@@ -1,8 +1,8 @@
-"""Generate Nexy's desktop and Android launcher assets from one pixel-grid mark.
+"""Generate Nexy's desktop and Android launcher assets.
 
-The source artwork is authored on a 32x32 logical grid and is only ever scaled
-with nearest-neighbour sampling. This keeps the mark crisp at 16 px while also
-making the 1024 px store/source asset deterministic.
+The desktop badge is rendered at 1024x1024 and downsampled for smooth edges.
+Android uses the same smooth desktop source at each launcher density so the
+companion app does not fall back to a separate pixelated mark.
 
 Usage:
     python scripts/generate-icons.py
@@ -27,6 +27,7 @@ ANDROID_RES = ROOT / "android" / "app" / "src" / "main" / "res"
 THEME_PATH = ROOT / "design" / "nexy-8bit-theme.json"
 
 GRID_SIZE = 32
+DESKTOP_SOURCE_SIZE = 1024
 DESKTOP_SIZES = (16, 32, 48, 64, 128, 256)
 ANDROID_DENSITIES = {
     "mipmap-mdpi": 48,
@@ -100,8 +101,38 @@ def source_icon(palette: dict[str, tuple[int, int, int, int]], round_icon: bool 
     return image
 
 
+def desktop_source_icon(palette: dict[str, tuple[int, int, int, int]]) -> Image.Image:
+    """Draw a clean, rounded desktop badge with a geometric Nexy N."""
+    image = Image.new("RGBA", (DESKTOP_SOURCE_SIZE, DESKTOP_SOURCE_SIZE), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+
+    # A dark frame and slate bevel preserve the Command Office palette while
+    # giving the icon a calmer silhouette than the old stepped tile.
+    draw.rounded_rectangle((32, 32, 992, 992), radius=236, fill=palette["frame"])
+    draw.rounded_rectangle((66, 66, 958, 958), radius=202, fill=palette["edge"])
+    draw.rounded_rectangle((86, 86, 938, 938), radius=184, fill=palette["surface"])
+
+    # Subtle dark depth behind the mark keeps the lavender N legible against
+    # the navy surface at small launcher sizes.
+    shadow = palette["ink"]
+    draw.rounded_rectangle((250, 244, 382, 816), radius=46, fill=shadow)
+    draw.rounded_rectangle((642, 244, 774, 816), radius=46, fill=shadow)
+    draw.polygon(((340, 244), (474, 244), (684, 816), (550, 816)), fill=shadow)
+
+    accent = palette["accent"]
+    draw.rounded_rectangle((232, 220, 364, 792), radius=46, fill=accent)
+    draw.rounded_rectangle((624, 220, 756, 792), radius=46, fill=accent)
+    draw.polygon(((322, 220), (456, 220), (666, 792), (532, 792)), fill=accent)
+
+    return image
+
+
 def scaled(source: Image.Image, size: int) -> Image.Image:
     return source.resize((size, size), Image.Resampling.NEAREST)
+
+
+def scaled_desktop(source: Image.Image, size: int) -> Image.Image:
+    return source.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def png_bytes(image: Image.Image) -> bytes:
@@ -111,7 +142,7 @@ def png_bytes(image: Image.Image) -> bytes:
 
 
 def ico_bytes(source: Image.Image) -> bytes:
-    images = [scaled(source, size) for size in DESKTOP_SIZES]
+    images = [scaled_desktop(source, size) for size in DESKTOP_SIZES]
     payloads = [png_bytes(image) for image in images]
     offset = 6 + len(payloads) * 16
     directory = bytearray()
@@ -127,14 +158,14 @@ def ico_bytes(source: Image.Image) -> bytes:
 def icns_bytes(source: Image.Image) -> bytes:
     entries = bytearray()
     for kind, size in ((b"ic08", 256), (b"ic09", 512), (b"ic10", 1024)):
-        payload = png_bytes(scaled(source, size))
+        payload = png_bytes(scaled_desktop(source, size))
         entries.extend(kind + struct.pack(">I", len(payload) + 8) + payload)
     return b"icns" + struct.pack(">I", len(entries) + 8) + bytes(entries)
 
 
 def webp_bytes(source: Image.Image, size: int) -> bytes:
     output = io.BytesIO()
-    scaled(source, size).save(output, format="WEBP", lossless=True, method=6, exact=True)
+    scaled_desktop(source, size).save(output, format="WEBP", lossless=True, method=6, exact=True)
     return output.getvalue()
 
 
@@ -163,31 +194,31 @@ def adaptive_foreground_bytes(palette: dict[str, tuple[int, int, int, int]]) -> 
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Grid-authored N kept inside the adaptive-icon 66dp safe zone. The diagonal is a
-         staircase of whole-dp blocks so launcher scaling does not soften the 8-bit silhouette. -->
+    <!-- Smooth desktop mark kept inside the adaptive-icon 66dp safe zone. -->
+    <path
+        android:fillColor="{color_hex(palette["surface"])}"
+        android:pathData="M9,9h90v90h-90z" />
     <path
         android:fillColor="{color_hex(palette["accent"])}"
-        android:pathData="M34,32h8v44h-8z M66,32h8v44h-8z
-                          M42,32h8v12h-8z M46,40h8v12h-8z M50,48h8v12h-8z
-                          M54,56h8v12h-8z M58,64h8v12h-8z" />
+        android:pathData="M25,23h14v61h-14z M66,23h14v61h-14z
+                          M34,23h14l23,61h-14z" />
 </vector>
 '''.encode("utf-8")
 
 
 def expected_outputs() -> dict[Path, bytes]:
     palette = load_palette()
-    standard = source_icon(palette)
-    round_icon = source_icon(palette, round_icon=True)
+    desktop = desktop_source_icon(palette)
     outputs = {
-        RESOURCES / "icon.png": png_bytes(scaled(standard, 1024)),
-        RESOURCES / "icon.ico": ico_bytes(standard),
-        RESOURCES / "icon.icns": icns_bytes(standard),
+        RESOURCES / "icon.png": png_bytes(scaled_desktop(desktop, 1024)),
+        RESOURCES / "icon.ico": ico_bytes(desktop),
+        RESOURCES / "icon.icns": icns_bytes(desktop),
         ANDROID_RES / "drawable" / "ic_launcher_background.xml": adaptive_background_bytes(palette),
         ANDROID_RES / "drawable" / "ic_launcher_foreground.xml": adaptive_foreground_bytes(palette),
     }
     for folder, size in ANDROID_DENSITIES.items():
-        outputs[ANDROID_RES / folder / "ic_launcher.webp"] = webp_bytes(standard, size)
-        outputs[ANDROID_RES / folder / "ic_launcher_round.webp"] = webp_bytes(round_icon, size)
+        outputs[ANDROID_RES / folder / "ic_launcher.webp"] = webp_bytes(desktop, size)
+        outputs[ANDROID_RES / folder / "ic_launcher_round.webp"] = webp_bytes(desktop, size)
     return outputs
 
 
