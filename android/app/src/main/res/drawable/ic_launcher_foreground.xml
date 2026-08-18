@@ -4,11 +4,12 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Grid-authored N kept inside the adaptive-icon 66dp safe zone. The diagonal is a
-         staircase of whole-dp blocks so launcher scaling does not soften the 8-bit silhouette. -->
+    <!-- Smooth desktop mark kept inside the adaptive-icon 66dp safe zone. -->
+    <path
+        android:fillColor="#121A2B"
+        android:pathData="M9,9h90v90h-90z" />
     <path
         android:fillColor="#8D7CFF"
-        android:pathData="M34,32h8v44h-8z M66,32h8v44h-8z
-                          M42,32h8v12h-8z M46,40h8v12h-8z M50,48h8v12h-8z
-                          M54,56h8v12h-8z M58,64h8v12h-8z" />
+        android:pathData="M25,23h14v61h-14z M66,23h14v61h-14z
+                          M34,23h14l23,61h-14z" />
 </vector>
