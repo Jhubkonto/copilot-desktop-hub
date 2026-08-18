@@ -1,5 +1,13 @@
 import { safeStorage } from 'electron'
 import { getDatabase } from './database'
+import {
+  isCredentialVaultAvailable,
+  getProviderCredentialRef,
+  removeProviderCredentials,
+  resolveProviderCredential,
+  upsertProviderCredential,
+} from './credential-vault'
+import type { CredentialAccessScope, ProviderCredentialRef } from './credential-vault'
 import { httpsRequestWithResponse } from './http-client'
 import https from 'https'
 
@@ -16,8 +24,22 @@ function httpsRequest(
 }
 
 export function storeApiKey(provider: string, key: string): void {
+  if (isCredentialVaultAvailable()) {
+    upsertProviderCredential(provider, key)
+    removeLegacyApiKey(provider)
+    return
+  }
+
+  storeLegacyApiKey(provider, key)
+}
+
+function legacySettingKey(provider: string): string {
+  return `byok_${provider}_key`
+}
+
+function storeLegacyApiKey(provider: string, key: string): void {
   const db = getDatabase()
-  const settingKey = `byok_${provider}_key`
+  const settingKey = legacySettingKey(provider)
   if (safeStorage.isEncryptionAvailable()) {
     const encrypted = safeStorage.encryptString(key).toString('base64')
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(settingKey, encrypted)
@@ -28,9 +50,9 @@ export function storeApiKey(provider: string, key: string): void {
   }
 }
 
-export function retrieveApiKey(provider: string): string | null {
+function retrieveLegacyApiKey(provider: string): string | null {
   const db = getDatabase()
-  const settingKey = `byok_${provider}_key`
+  const settingKey = legacySettingKey(provider)
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(settingKey) as { value: string } | undefined
   if (!row) return null
 
@@ -41,10 +63,49 @@ export function retrieveApiKey(provider: string): string | null {
   return row.value
 }
 
-export function removeApiKey(provider: string): void {
+function removeLegacyApiKey(provider: string): void {
   const db = getDatabase()
-  const settingKey = `byok_${provider}_key`
+  const settingKey = legacySettingKey(provider)
   db.prepare("DELETE FROM settings WHERE key IN (?, ?)").run(settingKey, `${settingKey}_encrypted`)
+}
+
+export function retrieveApiKey(provider: string): string | null {
+  if (isCredentialVaultAvailable()) {
+    const vaultValue = resolveProviderCredential(provider)
+    if (vaultValue !== null) return vaultValue
+
+    // Move pre-vault provider settings lazily. This keeps upgrades safe if the app is closed
+    // during startup and ensures the legacy settings rows are removed after a successful write.
+    const legacyValue = retrieveLegacyApiKey(provider)
+    if (legacyValue !== null) {
+      upsertProviderCredential(provider, legacyValue)
+      removeLegacyApiKey(provider)
+      return legacyValue
+    }
+    return null
+  }
+  return retrieveLegacyApiKey(provider)
+}
+
+/**
+ * Returns an opaque provider credential reference for execution paths. The secret is deliberately
+ * not returned, so routing/orchestration layers cannot accidentally persist or emit it.
+ */
+export function getProviderCredential(provider: string, scope: CredentialAccessScope = {}): ProviderCredentialRef | null {
+  if (!isCredentialVaultAvailable()) return null
+  if (!getProviderCredentialRef(provider, scope)) {
+    const legacyValue = retrieveLegacyApiKey(provider)
+    if (legacyValue !== null) {
+      upsertProviderCredential(provider, legacyValue)
+      removeLegacyApiKey(provider)
+    }
+  }
+  return getProviderCredentialRef(provider, scope)
+}
+
+export function removeApiKey(provider: string): void {
+  if (isCredentialVaultAvailable()) removeProviderCredentials(provider)
+  removeLegacyApiKey(provider)
 }
 
 export function getAzureEndpoint(): string | null {

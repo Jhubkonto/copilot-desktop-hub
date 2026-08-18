@@ -6,6 +6,7 @@ import {
   storeApiKey,
   removeApiKey,
   retrieveApiKey,
+  getProviderCredential,
   fetchAndCacheOpenRouterModels,
   fetchAndCacheOpenAIModels,
   fetchAndCacheGeminiModels,
@@ -40,6 +41,7 @@ export {
   abortActiveStream,
   activeStreamingRequests,
   retrieveApiKey,
+  getProviderCredential,
   getAzureEndpoint,
   setAzureEndpoint,
   fetchAndCacheOpenRouterModels,
@@ -49,6 +51,8 @@ export {
   getCachedProviderModels,
 }
 export { getOpenRouterModels } from './provider-secrets'
+export type { ProviderCredentialInput, ProviderCredentialRef } from './credential-vault'
+export type { CredentialAccessScope } from './credential-vault'
 export type { ProviderConfig } from './provider-registry'
 export { toAnthropicMessages, toOpenAICompatibleMessages } from './provider-messages'
 export { toAnthropicTools } from './providers/anthropic-provider'
@@ -71,6 +75,7 @@ export {
 export { sendProviderWithTools, sendProviderNonStreaming } from './provider-tools'
 
 import type { ProviderName, ProviderMessage } from './provider-core-types'
+import type { ProviderCredentialInput } from './credential-vault'
 import { sendOpenAIMessage, sendAzureMessage } from './providers/openai-provider'
 import { sendAnthropicMessage } from './providers/anthropic-provider'
 
@@ -86,7 +91,7 @@ export function getApiKey(provider: ProviderName): string | null {
  */
 export function streamProviderMessage(
   provider: ProviderName,
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   requestId: string,

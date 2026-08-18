@@ -5,6 +5,7 @@ import { toAnthropicContent, toAnthropicMessages } from '../provider-messages'
 import type { AnthropicContentBlock } from '../provider-messages'
 import { runStreamingRequest, rejectHttpError } from './streaming'
 import { debugLog } from '../debug-mode'
+import { resolveProviderCredentialInput, type ProviderCredentialInput } from '../credential-vault'
 
 interface AnthropicTool {
   name: string
@@ -67,7 +68,7 @@ function supportsExtendedThinking(model: string): boolean {
 }
 
 export async function sendAnthropicWithTools(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   tools: ToolDefinition[],
@@ -82,6 +83,7 @@ export async function sendAnthropicWithTools(
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {}
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
   const { tools: anthropicTools, nameMap } = toAnthropicTools(tools)
 
@@ -195,7 +197,7 @@ interface AnthropicStreamPayload {
  * the tool loop until the complete tool_use block has arrived.
  */
 export function sendAnthropicWithToolsStream(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   tools: ToolDefinition[],
@@ -211,6 +213,7 @@ export function sendAnthropicWithToolsStream(
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {},
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
   const { tools: anthropicTools, nameMap } = toAnthropicTools(tools)
   const toolChoiceParam =
@@ -373,7 +376,7 @@ function conversationIdOrEmpty(conversationId?: string): string {
 
 export async function sendAnthropicMessage(
   conversationId: string,
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   systemPrompt: string | undefined,
@@ -386,6 +389,7 @@ export async function sendAnthropicMessage(
     onThinkingEnd?: (blockId: string) => void
   } = {}
 ): Promise<string> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const anthropicMessages = messages
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role, content: toAnthropicContent(m.content ?? '') as string | AnthropicContentBlock[] }))
@@ -478,7 +482,7 @@ function runAnthropicStream(
  */
 export function sendAnthropicMessagesStream(
   conversationId: string,
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
@@ -490,6 +494,7 @@ export function sendAnthropicMessagesStream(
     onThinkingEnd?: (blockId: string) => void
   } = {},
 ): Promise<string> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
   const bodyObj: Record<string, unknown> = {
     model,

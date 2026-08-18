@@ -4,6 +4,7 @@ import type { ProviderMessage } from '../provider-core-types'
 import { toOpenAICompatibleMessages } from '../provider-messages'
 import { runStreamingRequest, rejectHttpError } from './streaming'
 import { debugLog } from '../debug-mode'
+import { resolveProviderCredentialInput, type ProviderCredentialInput } from '../credential-vault'
 
 // Returns true for OpenAI o-series and compatible reasoning models.
 function supportsReasoningEffort(model: string): boolean {
@@ -398,7 +399,7 @@ function streamChatCompletionsWithTools(
 
 export async function sendOpenAIMessage(
   conversationId: string,
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
@@ -412,6 +413,7 @@ export async function sendOpenAIMessage(
   } = {},
   baseUrl?: string
 ): Promise<string> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const bodyObj: Record<string, unknown> = {
     model,
     messages,
@@ -428,12 +430,13 @@ export async function sendOpenAIMessage(
 }
 
 export async function sendOpenAINonStreaming(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   options: { maxTokens?: number; temperature?: number } = {},
   baseUrl?: string,
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const body = JSON.stringify({
     model,
     messages: toOpenAICompatibleMessages(messages),
@@ -451,7 +454,7 @@ export async function sendOpenAINonStreaming(
 }
 
 export async function sendOpenAIWithTools(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   tools: ToolDefinition[],
@@ -467,6 +470,7 @@ export async function sendOpenAIWithTools(
   } = {},
   baseUrl?: string
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const bodyObj: Record<string, unknown> = {
     model,
     messages: toOpenAICompatibleMessages(messages),
@@ -503,7 +507,7 @@ export async function sendOpenAIWithTools(
 }
 
 export function sendOpenAIWithToolsStream(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   model: string,
   messages: ProviderMessage[],
   tools: ToolDefinition[],
@@ -520,6 +524,7 @@ export function sendOpenAIWithToolsStream(
   } = {},
   baseUrl?: string,
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const bodyObj: Record<string, unknown> = {
     model,
     messages: toOpenAICompatibleMessages(messages),
@@ -544,13 +549,14 @@ export function sendOpenAIWithToolsStream(
 
 export async function sendAzureMessage(
   conversationId: string,
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   endpoint: string,
   deployment: string,
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
   options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const body = JSON.stringify({
     messages,
     stream: true,
@@ -561,12 +567,13 @@ export async function sendAzureMessage(
 }
 
 export async function sendAzureNonStreaming(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   endpoint: string,
   deployment: string,
   messages: ProviderMessage[],
   options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const body = JSON.stringify({
     messages: toOpenAICompatibleMessages(messages),
     stream: false,
@@ -583,7 +590,7 @@ export async function sendAzureNonStreaming(
 }
 
 export async function sendAzureWithTools(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   endpoint: string,
   deployment: string,
   messages: ProviderMessage[],
@@ -596,6 +603,7 @@ export async function sendAzureWithTools(
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {}
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const bodyObj: Record<string, unknown> = {
     messages: toOpenAICompatibleMessages(messages),
     stream: false,
@@ -621,7 +629,7 @@ export async function sendAzureWithTools(
 }
 
 export function sendAzureWithToolsStream(
-  apiKey: string,
+  apiKey: ProviderCredentialInput,
   endpoint: string,
   deployment: string,
   messages: ProviderMessage[],
@@ -635,6 +643,7 @@ export function sendAzureWithToolsStream(
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   } = {},
 ): Promise<ProviderNonStreamResult> {
+  apiKey = resolveProviderCredentialInput(apiKey)
   const bodyObj: Record<string, unknown> = {
     messages: toOpenAICompatibleMessages(messages),
     stream: true,
