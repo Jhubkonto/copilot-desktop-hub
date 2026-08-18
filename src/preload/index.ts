@@ -35,13 +35,24 @@ import type {
   AutomatedWorkflowGeneratorMessage,
   AutomatedWorkflowSpec,
   AutomatedWorkflowStepStatus,
+  WorkflowEditVersionInput,
+  WorkflowPublishConfirmInput,
+  WorkflowPublishPreviewInput,
+  WorkflowReviewInput,
   ArtifactGeneratorMessage,
   ArtifactPromotionRequest,
   ArtifactSpec,
+  CliBackend,
   McpServerWithStatus,
   BackgroundActivity,
   ProjectWikiMcpConnection,
   ProjectWikiMcpStatus,
+  CredentialCreateInput,
+  CredentialBindingCreateInput,
+  CredentialBindingMetadata,
+  CredentialBindingUpdateInput,
+  CredentialMetadata,
+  CredentialUpdateInput,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -159,7 +170,7 @@ const api = {
       regenerate?: boolean
       agentId?: string
       model?: string
-      cliBackend?: 'claude-cli' | 'codex-cli'
+      cliBackend?: CliBackend
       messageId?: string
       projectId?: string
       contextSnapshot?: string
@@ -527,6 +538,19 @@ const api = {
   },
 
   // Providers (BYOK)
+  credentialList: () => typedInvoke('credential:list') as Promise<CredentialMetadata[]>,
+  credentialCreate: (input: CredentialCreateInput) =>
+    typedInvoke('credential:create', input) as Promise<CredentialMetadata>,
+  credentialUpdate: (id: string, input: CredentialUpdateInput) =>
+    typedInvoke('credential:update', id, input) as Promise<CredentialMetadata>,
+  credentialDelete: (id: string) => typedInvoke('credential:delete', id),
+  credentialBindingList: (credentialId?: string | null) =>
+    typedInvoke('credential-binding:list', credentialId ?? null) as Promise<CredentialBindingMetadata[]>,
+  credentialBindingCreate: (input: CredentialBindingCreateInput) =>
+    typedInvoke('credential-binding:create', input) as Promise<CredentialBindingMetadata>,
+  credentialBindingUpdate: (id: string, input: CredentialBindingUpdateInput) =>
+    typedInvoke('credential-binding:update', id, input) as Promise<CredentialBindingMetadata>,
+  credentialBindingDelete: (id: string) => typedInvoke('credential-binding:delete', id),
   listProviders: () => typedInvoke('provider:list'),
   setProviderKey: (provider: string, key: string) =>
     typedInvoke('provider:set-key', provider, key),
@@ -585,12 +609,6 @@ const api = {
   removeProjectRepository: (projectId: string, repositoryId: string) =>
     typedInvoke('project:remove-repository', projectId, repositoryId),
   rescanProjectSources: (projectId: string) => typedInvoke('project:rescan-sources', projectId),
-  listProjectAuditSessions: (projectId?: string | null) =>
-    typedInvoke('project-audit:list-sessions', projectId),
-  listProjectAuditFiles: (sessionId: string) =>
-    typedInvoke('project-audit:list-files', sessionId),
-  getProjectAuditDiff: (sessionId: string, relativePath: string, fileId?: string | null) =>
-    typedInvoke('project-audit:get-diff', sessionId, relativePath, fileId),
   automatedWorkflowGeneratorChat: (projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) =>
     typedInvoke('automated-workflow-generator:chat', projectId, messages, modelOverride),
   onAutomatedWorkflowGeneratorToken: (callback: (chunk: string) => void) => {
@@ -651,6 +669,22 @@ const api = {
     typedOn('automated-workflow-runs:step-stream', handler)
     return () => typedOff('automated-workflow-runs:step-stream', handler)
   },
+  listManagedWorkflowSources: (projectId: string) =>
+    typedInvoke('automated-workflow-managed:list-sources', projectId),
+  getManagedWorkflowVersion: (versionId: string) =>
+    typedInvoke('automated-workflow-managed:get-version', versionId),
+  getManagedWorkflowBindings: (runId: string, stepDbId?: string) =>
+    typedInvoke('automated-workflow-managed:get-bindings', runId, stepDbId),
+  editManagedWorkflowVersion: (input: WorkflowEditVersionInput) =>
+    typedInvoke('automated-workflow-managed:edit-version', input),
+  reviewManagedWorkflowVersion: (input: WorkflowReviewInput) =>
+    typedInvoke('automated-workflow-managed:review', input),
+  regenerateManagedWorkflowSteps: (runId: string, stepDbId: string) =>
+    typedInvoke('automated-workflow-managed:regenerate', runId, stepDbId),
+  createManagedWorkflowPublishPreview: (input: WorkflowPublishPreviewInput) =>
+    typedInvoke('automated-workflow-managed:create-preview', input),
+  confirmManagedWorkflowPublish: (input: WorkflowPublishConfirmInput) =>
+    typedInvoke('automated-workflow-managed:confirm-publish', input),
   onTeamActivity: (callback: (step: {
     stepId: string
     agentId: string
@@ -963,6 +997,7 @@ const api = {
   schedulerDelete: (id: string) => typedInvoke('scheduler:delete', id),
   schedulerSetEnabled: (id: string, enabled: boolean) => typedInvoke('scheduler:set-enabled', id, enabled),
   schedulerRunNow: (id: string) => typedInvoke('scheduler:run-now', id),
+  schedulerResumeRun: (runId: string) => typedInvoke('scheduler:resume-run', runId),
   schedulerListRuns: (taskId: string, limit?: number) => typedInvoke('scheduler:list-runs', taskId, limit),
   schedulerListWorkflowTemplates: () => typedInvoke('scheduler:list-workflow-templates'),
   onSchedulerTaskUpdated: (callback: (task: import('../shared/types').ScheduledTask) => void) => {

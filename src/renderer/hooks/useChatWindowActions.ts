@@ -169,7 +169,7 @@ export function useChatWindowActions({
 }: UseChatWindowActionsParams) {
   // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
-  const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
+  const pendingCliBackendRef = useRef<CliBackend | null>(null)
   // Model/backend picker writes are asynchronous too. Send and Retry must not overtake them,
   // otherwise an existing conversation can launch with the model/backend from the preceding row.
   const pendingModelWriteRef = useRef<Promise<void>>(Promise.resolve())
@@ -1012,7 +1012,7 @@ export function useChatWindowActions({
   )
 
   const handleSetCliBackendAndModel = useCallback(
-    async (backend: 'claude-cli' | 'codex-cli', modelId: string) => {
+    async (backend: CliBackend, modelId: string) => {
       if (conversationId) {
         const write = pendingModelWriteRef.current.then(async () => {
           const result = await window.api.setConversationModel(conversationId, modelId, backend)

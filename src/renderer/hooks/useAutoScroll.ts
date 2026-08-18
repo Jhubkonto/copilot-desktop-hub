@@ -80,6 +80,10 @@ export function useAutoScroll({
   const resizeRafRef = useRef<number | null>(null)
   const prevContentSignalRef = useRef(contentSignal)
   const wasContentInitializingRef = useRef(isContentInitializing)
+  // Streaming text changes are real layout changes, but they are not a completed response.
+  // Hold the unread notification until generation becomes idle so the blue "new content"
+  // affordance cannot imply that the answer is ready while the turn is still running.
+  const pendingUnreadAfterGenerationRef = useRef(false)
   const activeResetKeyRef = useRef(resetKey)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -189,19 +193,36 @@ export function useAutoScroll({
     // conversation unread.
     const resetChanged = resetKey !== activeResetKeyRef.current
     const isInitializationBoundary = isContentInitializing || wasContentInitializingRef.current
-    if (
-      !resetChanged
-      && !isInitializationBoundary
-      && contentSignal !== prevContentSignalRef.current
-      && isUserScrolledUpRef.current
-    ) {
-      setHasUnreadBelow(true)
-      onNewContentWhileScrolledUp?.()
+    const contentChanged = contentSignal !== prevContentSignalRef.current
+
+    if (resetChanged || isInitializationBoundary) {
+      pendingUnreadAfterGenerationRef.current = false
+    } else if (contentChanged && isUserScrolledUpRef.current) {
+      if (isGenerating) {
+        pendingUnreadAfterGenerationRef.current = true
+      } else {
+        setHasUnreadBelow(true)
+        onNewContentWhileScrolledUp?.()
+        pendingUnreadAfterGenerationRef.current = false
+      }
     }
+
+    // A streamed response may have changed the content signal many times while the user was
+    // reading history. Emit one notification only after the turn has fully settled. This also
+    // runs when the final content signal is unchanged, because generation is part of the effect
+    // dependencies below.
+    if (!isGenerating && pendingUnreadAfterGenerationRef.current) {
+      if (!resetChanged && !isInitializationBoundary && isUserScrolledUpRef.current) {
+        setHasUnreadBelow(true)
+        onNewContentWhileScrolledUp?.()
+      }
+      pendingUnreadAfterGenerationRef.current = false
+    }
+
     prevContentSignalRef.current = contentSignal
     wasContentInitializingRef.current = isContentInitializing
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentSignal, isContentInitializing, resetKey])
+  }, [contentSignal, isContentInitializing, isGenerating, resetKey])
 
   // Follow to bottom when generation begins — but only if the user is already there.
   // Unconditional here (no isUserScrolledUpRef check) used to mean *any* turn starting —
