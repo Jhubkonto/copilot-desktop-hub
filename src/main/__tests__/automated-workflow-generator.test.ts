@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'fs'
 
 const { dispatchToProviderMock, getApiKeyMock } = vi.hoisted(() => ({
   dispatchToProviderMock: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('../providers', () => ({
   getOpenRouterModels: vi.fn(() => []),
   getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-5-mini' })),
   getApiKey: getApiKeyMock,
+  getProviderCredential: getApiKeyMock,
   isProviderConfigured: vi.fn(() => false),
 }))
 
@@ -116,6 +118,17 @@ describe('automated workflow generator', () => {
     })
   })
 
+  it('normalizes the shared legacy and managed contract fixtures', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/managed-workflow-v1.json', import.meta.url), 'utf8')) as {
+      legacySpec: Record<string, unknown>
+      managedSpec: Record<string, unknown>
+    }
+    expect(normalizeAutomatedWorkflowSpec(fixture.legacySpec).steps[0].kind).toBeUndefined()
+    const managed = normalizeAutomatedWorkflowSpec(fixture.managedSpec)
+    expect(managed.steps.map((step) => step.kind)).toEqual(['collect', 'model', 'review', 'publish'])
+    expect(managed.steps[3].publishDestination?.relativePath).toBe('reports/weekly.md')
+  })
+
   it('normalizes missing optional fields and preserves valid dependency ids', () => {
     const spec = normalizeAutomatedWorkflowSpec({
       title: '',
@@ -208,6 +221,24 @@ describe('automated workflow generator', () => {
 
   it('returns null for invalid tagged JSON', () => {
     expect(extractAutomatedWorkflowSpec('<automated-workflow-spec>{ nope }</automated-workflow-spec>')).toBeNull()
+  })
+
+  it('rejects managed bindings that name a missing producer output', () => {
+    expect(() => normalizeAutomatedWorkflowSpec({
+      title: 'Broken managed workflow',
+      steps: [
+        {
+          id: 'collect', kind: 'collect', title: 'Collect', prompt: 'Collect', expectedOutput: 'Snapshot',
+          inputBindings: [{ bindingId: 'files', source: { type: 'project-files', projectSourceId: 'source-1', include: ['*.md'] }, required: true }],
+          deliverables: [{ name: 'snapshot', title: 'Snapshot', kind: 'document', primaryPath: 'sources.md', mediaType: 'text/markdown' }],
+        },
+        {
+          id: 'draft', kind: 'model', title: 'Draft', prompt: 'Draft', expectedOutput: 'Draft', dependsOnStepIds: ['collect'],
+          inputBindings: [{ bindingId: 'source', source: { type: 'step-output', stepId: 'collect', outputName: 'missing' }, required: true }],
+          deliverables: [{ name: 'draft', title: 'Draft', kind: 'document', primaryPath: 'draft.md', mediaType: 'text/markdown' }],
+        },
+      ],
+    })).toThrow(/unknown output/i)
   })
 
   it('throws a clear provider configuration error before dispatching with an empty key', async () => {

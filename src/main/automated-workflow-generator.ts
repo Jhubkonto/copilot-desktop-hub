@@ -8,7 +8,7 @@ import {
   PROVIDERS,
   getOpenRouterModels,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   isProviderConfigured,
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
@@ -17,7 +17,16 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
 import type { ProviderMessage } from './provider-core-types'
-import type { AutomatedWorkflowGeneratorMessage, AutomatedWorkflowSpec, ProjectConfig } from '../shared/types'
+import type {
+  AutomatedWorkflowGeneratorMessage,
+  AutomatedWorkflowSpec,
+  AutomatedWorkflowStepKind,
+  ProjectConfig,
+  WorkflowArtifactBinding,
+  WorkflowDeliverableDefinition,
+  WorkflowPublishDestination,
+  WorkflowReviewSource,
+} from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
 import { parseProjectConfig } from './project-handlers'
@@ -28,8 +37,10 @@ export const AUTOMATED_WORKFLOW_SPEC_CLOSE_TAG = '</automated-workflow-spec>'
 
 const AUTOMATED_WORKFLOW_GENERATOR_SYSTEM_PROMPT = `You are an expert workflow planner for Nexy.
 
-Your job is to turn a goal into an automated delegation workflow: a sequence of steps that the user can execute
-either one step at a time with a review checkpoint after each step, or all the way through automatically.
+Your job is to turn a goal into a managed deliverable workflow. Prefer a transparent pipeline of
+collect -> model -> review -> publish. Managed workflows snapshot explicit sources, create immutable
+artifacts, pause on review, and publish only an approved exact version. Use legacy untyped model steps
+only when the user is not asking to create a durable project deliverable.
 
 Requirements:
 - Produce a short assistant response that explains the plan.
@@ -42,14 +53,23 @@ Requirements:
   - summary
   - prompt
   - expectedOutput
-- Each step is fulfilled by EITHER an agent OR a model directly — never both, never neither:
+- A model step is fulfilled by EITHER an agent OR a model directly — never both, never neither:
   - If the available agents (project-attached, or the user's global agents for a standalone plan) include a
     matching agent, prefer assigning that step to it: include agentId and agentName. That agent's own configured
     skills apply automatically — you never need to think about skills.
   - Otherwise (no suitable agent for this step), include a "model" field naming a specific model instead of
     agentId/agentName. A model-only step runs as a plain, capable assistant with no skill augmentation — that is
     expected and fine, not a limitation to work around.
-- dependsOnStepIds is optional.
+- Managed step kinds are collect, model, review, and publish.
+- collect.inputBindings must contain project-files sources using a Project Source ID and explicit
+  project-relative include paths. Do not invent source IDs or use absolute paths.
+- collect/model steps declare exactly one Markdown deliverable in deliverables.
+- model inputBindings refer to exact named step outputs.
+- reviewSource and publish reviewSource refer to { stepId, outputName }.
+- publishDestination is a declared project-file destination and always uses
+  conflictPolicy: "require-new-preview".
+- review and publish never include agentId/model and always remain human-gated.
+- dependsOnStepIds is required for managed steps after collect.
 - assumptions should be short and concrete.
 
 JSON shape:
@@ -60,21 +80,26 @@ JSON shape:
   "steps": [
     {
       "id": "step-1",
-      "title": "Plan the work",
-      "summary": "Clarify the work breakdown",
-      "agentId": "optional-agent-id",
-      "agentName": "optional-agent-name",
-      "prompt": "Prompt text to send",
-      "expectedOutput": "What the step should produce",
+      "kind": "collect",
+      "title": "Collect project notes",
+      "summary": "Snapshot declared sources",
+      "prompt": "Snapshot the selected sources",
+      "expectedOutput": "Immutable source snapshot",
+      "inputBindings": [{"bindingId":"notes","source":{"type":"project-files","projectSourceId":"source-id-from-context","include":["notes/*.md"]},"required":true}],
+      "deliverables": [{"name":"source-notes","title":"Project notes snapshot","kind":"document","primaryPath":"sources.md","mediaType":"text/markdown"}],
       "dependsOnStepIds": []
     },
     {
       "id": "step-2",
       "title": "Draft the announcement",
-      "summary": "No suitable agent for this step, so it runs via a bare model",
+      "kind": "model",
+      "summary": "Create a bounded Markdown deliverable",
       "model": "optional-model-id",
       "prompt": "Prompt text to send",
-      "expectedOutput": "What the step should produce"
+      "expectedOutput": "Markdown draft",
+      "inputBindings": [{"bindingId":"notes","source":{"type":"step-output","stepId":"step-1","outputName":"source-notes"},"required":true}],
+      "deliverables": [{"name":"draft","title":"Announcement draft","kind":"document","primaryPath":"announcement.md","mediaType":"text/markdown"}],
+      "dependsOnStepIds": ["step-1"]
     }
   ]
 }`
@@ -95,6 +120,66 @@ interface ProjectWorkflowContext {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function workflowStepKind(value: unknown): AutomatedWorkflowStepKind | undefined {
+  return value === 'collect' || value === 'model' || value === 'review' || value === 'publish' ? value : undefined
+}
+
+function normalizeBindings(value: unknown): WorkflowArtifactBinding[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap<WorkflowArtifactBinding>((item) => {
+    if (!item || typeof item !== 'object') return []
+    const raw = item as Record<string, unknown>
+    const bindingId = optionalString(raw.bindingId)
+    const sourceRaw = raw.source && typeof raw.source === 'object' ? raw.source as Record<string, unknown> : null
+    if (!bindingId || !sourceRaw) return []
+    if (sourceRaw.type === 'project-files') {
+      const projectSourceId = optionalString(sourceRaw.projectSourceId)
+      const include = Array.isArray(sourceRaw.include)
+        ? sourceRaw.include.filter((path): path is string => typeof path === 'string' && path.trim().length > 0).map((path) => path.trim())
+        : []
+      return projectSourceId && include.length > 0 ? [{ bindingId, source: { type: 'project-files' as const, projectSourceId, include }, required: raw.required !== false }] : []
+    }
+    if (sourceRaw.type === 'step-output') {
+      const stepId = optionalString(sourceRaw.stepId)
+      const outputName = optionalString(sourceRaw.outputName)
+      return stepId && outputName ? [{ bindingId, source: { type: 'step-output' as const, stepId, outputName }, required: raw.required !== false }] : []
+    }
+    return []
+  })
+}
+
+function normalizeDeliverables(value: unknown): WorkflowDeliverableDefinition[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const raw = item as Record<string, unknown>
+    const name = optionalString(raw.name)
+    const title = optionalString(raw.title)
+    const primaryPath = optionalString(raw.primaryPath)
+    const mediaType = optionalString(raw.mediaType)
+    const kind = optionalString(raw.kind)
+    if (!name || !title || !primaryPath || !mediaType || !kind) return []
+    return [{ name, title, primaryPath, mediaType, kind: kind as WorkflowDeliverableDefinition['kind'] }]
+  })
+}
+
+function normalizeReviewSource(value: unknown): WorkflowReviewSource | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const stepId = optionalString(raw.stepId)
+  const outputName = optionalString(raw.outputName)
+  return stepId && outputName ? { stepId, outputName } : undefined
+}
+
+function normalizePublishDestination(value: unknown): WorkflowPublishDestination | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const projectSourceId = optionalString(raw.projectSourceId)
+  const relativePath = optionalString(raw.relativePath)
+  if (raw.type !== 'project-file' || !projectSourceId || !relativePath) return undefined
+  return { type: 'project-file', projectSourceId, relativePath, conflictPolicy: 'require-new-preview' }
 }
 
 function getFallbackGeneratorModel(): string {
@@ -218,12 +303,20 @@ function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   const milestoneLines = project.config.milestones.map((m) => `${m.status.toUpperCase()}: ${m.title}${m.description ? ` - ${m.description}` : ''}`)
   const agentLines = project.agents.map((agent) => `${agent.agentId} | ${agent.agentName}${agent.isPrimary ? ' [primary]' : ''}`)
   const instructions = substituteVariables(project.config.instructions || '', project.config.variables)
+  const sourceRows = getDatabase().prepare(`SELECT id, label, local_path FROM project_sources
+    WHERE project_id = ? AND enabled = 1 ORDER BY is_primary DESC, created_at`).all(project.projectId) as Array<{
+      id: string; label: string; local_path: string
+    }>
 
   return [
     `Project: ${project.projectName}`,
     `Project ID: ${project.projectId}`,
     `Workflow mode: ${project.config.workflowMode}`,
     `Root directory: ${project.config.rootDirectory || '(not set)'}`,
+    'Project sources (use these stable IDs in managed project-files bindings):',
+    ...(sourceRows.length > 0
+      ? sourceRows.map((source) => `- ${source.id} | ${source.label} | ${source.local_path}`)
+      : ['- (no project sources are configured; ask the user to configure one before proposing collect/publish steps)']),
     `Project instructions: ${instructions || '(none)'}`,
     `Agents:`,
     ...(agentLines.length > 0 ? agentLines.map((line) => `- ${line}`) : ['- (no project agents assigned — assign steps a "model" field instead)']),
@@ -258,7 +351,8 @@ export function normalizeAutomatedWorkflowSpec(raw: Record<string, unknown>): Au
       const id = optionalString(value.id) ?? `step-${index + 1}`
       const title = optionalString(value.title) ?? `Step ${index + 1}`
       const summary = optionalString(value.summary) ?? ''
-      const prompt = optionalString(value.prompt) ?? ''
+      const kind = workflowStepKind(value.kind)
+      const prompt = optionalString(value.prompt) ?? (kind ? `${kind} managed workflow step` : '')
       const expectedOutput = optionalString(value.expectedOutput) ?? ''
       if (!prompt) return null
       const dependsOnStepIds = Array.isArray(value.dependsOnStepIds)
@@ -270,15 +364,68 @@ export function normalizeAutomatedWorkflowSpec(raw: Record<string, unknown>): Au
         summary,
         agentId: optionalString(value.agentId),
         agentName: optionalString(value.agentName),
-        model: optionalString(value.model),
+        ...(optionalString(value.model) ? { model: optionalString(value.model) } : {}),
         prompt,
         expectedOutput,
         dependsOnStepIds: dependsOnStepIds && dependsOnStepIds.length > 0 ? dependsOnStepIds : undefined,
+        ...(kind ? {
+          kind,
+          inputBindings: normalizeBindings(value.inputBindings),
+          deliverables: normalizeDeliverables(value.deliverables),
+          reviewSource: normalizeReviewSource(value.reviewSource),
+          publishDestination: normalizePublishDestination(value.publishDestination),
+          includeProjectInstructions: value.includeProjectInstructions === true,
+        } : {}),
       }
     })
     .filter((step): step is NonNullable<typeof step> => step !== null)
 
   if (steps.length === 0) throw new Error('Automated workflow requires at least one step')
+
+  const ids = new Set(steps.map((step) => step.id))
+  if (ids.size !== steps.length) throw new Error('Automated workflow step IDs must be unique')
+  const stepById = new Map(steps.map((step, index) => [step.id, { step, index }]))
+  for (const [stepIndex, step] of steps.entries()) {
+    for (const dependencyId of step.dependsOnStepIds ?? []) {
+      if (!ids.has(dependencyId)) throw new Error(`Workflow step "${step.id}" has an unknown dependency "${dependencyId}"`)
+      if (step.kind && (stepById.get(dependencyId)?.index ?? stepIndex) >= stepIndex) {
+        throw new Error(`Managed step "${step.id}" must depend only on earlier steps`)
+      }
+    }
+    if (!step.kind) continue
+    if (step.kind === 'collect' && !step.inputBindings?.some((binding) => binding.source.type === 'project-files')) {
+      throw new Error(`Collect step "${step.id}" requires a project-files input binding`)
+    }
+    if ((step.kind === 'collect' || step.kind === 'model') && step.deliverables?.length !== 1) {
+      throw new Error(`${step.kind} step "${step.id}" requires exactly one deliverable`)
+    }
+    if ((step.kind === 'review' || step.kind === 'publish') && !step.reviewSource) {
+      throw new Error(`${step.kind} step "${step.id}" requires a reviewSource`)
+    }
+    if (step.kind === 'publish' && !step.publishDestination) {
+      throw new Error(`Publish step "${step.id}" requires a publishDestination`)
+    }
+    const references = [
+      ...(step.inputBindings ?? []).flatMap((binding) => binding.source.type === 'step-output'
+        ? [{ stepId: binding.source.stepId, outputName: binding.source.outputName }] : []),
+      ...(step.reviewSource ? [step.reviewSource] : []),
+    ]
+    for (const reference of references) {
+      const producer = stepById.get(reference.stepId)
+      if (!producer || producer.index >= stepIndex) {
+        throw new Error(`Managed step "${step.id}" must reference an earlier producer step "${reference.stepId}"`)
+      }
+      const outputNames = producer.step.kind === 'review'
+        ? [producer.step.reviewSource?.outputName]
+        : (producer.step.deliverables ?? []).map((deliverable) => deliverable.name)
+      if (!outputNames.includes(reference.outputName)) {
+        throw new Error(`Managed step "${step.id}" references unknown output "${reference.outputName}" from "${reference.stepId}"`)
+      }
+      if (!(step.dependsOnStepIds ?? []).includes(reference.stepId)) {
+        throw new Error(`Managed step "${step.id}" must depend on referenced step "${reference.stepId}"`)
+      }
+    }
+  }
 
   return {
     title: optionalString(raw.title) ?? 'Automated workflow',
@@ -301,6 +448,37 @@ export function extractAutomatedWorkflowSpec(text: string): AutomatedWorkflowSpe
   } catch {
     return null
   }
+}
+
+async function repairAutomatedWorkflowSpec(
+  win: BrowserWindow,
+  providerMessages: ProviderMessage[],
+  candidate: string,
+  sessionId: string,
+  cwd: string,
+  modelOverride?: string,
+): Promise<AutomatedWorkflowSpec | null> {
+  const boundedCandidate = candidate.slice(-20_000)
+  const repairMessages: ProviderMessage[] = [
+    providerMessages[0] ?? { role: 'system', content: AUTOMATED_WORKFLOW_GENERATOR_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: `The proposed workflow below was not valid. Repair it once. Return only one complete
+<automated-workflow-spec> JSON block that follows the schema and constraints. Do not add commentary.
+
+Candidate:
+${boundedCandidate}`,
+    },
+  ]
+  const repaired = await runAutomatedWorkflowProviderChat(
+    win,
+    repairMessages,
+    `${sessionId}-repair`,
+    () => {},
+    cwd,
+    modelOverride,
+  )
+  return extractAutomatedWorkflowSpec(repaired)
 }
 
 export async function runAutomatedWorkflowProviderChat(
@@ -342,8 +520,8 @@ export async function runAutomatedWorkflowProviderChat(
   }
 
   const { provider, model } = getProviderForAgent(selectedModel)
-  const apiKey = getApiKey(provider)
-  if (!apiKey) {
+  const credential = getProviderCredential(provider)
+  if (!credential) {
     throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
   }
   const systemPrompt = typeof providerMessages[0]?.content === 'string'
@@ -353,7 +531,8 @@ export async function runAutomatedWorkflowProviderChat(
   return dispatchToProvider({
     providerName: provider,
     providerModel: model,
-    byokKey: apiKey,
+    credential,
+    byokKey: credential,
     chatMessages: providerMessages,
     toolDefs: [],
     toolMap: new Map(),
@@ -400,7 +579,10 @@ export async function runAutomatedWorkflowGeneratorChat(
       throw new Error(`Automated workflow generator returned no response from ${modelOverride ?? getAutomatedWorkflowGeneratorModel()}. Check the selected model/provider or choose a different model.`)
     }
 
-    const spec = extractAutomatedWorkflowSpec(accumulated)
+    let spec = extractAutomatedWorkflowSpec(accumulated)
+    if (!spec) {
+      spec = await repairAutomatedWorkflowSpec(win, providerMessages, accumulated, sessionId, cwd, modelOverride)
+    }
     if (!win.isDestroyed()) {
       if (spec) win.webContents.send('automated-workflow-generator:spec-ready', spec)
       win.webContents.send('automated-workflow-generator:done', { hasSpec: spec !== null })
@@ -451,7 +633,10 @@ export async function runAutomatedWorkflowGeneratorChatForAndroid(
       return
     }
 
-    const spec = extractAutomatedWorkflowSpec(accumulated)
+    let spec = extractAutomatedWorkflowSpec(accumulated)
+    if (!spec) {
+      spec = await repairAutomatedWorkflowSpec(fakeWin, providerMessages, accumulated, sessionId, cwd, modelOverride)
+    }
     const assistantText = accumulated.replace(/<automated-workflow-spec>[\s\S]*?<\/automated-workflow-spec>/g, '').trim()
     broadcastToMobile({ event: 'automated-workflow-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
     if (spec) {

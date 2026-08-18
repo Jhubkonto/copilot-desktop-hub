@@ -262,6 +262,73 @@ export async function advanceAutomatedWorkflowRun(runId: string): Promise<Automa
       break
     }
 
+    if (next.kind === 'collect') {
+      const startedAt = Date.now()
+      db.prepare(`UPDATE automated_workflow_run_steps SET status = 'running',
+        started_at = COALESCE(started_at, ?), error = NULL WHERE id = ?`).run(startedAt, next.dbId)
+      db.prepare(`UPDATE automated_workflow_runs SET status = 'running', current_step_id = ?, updated_at = ? WHERE id = ?`)
+        .run(next.dbId, startedAt, runId)
+      detail = getAutomatedWorkflowRun(runId)!
+      notifyRunChanged(detail)
+      try {
+        const { executeManagedCollectStep } = await import('./automated-workflow-managed')
+        executeManagedCollectStep(detail, detail.steps.find((step) => step.dbId === next.dbId)!)
+        db.prepare(`UPDATE automated_workflow_runs SET status = 'pending', current_step_id = NULL, error = NULL, updated_at = ? WHERE id = ?`)
+          .run(Date.now(), runId)
+        detail = getAutomatedWorkflowRun(runId)!
+        notifyRunChanged(detail)
+        continue
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const failedAt = Date.now()
+        db.prepare(`UPDATE automated_workflow_run_steps SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
+          .run(message, failedAt, next.dbId)
+        db.prepare(`UPDATE automated_workflow_runs SET status = 'failed', error = ?, current_step_id = NULL, updated_at = ? WHERE id = ?`)
+          .run(message, failedAt, runId)
+        detail = getAutomatedWorkflowRun(runId)!
+        notifyRunChanged(detail)
+        break
+      }
+    }
+
+    if (next.kind === 'review') {
+      try {
+        const { prepareManagedReviewStep } = await import('./automated-workflow-managed')
+        prepareManagedReviewStep(detail, next)
+        detail = getAutomatedWorkflowRun(runId)!
+        notifyRunChanged(detail)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const failedAt = Date.now()
+        db.prepare(`UPDATE automated_workflow_run_steps SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
+          .run(message, failedAt, next.dbId)
+        db.prepare(`UPDATE automated_workflow_runs SET status = 'failed', error = ?, current_step_id = NULL, updated_at = ? WHERE id = ?`)
+          .run(message, failedAt, runId)
+        detail = getAutomatedWorkflowRun(runId)!
+        notifyRunChanged(detail)
+      }
+      break
+    }
+
+    if (next.kind === 'publish') {
+      try {
+        const { prepareManagedPublishStep } = await import('./automated-workflow-managed')
+        prepareManagedPublishStep(detail, next)
+        detail = getAutomatedWorkflowRun(runId)!
+        notifyRunChanged(detail)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const failedAt = Date.now()
+        db.prepare(`UPDATE automated_workflow_run_steps SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
+          .run(message, failedAt, next.dbId)
+        db.prepare(`UPDATE automated_workflow_runs SET status = 'failed', error = ?, current_step_id = NULL, updated_at = ? WHERE id = ?`)
+          .run(message, failedAt, runId)
+        detail = getAutomatedWorkflowRun(runId)!
+        notifyRunChanged(detail)
+      }
+      break
+    }
+
     // Agent-or-model resolution: a step is fulfilled by EITHER a specific agent (that agent's
     // own attached skills apply, exactly as before) OR a bare model (no skills at all, full
     // stop — skill access is strictly agent-gated, never freely available to a bare model).
@@ -274,7 +341,23 @@ export async function advanceAutomatedWorkflowRun(runId: string): Promise<Automa
     const stepModel = resolvedAgentId ? undefined : (next.model ?? detail.model ?? getAutomatedWorkflowGeneratorModel())
 
     const conversation = createConversationRecord(agentId, detail.projectId, `${detail.title} — ${next.title}`)
-    const prompt = weaveStepPrompt(next, buildCompletedMap(detail))
+    let prompt: string
+    try {
+      if (next.kind === 'model') {
+        const { buildManagedModelPrompt } = await import('./automated-workflow-managed')
+        prompt = buildManagedModelPrompt(detail, next)
+      } else prompt = weaveStepPrompt(next, buildCompletedMap(detail))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const failedAt = Date.now()
+      db.prepare(`UPDATE automated_workflow_run_steps SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`)
+        .run(message, failedAt, next.dbId)
+      db.prepare(`UPDATE automated_workflow_runs SET status = 'failed', error = ?, current_step_id = NULL, updated_at = ? WHERE id = ?`)
+        .run(message, failedAt, runId)
+      detail = getAutomatedWorkflowRun(runId)!
+      notifyRunChanged(detail)
+      break
+    }
     insertMessage(conversation.id, 'user', prompt)
 
     const startedAt = Date.now()
@@ -334,6 +417,15 @@ export async function advanceAutomatedWorkflowRun(runId: string): Promise<Automa
     const cleanOutput = output.trim()
     insertMessage(conversation.id, 'assistant', cleanOutput)
     const doneAt = Date.now()
+    if (next.kind === 'model') {
+      const { commitManagedModelOutput } = await import('./automated-workflow-managed')
+      commitManagedModelOutput(getAutomatedWorkflowRun(runId)!, getAutomatedWorkflowRun(runId)!.steps.find((step) => step.dbId === next.dbId)!, cleanOutput)
+      db.prepare(`UPDATE automated_workflow_runs SET status = 'pending', current_step_id = NULL, updated_at = ? WHERE id = ?`)
+        .run(doneAt, runId)
+      detail = getAutomatedWorkflowRun(runId)!
+      notifyRunChanged(detail)
+      continue
+    }
     db.prepare('UPDATE automated_workflow_run_steps SET status = \'awaiting_confirmation\', output = ?, completed_at = ? WHERE id = ?')
       .run(cleanOutput, doneAt, next.dbId)
     db.prepare('UPDATE automated_workflow_runs SET status = \'awaiting_confirmation\', updated_at = ? WHERE id = ?')
@@ -381,6 +473,11 @@ export async function retryAutomatedWorkflowStep(runId: string, stepDbId: string
   if (!detail) return null
   const step = detail.steps.find((s) => s.dbId === stepDbId)
   if (!step || step.status !== 'failed') return detail
+  if (step.kind) {
+    const { resetManagedWorkflowFromStep } = await import('./automated-workflow-managed')
+    resetManagedWorkflowFromStep(runId, stepDbId)
+    return advanceAutomatedWorkflowRun(runId)
+  }
 
   const resetIds = getDownstreamWorkflowStepIds(detail.steps, step.id)
   const now = Date.now()
@@ -407,6 +504,7 @@ export async function skipAutomatedWorkflowStep(runId: string, stepDbId: string)
   if (!detail) return null
   const step = detail.steps.find((s) => s.dbId === stepDbId)
   if (!step || step.status !== 'failed') return detail
+  if (step.kind && step.kind !== 'model') throw new Error(`${step.kind} steps are required and cannot be skipped`)
 
   db.prepare('UPDATE automated_workflow_run_steps SET status = \'skipped\', error = NULL, completed_at = ? WHERE id = ?')
     .run(Date.now(), stepDbId)

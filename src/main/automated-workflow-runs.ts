@@ -9,9 +9,19 @@ import type {
   AutomatedWorkflowRunSummary,
   AutomatedWorkflowSpec,
   AutomatedWorkflowStep,
+  AutomatedWorkflowStepKind,
   AutomatedWorkflowStepStatus,
   AutomatedWorkflowTemplateDetail,
   AutomatedWorkflowTemplateSummary,
+  WorkflowArtifactBinding,
+  WorkflowArtifactBindingRecord,
+  WorkflowDeliverableDefinition,
+  WorkflowManagedStepState,
+  WorkflowPublishAction,
+  WorkflowPublishDestination,
+  WorkflowPublishPreview,
+  WorkflowReviewRecord,
+  WorkflowReviewSource,
 } from '../shared/types'
 
 interface RunRow {
@@ -65,6 +75,12 @@ interface StepRow {
   conversation_id: string | null
   started_at: number | null
   completed_at: number | null
+  kind: AutomatedWorkflowStepKind | null
+  input_bindings_json: string
+  deliverables_json: string
+  review_source_json: string | null
+  publish_destination_json: string | null
+  include_project_instructions: number
 }
 
 function parseJsonArray(json: string): string[] {
@@ -73,6 +89,98 @@ function parseJsonArray(json: string): string[] {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
   } catch {
     return []
+  }
+}
+
+function parseJsonValue<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback
+  try { return JSON.parse(json) as T } catch { return fallback }
+}
+
+function mapBindingRow(row: Record<string, unknown>): WorkflowArtifactBindingRecord {
+  return {
+    id: String(row.id), runId: String(row.run_id), stepDbId: String(row.step_id),
+    stepAttempt: Number(row.step_attempt), bindingName: String(row.binding_name),
+    direction: String(row.direction) as WorkflowArtifactBindingRecord['direction'],
+    artifactId: String(row.artifact_id), artifactVersionId: String(row.artifact_version_id),
+    sourceStepDbId: row.source_step_id == null ? null : String(row.source_step_id),
+    staleAt: row.stale_at == null ? null : Number(row.stale_at), createdAt: Number(row.created_at),
+  }
+}
+
+function mapReviewRow(row: Record<string, unknown>): WorkflowReviewRecord {
+  return {
+    id: String(row.id), runId: String(row.run_id), stepDbId: String(row.step_id),
+    artifactVersionId: String(row.artifact_version_id),
+    decision: String(row.decision) as WorkflowReviewRecord['decision'],
+    reviewedByClient: String(row.reviewed_by_client) as WorkflowReviewRecord['reviewedByClient'],
+    reviewedAt: Number(row.reviewed_at),
+    supersededAt: row.superseded_at == null ? null : Number(row.superseded_at),
+  }
+}
+
+function mapPreviewRow(row: Record<string, unknown>): WorkflowPublishPreview {
+  return {
+    id: String(row.id), runId: String(row.run_id), stepDbId: String(row.step_id),
+    artifactVersionId: String(row.artifact_version_id), projectSourceId: String(row.project_source_id),
+    relativePath: String(row.relative_path),
+    destinationChecksum: row.destination_checksum == null ? null : String(row.destination_checksum),
+    diffText: String(row.diff_text), createdAt: Number(row.created_at),
+    expiresAt: row.expires_at == null ? null : Number(row.expires_at),
+    invalidatedAt: row.invalidated_at == null ? null : Number(row.invalidated_at),
+  }
+}
+
+function mapActionRow(row: Record<string, unknown>): WorkflowPublishAction {
+  return {
+    id: String(row.id), previewId: String(row.preview_id), idempotencyKey: String(row.idempotency_key),
+    status: String(row.status) as WorkflowPublishAction['status'],
+    approvedByClient: String(row.approved_by_client) as WorkflowPublishAction['approvedByClient'],
+    approvedAt: Number(row.approved_at), startedAt: row.started_at == null ? null : Number(row.started_at),
+    completedAt: row.completed_at == null ? null : Number(row.completed_at),
+    resultChecksum: row.result_checksum == null ? null : String(row.result_checksum),
+    error: row.error == null ? null : String(row.error),
+  }
+}
+
+function loadManagedStepState(step: AutomatedWorkflowRunStep): WorkflowManagedStepState | undefined {
+  if (!step.kind) return undefined
+  const db = getDatabase()
+  const bindings = (db.prepare(`SELECT * FROM automated_workflow_step_artifacts
+    WHERE run_id = ? AND step_id = ? ORDER BY created_at, id`).all(step.runId, step.dbId) as Record<string, unknown>[])
+    .map(mapBindingRow)
+  const currentBinding = [...bindings].reverse().find((binding) =>
+    binding.stepAttempt === step.attempt && binding.staleAt === null &&
+    (binding.direction === 'output' || step.kind === 'review' || step.kind === 'publish'))
+  const versionRow = currentBinding
+    ? db.prepare(`SELECT av.id, av.artifact_id, av.version_number, av.title, av.created_at,
+        af.relative_path, af.media_type, af.size_bytes, af.checksum
+      FROM artifact_versions av JOIN artifact_files af ON af.version_id = av.id
+      WHERE av.id = ? ORDER BY CASE af.role WHEN 'primary' THEN 0 ELSE 1 END, af.relative_path LIMIT 1`)
+      .get(currentBinding.artifactVersionId) as Record<string, unknown> | undefined
+    : undefined
+  const latestReviewRow = db.prepare(`SELECT * FROM automated_workflow_reviews
+    WHERE run_id = ? AND step_id = ? ORDER BY reviewed_at DESC LIMIT 1`).get(step.runId, step.dbId) as Record<string, unknown> | undefined
+  const previewRow = db.prepare(`SELECT * FROM automated_workflow_publish_previews
+    WHERE run_id = ? AND step_id = ? ORDER BY created_at DESC LIMIT 1`).get(step.runId, step.dbId) as Record<string, unknown> | undefined
+  const actionRow = previewRow
+    ? db.prepare('SELECT * FROM automated_workflow_publish_actions WHERE preview_id = ? ORDER BY approved_at DESC LIMIT 1')
+      .get(String(previewRow.id)) as Record<string, unknown> | undefined
+    : undefined
+  return {
+    isManaged: true,
+    isStale: bindings.some((binding) => binding.stepAttempt === step.attempt && binding.staleAt !== null),
+    currentVersion: versionRow ? {
+      id: String(versionRow.id), artifactId: String(versionRow.artifact_id),
+      versionNumber: Number(versionRow.version_number), title: String(versionRow.title),
+      primaryPath: String(versionRow.relative_path), mediaType: String(versionRow.media_type),
+      sizeBytes: Number(versionRow.size_bytes ?? 0), checksum: versionRow.checksum == null ? null : String(versionRow.checksum),
+      createdAt: Number(versionRow.created_at),
+    } : null,
+    bindings,
+    latestReview: latestReviewRow ? mapReviewRow(latestReviewRow) : null,
+    publishPreview: previewRow ? mapPreviewRow(previewRow) : null,
+    publishAction: actionRow ? mapActionRow(actionRow) : null,
   }
 }
 
@@ -98,6 +206,12 @@ function rowToRunStep(row: StepRow): AutomatedWorkflowRunStep {
     conversationId: row.conversation_id,
     startedAt: row.started_at,
     completedAt: row.completed_at,
+    kind: row.kind ?? undefined,
+    inputBindings: parseJsonValue<WorkflowArtifactBinding[]>(row.input_bindings_json, []),
+    deliverables: parseJsonValue<WorkflowDeliverableDefinition[]>(row.deliverables_json, []),
+    reviewSource: parseJsonValue<WorkflowReviewSource | undefined>(row.review_source_json, undefined),
+    publishDestination: parseJsonValue<WorkflowPublishDestination | undefined>(row.publish_destination_json, undefined),
+    includeProjectInstructions: row.include_project_instructions === 1,
   }
 }
 
@@ -157,7 +271,7 @@ function loadRunSteps(runId: string): AutomatedWorkflowRunStep[] {
   const rows = getDatabase()
     .prepare('SELECT * FROM automated_workflow_run_steps WHERE run_id = ? ORDER BY step_index ASC')
     .all(runId) as StepRow[]
-  return rows.map(rowToRunStep)
+  return rows.map(rowToRunStep).map((step) => ({ ...step, managed: loadManagedStepState(step) }))
 }
 
 function insertSteps(runId: string, steps: AutomatedWorkflowSpec['steps']): void {
@@ -165,8 +279,10 @@ function insertSteps(runId: string, steps: AutomatedWorkflowSpec['steps']): void
   const insert = db.prepare(`
     INSERT INTO automated_workflow_run_steps (
       id, run_id, step_index, step_key, title, summary, agent_id, agent_name, model,
-      prompt, expected_output, depends_on_step_ids_json, status, attempt, output, started_at, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, '', NULL, NULL)
+      prompt, expected_output, depends_on_step_ids_json, status, attempt, output, started_at, completed_at,
+      kind, input_bindings_json, deliverables_json, review_source_json, publish_destination_json,
+      include_project_instructions
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, '', NULL, NULL, ?, ?, ?, ?, ?, ?)
   `)
   steps.forEach((step, index) => {
     insert.run(
@@ -182,6 +298,12 @@ function insertSteps(runId: string, steps: AutomatedWorkflowSpec['steps']): void
       step.prompt,
       step.expectedOutput,
       JSON.stringify(step.dependsOnStepIds ?? []),
+      step.kind ?? null,
+      JSON.stringify(step.inputBindings ?? []),
+      JSON.stringify(step.deliverables ?? []),
+      step.reviewSource ? JSON.stringify(step.reviewSource) : null,
+      step.publishDestination ? JSON.stringify(step.publishDestination) : null,
+      step.includeProjectInstructions ? 1 : 0,
     )
   })
 }
