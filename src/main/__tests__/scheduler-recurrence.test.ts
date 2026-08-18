@@ -86,6 +86,21 @@ describe('calcNextRunAt — daily across DST (America/New_York spring-forward)',
     // Next: 2024-03-11 09:00 ET = 13:00 UTC (now in EDT, UTC-4)
     expect(result).toBe(Date.UTC(2024, 2, 11, 13, 0))
   })
+
+  it('resolves a wall-clock time inside the spring-forward gap (02:30 does not exist)', () => {
+    // 02:30 ET on 2024-03-10 is skipped (clocks jump 02:00 → 03:00). The refined offset math must
+    // still return a real, monotonic instant rather than NaN or a time before `from`.
+    const task = makeTask({ localTime: '02:30', timezone: tz })
+    const from = Date.UTC(2024, 2, 10, 5, 0) // 2024-03-10 00:00 ET
+    const result = calcNextRunAt(task, from)
+    expect(result).not.toBeNull()
+    expect(Number.isNaN(result!)).toBe(false)
+    expect(result!).toBeGreaterThan(from)
+    // The non-existent wall time resolves deterministically to the pre-transition (EST, UTC-5)
+    // interpretation: 02:30 "EST" = 06:30 UTC. The key guarantee is a real, monotonic instant
+    // (never NaN / never before `from`), not which side of the gap it lands on.
+    expect(result).toBe(Date.UTC(2024, 2, 10, 6, 30))
+  })
 })
 
 // ============================================================

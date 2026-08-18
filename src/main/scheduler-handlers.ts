@@ -94,6 +94,15 @@ export function registerSchedulerHandlers(): void {
     }
   })
 
+  safeHandle('scheduler:resume-run', async (_event, runId: string) => {
+    if (!runId || typeof runId !== 'string') return { error: 'Invalid runId' }
+    try {
+      return await schedulerEngine.resumeRun(runId)
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   safeHandle('scheduler:list-runs', (_event, taskId: string, limit?: number) => {
     if (!taskId || typeof taskId !== 'string') return { error: 'Invalid taskId' }
     return dbListRuns(taskId, limit ?? 50)

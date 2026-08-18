@@ -203,4 +203,39 @@ describe('scheduler IPC handlers', () => {
     const result = await invoke<{ error: string }>('scheduler:run-now', 'no-such-id')
     expect(result.error).toBeTruthy()
   })
+
+  it('persists and updates the pre-approved tool policy', async () => {
+    const task = await invokeCreate({
+      name: 'Tooled task',
+      prompt: 'Use the tools',
+      scheduleType: 'daily',
+      localTime: '09:00',
+      timezone: 'UTC',
+      toolPolicy: { preApproved: ['github__list_issues'] },
+    })
+    expect(task.toolPolicy.preApproved).toEqual(['github__list_issues'])
+
+    const updated = await invoke<{ task: ScheduledTask }>('scheduler:update', task.id, {
+      toolPolicy: { preApproved: ['github__list_issues', 'github__comment'] },
+    })
+    expect(updated.task.toolPolicy.preApproved).toEqual(['github__list_issues', 'github__comment'])
+  })
+
+  it('scheduler:resume-run returns error for invalid id', async () => {
+    const result = await invoke<{ error: string }>('scheduler:resume-run', 'no-such-run')
+    expect(result.error).toBeTruthy()
+  })
+
+  it('scheduler:resume-run rejects a run that is not awaiting approval', async () => {
+    const task = await invokeCreate({
+      name: 'Resume test',
+      prompt: 'Do this',
+      scheduleType: 'daily',
+      localTime: '09:00',
+      timezone: 'UTC',
+    })
+    const run = await invoke<ScheduledRun>('scheduler:run-now', task.id)
+    const result = await invoke<{ error: string }>('scheduler:resume-run', run.id)
+    expect(result.error).toMatch(/awaiting approval/)
+  })
 })

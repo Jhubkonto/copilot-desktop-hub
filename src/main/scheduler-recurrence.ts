@@ -8,9 +8,49 @@ function parseLocalTime(localTime: string): { hours: number; minutes: number } {
   return { hours: parseInt(hStr ?? '0', 10), minutes: parseInt(mStr ?? '0', 10) }
 }
 
+const OFFSET_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>()
+
+function getOffsetFormatter(timezone: string): Intl.DateTimeFormat {
+  let fmt = OFFSET_FORMATTER_CACHE.get(timezone)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+    OFFSET_FORMATTER_CACHE.set(timezone, fmt)
+  }
+  return fmt
+}
+
 /**
- * Return a Date set to the given local time in the task's timezone on `baseDate`'s calendar day
+ * Return the timezone offset in milliseconds at the given UTC instant, defined as
+ * `wallClock - utc` (positive east of UTC). Derived by reading the wall-clock fields the given
+ * timezone shows at that instant and treating them as if they were UTC.
+ */
+function tzOffsetMsAt(utcMs: number, timezone: string): number {
+  const parts = getOffsetFormatter(timezone).formatToParts(new Date(utcMs))
+  const get = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? '0', 10)
+  const hour = get('hour') === 24 ? 0 : get('hour')
+  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), hour, get('minute'), get('second'))
+  return asUtc - utcMs
+}
+
+/**
+ * Return a Date set to the given local time in the task's timezone on the given calendar day
  * (in that timezone). Returns a UTC Date object.
+ *
+ * Finds the UTC instant whose wall-clock representation in `timezone` equals the requested fields.
+ * A single offset correction is wrong across a DST transition (the offset at the naive guess can
+ * differ from the offset at the true instant), so we refine twice: the second pass re-reads the
+ * offset at the corrected instant, which converges for every real-world zone. On a spring-forward
+ * gap (a wall-clock time that doesn't exist) this lands on the instant just after the jump, and on
+ * a fall-back overlap it resolves to the first occurrence — both acceptable for a fixed daily fire.
  */
 function localDateAtTime(
   year: number,
@@ -20,43 +60,13 @@ function localDateAtTime(
   minutes: number,
   timezone: string,
 ): Date {
-  // Build an ISO-like string and parse it in the given TZ using Intl.
-  // We use a small trick: format a reference date in the target TZ to find the UTC offset,
-  // then construct the correct UTC instant.
-  const candidate = new Date(
-    Date.UTC(year, month - 1, day, hours, minutes, 0, 0),
-  )
-  // Adjust for timezone offset by reformatting and comparing
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-  // Find the UTC time that corresponds to year/month/day hours:minutes in `timezone`
-  // Binary search would be robust but for ±14h offsets a single-shot correction works.
-  const parts = formatter.formatToParts(candidate)
-  const get = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? '0', 10)
-  const tzYear = get('year')
-  const tzMonth = get('month')
-  const tzDay = get('day')
-  const tzHour = get('hour') === 24 ? 0 : get('hour')
-  const tzMinute = get('minute')
-  const tzSecond = get('second')
-
-  const diff =
-    (tzYear - year) * 365 * 24 * 60 * 60 * 1000 +
-    (tzMonth - month) * 30 * 24 * 60 * 60 * 1000 +
-    (tzDay - day) * 24 * 60 * 60 * 1000 +
-    (tzHour - hours) * 60 * 60 * 1000 +
-    (tzMinute - minutes) * 60 * 1000 +
-    tzSecond * 1000
-
-  return new Date(candidate.getTime() - diff)
+  // Wall-clock target expressed as if it were UTC.
+  const wallAsUtc = Date.UTC(year, month - 1, day, hours, minutes, 0, 0)
+  // First guess: subtract the offset observed at the naive instant.
+  let utc = wallAsUtc - tzOffsetMsAt(wallAsUtc, timezone)
+  // Refine using the offset at the corrected instant (handles DST boundaries).
+  utc = wallAsUtc - tzOffsetMsAt(utc, timezone)
+  return new Date(utc)
 }
 
 /**

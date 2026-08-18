@@ -26,6 +26,33 @@ describe('scheduler generator', () => {
     })
   })
 
+  it('captures model and preApproved tool policy from the spec', () => {
+    const spec = normalizeSpec({
+      name: 'Nightly triage',
+      prompt: 'Triage open issues',
+      scheduleType: 'daily',
+      localTime: '02:00',
+      timezone: 'Europe/Berlin',
+      model: 'anthropic:claude-sonnet-4-6',
+      preApproved: ['github__list_issues', 'github__comment', 42, ''],
+    })
+
+    expect(spec.model).toBe('anthropic:claude-sonnet-4-6')
+    expect(spec.preApproved).toEqual(['github__list_issues', 'github__comment'])
+  })
+
+  it('omits model and preApproved when not provided', () => {
+    const spec = normalizeSpec({
+      name: 'Simple task',
+      prompt: 'Do the thing',
+      scheduleType: 'daily',
+      localTime: '09:00',
+      timezone: 'UTC',
+    })
+    expect(spec.model).toBeUndefined()
+    expect(spec.preApproved).toBeUndefined()
+  })
+
   it('normalizes invalid optional fields to safe scheduler defaults', () => {
     const spec = normalizeSpec({
       name: 'Weekly review',
@@ -40,7 +67,7 @@ describe('scheduler generator', () => {
     expect(spec.scheduleType).toBe('weekly')
     expect(spec.localTime).toBe('09:00')
     expect(spec.weekday).toBe(1)
-    expect(spec.notificationPref).toBe('always')
+    expect(spec.notificationPref).toBe('failures_only')
     expect(spec.timezone).toBeTruthy()
   })
 

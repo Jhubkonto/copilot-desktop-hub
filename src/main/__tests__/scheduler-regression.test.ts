@@ -101,7 +101,7 @@ describe('tool-loop regression — scheduler toolPolicy does not affect normal r
     callerMock.mockReset()
   })
 
-  it('executes inline handlers regardless of toolPolicy', async () => {
+  it('executes inline handlers when no scheduled tool policy is present', async () => {
     const inlineResult = { success: true, result: 'wiki content' }
     const inlineHandler = vi.fn().mockResolvedValue(inlineResult)
 
@@ -132,6 +132,78 @@ describe('tool-loop regression — scheduler toolPolicy does not affect normal r
     )
 
     expect(inlineHandler).toHaveBeenCalled()
+    callerMock.mockReset()
+  })
+
+  it('blocks a non-pre-approved inline tool during a scheduled run', async () => {
+    const inlineHandler = vi.fn().mockResolvedValue({ success: true, result: 'should not run' })
+    const onToolFinished = vi.fn()
+    callerMock
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'tc-inline', name: 'write_project_file', arguments: { path: 'x' } }],
+      })
+      .mockResolvedValueOnce({ content: 'blocked', toolCalls: [] })
+
+    await runProviderMcpToolLoop(
+      callerMock,
+      [{ role: 'user', content: 'write' }],
+      [{ type: 'function', function: { name: 'write_project_file', description: '', parameters: {} } }],
+      new Map(),
+      'agent-1',
+      'conv-1',
+      undefined,
+      sendChunkMock,
+      undefined,
+      false,
+      new Map([['write_project_file', inlineHandler]]),
+      undefined,
+      undefined,
+      undefined,
+      { preApproved: [], alwaysAsk: [], neverAllow: [] },
+      onToolFinished,
+    )
+
+    expect(inlineHandler).not.toHaveBeenCalled()
+    expect(onToolFinished).toHaveBeenCalledWith(expect.objectContaining({
+      toolName: 'write_project_file',
+      success: false,
+      result: expect.stringMatching(/pre-approved/),
+    }))
+    callerMock.mockReset()
+  })
+
+  it('runs a pre-approved inline tool with no desktop web contents', async () => {
+    const inlineHandler = vi.fn().mockResolvedValue({ success: true, result: 'written' })
+    const onToolFinished = vi.fn()
+    callerMock
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'tc-headless', name: 'write_project_file', arguments: { path: 'x' } }],
+      })
+      .mockResolvedValueOnce({ content: 'done', toolCalls: [] })
+
+    await runProviderMcpToolLoop(
+      callerMock,
+      [{ role: 'user', content: 'write' }],
+      [{ type: 'function', function: { name: 'write_project_file', description: '', parameters: {} } }],
+      new Map(),
+      'agent-1',
+      'conv-1',
+      undefined,
+      sendChunkMock,
+      undefined,
+      false,
+      new Map([['write_project_file', inlineHandler]]),
+      undefined,
+      undefined,
+      undefined,
+      { preApproved: ['write_project_file'], alwaysAsk: [], neverAllow: [] },
+      onToolFinished,
+    )
+
+    expect(inlineHandler).toHaveBeenCalledWith({ path: 'x' })
+    expect(onToolFinished).toHaveBeenCalledWith(expect.objectContaining({ success: true, result: 'written' }))
     callerMock.mockReset()
   })
 

@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const state = vi.hoisted(() => ({
   db: null as Database.Database | null,
   dispatchResult: { assistantMsgId: 'msg-1' } as { assistantMsgId: string } | null,
+  hasWindow: true,
 }))
 
 const fakeWebContents = { isDestroyed: () => false, send: vi.fn() }
@@ -13,7 +14,7 @@ const fakeWindow = { webContents: fakeWebContents, isDestroyed: () => false }
 
 vi.mock('electron', () => ({
   app: { isPackaged: false },
-  BrowserWindow: { getAllWindows: vi.fn(() => [fakeWindow]) },
+  BrowserWindow: { getAllWindows: vi.fn(() => state.hasWindow ? [fakeWindow] : []) },
   Notification: class { show() {} },
   powerMonitor: { on: vi.fn() },
 }))
@@ -40,6 +41,7 @@ const workflowMocks = vi.hoisted(() => ({
   findByTagMock: vi.fn(),
   startRunMock: vi.fn(),
   retryStepMock: vi.fn(),
+  confirmStepMock: vi.fn(),
   setModeMock: vi.fn(),
 }))
 
@@ -51,6 +53,7 @@ vi.mock('../automated-workflow-runs', () => ({
 vi.mock('../automated-workflow-executor', () => ({
   startAutomatedWorkflowRun: workflowMocks.startRunMock,
   retryAutomatedWorkflowStep: workflowMocks.retryStepMock,
+  confirmAutomatedWorkflowStep: workflowMocks.confirmStepMock,
   setAutomatedWorkflowConfirmationMode: workflowMocks.setModeMock,
 }))
 
@@ -66,8 +69,11 @@ import {
   dbSetTaskEnabled,
   dbListRuns,
   dbSetScheduledTaskWorkflows,
+  getSchedulerTraySummary,
 } from '../scheduler-engine'
 import type { ScheduledTaskCreateInput, AutomatedWorkflowRunDetail } from '../../shared/types'
+import { dispatchChatSend } from '../chat-handlers'
+import { sendSchedulerRunNotification } from '../fcm-sender'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -111,10 +117,14 @@ function makeRunDetail(overrides: Partial<AutomatedWorkflowRunDetail> = {}): Aut
 }
 
 beforeEach(() => {
+  state.hasWindow = true
+  vi.mocked(dispatchChatSend).mockClear()
+  vi.mocked(sendSchedulerRunNotification).mockClear()
   workflowMocks.saveSpecMock.mockReset()
   workflowMocks.findByTagMock.mockReset()
   workflowMocks.startRunMock.mockReset()
   workflowMocks.retryStepMock.mockReset()
+  workflowMocks.confirmStepMock.mockReset()
   workflowMocks.setModeMock.mockReset()
 })
 
@@ -171,6 +181,15 @@ describe('SchedulerEngine — DB helpers', () => {
     const enabled = dbSetTaskEnabled(task.id, true)
     expect(enabled!.enabled).toBe(true)
     expect(enabled!.nextRunAt).not.toBeNull()
+  })
+
+  it('summarizes armed tasks and the earliest next run for the tray', () => {
+    const first = dbCreateTask(makeInput({ name: 'First' }))
+    const second = dbCreateTask(makeInput({ name: 'Second' }))
+    state.db!.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(1000, first.id)
+    state.db!.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(2000, second.id)
+
+    expect(getSchedulerTraySummary()).toEqual({ armedCount: 2, nextRunAt: 1000 })
   })
 })
 
@@ -278,6 +297,21 @@ describe('SchedulerEngine — triggerRun', () => {
     await engine.triggerRun(task.id, 'manual')
     expect(dbGetTask(task.id)!.conversationId).toBe(convId)
   })
+
+  it('executes a scheduled chat without a browser window', async () => {
+    state.hasWindow = false
+    const task = dbCreateTask(makeInput())
+
+    const run = await engine.triggerRun(task.id, 'manual')
+
+    expect(run.status).toBe('success')
+    expect(dispatchChatSend).toHaveBeenCalledWith(
+      undefined,
+      expect.any(String),
+      task.prompt,
+      expect.objectContaining({ toolPolicy: task.toolPolicy }),
+    )
+  })
 })
 
 describe('SchedulerEngine — executeWorkflowRun (target_type: automated_workflow)', () => {
@@ -343,6 +377,58 @@ describe('SchedulerEngine — executeWorkflowRun (target_type: automated_workflo
     // Second spec is never started — the batch stops at the first non-done run.
     expect(workflowMocks.saveSpecMock).toHaveBeenCalledTimes(1)
     expect(workflowMocks.startRunMock).toHaveBeenCalledTimes(1)
+    expect(sendSchedulerRunNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: 'run-approval-required', status: 'approval_required' }),
+    )
+  })
+
+  it('coalesces repeated scheduled occurrences while a workflow is awaiting approval', async () => {
+    const task = makeWorkflowTask(1)
+    const activeRunId = 'scheduled-active'
+    state.db!.prepare(`INSERT INTO scheduled_runs
+      (id, task_id, scheduled_at, status, trigger_source, workflow_run_ids_json, created_at)
+      VALUES (?, ?, ?, 'approval_required', 'scheduled', ?, ?)`)
+      .run(activeRunId, task.id, Date.now() - 2_000, JSON.stringify(['workflow-active']), Date.now() - 2_000)
+
+    const first = await engine.triggerRun(task.id, 'scheduled', Date.now() - 1_000)
+    const second = await engine.triggerRun(task.id, 'scheduled', Date.now())
+
+    expect(first.status).toBe('skipped')
+    expect(second.status).toBe('skipped')
+    expect(first.error).toMatch(/coalesced/i)
+    expect(dbListRuns(task.id)).toHaveLength(3)
+    const stateRow = state.db!.prepare(`SELECT replacement_due_at, coalesced_count
+      FROM automated_workflow_schedule_state WHERE template_id = ?`)
+      .get(`schedule:${task.id}`) as { replacement_due_at: number | null; coalesced_count: number }
+    expect(stateRow.replacement_due_at).not.toBeNull()
+    expect(stateRow.coalesced_count).toBe(2)
+    const attentionCount = state.db!.prepare(`SELECT COUNT(*) AS count FROM automated_workflow_attention
+      WHERE run_id = ? AND kind = 'coalesced'`).get('workflow-active') as { count: number }
+    expect(attentionCount.count).toBe(2)
+  })
+
+  it('never auto-confirms managed review gates when resuming a scheduled run', async () => {
+    const task = makeWorkflowTask(1)
+    const scheduledRunId = 'scheduled-review'
+    state.db!.prepare(`INSERT INTO scheduled_runs
+      (id, task_id, scheduled_at, status, trigger_source, workflow_run_ids_json, created_at)
+      VALUES (?, ?, ?, 'approval_required', 'scheduled', ?, ?)`)
+      .run(scheduledRunId, task.id, Date.now() - 1_000, JSON.stringify(['workflow-review']), Date.now() - 1_000)
+    workflowMocks.findByTagMock.mockReturnValue(makeRunDetail({
+      id: 'workflow-review',
+      status: 'awaiting_confirmation',
+      steps: [{
+        id: 'review', dbId: 'review-db', runId: 'workflow-review', stepIndex: 0, title: 'Review', summary: '',
+        prompt: '', expectedOutput: '', dependsOnStepIds: [], status: 'awaiting_confirmation', attempt: 1,
+        output: '', error: null, conversationId: null, startedAt: null, completedAt: null, kind: 'review',
+      }],
+    }))
+
+    const resumed = await engine.resumeRun(scheduledRunId)
+
+    expect(resumed.status).toBe('approval_required')
+    expect(workflowMocks.confirmStepMock).not.toHaveBeenCalled()
   })
 
   it('retries a failed spec on the next in-process attempt without re-running an already-completed one', async () => {

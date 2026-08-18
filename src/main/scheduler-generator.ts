@@ -6,7 +6,7 @@ import {
   PROVIDERS,
   getOpenRouterModels,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   isProviderConfigured,
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
@@ -41,13 +41,21 @@ Gather:
 - monthDay for monthly tasks, 1-31
 - optional agentId
 - optional projectId
-- notificationPref: always, failures_only, or off
+- optional model id to run on (leave null to use the app/agent default)
+- notificationPref: always, failures_only, or off (default: failures_only)
+- optional preApproved: an array of tool names the task may call unattended. IMPORTANT: a scheduled
+  run blocks any tool NOT in this list, so if the user wants the agent to actually use its tools you
+  must list them here. Leave [] for a prompt-only task that needs no tools.
 
 This schedule fires one of two ways — ask the user which they want, plainly, don't guess:
 - A standalone task (the default): also gather "prompt" — the plain chat message sent when the task fires.
 - An existing Automated Workflow: the user names or picks a workflow they've already saved (do not author a new
   multi-step plan in this conversation — that only happens in the Automated Workflow generator). Gather its run id
   as "sourceRunId" and set "targetType" to "automated_workflow". Leave "prompt" empty in this case.
+
+Note: with Run in background enabled, scheduled tasks continue while Nexy is in the desktop tray.
+The computer must remain awake and signed in; missed occurrences run as catch-up on next launch.
+Mention this boundary if the user seems to expect execution while the computer is asleep or off.
 
 When ready, emit a short summary followed immediately by JSON wrapped in <schedule-spec>...</schedule-spec> tags. The JSON must match:
 
@@ -61,7 +69,9 @@ When ready, emit a short summary followed immediately by JSON wrapped in <schedu
   "timezone": "Europe/Berlin",
   "agentId": null,
   "projectId": null,
-  "notificationPref": "always",
+  "model": null,
+  "notificationPref": "failures_only",
+  "preApproved": [],
   "targetType": "chat",
   "sourceRunId": null
 }`
@@ -138,7 +148,7 @@ export function normalizeSpec(raw: Record<string, unknown>): ScheduleGeneratorSp
     : '09:00'
   const notificationPref = VALID_NOTIFICATION_PREFS.has(String(raw.notificationPref))
     ? raw.notificationPref as ScheduleGeneratorSpec['notificationPref']
-    : 'always'
+    : 'failures_only'
   const targetType = raw.targetType === 'automated_workflow' ? 'automated_workflow' as const : 'chat' as const
 
   const spec: ScheduleGeneratorSpec = {
@@ -149,6 +159,13 @@ export function normalizeSpec(raw: Record<string, unknown>): ScheduleGeneratorSp
     timezone: optionalString(raw.timezone) ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
     notificationPref,
     targetType,
+  }
+
+  const model = optionalString(raw.model)
+  if (model) spec.model = model
+  if (Array.isArray(raw.preApproved)) {
+    const preApproved = raw.preApproved.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+    if (preApproved.length > 0) spec.preApproved = preApproved
   }
 
   const weekday = optionalBoundedInt(raw.weekday, 0, 6)
@@ -213,7 +230,7 @@ async function runScheduleGeneratorProviderChat(
   }
 
   const { provider, model } = getProviderForAgent(selectedModel)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
   const systemPrompt = typeof providerMessages[0]?.content === 'string'
     ? providerMessages[0].content
     : SCHEDULE_GENERATOR_SYSTEM_PROMPT
@@ -221,7 +238,8 @@ async function runScheduleGeneratorProviderChat(
   return dispatchToProvider({
     providerName: provider,
     providerModel: model,
-    byokKey: apiKey ?? '',
+    credential: credential ?? undefined,
+    byokKey: credential ?? undefined,
     chatMessages: providerMessages,
     toolDefs: [],
     toolMap: new Map(),
@@ -335,12 +353,14 @@ export async function createScheduleFromSpec(spec: ScheduleGeneratorSpec): Promi
     enabled: true,
     agentId: spec.agentId ?? null,
     projectId: spec.projectId ?? null,
+    model: spec.model ?? null,
     scheduleType: spec.scheduleType,
     localTime: spec.localTime,
     weekday: spec.weekday ?? null,
     monthDay: spec.monthDay ?? null,
     timezone: spec.timezone,
     notificationPref: spec.notificationPref,
+    toolPolicy: spec.preApproved && spec.preApproved.length > 0 ? { preApproved: spec.preApproved } : undefined,
     targetType: spec.targetType ?? 'chat',
     workflowSpecs,
   })

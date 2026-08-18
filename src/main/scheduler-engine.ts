@@ -14,6 +14,7 @@ import {
 import {
   startAutomatedWorkflowRun,
   retryAutomatedWorkflowStep,
+  confirmAutomatedWorkflowStep,
   setAutomatedWorkflowConfirmationMode,
 } from './automated-workflow-executor'
 import type {
@@ -23,6 +24,7 @@ import type {
   ScheduledTaskUpdateInput,
   ScheduledTaskWorkflowSpec,
   AutomatedWorkflowSpec,
+  AutomatedWorkflowRunDetail,
 } from '../shared/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -110,6 +112,33 @@ export function dbListTasks(onlyEnabled = false): ScheduledTask[] {
   return (db.prepare(sql).all() as Record<string, unknown>[]).map(rowToTask)
 }
 
+export interface SchedulerTraySummary {
+  armedCount: number
+  nextRunAt: number | null
+}
+
+export function getSchedulerTraySummary(): SchedulerTraySummary {
+  const row = getDatabase().prepare(`
+    SELECT COUNT(*) AS armed_count, MIN(next_run_at) AS next_run_at
+    FROM scheduled_tasks
+    WHERE enabled = 1 AND next_run_at IS NOT NULL
+  `).get() as { armed_count: number; next_run_at: number | null }
+  return {
+    armedCount: Number(row.armed_count),
+    nextRunAt: row.next_run_at ?? null,
+  }
+}
+
+let schedulerStatusChangeCallback: (() => void) | null = null
+
+export function setSchedulerStatusChangeCallback(callback: (() => void) | null): void {
+  schedulerStatusChangeCallback = callback
+}
+
+function notifySchedulerStatusChanged(): void {
+  schedulerStatusChangeCallback?.()
+}
+
 export function dbGetTask(id: string): ScheduledTask | null {
   const db = getDatabase()
   const row = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined
@@ -155,7 +184,9 @@ export function dbCreateTask(input: ScheduledTaskCreateInput): ScheduledTask {
   // Calculate first nextRunAt
   const next = calcNextRunAt(task, now)
   db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(next ?? null, id)
-  return dbGetTask(id)!
+  const created = dbGetTask(id)!
+  notifySchedulerStatusChanged()
+  return created
 }
 
 export function dbUpdateTask(id: string, input: ScheduledTaskUpdateInput): ScheduledTask | null {
@@ -198,12 +229,15 @@ export function dbUpdateTask(id: string, input: ScheduledTaskUpdateInput): Sched
   const updated = dbGetTask(id)!
   const next = calcNextRunAt(updated, now)
   db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(next ?? null, id)
-  return dbGetTask(id)!
+  const saved = dbGetTask(id)!
+  notifySchedulerStatusChanged()
+  return saved
 }
 
 export function dbDeleteTask(id: string): boolean {
   const db = getDatabase()
   const info = db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id)
+  if (info.changes > 0) notifySchedulerStatusChanged()
   return info.changes > 0
 }
 
@@ -220,7 +254,9 @@ export function dbSetTaskEnabled(id: string, enabled: boolean): ScheduledTask | 
   } else {
     db.prepare('UPDATE scheduled_tasks SET next_run_at = NULL WHERE id = ?').run(id)
   }
-  return dbGetTask(id)!
+  const updated = dbGetTask(id)!
+  notifySchedulerStatusChanged()
+  return updated
 }
 
 export function dbListRuns(taskId: string, limit = 50): ScheduledRun[] {
@@ -288,6 +324,7 @@ function pushTaskUpdated(task: ScheduledTask): void {
   if (win && !win.webContents.isDestroyed()) {
     win.webContents.send('scheduler:task-updated', task)
   }
+  notifySchedulerStatusChanged()
 }
 
 function pushRunUpdated(run: ScheduledRun): void {
@@ -409,9 +446,43 @@ export class SchedulerEngine {
     // Enforce one active run per task
     const db = getDatabase()
     const active = db.prepare(
-      "SELECT id FROM scheduled_runs WHERE task_id = ? AND status IN ('running', 'pending')"
-    ).get(taskId)
+      `SELECT * FROM scheduled_runs WHERE task_id = ? AND status IN (${task.targetType === 'automated_workflow'
+        ? "'running', 'pending', 'approval_required'"
+        : "'running', 'pending'"}) ORDER BY created_at DESC LIMIT 1`
+    ).get(taskId) as Record<string, unknown> | undefined
     if (active) {
+      if (source === 'scheduled' && task.targetType === 'automated_workflow') {
+        const stateKey = `schedule:${task.id}`
+        db.prepare(`INSERT INTO automated_workflow_schedule_state
+          (template_id, active_run_id, replacement_due_at, coalesced_count, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(template_id) DO UPDATE SET active_run_id = excluded.active_run_id,
+            replacement_due_at = COALESCE(automated_workflow_schedule_state.replacement_due_at, excluded.replacement_due_at),
+            coalesced_count = automated_workflow_schedule_state.coalesced_count + 1,
+            updated_at = excluded.updated_at`)
+          .run(stateKey, String(active.id), scheduledAtVal ?? now, 1, now)
+        const workflowRunIds = active.workflow_run_ids_json
+          ? JSON.parse(String(active.workflow_run_ids_json)) as string[] : []
+        if (workflowRunIds[0]) {
+          db.prepare(`INSERT INTO automated_workflow_attention (id, run_id, kind, created_at)
+            VALUES (?, ?, 'coalesced', ?)`).run(randomUUID(), workflowRunIds[0], now)
+        }
+        const occurrence = dbCreateRun(taskId, source, scheduledAtVal)
+        const coalescedRun = occurrence.status === 'pending'
+          ? dbUpdateRunStatus(occurrence.id, 'skipped', {
+            finishedAt: now,
+            error: 'Coalesced while the previous workflow run awaits completion.',
+          })!
+          : occurrence
+        pushRunUpdated(coalescedRun)
+        const next = calcNextRunAt(task, now)
+        db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(next ?? null, taskId)
+        const refreshed = dbGetTask(taskId)
+        if (refreshed) this.scheduleTask(refreshed)
+        try { new Notification({ title: `Workflow occurrence coalesced: ${task.name}`, silent: true }).show() } catch { /* optional */ }
+        log.info(`[scheduler] Coalesced occurrence for paused workflow task ${taskId}`)
+        return coalescedRun
+      }
       log.warn(`[scheduler] Task ${taskId} already has an active run, skipping`)
       throw new Error('Task already has an active run')
     }
@@ -439,6 +510,7 @@ export class SchedulerEngine {
       if (task.scheduleType === 'one-time') {
         db.prepare("UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE id = ?").run(Date.now(), taskId)
       }
+      notifySchedulerStatusChanged()
     }
 
     let attempt = 0
@@ -465,7 +537,26 @@ export class SchedulerEngine {
       }
     }
 
+    if (updatedRun.status === 'success' || updatedRun.status === 'failed' || updatedRun.status === 'skipped') {
+      this.startCoalescedReplacement(taskId)
+    }
     return updatedRun
+  }
+
+  private startCoalescedReplacement(taskId: string): void {
+    const db = getDatabase()
+    const stateKey = `schedule:${taskId}`
+    const state = db.prepare('SELECT replacement_due_at FROM automated_workflow_schedule_state WHERE template_id = ?')
+      .get(stateKey) as { replacement_due_at: number | null } | undefined
+    if (!state?.replacement_due_at) return
+    db.prepare(`UPDATE automated_workflow_schedule_state SET active_run_id = NULL,
+      replacement_due_at = NULL, coalesced_count = 0, updated_at = ? WHERE template_id = ?`)
+      .run(Date.now(), stateKey)
+    setTimeout(() => {
+      void this.triggerRun(taskId, 'scheduled', state.replacement_due_at ?? undefined).catch((error) => {
+        log.error(`[scheduler] Coalesced replacement for task ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }, 0)
   }
 
   private async executeRun(task: ScheduledTask, runId: string): Promise<ScheduledRun> {
@@ -473,7 +564,43 @@ export class SchedulerEngine {
     return this.executeChatRun(task, runId)
   }
 
-  private async executeWorkflowRun(task: ScheduledTask, runId: string): Promise<ScheduledRun> {
+  /**
+   * Resume an `approval_required` scheduled run: confirm the gated step(s) in each spawned
+   * Automated Workflow run and continue. Only valid for `targetType: 'automated_workflow'` runs —
+   * a plain chat run never enters `approval_required`. Reuses the existing `scheduled_runs` row
+   * rather than creating a new one so run history and workflow tags stay coherent.
+   */
+  async resumeRun(runId: string): Promise<ScheduledRun> {
+    const db = getDatabase()
+    const row = db.prepare('SELECT * FROM scheduled_runs WHERE id = ?').get(runId) as Record<string, unknown> | undefined
+    if (!row) throw new Error(`Run ${runId} not found`)
+    const run = rowToRun(row)
+    if (run.status !== 'approval_required') throw new Error('Only runs awaiting approval can be resumed')
+    const task = dbGetTask(run.taskId)
+    if (!task) throw new Error(`Task ${run.taskId} not found`)
+    if (task.targetType !== 'automated_workflow') throw new Error('Only automated-workflow runs can be resumed')
+
+    log.info(`[scheduler] Resuming run ${runId} for task ${task.id}`)
+    let updated = dbUpdateRunStatus(runId, 'running', { startedAt: run.startedAt ?? Date.now() })!
+    pushRunUpdated(updated)
+    try {
+      updated = await this.executeWorkflowRun(task, runId, true)
+      if (updated.status === 'success' || updated.status === 'failed' || updated.status === 'skipped') {
+        this.startCoalescedReplacement(task.id)
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      updated = dbUpdateRunStatus(runId, 'failed', { finishedAt: Date.now(), error: errMsg })!
+      pushRunUpdated(updated)
+      maybeNotify(task, 'failed')
+      const finalTask = dbGetTask(task.id)
+      if (finalTask) pushTaskUpdated(finalTask)
+      log.error(`[scheduler] Resume of run ${runId} failed: ${errMsg}`)
+    }
+    return updated
+  }
+
+  private async executeWorkflowRun(task: ScheduledTask, runId: string, autoConfirm = false): Promise<ScheduledRun> {
     const specs = dbListScheduledTaskWorkflows(task.id)
     if (specs.length === 0) throw new Error('Schedule has no automated workflow attached')
 
@@ -500,6 +627,22 @@ export class SchedulerEngine {
         detail = failedStep ? (await retryAutomatedWorkflowStep(detail.id, failedStep.dbId)) ?? detail : detail
       } else if (detail.status === 'pending') {
         detail = (await startAutomatedWorkflowRun(detail.id)) ?? detail
+      } else if (detail.status === 'awaiting_confirmation' && autoConfirm) {
+        // Resume path: a gated spec paused for human approval. Confirm each awaiting step in turn
+        // (a spec may gate more than once) until the run advances past the pause, then let the
+        // shared status handling below decide whether it completed or stopped again.
+        let guard = 0
+        let current: AutomatedWorkflowRunDetail = detail
+        while (current.status === 'awaiting_confirmation' && guard < 100) {
+          const awaitingStep = current.steps.find((s) => s.status === 'awaiting_confirmation')
+          if (!awaitingStep) break
+          // Managed review/publish gates represent content/action approval and may never be
+          // bypassed by the scheduler's legacy "resume and confirm text step" operation.
+          if (awaitingStep.kind === 'review' || awaitingStep.kind === 'publish') break
+          current = (await confirmAutomatedWorkflowStep(current.id, awaitingStep.dbId)) ?? current
+          guard++
+        }
+        detail = current
       }
 
       spawnedRunIds.push(detail.id)
@@ -525,10 +668,10 @@ export class SchedulerEngine {
 
     pushRunUpdated(run)
     void sendSchedulerRunNotification(getDatabase(), {
-      type: complete ? 'run-completed' : 'run-failed',
+      type: complete ? 'run-completed' : 'run-approval-required',
       taskId: task.id,
       taskName: task.name,
-      status: finalStatus === 'success' ? 'success' : 'failed',
+      status: finalStatus,
       conversationId: task.conversationId,
     })
     const refreshedTask = dbGetTask(task.id)
@@ -542,10 +685,7 @@ export class SchedulerEngine {
 
   private async executeChatRun(task: ScheduledTask, runId: string): Promise<ScheduledRun> {
     const db = getDatabase()
-    const win = BrowserWindow.getAllWindows()[0]
-    if (!win || win.webContents.isDestroyed()) {
-      throw new Error('No browser window available for chat dispatch')
-    }
+    const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.webContents.isDestroyed())
 
     // Ensure the task has a dedicated conversation
     let conversationId = task.conversationId
