@@ -311,6 +311,10 @@ function buildSyncSnapshot(
       wiki: filterRows('wiki', 'wiki'),
       prompts: filterRows('prompts', 'prompt'),
       skills: filterRows('skills', 'skill'),
+      // Credential metadata is small and read-only on Android. Include the complete current
+      // metadata set in deltas so revocations and binding changes are never missed.
+      credentials: full.credentials,
+      credentialBindings: full.credentialBindings,
       attachments: full.attachments,
       versions: filteredVersions,
       tombstones: full.tombstones,
@@ -592,6 +596,43 @@ function buildSnapshot(
     ? []
     : listSkillConfigsForTransport().map(skill => objectValue(sanitizeSyncValue(skill)))
 
+  // Credential payloads are deliberately not selected here. These two arrays are permission and
+  // display metadata only, allowing Android to show which capabilities are available without
+  // transferring API keys, encrypted payloads, or any other secret-bearing field.
+  const credentials: Record<string, unknown>[] = db.prepare(
+    "SELECT id, name, kind, provider, metadata_json, created_at, updated_at, last_used_at, revoked_at FROM credentials ORDER BY updated_at, id",
+  ).all().map((row) => {
+    const value = row as Record<string, unknown>
+    const metadata = parseJsonValue(value.metadata_json, {})
+    return {
+      id: value.id,
+      name: value.name,
+      kind: value.kind,
+      provider: value.provider,
+      fingerprint: objectValue(metadata).fingerprint ?? null,
+      createdAt: value.created_at,
+      updatedAt: value.updated_at,
+      lastUsedAt: value.last_used_at,
+      revokedAt: value.revoked_at,
+    }
+  }) as Record<string, unknown>[]
+  const credentialBindings: Record<string, unknown>[] = db.prepare(
+    'SELECT id, credential_id, project_id, agent_id, capability, approval_mode, expires_at, created_at, updated_at FROM credential_bindings ORDER BY updated_at, id',
+  ).all().map((row) => {
+    const value = row as Record<string, unknown>
+    return {
+      id: value.id,
+      credentialId: value.credential_id,
+      projectId: value.project_id,
+      agentId: value.agent_id,
+      capability: value.capability,
+      approvalMode: value.approval_mode,
+      expiresAt: value.expires_at,
+      createdAt: value.created_at,
+      updatedAt: value.updated_at,
+    }
+  }) as Record<string, unknown>[]
+
   const versions: Record<string, number> = {}
   for (const [type, rows] of [
     ['project', projects],
@@ -634,7 +675,7 @@ function buildSnapshot(
            size_bytes AS sizeBytes, attachment_id AS attachmentId, message_id AS messageId
     FROM sync_attachments WHERE completed_at IS NOT NULL ORDER BY updated_at, content_hash
   `).all()
-  return { projects, agents, conversations, messages, wiki, prompts, skills, attachments, versions, tombstones, conflicts }
+  return { projects, agents, conversations, messages, wiki, prompts, skills, credentials, credentialBindings, attachments, versions, tombstones, conflicts }
 }
 
 function applyOperation(

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
 import type Database from 'better-sqlite3'
 import type { ProviderMessage } from './providers'
-import { DEFAULT_PROVIDER_MODEL, NO_PROVIDER_CONFIGURED_MESSAGE, getProviderForAgent, getApiKey, sendProviderNonStreaming } from './providers'
+import { DEFAULT_PROVIDER_MODEL, NO_PROVIDER_CONFIGURED_MESSAGE, getProviderForAgent, getProviderCredential, sendProviderNonStreaming } from './providers'
 import { safeHandle } from './safe-handle'
 import type { WikiCandidate, WikiEntry, WikiExtractionResult } from '../shared/types'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -315,17 +315,17 @@ Guidelines:
     const userContent = `Here is the conversation to analyze:\n\n${truncatedTranscript}`
 
     const { provider, model: resolvedModel } = extractionProvider
-    const apiKey = getApiKey(provider)
+    const credential = getProviderCredential(provider)
 
     let rawText: string
-    if (apiKey) {
+    if (credential) {
       const messages: ProviderMessage[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ]
       const result = await sendProviderNonStreaming(
         provider,
-        apiKey,
+        credential,
         resolvedModel,
         messages,
         { maxTokens: 2000, temperature: 0.3 },
@@ -438,7 +438,7 @@ export async function extractWikiLearningsForWs(
   })()
 
   const { provider, model: resolvedModel } = getProviderForAgent(agentModel)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
 
   const systemPrompt = `You are a knowledge extraction assistant. Analyze this conversation and extract factual learnings, decisions, and procedures as structured wiki entries.
 
@@ -466,12 +466,12 @@ Guidelines:
   const userContent = `Here is the conversation to analyze:\n\n${truncatedTranscript}`
 
   let rawText: string
-  if (apiKey) {
+  if (credential) {
     const messages: ProviderMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ]
-    const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, { maxTokens: 2000, temperature: 0.3 })
+    const result = await sendProviderNonStreaming(provider, credential, resolvedModel, messages, { maxTokens: 2000, temperature: 0.3 })
     rawText = result.content ?? ''
   } else if (ClaudeAdapter.isAvailable()) {
     rawText = await ClaudeAdapter.send(

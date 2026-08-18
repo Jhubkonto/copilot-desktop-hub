@@ -81,6 +81,51 @@ describe('standalone peer synchronization', () => {
     expect(result.data.snapshot.versions['project:project-1']).toBe(1)
   })
 
+  it('syncs credential metadata and bindings without credential payloads', () => {
+    const secret = 'desktop-secret-must-stay-local'
+    state.db!.prepare(`
+      INSERT INTO credentials
+        (id, name, kind, provider, encrypted_payload, payload_encrypted, metadata_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'credential-1',
+      'Desktop OpenAI',
+      'api-key',
+      'openai',
+      secret,
+      1,
+      JSON.stringify({ fingerprint: 'fingerprint-1' }),
+      1,
+      10,
+    )
+    state.db!.prepare(`
+      INSERT INTO credential_bindings
+        (id, credential_id, project_id, agent_id, capability, approval_mode, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('binding-1', 'credential-1', 'project-1', null, 'provider:openai', 'auto', null, 1, 10)
+
+    const result = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 2,
+    })
+    const snapshotJson = JSON.stringify(result.data.snapshot)
+
+    expect(snapshotJson).not.toContain(secret)
+    expect(result.data.snapshot.credentials).toEqual([expect.objectContaining({
+      id: 'credential-1',
+      name: 'Desktop OpenAI',
+      provider: 'openai',
+      fingerprint: 'fingerprint-1',
+    })])
+    expect(result.data.snapshot.credentialBindings).toEqual([expect.objectContaining({
+      id: 'binding-1',
+      credentialId: 'credential-1',
+      projectId: 'project-1',
+      capability: 'provider:openai',
+    })])
+  })
+
   it('returns only desktop changes after a protocol-v2 cursor', () => {
     const initial = command('sync:hello', {
       deviceId: 'android-1',
