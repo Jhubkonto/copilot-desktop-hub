@@ -48,6 +48,7 @@ vi.mock('../providers', () => ({
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured',
   getProviderForAgent: vi.fn().mockReturnValue({ provider: 'anthropic', model: 'claude-sonnet-4-6' }),
   getApiKey: vi.fn().mockReturnValue('test-api-key'),
+  getProviderCredential: vi.fn().mockReturnValue('test-api-key'),
   sendProviderNonStreaming: mockSendProviderNonStreaming,
 }))
 

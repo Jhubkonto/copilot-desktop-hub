@@ -12,7 +12,7 @@ import { safeHandle } from './safe-handle'
 import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
-  getApiKey,
+  getProviderCredential,
   getProviderForAgent,
   sendProviderNonStreaming,
 } from './providers'
@@ -86,13 +86,13 @@ async function callLearningModel(
   maxTokens: number,
 ): Promise<{ rawText: string; model: string }> {
   const selected = selectModel(db, projectId, model)
-  const apiKey = getApiKey(selected.provider)
-  if (apiKey) {
+  const credential = getProviderCredential(selected.provider)
+  if (credential) {
     const messages: ProviderMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ]
-    const result = await sendProviderNonStreaming(selected.provider, apiKey, selected.model, messages, {
+    const result = await sendProviderNonStreaming(selected.provider, credential, selected.model, messages, {
       maxTokens,
       temperature: 0.2,
     })

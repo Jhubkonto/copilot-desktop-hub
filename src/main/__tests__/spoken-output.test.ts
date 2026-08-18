@@ -4,6 +4,7 @@ import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
 const providerMocks = vi.hoisted(() => ({
   getApiKey: vi.fn(() => 'test-key'),
+  getProviderCredential: vi.fn(() => 'test-key'),
   sendProviderNonStreaming: vi.fn(),
 }))
 
@@ -11,6 +12,7 @@ vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'openai:gpt-test',
   getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-test' })),
   getApiKey: providerMocks.getApiKey,
+  getProviderCredential: providerMocks.getProviderCredential,
   sendProviderNonStreaming: providerMocks.sendProviderNonStreaming,
 }))
 

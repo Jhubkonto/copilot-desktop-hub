@@ -6,7 +6,7 @@ import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   sendProviderNonStreaming,
 } from './providers'
 import type { ProviderMessage } from './providers'
@@ -157,15 +157,15 @@ async function generateQuizForWsInner(conversationId: string, projectId: string 
   const extractionProvider = getProviderForAgent(model ?? DEFAULT_PROVIDER_MODEL)
 
   const { provider, model: resolvedModel } = extractionProvider
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
 
   let rawText: string
-  if (apiKey) {
+  if (credential) {
     const messages: ProviderMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ]
-    const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, {
+    const result = await sendProviderNonStreaming(provider, credential, resolvedModel, messages, {
       maxTokens: 3000,
       temperature: 0.7,
     })

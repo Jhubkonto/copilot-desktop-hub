@@ -7,7 +7,7 @@ import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
   getProviderForAgent,
-  getApiKey,
+  getProviderCredential,
   sendProviderNonStreaming,
 } from './providers'
 import type { ProviderMessage } from './providers'
@@ -181,15 +181,15 @@ async function generateDebriefForWsInner(db: ReturnType<typeof getDatabase>, con
   const userContent = `Here is the conversation to analyze:\n\n${truncatedTranscript}`
 
   const { provider, model: resolvedModel } = resolveExtractionProvider(db, projectId, model)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
 
   let rawText: string
-  if (apiKey) {
+  if (credential) {
     const messages: ProviderMessage[] = [
       { role: 'system', content: DEBRIEF_SYSTEM_PROMPT },
       { role: 'user', content: userContent },
     ]
-    const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, {
+    const result = await sendProviderNonStreaming(provider, credential, resolvedModel, messages, {
       maxTokens: 2000,
       temperature: 0.3,
     })
@@ -347,15 +347,15 @@ export async function generateDebriefStoryForWs(
   const clampedBeatCount = Math.min(5, Math.max(3, Math.round(resolvedBeatCount)))
 
   const { provider, model: resolvedModel } = resolveExtractionProvider(db, projectId, model)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
 
   let rawText: string
-  if (apiKey) {
+  if (credential) {
     const messages: ProviderMessage[] = [
       { role: 'system', content: storySystemPrompt },
       { role: 'user', content: userContent },
     ]
-    const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, {
+    const result = await sendProviderNonStreaming(provider, credential, resolvedModel, messages, {
       maxTokens: 2000,
       temperature: 0.7,
     })

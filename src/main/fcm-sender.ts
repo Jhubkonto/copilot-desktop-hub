@@ -91,7 +91,7 @@ export async function generateSpokenSummary(db: Database.Database, conversationI
 
 export async function sendSchedulerRunNotification(
   db: Database.Database,
-  payload: { type: 'run-completed' | 'run-failed'; taskId: string; taskName: string; status: string; conversationId: string | null },
+  payload: { type: 'run-completed' | 'run-failed' | 'run-approval-required'; taskId: string; taskName: string; status: string; conversationId: string | null },
 ): Promise<void> {
   const saJson = loadFcmServiceAccountJson(db)
   if (!saJson) return

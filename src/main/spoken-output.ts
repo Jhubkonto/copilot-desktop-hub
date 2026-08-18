@@ -10,7 +10,7 @@ import { createQuickRecap, sanitizeForSpeech } from '../shared/spoken-output'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import {
   DEFAULT_PROVIDER_MODEL,
-  getApiKey,
+  getProviderCredential,
   getProviderForAgent,
   sendProviderNonStreaming,
 } from './providers'
@@ -141,7 +141,7 @@ export async function generateAiSpokenOutput(
   if (!source) return null
   const configuredModel = resolveRecapModel(db, context.projectId)
   const { provider, model } = getProviderForAgent(configuredModel)
-  const apiKey = getApiKey(provider)
+  const credential = getProviderCredential(provider)
   const userContent = `Assistant response:\n\n${source.slice(0, 40_000)}`
   const messages: ProviderMessage[] = [
     { role: 'system', content: AI_RECAP_SYSTEM_PROMPT },
@@ -151,8 +151,8 @@ export async function generateAiSpokenOutput(
   let text = ''
   let generationKind: SpokenOutputGenerationKind
   let usedModel: string
-  if (apiKey) {
-    const result = await sendProviderNonStreaming(provider, apiKey, model, messages, {
+  if (credential) {
+    const result = await sendProviderNonStreaming(provider, credential, model, messages, {
       maxTokens: 180,
       temperature: 0.2,
     })

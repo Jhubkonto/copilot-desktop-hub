@@ -22,6 +22,7 @@ vi.mock('../providers', () => ({
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured.',
   getProviderForAgent: vi.fn((model: string) => ({ provider: 'openai', model })),
   getApiKey: vi.fn(() => 'test-key'),
+  getProviderCredential: vi.fn(() => 'test-key'),
   sendProviderNonStreaming: sendProviderMock,
 }))
 vi.mock('../cli-adapters/claude', () => ({ ClaudeAdapter: { isAvailable: vi.fn(() => false) } }))
