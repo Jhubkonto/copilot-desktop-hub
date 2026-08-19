@@ -64,8 +64,7 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
     return window.api.onMcpServerStatusChanged(() => { void refresh() })
   }, [open, refresh])
 
-  const activeProfile = preflight?.profile
-  const activeCount = (activeProfile?.skillIds.length ?? selectedSkillIds.length) + (activeProfile?.mcp.length ?? selectedMcp.length)
+  const activeCount = selectedSkillIds.length + selectedMcp.length
   const selectedServerIds = useMemo(() => new Set(selectedMcp.map((entry) => entry.serverId)), [selectedMcp])
   const filteredSkills = useMemo(() => {
     const query = skillSearch.trim().toLowerCase()
@@ -105,6 +104,11 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
   const openMcpSetup = () => {
     setOpen(false)
     onOpenMcp?.()
+  }
+
+  const openSkills = () => {
+    setOpen(false)
+    onOpenSkills?.()
   }
 
   const toggleOpen = async () => {
@@ -178,7 +182,7 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
                 {skills.length > 0 && <span className="text-[10px] text-gray-400 dark:text-gray-500">{selectedSkillIds.length}/{skills.length} active</span>}
               </div>
               {skills.length === 0 ? (
-                <div className="flex items-center justify-between gap-2"><p className="text-xs text-gray-500 dark:text-gray-400">Import a skill to make it available here.</p>{onOpenSkills && <button type="button" onClick={onOpenSkills} className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline">Open Skills</button>}</div>
+                <div className="flex items-center justify-between gap-2"><p className="text-xs text-gray-500 dark:text-gray-400">Import a skill to make it available here.</p>{onOpenSkills && <button type="button" onClick={openSkills} className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline">Open Skills</button>}</div>
               ) : (
                 <>
                   <label className="mb-1.5 flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2 py-1 dark:border-gray-700 dark:bg-gray-800">

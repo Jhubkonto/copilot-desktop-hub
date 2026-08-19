@@ -8,13 +8,14 @@ import { ModelPicker } from './ModelPicker'
 import { CliLockedModelBadge } from './CliLockedModelBadge'
 import { ChatModePicker } from './ChatModePicker'
 import { NexyIcon } from '../ui/icons/NexyIcon'
-import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend, CliModeOverride, CodexExecutionModeOverride } from '../../../shared/types'
+import type { AgentConfig, AvailableModelEntry, AvailableModelGroup, CliBackend, CliModeOverride, CodexExecutionModeOverride, SkillConfig } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
 import { ResizableChatInput } from './ResizableChatInput'
 import { ComposerActionsMenu } from './ComposerActionsMenu'
 import { useEmergencyStop } from '../../hooks/useEmergencyStop'
+import { CapabilityPopover } from '../CapabilityPopover'
 
 
 interface ChatComposerProps {
@@ -32,6 +33,14 @@ interface ChatComposerProps {
   rateLimitRemainingSec: number
   conversationId: string | null
   effectiveModel: string
+  capabilitySkills: SkillConfig[]
+  capabilityProjectId?: string | null
+  capabilityProjectName?: string | null
+  capabilityAgentId?: string | null
+  capabilityAgentName?: string | null
+  onEnsureConversationForCapability?: () => Promise<string | null>
+  onOpenMcp?: () => void
+  onOpenSkills?: () => void
   modelSourceLabel?: string
   pendingAttachments: LocalAttachment[]
   pendingImages: PastedImage[]
@@ -109,6 +118,14 @@ export function ChatComposer({
   rateLimitRemainingSec,
   conversationId,
   effectiveModel,
+  capabilitySkills,
+  capabilityProjectId,
+  capabilityProjectName,
+  capabilityAgentId,
+  capabilityAgentName,
+  onEnsureConversationForCapability,
+  onOpenMcp,
+  onOpenSkills,
   modelSourceLabel,
   pendingAttachments,
   pendingImages,
@@ -285,6 +302,18 @@ export function ChatComposer({
                   Cancel edit
                 </button>
               )}
+              <CapabilityPopover
+                conversationId={conversationId}
+                modelId={effectiveModel}
+                skills={capabilitySkills}
+                projectId={capabilityProjectId}
+                projectName={capabilityProjectName}
+                agentId={capabilityAgentId}
+                agentName={capabilityAgentName}
+                onEnsureConversation={onEnsureConversationForCapability}
+                onOpenMcp={onOpenMcp}
+                onOpenSkills={onOpenSkills}
+              />
               <div className="relative flex items-center">
                 {isCliLocked ? (
                   <CliLockedModelBadge
