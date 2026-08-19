@@ -5,6 +5,7 @@ import type { BrowserWindow } from 'electron'
 import { startUserInputMcpBridge } from '../user-input-mcp-bridge'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
+import { extractCitations } from '../../shared/citations'
 
 type ClaudeContentBlock =
   | { type: 'text'; text?: string }
@@ -359,6 +360,8 @@ export const ClaudeAdapter: CliAgentAdapter = {
         if (!line.trim()) return
         try {
           const obj = JSON.parse(line) as Record<string, unknown>
+          const citations = extractCitations(obj)
+          if (citations.length > 0) onEvent?.({ type: 'citations', citations })
           // Claude CLI stream-json: complete assistant message.
           // Only emit chunks here when no content_block_delta events arrived
           // (i.e. CLI is operating in batch mode). When deltas are streaming
@@ -449,6 +452,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
               totalCostUsd: typeof obj.total_cost_usd === 'number' ? obj.total_cost_usd : 0,
               inputTokens: typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0,
               outputTokens: typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0,
+              ...(typeof obj.uuid === 'string' ? { requestId: obj.uuid } : {}),
             })
           }
           // Per-token streaming delta format (used when --verbose outputs raw API events)

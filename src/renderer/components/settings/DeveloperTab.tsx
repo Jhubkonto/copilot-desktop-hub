@@ -85,6 +85,7 @@ interface Props {
   onValidateSigningConfig: () => void
   // ADB
   adbDevices: AdbDevice[]
+  adbRefreshing: boolean
   adbInstalling: boolean
   latestAdbInstallRecord: BuildRecord | undefined
   latestAdbInstallApk: string | undefined
@@ -382,7 +383,7 @@ export function DeveloperTab({
   androidBuildRecords, activeAndroidBuildId, activeAndroidCommand, androidLogLines, androidLastBuildStatus,
   onAndroidStartCommand, onAndroidCancelCommand,
   signingDraft, signingValidation, onSetSigningDraft, onSaveSigningConfig, onValidateSigningConfig,
-  adbDevices, adbInstalling, latestAdbInstallRecord, latestAdbInstallApk,
+  adbDevices, adbRefreshing, adbInstalling, latestAdbInstallRecord, latestAdbInstallApk,
   onRefreshAdbDevices, onAndroidInstallApk,
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
@@ -1053,7 +1054,16 @@ export function DeveloperTab({
           <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">ADB Install</p>
-              <button onClick={onRefreshAdbDevices} className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
+              <button
+                type="button"
+                onClick={onRefreshAdbDevices}
+                disabled={adbRefreshing}
+                className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:cursor-wait disabled:opacity-60 flex items-center gap-1"
+                aria-label={adbRefreshing ? 'Searching for ADB devices' : 'Refresh ADB devices'}
+              >
+                <RefreshCw className={`w-3 h-3 ${adbRefreshing ? 'animate-spin' : ''}`} />
+                {adbRefreshing ? 'Searching…' : 'Refresh'}
+              </button>
             </div>
             {latestAdbInstallRecord && latestAdbInstallApk ? (
               <p className="text-[11px] text-gray-500">

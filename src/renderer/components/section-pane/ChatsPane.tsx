@@ -11,7 +11,7 @@ import { PaginationFooter } from '../ui/PaginationFooter'
 import { useConversationPagination } from '../../hooks/useConversationPagination'
 import { useDebouncedSearchQuery } from '../../hooks/useDebouncedSearchQuery'
 
-export function ChatsPane() {
+export function ChatsPane({ pinnedOnly = false }: { pinnedOnly?: boolean } = {}) {
   const cachedConversations = useAppStore((s) => s.conversations)
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const projects = useAppStore((s) => s.projects)
@@ -28,13 +28,13 @@ export function ChatsPane() {
   const setConversationPinned = useAppStore((s) => s.setConversationPinned)
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebouncedSearchQuery(query)
-  const pagination = useConversationPagination({ type: 'all' }, debouncedQuery)
+  const pagination = useConversationPagination({ type: pinnedOnly ? 'pinned' : 'all' }, debouncedQuery)
   const conversations = useMemo(() => {
     const source = !pagination.hasLoaded && !debouncedQuery
-      ? cachedConversations.slice(0, 30)
+      ? (pinnedOnly ? cachedConversations.filter(isPinned) : cachedConversations.slice(0, 30))
       : pagination.items
     return withLivePinState(source, cachedConversations)
-  }, [cachedConversations, debouncedQuery, pagination.hasLoaded, pagination.items])
+  }, [cachedConversations, debouncedQuery, pagination.hasLoaded, pagination.items, pinnedOnly])
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
   const filtered = conversations
@@ -136,7 +136,7 @@ export function ChatsPane() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search chats…"
+            placeholder={pinnedOnly ? 'Search pinned chats…' : 'Search chats…'}
             className="flex-1 text-xs bg-transparent focus:outline-none text-nexy-text placeholder:text-nexy-muted"
           />
           {query && (
@@ -156,13 +156,15 @@ export function ChatsPane() {
       </div>
 
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
-        {filtered.length === 0 && pendingConversationIds.length === 0 && (
+        {filtered.length === 0 && (pinnedOnly || pendingConversationIds.length === 0) && (
           <PaneEmptyState>
-            {debouncedQuery ? 'No matching conversations' : 'No conversations yet'}
+            {debouncedQuery
+              ? `No matching ${pinnedOnly ? 'pinned chats' : 'conversations'}`
+              : pinnedOnly ? 'No pinned chats yet' : 'No conversations yet'}
           </PaneEmptyState>
         )}
 
-        {pendingConversationIds.length > 0 && !debouncedQuery && (
+        {!pinnedOnly && pendingConversationIds.length > 0 && !debouncedQuery && (
           <div>
             {pendingConversationIds
               .filter((id) => !conversations.some((c) => c.id === id))
@@ -190,13 +192,13 @@ export function ChatsPane() {
         {pinned.length > 0 && (
           <div>
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-1">
-              Pinned
+              {pinnedOnly ? 'Pinned Chats' : 'Pinned'}
             </p>
             {pinned.map(renderConv)}
           </div>
         )}
 
-        {groups.map(({ label, items }) => (
+        {!pinnedOnly && groups.map(({ label, items }) => (
           <div key={label}>
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-1">
               {label}

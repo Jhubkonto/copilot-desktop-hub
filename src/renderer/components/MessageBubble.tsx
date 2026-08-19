@@ -1,15 +1,13 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, BookmarkPlus, Volume2, Sparkles, MoreHorizontal, Trash2, GitFork } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, BookmarkPlus, MoreHorizontal, Trash2, GitFork } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
 import { Button } from './ui/primitives'
-import { SpokenOutputControls } from './chat/SpokenOutputControls'
-import type { SpokenPlaybackState } from '../hooks/useSpokenOutput'
-import type { SpokenOutputSettings } from '../lib/spoken-output'
 import { DropdownPanel } from './DropdownPanel'
 import { ImagePreview } from './ImagePreview'
 import { looksLikeStandaloneDocument } from '@shared/content-classifier'
+import type { Citation } from '../../shared/citations'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -100,6 +98,7 @@ interface MessageBubbleProps {
   modelLabel?: string
   attachments?: Attachment[]
   images?: PastedImage[]
+  citations?: Citation[]
   contextSnapshot?: string
   isLastAssistant: boolean
   isGenerating: boolean
@@ -122,26 +121,6 @@ interface MessageBubbleProps {
   onRetry?: () => void
   onSignIn?: () => void
   onPickModel?: () => void
-  spokenOutput?: {
-    supported: boolean
-    active: boolean
-    state: SpokenPlaybackState
-    kind: 'response' | 'quick-recap' | 'ai-recap'
-    model: string | null
-    aiRecapLoading: boolean
-    aiRecapError: string | null
-    voices: SpeechSynthesisVoice[]
-    settings: SpokenOutputSettings
-    supertonicReady: boolean
-    onRead: () => void
-    onQuickRecap: () => void
-    onAiRecap: () => void
-    onPause: () => void
-    onResume: () => void
-    onStop: () => void
-    onReplay: () => void
-    onSettingsChange: (settings: SpokenOutputSettings) => void
-  }
 }
 
 export function MessageBubbleBase({
@@ -154,6 +133,7 @@ export function MessageBubbleBase({
   modelLabel,
   attachments,
   images,
+  citations,
   contextSnapshot,
   isLastAssistant,
   isGenerating,
@@ -176,12 +156,10 @@ export function MessageBubbleBase({
   onSignIn,
   onPickModel,
   isHighlighted,
-  spokenOutput,
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false)
   const [copied, setCopied] = useState(false)
   const [assistantMenuOpen, setAssistantMenuOpen] = useState(false)
-  const [listenMenuOpen, setListenMenuOpen] = useState(false)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -234,7 +212,7 @@ export function MessageBubbleBase({
         <div className={`relative w-full pl-3 border-l-2 text-sm text-gray-900 dark:text-gray-100 transition-shadow ${
           isHighlighted ? 'border-blue-400/70 dark:border-blue-300/70' : 'border-gray-200 dark:border-gray-700'
         }`}>
-          <MarkdownRenderer content={displayContent ?? content} />
+          <MarkdownRenderer content={displayContent ?? content} citations={citations} />
           {isStopped && (
             <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
               <StopCircle className="w-3 h-3" />
@@ -285,54 +263,6 @@ export function MessageBubbleBase({
                 >
                   <Package className="w-3 h-3" />Save as artifact
                 </Button>
-              )}
-              {spokenOutput?.supported && (
-                <DropdownPanel
-                  open={listenMenuOpen}
-                  onClose={() => setListenMenuOpen(false)}
-                  align="left"
-                  width="w-64"
-                  trigger={
-                    <IconActionButton
-                      icon={Volume2}
-                      label="Listen"
-                      title="Listen to this response"
-                      onClick={() => setListenMenuOpen((open) => !open)}
-                      menuOpen={listenMenuOpen}
-                    />
-                  }
-                >
-                  <div className="p-1" role="menu" aria-label="Listen options">
-                    <MessageMenuItem
-                      icon={Volume2}
-                      label="Full response"
-                      title="Listen to a speech-safe version of the full response"
-                      onClick={() => {
-                        setListenMenuOpen(false)
-                        spokenOutput.onRead()
-                      }}
-                    />
-                    <MessageMenuItem
-                      icon={Sparkles}
-                      label="Short version"
-                      title="Create and listen to a short local version"
-                      onClick={() => {
-                        setListenMenuOpen(false)
-                        spokenOutput.onQuickRecap()
-                      }}
-                    />
-                    <MessageMenuItem
-                      icon={spokenOutput.aiRecapLoading ? RefreshCw : Sparkles}
-                      label={spokenOutput.aiRecapLoading ? 'Creating AI summary…' : 'AI summary'}
-                      title="Generate a summary with the current provider or CLI, then listen"
-                      onClick={() => {
-                        setListenMenuOpen(false)
-                        spokenOutput.onAiRecap()
-                      }}
-                      disabled={spokenOutput.aiRecapLoading}
-                    />
-                  </div>
-                </DropdownPanel>
               )}
               {hasAssistantOverflowActions && (
                 <DropdownPanel
@@ -396,26 +326,6 @@ export function MessageBubbleBase({
                 </DropdownPanel>
               )}
             </div>
-          )}
-          {spokenOutput?.aiRecapError && (
-            <p className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">
-              {spokenOutput.aiRecapError}
-            </p>
-          )}
-          {spokenOutput?.active && (
-            <SpokenOutputControls
-              state={spokenOutput.state}
-              kind={spokenOutput.kind}
-              model={spokenOutput.model}
-              voices={spokenOutput.voices}
-              settings={spokenOutput.settings}
-              supertonicReady={spokenOutput.supertonicReady}
-              onSettingsChange={spokenOutput.onSettingsChange}
-              onPause={spokenOutput.onPause}
-              onResume={spokenOutput.onResume}
-              onStop={spokenOutput.onStop}
-              onReplay={spokenOutput.onReplay}
-            />
           )}
         </div>
       )}

@@ -73,7 +73,7 @@ private fun requestOfflineSpeechModel(
         recognizer.triggerModelDownload(intent)
         onMessage("Android started downloading the offline speech model. Try voice input again when it completes.")
     } else {
-        onMessage("Install the offline speech recognition language in Android settings. TTS voice data is separate from speech recognition.")
+        onMessage("Install the offline speech recognition language in Android settings.")
     }
 }
 

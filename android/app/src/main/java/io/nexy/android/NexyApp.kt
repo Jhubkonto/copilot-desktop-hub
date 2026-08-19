@@ -74,11 +74,19 @@ class NexyApp : Application() {
         }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
-        // FCM auto-init is disabled so a placeholder google-services.json doesn't cause errors.
-        // Fetch the token manually so it is sent to the desktop on every startup.
-        // This fails silently when real Firebase credentials are not configured.
-        FirebaseMessaging.getInstance().token
-            .addOnSuccessListener { token ->
+        // FCM is optional for local/standalone builds. FirebaseMessaging.getInstance()
+        // throws synchronously when no real google-services.json is present, so guard the
+        // lookup before requesting the token. Firebase-enabled builds still send the token.
+        val firebaseMessaging = runCatching { FirebaseMessaging.getInstance() }
+            .onFailure {
+                android.util.Log.i(
+                    "NexyApp",
+                    "Firebase is not configured; continuing without FCM registration",
+                    it,
+                )
+            }
+            .getOrNull()
+        firebaseMessaging?.token?.addOnSuccessListener { token ->
                 val deviceId = NexyFcmService.getOrCreateDeviceId(this)
                 io.nexy.android.data.WsRepository.sendOrQueue(
                     "mobile:fcm-token",

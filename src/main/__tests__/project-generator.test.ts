@@ -126,7 +126,7 @@ describe('project generator provider selection', () => {
   })
 
   it('preserves the complete discovery transcript for ephemeral Codex CLI turns', async () => {
-    const rootDirectory = String.raw`C:\Users\Julian\Projects\thingsboard-mgdk`
+    const rootDirectory = String.raw`C:\Users\test\Projects\thingsboard-mgdk`
     const messages = [
       { role: 'assistant' as const, content: "Let's create a new project." },
       { role: 'user' as const, content: 'This is a ThingsBoard medical-grade developer kit.' },

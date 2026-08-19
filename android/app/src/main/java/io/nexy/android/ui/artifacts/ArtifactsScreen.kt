@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -124,7 +125,10 @@ fun ArtifactsScreen(
     var exportAction by remember { mutableStateOf<ArtifactExportAction?>(null) }
     var pendingDownloadFiles by remember { mutableStateOf<List<ArtifactExportFile>?>(null) }
     var pendingDownloadFolder by remember { mutableStateOf("artifact") }
-    var autoOpenedMarkdownArtifactId by remember { mutableStateOf<String?>(null) }
+    // NavHost can dispose and recreate this destination while the Markdown viewer is on top. Keep
+    // the guard in the destination's saveable state, otherwise returning from the viewer would
+    // immediately auto-open the same artifact again.
+    var autoOpenedMarkdownArtifactId by rememberSaveable { mutableStateOf<String?>(null) }
     val downloadDirectoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
         val files = pendingDownloadFiles
         if (treeUri != null && files != null) {

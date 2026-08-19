@@ -1344,7 +1344,7 @@ export function McpServerPanel() {
               </div>
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-nexy-text">MCP workspace</h3>
-                <p className="mt-1 text-xs leading-relaxed text-nexy-muted">Connect capabilities once, then decide which agents can use them.</p>
+                <p className="mt-1 text-xs leading-relaxed text-nexy-muted">Connect capabilities once, then use them in a chat or promote them to a project or agent.</p>
               </div>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -1380,7 +1380,7 @@ export function McpServerPanel() {
                           <span className="text-[10px] text-nexy-muted">{server.toolCount} tool{server.toolCount !== 1 ? 's' : ''}</span>
                           {assignedAgentCount > 0 && <span className="text-[10px] text-nexy-muted">· {assignedAgentCount} agent{assignedAgentCount === 1 ? '' : 's'}</span>}
                         </div>
-                        {server.error ? <p className="mt-1 truncate text-[11px] text-nexy-error">{server.error}</p> : <p className="mt-1 text-[11px] text-nexy-muted">Ready to assign to an agent.</p>}
+                        {server.error ? <p className="mt-1 truncate text-[11px] text-nexy-error">{server.error}</p> : <p className="mt-1 text-[11px] text-nexy-muted">Ready to use in a chat or assign to an agent.</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <button onClick={() => handleToggle(server)} className={`rounded-full border-2 px-2 py-1 text-[10px] font-bold ${server.enabled ? 'border-nexy-success bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : 'border-nexy-border bg-nexy-recessed text-nexy-muted'}`} title={server.enabled ? 'Disable' : 'Enable'}>{server.enabled ? 'ON' : 'OFF'}</button>

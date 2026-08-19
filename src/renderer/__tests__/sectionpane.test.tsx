@@ -140,6 +140,35 @@ describe("SectionPane", () => {
     expect(screen.getByText(/no conversations yet/i)).toBeInTheDocument();
   });
 
+  it("renders the pinned chats header and only pinned conversations", () => {
+    const pinnedConversation = {
+      id: "pinned-chat",
+      agent_id: null,
+      title: "Pinned conversation",
+      project_id: null as string | null,
+      pinned: 1,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
+    const unpinnedConversation = {
+      ...pinnedConversation,
+      id: "regular-chat",
+      title: "Regular conversation",
+      pinned: 0,
+    };
+    mockStore = createMockAppStore({
+      activeSectionPane: "pinned" as const,
+      conversations: [pinnedConversation, unpinnedConversation],
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<SectionPane section="pinned" />);
+
+    expect(screen.getByRole("heading", { name: /pinned chats/i })).toBeInTheDocument();
+    expect(screen.getByText("Pinned conversation")).toBeInTheDocument();
+    expect(screen.queryByText("Regular conversation")).not.toBeInTheDocument();
+  });
+
   it('marks the open conversation in all-chats history', () => {
     const conversation = {
       id: "open-chat",

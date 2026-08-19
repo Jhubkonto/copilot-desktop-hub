@@ -6,6 +6,7 @@ import type { AnthropicContentBlock } from '../provider-messages'
 import { runStreamingRequest, rejectHttpError } from './streaming'
 import { debugLog } from '../debug-mode'
 import { resolveProviderCredentialInput, type ProviderCredentialInput } from '../credential-vault'
+import { extractCitations, type Citation } from '../../shared/citations'
 
 interface AnthropicTool {
   name: string
@@ -211,6 +212,7 @@ export function sendAnthropicWithToolsStream(
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+    onCitations?: (citations: Citation[]) => void
   } = {},
 ): Promise<ProviderNonStreamResult> {
   apiKey = resolveProviderCredentialInput(apiKey)
@@ -247,6 +249,7 @@ export function sendAnthropicWithToolsStream(
       res.on('end', () => {
         try {
           const parsed = JSON.parse(rawBody) as AnthropicStreamPayload
+          options.onCitations?.(extractCitations(parsed))
           const blocks = Array.isArray(parsed.content) ? parsed.content : []
           let content = ''
           const toolCalls: ToolCallResult[] = []
@@ -295,13 +298,11 @@ export function sendAnthropicWithToolsStream(
     parseSseStream(res, (data) => {
       try {
         const parsed = JSON.parse(data) as AnthropicStreamPayload
+        options.onCitations?.(extractCitations(parsed))
         const message = parsed.message
         if (typeof message?.model === 'string') modelName = message.model
         if (typeof message?.usage?.input_tokens === 'number') inputTokens = message.usage.input_tokens
         if (typeof parsed.usage?.output_tokens === 'number') outputTokens = parsed.usage.output_tokens
-        if (typeof inputTokens === 'number' && typeof outputTokens === 'number') {
-          options.onUsage?.({ inputTokens, outputTokens })
-        }
 
         if (parsed.type === 'content_block_start') {
           const block = parsed.content_block
@@ -358,6 +359,7 @@ export function sendAnthropicWithToolsStream(
         const usage = typeof inputTokens === 'number' && typeof outputTokens === 'number'
           ? { inputTokens, outputTokens }
           : undefined
+        if (usage) options.onUsage?.(usage)
         streamedResult = {
           content: content || null,
           toolCalls,
@@ -387,6 +389,7 @@ export async function sendAnthropicMessage(
     thinkingEffort?: string
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
+    onCitations?: (citations: Citation[]) => void
   } = {}
 ): Promise<string> {
   apiKey = resolveProviderCredentialInput(apiKey)
@@ -413,6 +416,7 @@ export async function sendAnthropicMessage(
 interface AnthropicStreamCallbacks {
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
+  onCitations?: (citations: Citation[]) => void
 }
 
 /** Shared SSE handler for Anthropic streaming (thinking + text deltas). */
@@ -441,6 +445,7 @@ function runAnthropicStream(
     parseSseStream(res, (data) => {
       try {
         const parsed = JSON.parse(data) as Record<string, unknown>
+        options.onCitations?.(extractCitations(parsed))
         if (
           parsed.type === 'content_block_start' &&
           (parsed.content_block as Record<string, unknown> | undefined)?.type === 'thinking'
@@ -492,6 +497,7 @@ export function sendAnthropicMessagesStream(
     thinkingEffort?: string
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
+    onCitations?: (citations: Citation[]) => void
   } = {},
 ): Promise<string> {
   apiKey = resolveProviderCredentialInput(apiKey)

@@ -16,7 +16,7 @@ import { initErrorLogCapture } from './error-log-handlers'
 import { autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 import { getSchedulerTraySummary, schedulerEngine, setSchedulerStatusChangeCallback } from './scheduler-engine'
-import { initializeActivityBadge, getUnseenActivityCount, setUnseenCountChangeCallback } from './activity-badge'
+import { initializeActivityBadge, setUnseenCountChangeCallback } from './activity-badge'
 import { cancelAllPendingUserInputs } from './user-input'
 import { applyStoredAutoStartSetting, isRunInBackgroundEnabled } from './app-lifecycle-settings'
 
@@ -141,19 +141,18 @@ function showMainWindow(afterLoad?: () => void): void {
   afterLoad?.()
 }
 
-// The tray icon is kept inline because resources/icon.* is used by electron-builder for the
-// executable and is not bundled as a runtime file. Keep this geometry in lockstep with the
-// desktop badge: a text glyph here can disappear or render differently in Windows' overflow
-// tray, while the geometric mark remains identifiable at the 16px tray size.
-function buildTrayIcon(unseenCount: number) {
-  // Rendered at 2x (32x32) so the badge stays crisp at Windows' HiDPI tray scales; the
-  // badge circle is inset from the corner (not flush against it) so its stroke doesn't get
-  // clipped by the canvas edge, which previously made it render as an invisible sliver.
-  const badge =
-    unseenCount > 0
-      ? '<circle cx="24" cy="8" r="7" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>'
-      : ''
-  const svg = [
+// Windows' notification area does not reliably render SVG data URLs passed to Tray. Use the
+// generated PNG logo instead. electron-builder's buildResources directory is only read while
+// packaging, so the asset is copied into the installed app's resources directory as tray-icon.png.
+function buildTrayIcon() {
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'tray-icon.png')
+    : join(app.getAppPath(), 'resources', 'icon.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  if (!icon.isEmpty()) return icon
+
+  // Keep development/startup resilient if the generated asset is temporarily unavailable.
+  const fallbackSvg = [
     '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">',
     '<rect x="1" y="1" width="30" height="30" rx="7" fill="#090D18"/>',
     '<rect x="3" y="3" width="26" height="26" rx="6" fill="#53627D"/>',
@@ -161,14 +160,13 @@ function buildTrayIcon(unseenCount: number) {
     '<rect x="7" y="6" width="4" height="20" rx="1" fill="#8D7CFF"/>',
     '<rect x="21" y="6" width="4" height="20" rx="1" fill="#8D7CFF"/>',
     '<polygon points="10,6 14,6 22,26 18,26" fill="#8D7CFF"/>',
-    badge,
     '</svg>',
   ].join('')
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(fallbackSvg).toString('base64')}`)
 }
 
-function updateTrayIcon(unseenCount: number): void {
-  tray?.setImage(buildTrayIcon(unseenCount))
+function updateTrayIcon(): void {
+  tray?.setImage(buildTrayIcon())
 }
 
 function formatTrayRunTime(timestamp: number): string {
@@ -220,7 +218,7 @@ function refreshTrayPresentation(): void {
 }
 
 function createTray(): void {
-  tray = new Tray(buildTrayIcon(getUnseenActivityCount()))
+  tray = new Tray(buildTrayIcon())
   setUnseenCountChangeCallback(updateTrayIcon)
   setSchedulerStatusChangeCallback(refreshTrayPresentation)
   refreshTrayPresentation()

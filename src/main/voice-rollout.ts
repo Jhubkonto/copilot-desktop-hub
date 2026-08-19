@@ -24,7 +24,6 @@ export function getVoiceFeatureFlags(
 ): VoiceFeatureFlags {
   return {
     voiceDockV1: readFlag(db, VOICE_FEATURE_FLAG_KEYS.voiceDockV1),
-    spokenOutputV1: readFlag(db, VOICE_FEATURE_FLAG_KEYS.spokenOutputV1),
   }
 }
 
@@ -46,7 +45,6 @@ export function getVoiceCapabilities(db: Database.Database): VoiceCapabilities {
     protocolVersion: VOICE_PROTOCOL_VERSION,
     audioUpload: flags.voiceDockV1,
     localWhisperReady: flags.voiceDockV1 && localWhisperReady,
-    spokenOutputPersistence: flags.spokenOutputV1,
     maxAudioBytes: MAX_VOICE_AUDIO_BYTES,
     maxRecordingSeconds: MAX_VOICE_RECORDING_SECONDS,
   }

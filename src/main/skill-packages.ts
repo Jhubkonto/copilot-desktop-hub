@@ -15,7 +15,7 @@ import { readFile as readFileAsync, readdir as readdirAsync } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { homedir, tmpdir } from 'os'
 import { app } from 'electron'
-import type { SkillConfig, SkillPackageFile } from '../shared/types'
+import type { SkillConfig, SkillPackageFile, SkillRuntimeRequirements } from '../shared/types'
 import { parseSkillMarkdown, skillToMarkdown } from './skill-markdown'
 
 export const SKILL_ENTRY_FILE = 'SKILL.md'
@@ -28,6 +28,33 @@ export type SkillPackageValidation = {
   status: 'valid' | 'warning' | 'invalid'
   errors: string[]
   warnings: string[]
+}
+
+/**
+ * Reads the runtime-relevant part of an optional package manifest. This metadata is deliberately
+ * non-executable: malformed or unknown manifest fields do not make a valid SKILL.md disappear.
+ */
+function readRuntimeRequirements(packagePath: string): SkillRuntimeRequirements | undefined {
+  try {
+    const manifestPath = join(packagePath, 'manifest.json')
+    if (!existsSync(manifestPath)) return undefined
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+    const dependencies = manifest.dependencies
+    if (!dependencies || typeof dependencies !== 'object' || Array.isArray(dependencies)) return undefined
+    const browser = (dependencies as Record<string, unknown>).browser
+    if (!browser || typeof browser !== 'object' || Array.isArray(browser)) return undefined
+    const browserRecord = browser as Record<string, unknown>
+    const requiredCapabilities = Array.isArray(browserRecord.requiredCapabilities)
+      ? browserRecord.requiredCapabilities.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    const optionalCapabilities = Array.isArray(browserRecord.optionalCapabilities)
+      ? browserRecord.optionalCapabilities.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    if (requiredCapabilities.length === 0 && optionalCapabilities.length === 0) return undefined
+    return { browser: { requiredCapabilities, optionalCapabilities } }
+  } catch {
+    return undefined
+  }
 }
 
 export function portableSkillName(name: string): string {
@@ -288,6 +315,7 @@ export function loadSkillPackage(packagePath: string): Partial<SkillConfig> {
     packagePath: resolve(packagePath),
     contentHash: hashSkillPackage(packagePath),
     validationStatus: validation.status,
+    runtimeRequirements: readRuntimeRequirements(packagePath),
   }
 }
 
@@ -302,6 +330,7 @@ export async function loadSkillPackageAsync(packagePath: string): Promise<Partia
     packagePath: resolve(packagePath),
     contentHash: await hashSkillPackageAsync(packagePath),
     validationStatus: validation.status,
+    runtimeRequirements: readRuntimeRequirements(packagePath),
   }
 }
 

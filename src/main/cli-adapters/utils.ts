@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'child_process'
+import { execFile, execSync, spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { debugLog, debugTime, debugTimeEnd } from '../debug-mode'
 
@@ -15,6 +15,16 @@ const NEGATIVE_CACHE_TTL_MS = 15_000
 // matching the 5s ceiling every probe in cli-detection.ts already uses.
 const RESOLVE_TIMEOUT_MS = 5000
 
+function resolveCommand(): string {
+  return process.platform === 'win32' ? 'where.exe' : 'which'
+}
+
+function firstPathLine(output: string): string | null {
+  // Split on CRLF or LF — `where.exe` emits CRLF, and a stray `\r` left on the path
+  // would make the resolved executable un-spawnable.
+  return output.split(/\r?\n/)[0].trim() || null
+}
+
 export function resolveCliPath(name: string): string | null {
   const positive = cache.get(name)
   if (positive !== undefined) {
@@ -28,11 +38,8 @@ export function resolveCliPath(name: string): string | null {
   const timer = `resolveCliPath where ${name}`
   debugTime(timer)
   try {
-    const cmd = process.platform === 'win32' ? `where.exe ${name}` : `which ${name}`
-    const output = execSync(cmd, { encoding: 'utf8', timeout: RESOLVE_TIMEOUT_MS, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
-    // Split on CRLF or LF — `where.exe` emits CRLF, and a stray `\r` left on the path
-    // would make the resolved executable un-spawnable (mirrors cli-detection.ts).
-    const result = output.split(/\r?\n/)[0].trim() || null
+    const output = execSync(`${resolveCommand()} ${name}`, { encoding: 'utf8', timeout: RESOLVE_TIMEOUT_MS, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    const result = firstPathLine(output)
     if (result) {
       cache.set(name, result)
       negativeCacheAt.delete(name)
@@ -46,6 +53,44 @@ export function resolveCliPath(name: string): string | null {
     debugTimeEnd(timer)
     return null
   }
+}
+
+/**
+ * Asynchronous counterpart used by main-process discovery and UI-facing IPC handlers.
+ * PATH resolution invokes an external helper (`where.exe`/`which`), so it must not use
+ * the synchronous variant on Electron's main thread.
+ */
+export function resolveCliPathAsync(name: string): Promise<string | null> {
+  const positive = cache.get(name)
+  if (positive !== undefined) {
+    debugLog('cli', `resolveCliPathAsync cache hit: ${name} -> ${positive}`)
+    return Promise.resolve(positive)
+  }
+  const negativeAt = negativeCacheAt.get(name)
+  if (negativeAt !== undefined && Date.now() - negativeAt < NEGATIVE_CACHE_TTL_MS) {
+    return Promise.resolve(null)
+  }
+
+  const timer = `resolveCliPathAsync ${resolveCommand()} ${name}`
+  debugTime(timer)
+  return new Promise((resolve) => {
+    execFile(resolveCommand(), [name], {
+      encoding: 'utf8',
+      timeout: RESOLVE_TIMEOUT_MS,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    }, (error, stdout) => {
+      const result = !error && typeof stdout === 'string' ? firstPathLine(stdout) : null
+      if (result) {
+        cache.set(name, result)
+        negativeCacheAt.delete(name)
+      } else {
+        negativeCacheAt.set(name, Date.now())
+      }
+      debugTimeEnd(timer)
+      resolve(result)
+    })
+  })
 }
 
 export function clearCliPathCache(): void {

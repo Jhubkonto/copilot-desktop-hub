@@ -45,6 +45,8 @@ export function listConversationPage(
   if (scope.type === 'project') {
     if (scope.id == null) filters.push('c.project_id IS NULL')
     else { filters.push('c.project_id = ?'); filterParams.push(scope.id) }
+  } else if (scope.type === 'pinned') {
+    filters.push('COALESCE(c.pinned, 0) = 1')
   } else if (scope.type === 'agent') {
     if (!scope.id) filters.push('1 = 0')
     else { filters.push('c.agent_id = ?'); filterParams.push(scope.id) }

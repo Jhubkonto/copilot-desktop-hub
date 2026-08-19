@@ -18,6 +18,7 @@ interface PanelPosition {
   top: number
   left: number
   placement: 'above' | 'below'
+  width?: number
 }
 
 export function DropdownPanel({
@@ -62,7 +63,14 @@ export function DropdownPanel({
       const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - VIEWPORT_MARGIN - panelRect.width)
       const left = Math.max(VIEWPORT_MARGIN, Math.min(preferredLeft, maxLeft))
 
-      setPanelPosition({ top, left, placement })
+      setPanelPosition({
+        top,
+        left,
+        placement,
+        // A portaled `w-full` panel has no trigger-width parent anymore. Preserve the
+        // component's intended semantics by matching the trigger rather than the viewport.
+        width: width.includes('w-full') ? triggerRect.width : undefined,
+      })
     }
 
     computePosition()
@@ -72,7 +80,7 @@ export function DropdownPanel({
       window.removeEventListener('resize', computePosition)
       window.removeEventListener('scroll', computePosition, true)
     }
-  }, [align, open])
+  }, [align, open, width])
 
   // Close on outside mousedown, but ignore clicks landing inside a ModelPicker menu:
   // that menu is portaled to document.body (outside this panel's DOM subtree), so a
@@ -108,6 +116,7 @@ export function DropdownPanel({
             position: 'fixed',
             top: panelPosition?.top ?? 0,
             left: panelPosition?.left ?? 0,
+            ...(panelPosition?.width != null ? { width: panelPosition.width } : {}),
             visibility: panelPosition ? 'visible' : 'hidden',
           }}
           className={`z-50 ${width} rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg overflow-hidden ${className}`}

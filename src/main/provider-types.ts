@@ -24,11 +24,14 @@ export interface ProviderUsage {
   outputTokens: number
 }
 
+import type { Citation } from '../shared/citations'
+
 export interface ProviderNonStreamResult {
   content: string | null
   toolCalls: ToolCallResult[]
   model?: string
   usage?: ProviderUsage
+  citations?: Citation[]
 }
 
 export type ToolChoice = 'auto' | 'required' | 'none'

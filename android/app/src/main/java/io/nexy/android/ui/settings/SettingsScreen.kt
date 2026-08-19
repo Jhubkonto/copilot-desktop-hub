@@ -29,6 +29,7 @@ fun SettingsScreen(
     onOpenConnection: () -> Unit = {},
     onOpenModels: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    onOpenVoiceAudio: () -> Unit = {},
     onOpenUpdates: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
     onOpenProviders: () -> Unit = {},
@@ -72,6 +73,11 @@ fun SettingsScreen(
                 title = "Notifications",
                 detail = "Tool approval push notifications",
                 onClick = onOpenNotifications,
+            )
+            SettingsNavRow(
+                title = "Voice & audio",
+                detail = "Voice Dock and microphone input",
+                onClick = onOpenVoiceAudio,
             )
             SettingsNavRow(
                 title = "Updates",

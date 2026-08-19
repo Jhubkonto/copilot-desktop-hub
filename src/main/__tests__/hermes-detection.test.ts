@@ -9,11 +9,10 @@ vi.mock('../database', () => ({ getDatabase: vi.fn() }))
 vi.mock('../safe-handle', () => ({ safeHandle: vi.fn() }))
 
 // child_process is mocked so readiness probing is deterministic (per CLAUDE.md ESM rule).
-const { execSyncMock, spawnSyncMock } = vi.hoisted(() => ({
-  execSyncMock: vi.fn(),
-  spawnSyncMock: vi.fn(),
+const { execFileMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn(),
 }))
-vi.mock('child_process', () => ({ execSync: execSyncMock, spawnSync: spawnSyncMock }))
+vi.mock('child_process', () => ({ execFile: execFileMock, execSync: vi.fn(), spawnSync: vi.fn() }))
 
 // os.homedir is redirected to a temp fixture root; keep tmpdir real.
 let fakeHome = ''
@@ -48,8 +47,7 @@ describe('listHermesProfiles', () => {
     rmSync(fakeHome, { recursive: true, force: true })
     if (savedHermesHome === undefined) delete process.env['HERMES_HOME']
     else process.env['HERMES_HOME'] = savedHermesHome
-    execSyncMock.mockReset()
-    spawnSyncMock.mockReset()
+    execFileMock.mockReset()
   })
 
   it('synthesizes a default entry when no profiles dir exists', () => {
@@ -185,10 +183,10 @@ describe('getCliModels(hermes-cli) profile scoping', () => {
 
 describe('hermesAcpReadiness', () => {
   let hermesBin = ''
+  type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void
 
   beforeEach(() => {
-    execSyncMock.mockReset()
-    spawnSyncMock.mockReset()
+    execFileMock.mockReset()
     // findCli('hermes') now resolves through the shared resolveCliPath cache; clear it so a
     // negative from the "binary absent" case doesn't leak (within its 15s TTL) into the next.
     clearCliPathCache()
@@ -197,7 +195,10 @@ describe('hermesAcpReadiness', () => {
     const dir = mkdtempSync(join(tmpdir(), 'nexy-hermes-bin-'))
     hermesBin = join(dir, 'hermes')
     writeFileSync(hermesBin, '')
-    execSyncMock.mockReturnValue(`${hermesBin}\n`)
+    execFileMock.mockImplementation((command: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+      if (command.includes('where') || command.includes('which')) callback(null, `${hermesBin}\n`, '')
+      else callback(new Error('not configured'), '', '')
+    })
   })
 
   afterEach(() => {
@@ -205,60 +206,67 @@ describe('hermesAcpReadiness', () => {
   })
 
   afterAll(() => {
-    execSyncMock.mockReset()
-    spawnSyncMock.mockReset()
+    execFileMock.mockReset()
   })
 
-  it('reports not-ready when the binary is absent', () => {
-    execSyncMock.mockImplementation(() => {
-      throw new Error('not found')
+  it('reports not-ready when the binary is absent', async () => {
+    execFileMock.mockImplementation((_command: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+      callback(new Error('not found'), '', '')
     })
-    const readiness = hermesAcpReadiness(true)
+    const readiness = await hermesAcpReadiness(true)
     expect(readiness.ready).toBe(false)
     expect(readiness.detail).toMatch(/not found/i)
   })
 
-  it('reports ready with version when acp --check exits 0', () => {
-    spawnSyncMock.mockImplementation((_exe: string, args: string[]) => {
-      if (args.includes('--version')) return { status: 0, stdout: 'hermes 0.17.0\n', stderr: '' }
-      return { status: 0, stdout: '', stderr: '' }
+  it('reports ready with version when acp --check exits 0', async () => {
+    execFileMock.mockImplementation((command: string, args: string[], _options: unknown, callback: ExecCallback) => {
+      if (command.includes('where') || command.includes('which')) callback(null, `${hermesBin}\n`, '')
+      else if (args.includes('--version')) callback(null, 'hermes 0.17.0\n', '')
+      else callback(null, '', '')
     })
-    const readiness = hermesAcpReadiness(true)
+    const readiness = await hermesAcpReadiness(true)
     expect(readiness).toEqual({ ready: true, version: 'hermes 0.17.0' })
   })
 
-  it('reports not-ready with stderr detail on non-zero check exit', () => {
-    spawnSyncMock.mockImplementation((_exe: string, args: string[]) => {
-      if (args.includes('--version')) return { status: 0, stdout: 'hermes 0.17.0\n', stderr: '' }
-      return { status: 1, stdout: '', stderr: 'no provider credentials configured\n' }
+  it('reports not-ready with stderr detail on non-zero check exit', async () => {
+    execFileMock.mockImplementation((command: string, args: string[], _options: unknown, callback: ExecCallback) => {
+      if (command.includes('where') || command.includes('which')) callback(null, `${hermesBin}\n`, '')
+      else if (args.includes('--version')) callback(null, 'hermes 0.17.0\n', '')
+      else callback(Object.assign(new Error('exit 1'), { code: 1 }), '', 'no provider credentials configured\n')
     })
-    const readiness = hermesAcpReadiness(true)
+    const readiness = await hermesAcpReadiness(true)
     expect(readiness.ready).toBe(false)
     expect(readiness.version).toBe('hermes 0.17.0')
     expect(readiness.detail).toBe('no provider credentials configured')
   })
 
-  it('caches the result until force re-probe', () => {
-    spawnSyncMock.mockReturnValue({ status: 0, stdout: '', stderr: '' })
-    hermesAcpReadiness(true)
-    const callsAfterForce = spawnSyncMock.mock.calls.length
-    hermesAcpReadiness() // cached — no new spawn
-    expect(spawnSyncMock.mock.calls.length).toBe(callsAfterForce)
-    hermesAcpReadiness(true) // force — re-probes
-    expect(spawnSyncMock.mock.calls.length).toBeGreaterThan(callsAfterForce)
+  it('caches the result until force re-probe', async () => {
+    execFileMock.mockImplementation((command: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+      if (command.includes('where') || command.includes('which')) callback(null, `${hermesBin}\n`, '')
+      else callback(null, '', '')
+    })
+    await hermesAcpReadiness(true)
+    const callsAfterForce = execFileMock.mock.calls.length
+    await hermesAcpReadiness() // cached — no new probe
+    expect(execFileMock.mock.calls.length).toBe(callsAfterForce)
+    await hermesAcpReadiness(true) // force — re-probes
+    expect(execFileMock.mock.calls.length).toBeGreaterThan(callsAfterForce)
   })
 
-  it('re-probes automatically once the cache TTL lapses, without an explicit force', () => {
+  it('re-probes automatically once the cache TTL lapses, without an explicit force', async () => {
     vi.useFakeTimers()
     try {
-      spawnSyncMock.mockReturnValue({ status: 0, stdout: '', stderr: '' })
-      hermesAcpReadiness(true)
-      const baseline = spawnSyncMock.mock.calls.length
-      hermesAcpReadiness() // still within TTL — served from cache
-      expect(spawnSyncMock.mock.calls.length).toBe(baseline)
+      execFileMock.mockImplementation((command: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+        if (command.includes('where') || command.includes('which')) callback(null, `${hermesBin}\n`, '')
+        else callback(null, '', '')
+      })
+      await hermesAcpReadiness(true)
+      const baseline = execFileMock.mock.calls.length
+      await hermesAcpReadiness() // still within TTL — served from cache
+      expect(execFileMock.mock.calls.length).toBe(baseline)
       vi.advanceTimersByTime(31_000) // past the 30s readiness TTL
-      hermesAcpReadiness() // stale — re-probes even without force (e.g. credentials since added)
-      expect(spawnSyncMock.mock.calls.length).toBeGreaterThan(baseline)
+      await hermesAcpReadiness() // stale — re-probes even without force (e.g. credentials since added)
+      expect(execFileMock.mock.calls.length).toBeGreaterThan(baseline)
     } finally {
       vi.useRealTimers()
     }

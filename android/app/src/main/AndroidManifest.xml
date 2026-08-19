@@ -8,8 +8,6 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <queries>
         <intent>
@@ -57,10 +55,6 @@
             android:name=".notification.ApprovalActionReceiver"
             android:exported="false" />
 
-        <receiver
-            android:name=".notification.ReadAloudActionReceiver"
-            android:exported="false" />
-
         <service
             android:name=".notification.NexyFcmService"
             android:exported="false">
@@ -68,11 +62,6 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
-
-        <service
-            android:name=".service.NexySpeechService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Disable FCM auto-init so a placeholder google-services.json doesn't cause startup errors.
              FCM initializes on demand when the app connects to the desktop and receives a real token. -->

@@ -61,6 +61,7 @@ import io.nexy.android.ui.settings.McpServersScreen
 import io.nexy.android.ui.settings.CliModelsScreen
 import io.nexy.android.ui.settings.ModelsScreen
 import io.nexy.android.ui.settings.NotificationsScreen
+import io.nexy.android.ui.settings.VoiceAudioScreen
 import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.settings.UpdatesScreen
@@ -71,6 +72,7 @@ import io.nexy.android.ui.scheduler.SchedulerTaskConfigScreen
 import io.nexy.android.ui.schedulegenerator.ScheduleGeneratorScreen
 import io.nexy.android.ui.skills.SkillsScreen
 import io.nexy.android.ui.splash.SplashScreen
+import io.nexy.android.ui.onboarding.WelcomeScreen
 import io.nexy.android.ui.debrief.DebriefScreen
 import io.nexy.android.ui.quiz.QuizScreen
 import io.nexy.android.ui.teachback.TeachbackScreen
@@ -110,9 +112,8 @@ fun NavGraph(
 
     val context = LocalContext.current
 
-    // The splash is branding only; the durable Room cache — not the splash — is where returning
-    // sessions get their data. Show the logo animation on first launch, then land straight on Home
-    // for every subsequent cold start so relaunching never looks like a fresh download. Computed
+    // The splash is branding only. First launch continues to a short setup choice; returning users
+    // go straight to Home. Computed
     // once (remember) so it stays stable across recompositions and Activity recreation.
     val startDestination = remember {
         if (io.nexy.android.data.PreferenceStore.getInstance(context).hasCompletedFirstLaunch()) {
@@ -169,13 +170,27 @@ fun NavGraph(
     NavHost(navController = navController, startDestination = startDestination) {
         composable("splash") {
             SplashScreen(onFinished = {
-                // Standalone is the default. Pairing remains available from Home and Settings,
-                // while saved profiles reconnect in the background.
-                io.nexy.android.data.PreferenceStore.getInstance(context).setFirstLaunchCompleted()
-                navController.navigate("home") {
+                navController.navigate("welcome") {
                     popUpTo("splash") { inclusive = true }
                 }
             })
+        }
+
+        composable("welcome") {
+            WelcomeScreen(
+                onPairDesktop = {
+                    io.nexy.android.data.PreferenceStore.getInstance(context).setFirstLaunchCompleted()
+                    navController.navigate("pairing") {
+                        popUpTo("welcome") { inclusive = true }
+                    }
+                },
+                onUseStandalone = {
+                    io.nexy.android.data.PreferenceStore.getInstance(context).setFirstLaunchCompleted()
+                    navController.navigate("home") {
+                        popUpTo("welcome") { inclusive = true }
+                    }
+                },
+            )
         }
 
         composable("pairing") {
@@ -402,6 +417,9 @@ fun NavGraph(
                 onOpenDesktopPathPicker = {
                     navController.navigate("file-explorer?projectId=&startPath=&selectionMode=attachment")
                 },
+                onOpenMcpServers = {
+                    navController.navigate("settings/mcp-servers")
+                },
                 initialMessageId = messageId,
                 sharedBatchId = shareId,
                 onNewChat = { newAgentId, newProjectId ->
@@ -435,6 +453,7 @@ fun NavGraph(
                 onOpenConnection = { navController.navigate("settings/connection") },
                 onOpenModels = { navController.navigate("settings/models") },
                 onOpenNotifications = { navController.navigate("settings/notifications") },
+                onOpenVoiceAudio = { navController.navigate("settings/voice-audio") },
                 onOpenUpdates = { navController.navigate("settings/updates") },
                 onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
                 onOpenProviders = { navController.navigate("providers") },
@@ -508,6 +527,10 @@ fun NavGraph(
 
         composable("settings/notifications") {
             NotificationsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/voice-audio") {
+            VoiceAudioScreen(onBack = { navController.popBackStack() })
         }
 
         composable("settings/updates") {

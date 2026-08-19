@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from 'child_process'
+import { execFile } from 'child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { basename, dirname, isAbsolute, join, relative } from 'path'
 import { homedir } from 'os'
@@ -6,7 +6,7 @@ import type { CliInstallStatus, HermesProfileInfo, HermesAcpReadiness } from '..
 import { HERMES_DEFAULT_PROFILE } from '../shared/hermes'
 import { safeHandle } from './safe-handle'
 import { CODEX_DEFAULT_MODELS } from './cli-adapters/codex'
-import { resolveCliPath } from './cli-adapters/utils'
+import { resolveCliPathAsync } from './cli-adapters/utils'
 import { getCachedAnthropicModels } from './anthropic-models'
 import { getCachedClaudeCliPtyModels } from './cli-adapters/claude-model-probe'
 
@@ -66,25 +66,33 @@ function withPreferredModelFirst(models: CliModelOption[], preferredModel: strin
   return [{ id: preferredModel, label: preferredModel }, ...models]
 }
 
-function findCopilotCli(): CliInstallStatus {
+function runCliVersion(command: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(command, ['--version'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    }, (error, stdout) => {
+      if (error || typeof stdout !== 'string') {
+        resolve(null)
+        return
+      }
+      resolve(stdout.trim().split(/\r?\n/)[0] || null)
+    })
+  })
+}
+
+async function findCopilotCli(): Promise<CliInstallStatus> {
   // Try common CLI names
   const cliNames = ['github-copilot-cli', 'copilot']
   const isWindows = process.platform === 'win32'
 
   for (const name of cliNames) {
     // Shared resolver: capped timeout, CRLF-safe splitting, TTL-cached negatives.
-    const cliPath = resolveCliPath(name)
+    const cliPath = await resolveCliPathAsync(name)
     if (cliPath && existsSync(cliPath)) {
-      let version: string | null = null
-      try {
-        version = execSync(`${name} --version`, {
-          encoding: 'utf-8',
-          timeout: 5000,
-          stdio: ['pipe', 'pipe', 'pipe']
-        }).trim()
-      } catch {
-        // Version command may not be supported
-      }
+      const version = await runCliVersion(cliPath)
       return { installed: true, path: cliPath, version }
     }
   }
@@ -110,26 +118,17 @@ function findCopilotCli(): CliInstallStatus {
   return { installed: false, path: null, version: null }
 }
 
-function findCli(command: string): CliInstallStatus {
+async function findCli(command: string): Promise<CliInstallStatus> {
   // Single source of truth for "where is this CLI" — the same resolver the adapters spawn
   // through, so the install badge can never disagree with what a spawn will actually find.
-  // resolveCliPath already caps the probe timeout, splits CRLF safely, and TTL-caches
+  // The shared async resolver caps the probe timeout, splits CRLF safely, and TTL-caches
   // negatives; the existsSync guard still catches a CLI removed after a positive was cached.
-  const cliPath = resolveCliPath(command)
+  const cliPath = await resolveCliPathAsync(command)
   if (!cliPath || !existsSync(cliPath)) {
     return { installed: false, path: null, version: null }
   }
 
-  let version: string | null = null
-  try {
-    version = execSync(`${command} --version`, {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['pipe', 'pipe', 'pipe']
-    }).trim().split(/\r?\n/)[0] || null
-  } catch {
-    // Version command may not be supported
-  }
+  const version = await runCliVersion(cliPath)
 
   return { installed: true, path: cliPath, version }
 }
@@ -324,11 +323,10 @@ export function listHermesProfiles(): HermesProfileInfo[] {
 
 let cachedHermesReadiness: HermesAcpReadiness | null = null
 let cachedHermesReadinessAt = 0
+let hermesReadinessProbe: Promise<HermesAcpReadiness> | null = null
 
 // Readiness reflects mutable state (credentials can be added, or expire, mid-session), so the
-// cache is only trusted briefly. Without a TTL the first verdict stuck until an app restart or
-// an explicit recheck — a user who logs in after launch would keep seeing "not ready". Two short
-// spawnSync probes are cheap enough to re-run at this cadence; `force` still bypasses it entirely.
+// cache is only trusted briefly. `force` bypasses the cache for a manual recheck.
 const HERMES_READINESS_TTL_MS = 30_000
 
 /**
@@ -338,64 +336,79 @@ const HERMES_READINESS_TTL_MS = 30_000
  * `shell:false`. Result is cached for {@link HERMES_READINESS_TTL_MS}; pass `force` to
  * re-probe immediately on manual recheck.
  */
-export function hermesAcpReadiness(force = false): HermesAcpReadiness {
+type CliProbeResult = { status: number | null; stdout: string; stderr: string; error?: Error }
+
+function runHermesProbe(executable: string, args: string[]): Promise<CliProbeResult> {
+  return new Promise((resolve) => {
+    execFile(executable, args, {
+      encoding: 'utf8',
+      timeout: 3000,
+      shell: false,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      const code = error ? (error as NodeJS.ErrnoException).code : undefined
+      const status = error && typeof code === 'number' ? code : error ? null : 0
+      resolve({
+        status,
+        stdout: typeof stdout === 'string' ? stdout : '',
+        stderr: typeof stderr === 'string' ? stderr : '',
+        error: error ?? undefined,
+      })
+    })
+  })
+}
+
+export async function hermesAcpReadiness(force = false): Promise<HermesAcpReadiness> {
   if (cachedHermesReadiness && !force && Date.now() - cachedHermesReadinessAt < HERMES_READINESS_TTL_MS) {
     return cachedHermesReadiness
   }
+  if (hermesReadinessProbe && !force) return hermesReadinessProbe
+
   cachedHermesReadinessAt = Date.now()
-
-  const executable = findCli('hermes').path
-  if (!executable) {
-    cachedHermesReadiness = { ready: false, detail: 'Hermes CLI not found on PATH.' }
-    return cachedHermesReadiness
-  }
-
-  const run = (args: string[]) =>
-    spawnSync(executable, args, { encoding: 'utf8', timeout: 3000, shell: false })
-
-  let version: string | undefined
-  try {
-    const versionResult = run(['acp', '--version'])
-    if (versionResult.status === 0 && typeof versionResult.stdout === 'string') {
-      version = versionResult.stdout.trim().split(/\r?\n/)[0] || undefined
+  hermesReadinessProbe = (async () => {
+    const executable = (await findCli('hermes')).path
+    if (!executable) {
+      cachedHermesReadiness = { ready: false, detail: 'Hermes CLI not found on PATH.' }
+      return cachedHermesReadiness
     }
-  } catch {
-    // Version is best-effort; readiness is decided by --check below.
-  }
 
-  try {
-    const check = run(['acp', '--check'])
-    if (check.error) {
-      cachedHermesReadiness = { ready: false, version, detail: check.error.message }
-    } else if (check.status === 0) {
+    const versionResult = await runHermesProbe(executable, ['acp', '--version'])
+    const version = versionResult.status === 0
+      ? versionResult.stdout.trim().split(/\r?\n/)[0] || undefined
+      : undefined
+    const check = await runHermesProbe(executable, ['acp', '--check'])
+    if (check.status === 0) {
       cachedHermesReadiness = { ready: true, version }
     } else {
-      const detail =
-        (typeof check.stderr === 'string' && check.stderr.trim()) ||
-        (typeof check.stdout === 'string' && check.stdout.trim()) ||
+      const detail = check.stderr.trim() || check.stdout.trim() || check.error?.message ||
         `hermes acp --check exited with code ${check.status ?? 'unknown'}`
       cachedHermesReadiness = { ready: false, version, detail }
     }
-  } catch (err) {
-    cachedHermesReadiness = {
-      ready: false,
-      version,
-      detail: err instanceof Error ? err.message : String(err),
-    }
-  }
+    return cachedHermesReadiness
+  })()
 
-  return cachedHermesReadiness
+  try {
+    return await hermesReadinessProbe
+  } finally {
+    hermesReadinessProbe = null
+  }
 }
 
-export function detectAllClis(): Record<string, CliInstallStatus> {
-  return {
-    copilot: findCopilotCli(),
-    claude: findCli('claude'),
-    codex: findCli('codex'),
-    hermes: findCli('hermes'),
-    gh: findCli('gh'),
-    ollama: findCli('ollama')
-  }
+export function detectCli(command: string): Promise<CliInstallStatus> {
+  return findCli(command)
+}
+
+export async function detectAllClis(): Promise<Record<string, CliInstallStatus>> {
+  const [copilot, claude, codex, hermes, gh, ollama] = await Promise.all([
+    findCopilotCli(),
+    findCli('claude'),
+    findCli('codex'),
+    findCli('hermes'),
+    findCli('gh'),
+    findCli('ollama'),
+  ])
+  return { copilot, claude, codex, hermes, gh, ollama }
 }
 
 export function getCliModels(backend: string, hermesProfile?: string): CliModelOption[] {
@@ -427,14 +440,14 @@ export function getCliModels(backend: string, hermesProfile?: string): CliModelO
 let cachedStatus: CliInstallStatus | null = null
 
 export function registerCliHandlers(): void {
-  safeHandle('cli:check', () => {
-    cachedStatus = findCopilotCli()
+  safeHandle('cli:check', async () => {
+    cachedStatus = await findCopilotCli()
     return cachedStatus
   })
 
-  safeHandle('cli:status', () => {
+  safeHandle('cli:status', async () => {
     if (!cachedStatus) {
-      cachedStatus = findCopilotCli()
+      cachedStatus = await findCopilotCli()
     }
     return cachedStatus
   })
@@ -450,7 +463,7 @@ export function registerCliHandlers(): void {
   safeHandle('hermes:acp-readiness', (_event, force?: boolean) => hermesAcpReadiness(force ?? false))
 }
 
-export function checkCliOnStartup(): CliInstallStatus {
-  cachedStatus = findCopilotCli()
+export async function checkCliOnStartup(): Promise<CliInstallStatus> {
+  cachedStatus = await findCopilotCli()
   return cachedStatus
 }

@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "legacySpec": {
+    "title": "Legacy summary",
+    "goalSummary": "Preserve existing workflow behavior",
+    "assumptions": [],
+    "steps": [
+      {
+        "id": "summarize",
+        "title": "Summarize",
+        "summary": "Legacy untyped model step",
+        "model": "test-model",
+        "prompt": "Summarize the supplied context.",
+        "expectedOutput": "Summary"
+      }
+    ]
+  },
+  "managedSpec": {
+    "title": "Weekly report",
+    "goalSummary": "Create, review, and publish a Markdown report",
+    "assumptions": [],
+    "steps": [
+      {
+        "id": "collect",
+        "kind": "collect",
+        "title": "Collect notes",
+        "summary": "Snapshot declared project notes",
+        "prompt": "Snapshot the selected sources.",
+        "expectedOutput": "Immutable source snapshot",
+        "inputBindings": [
+          {
+            "bindingId": "notes",
+            "source": {
+              "type": "project-files",
+              "projectSourceId": "source-1",
+              "include": ["notes/**/*.md"]
+            },
+            "required": true
+          }
+        ],
+        "deliverables": [
+          {
+            "name": "notes",
+            "title": "Notes snapshot",
+            "kind": "document",
+            "primaryPath": "sources.md",
+            "mediaType": "text/markdown"
+          }
+        ]
+      },
+      {
+        "id": "draft",
+        "kind": "model",
+        "title": "Draft report",
+        "summary": "Create the Markdown deliverable",
+        "model": "test-model",
+        "prompt": "Write the weekly report.",
+        "expectedOutput": "Markdown report",
+        "dependsOnStepIds": ["collect"],
+        "inputBindings": [
+          {
+            "bindingId": "source-notes",
+            "source": {
+              "type": "step-output",
+              "stepId": "collect",
+              "outputName": "notes"
+            },
+            "required": true
+          }
+        ],
+        "deliverables": [
+          {
+            "name": "report",
+            "title": "Weekly report",
+            "kind": "document",
+            "primaryPath": "weekly.md",
+            "mediaType": "text/markdown"
+          }
+        ]
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "title": "Review report",
+        "summary": "Edit and approve the exact version",
+        "prompt": "Review the report.",
+        "expectedOutput": "Approved report",
+        "dependsOnStepIds": ["draft"],
+        "reviewSource": { "stepId": "draft", "outputName": "report" }
+      },
+      {
+        "id": "publish",
+        "kind": "publish",
+        "title": "Publish report",
+        "summary": "Preview and write the approved Markdown",
+        "prompt": "Publish the report.",
+        "expectedOutput": "reports/weekly.md",
+        "dependsOnStepIds": ["review"],
+        "reviewSource": { "stepId": "review", "outputName": "report" },
+        "publishDestination": {
+          "type": "project-file",
+          "projectSourceId": "source-1",
+          "relativePath": "reports/weekly.md",
+          "conflictPolicy": "require-new-preview"
+        }
+      }
+    ]
+  },
+  "managedEvents": {
+    "version": {
+      "event": "automated-workflow-managed:version",
+      "data": {
+        "version": {
+          "version": {
+            "id": "version-2",
+            "artifactId": "artifact-1",
+            "versionNumber": 2,
+            "title": "Weekly report",
+            "primaryPath": "weekly.md",
+            "mediaType": "text/markdown",
+            "sizeBytes": 18,
+            "checksum": "sha256-version-2",
+            "createdAt": 20
+          },
+          "content": "# Weekly report\n",
+          "manifestJson": "{}",
+          "versions": []
+        }
+      }
+    },
+    "publishPreview": {
+      "event": "automated-workflow-managed:publish-preview",
+      "data": {
+        "preview": {
+          "id": "preview-1",
+          "runId": "run-1",
+          "stepDbId": "publish-step-1",
+          "artifactVersionId": "version-2",
+          "projectSourceId": "source-1",
+          "relativePath": "reports/weekly.md",
+          "destinationChecksum": null,
+          "diffText": "@@ -0,0 +1 @@\n+# Weekly report",
+          "createdAt": 30,
+          "expiresAt": 900030,
+          "invalidatedAt": null
+        }
+      }
+    }
+  }
+}

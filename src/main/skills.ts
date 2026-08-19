@@ -71,6 +71,9 @@ export function normalizeSkillConfig(input: Partial<SkillConfig> & Record<string
       ? input.source
       : 'nexy',
     validationStatus: input.validationStatus === 'invalid' || input.validationStatus === 'warning' ? input.validationStatus : 'valid',
+    runtimeRequirements: input.runtimeRequirements && typeof input.runtimeRequirements === 'object' && !Array.isArray(input.runtimeRequirements)
+      ? input.runtimeRequirements as SkillConfig['runtimeRequirements']
+      : undefined,
     frontmatter: input.frontmatter && typeof input.frontmatter === 'object' && !Array.isArray(input.frontmatter)
       ? input.frontmatter as Record<string, unknown>
       : undefined,

@@ -50,6 +50,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -63,6 +65,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import io.nexy.android.ui.components.NexyTopAppBar
@@ -117,6 +120,8 @@ import io.noties.markwon.syntax.Prism4jTheme
 import io.noties.markwon.syntax.SyntaxHighlightPlugin
 import io.noties.prism4j.Prism4j
 import android.text.SpannableStringBuilder
+import org.json.JSONArray
+import org.json.JSONObject
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.prompts.CreatePromptSheet
@@ -140,11 +145,6 @@ import io.nexy.android.ui.voice.PcmRecorderState
 import io.nexy.android.ui.voice.VoiceDock
 import io.nexy.android.ui.voice.VoiceDockController
 import io.nexy.android.ui.voice.VoiceDockUiState
-import io.nexy.android.service.NexySpeechService
-import io.nexy.android.service.SpokenOutputKind
-import io.nexy.android.service.createQuickRecap
-import io.nexy.android.service.sanitizeForSpeech
-import io.nexy.android.service.SpokenPlaybackStatus
 import io.nexy.android.share.ShareIntentRepository
 
 /**
@@ -229,6 +229,7 @@ fun ChatScreen(
     onOpenCodePanel: ((String) -> Unit)? = null,
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
     onOpenDesktopPathPicker: (() -> Unit)? = null,
+    onOpenMcpServers: (() -> Unit)? = null,
     initialMessageId: String? = null,
     sharedBatchId: String? = null,
     onNewChat: ((String?, String?) -> Unit)? = null,
@@ -273,6 +274,8 @@ fun ChatScreen(
     val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
+    val availableSkills by WsRepository.skills.collectAsStateWithLifecycle()
+    val mcpServers by WsRepository.mcpServers.collectAsStateWithLifecycle()
     val voiceCapabilities by WsRepository.voiceCapabilities.collectAsStateWithLifecycle()
     val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
@@ -320,6 +323,10 @@ fun ChatScreen(
     }
     LaunchedEffect(statusProjectId) {
         if (!statusProjectId.isNullOrBlank()) WsRepository.getProjectConfig(statusProjectId) else chatProjectWorkflowMode = null
+    }
+    LaunchedEffect(conversationId, selectedModel) {
+        WsRepository.getConversationCapabilities(conversationId)
+        WsRepository.resolveCapabilities(conversationId, selectedModel)
     }
     // Warm the project→primary-agent cache so a project draft chat (no bound agent yet) can show
     // its inherited agent before the first send. Only needed while the conversation itself carries
@@ -387,6 +394,10 @@ fun ChatScreen(
     val promptSheetState = rememberModalBottomSheetState()
     var showInspectorSheet by remember { mutableStateOf(false) }
     val inspectorSheetState = rememberModalBottomSheetState()
+    var showCapabilitiesSheet by remember { mutableStateOf(false) }
+    val capabilitiesSheetState = rememberModalBottomSheetState()
+    var capabilityProfileJson by remember { mutableStateOf("{}") }
+    var capabilityPreflightJson by remember { mutableStateOf("{}") }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -423,12 +434,6 @@ fun ChatScreen(
     }
     val preferenceStore = remember(context) { PreferenceStore.getInstance(context) }
     val voiceDockEnabled by preferenceStore.getVoiceDockV1().collectAsState(initial = true)
-    val spokenOutputEnabled by preferenceStore.getSpokenOutputV1().collectAsState(initial = true)
-    val spokenOutputSettings by preferenceStore.getSpokenOutputSettings().collectAsState(
-        initial = preferenceStore.currentSpokenOutputSettings(),
-    )
-    val spokenPlaybackState by NexySpeechService.state.collectAsStateWithLifecycle()
-    var aiRecapPendingMessageId by remember { mutableStateOf<String?>(null) }
     var voiceDockFloating by remember {
         mutableStateOf(voiceDockEnabled && preferenceStore.isVoiceDockFloating())
     }
@@ -466,7 +471,6 @@ fun ChatScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted && startAfterPermission) {
-            NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
             voiceDockController.start()
         } else if (!granted) {
             scope.launch { snackbarHostState.showSnackbar("Microphone permission is required for Voice Dock.") }
@@ -477,7 +481,6 @@ fun ChatScreen(
         when {
             !usePairedVoice -> voiceInput.start()
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> {
-                NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
                 voiceDockController.start()
             }
             else -> {
@@ -516,25 +519,6 @@ fun ChatScreen(
         }
     }
 
-    var wasStreamingForAutoPlay by remember(conversationId) { mutableStateOf(false) }
-    LaunchedEffect(isStreaming, spokenOutputEnabled, spokenOutputSettings.autoPlay, messages) {
-        if (
-            wasStreamingForAutoPlay &&
-            !isStreaming &&
-            spokenOutputEnabled &&
-            spokenOutputSettings.autoPlay
-        ) {
-            messages.lastOrNull { !it.isUser && !it.isStreaming && it.text.isNotBlank() }?.let { message ->
-                NexySpeechService.play(
-                    context = context,
-                    text = message.text,
-                    messageId = message.id,
-                    conversationId = conversationId,
-                )
-            }
-        }
-        wasStreamingForAutoPlay = isStreaming
-    }
     val sendError by vm.sendError.collectAsStateWithLifecycle()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -886,25 +870,6 @@ fun ChatScreen(
                         snackbarHostState.showSnackbar(event.message)
                     }
                 }
-                is io.nexy.android.data.model.WsEvent.VoiceAiRecap -> {
-                    if (aiRecapPendingMessageId == event.messageId) {
-                        aiRecapPendingMessageId = null
-                        NexySpeechService.play(
-                            context,
-                            event.spokenText,
-                            event.messageId,
-                            conversationId,
-                            SpokenOutputKind.AI_RECAP,
-                            event.model ?: event.generationKind,
-                        )
-                    }
-                }
-                is io.nexy.android.data.model.WsEvent.VoiceAiRecapError -> {
-                    if (aiRecapPendingMessageId == event.messageId) {
-                        aiRecapPendingMessageId = null
-                        snackbarHostState.showSnackbar(event.message)
-                    }
-                }
                 is io.nexy.android.data.model.WsEvent.ToolApprovalRequest -> {
                     // Only surface approvals for the conversation being viewed. A concurrent turn in
                     // another conversation broadcasts its own request; the Home-screen dialog owns
@@ -964,6 +929,22 @@ fun ChatScreen(
                 }
                 is io.nexy.android.data.model.WsEvent.ProjectConfig -> {
                     if (event.id == statusProjectId) chatProjectWorkflowMode = event.config.workflowMode
+                }
+                is io.nexy.android.data.model.WsEvent.ConversationCapabilities -> {
+                    if (event.conversationId == conversationId) capabilityProfileJson = event.profileJson
+                }
+                is io.nexy.android.data.model.WsEvent.CapabilityPreflight -> {
+                    if (event.conversationId == conversationId) capabilityPreflightJson = event.preflightJson
+                }
+                is io.nexy.android.data.model.WsEvent.CapabilitiesActivated -> {
+                    if (event.conversationId == conversationId) {
+                        capabilityProfileJson = event.profileJson
+                        WsRepository.resolveCapabilities(conversationId, selectedModel)
+                        snackbarHostState.showSnackbar("Capabilities updated")
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.CapabilitiesError -> {
+                    if (event.conversationId == conversationId) snackbarHostState.showSnackbar(event.message)
                 }
                 is io.nexy.android.data.model.WsEvent.AutomatedWorkflowRunsList -> {
                     if (event.projectId == statusProjectId) {
@@ -1110,6 +1091,43 @@ fun ChatScreen(
                 onSetTerminalSandboxOverride = { vm.setTerminalSandboxOverride(it) },
                 onSetCliMode = { vm.setCliModeOverride(it) },
                 onSetCodexExecutionMode = { vm.setCodexExecutionModeOverride(it) },
+            )
+        }
+    }
+
+    if (showCapabilitiesSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCapabilitiesSheet = false },
+            sheetState = capabilitiesSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            CapabilitySheet(
+                skills = availableSkills,
+                mcpServers = mcpServers,
+                profileJson = capabilityProfileJson,
+                preflightJson = capabilityPreflightJson,
+                projectName = chatProject?.name,
+                hasProject = statusProjectId != null,
+                hasAgent = chatAgentId != null,
+                desktopConnected = capabilities.desktopConnected,
+                onOpenMcpServers = onOpenMcpServers,
+                onRefresh = {
+                    WsRepository.getConversationCapabilities(conversationId)
+                    WsRepository.resolveCapabilities(conversationId, selectedModel)
+                },
+                onActivate = { selectedScope, skillIds, mcp ->
+                    WsRepository.activateCapabilities(
+                        conversationId = conversationId,
+                        skillIds = skillIds,
+                        mcp = mcp,
+                        scope = selectedScope,
+                        targetId = when (selectedScope) {
+                            "project" -> statusProjectId
+                            "agent" -> chatAgentId
+                            else -> null
+                        },
+                    )
+                },
             )
         }
     }
@@ -1496,6 +1514,13 @@ fun ChatScreen(
                             NexyIcon(NexyIconName.Stop, contentDescription = "Stop")
                         }
                     }
+                    IconButton(onClick = {
+                        WsRepository.getConversationCapabilities(conversationId)
+                        WsRepository.resolveCapabilities(conversationId, selectedModel)
+                        showCapabilitiesSheet = true
+                    }) {
+                        NexyIcon(NexyIconName.Tool, contentDescription = "Capabilities")
+                    }
                     IconButton(onClick = { showActionsSheet = true }) {
                         NexyIcon(
                             NexyIconName.More,
@@ -1549,9 +1574,6 @@ fun ChatScreen(
                 },
                 onVoiceInput = {
                     val listening = if (usePairedVoice && voiceDockEnabled) voiceDockState.recording else voiceInput.listening
-                    if (!listening) {
-                        NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
-                    }
                     if (usePairedVoice && voiceDockEnabled) {
                         if (voiceDockState.recording) stopVoiceDockRecording() else startVoiceDockRecording()
                     } else {
@@ -1893,7 +1915,6 @@ fun ChatScreen(
                                     onEditAssistant = null,
                                     onAddToProject = null,
                                     onShare = null,
-                                    onReadAloud = null,
                                 )
                             }
                             is ChatRenderItem.AssistantMessage -> {
@@ -1999,74 +2020,6 @@ fun ChatScreen(
                                                 context.startActivity(Intent.createChooser(intent, "Share message"))
                                             }
                                         } else null,
-                                        onReadAloud = if (spokenOutputEnabled && msg.text.isNotBlank()) {
-                                            {
-                                                if (connectionState == ConnectionState.CONNECTED) {
-                                                    WsRepository.send(
-                                                        "voice:save-spoken-output",
-                                                        mapOf(
-                                                            "messageId" to msg.id,
-                                                            "spokenText" to sanitizeForSpeech(msg.text),
-                                                            "outputKind" to "response",
-                                                        ),
-                                                    )
-                                                }
-                                                NexySpeechService.play(context, msg.text, msg.id, conversationId)
-                                            }
-                                        } else null,
-                                        onQuickRecap = if (spokenOutputEnabled && msg.text.isNotBlank()) {
-                                            {
-                                                val quickRecap = createQuickRecap(msg.text)
-                                                if (connectionState == ConnectionState.CONNECTED) {
-                                                    WsRepository.send(
-                                                        "voice:save-spoken-output",
-                                                        mapOf(
-                                                            "messageId" to msg.id,
-                                                            "spokenText" to quickRecap,
-                                                            "outputKind" to "quick-recap",
-                                                        ),
-                                                    )
-                                                }
-                                                NexySpeechService.play(
-                                                    context,
-                                                    quickRecap,
-                                                    msg.id,
-                                                    conversationId,
-                                                    SpokenOutputKind.QUICK_RECAP,
-                                                )
-                                            }
-                                        } else null,
-                                        onAiRecap = if (
-                                            spokenOutputEnabled &&
-                                            msg.text.isNotBlank() &&
-                                            connectionState == ConnectionState.CONNECTED
-                                        ) {
-                                            {
-                                                if (aiRecapPendingMessageId == null) {
-                                                    aiRecapPendingMessageId = msg.id
-                                                    WsRepository.send(
-                                                        "voice:generate-ai-recap",
-                                                        mapOf("messageId" to msg.id),
-                                                    )
-                                                }
-                                            }
-                                        } else null,
-                                        aiRecapLoading = aiRecapPendingMessageId == msg.id,
-                                        spokenPlaybackState = spokenPlaybackState.takeIf {
-                                            it.messageId == msg.id && it.status != SpokenPlaybackStatus.IDLE
-                                        },
-                                        onPauseSpeech = {
-                                            NexySpeechService.command(context, NexySpeechService.ACTION_PAUSE)
-                                        },
-                                        onResumeSpeech = {
-                                            NexySpeechService.command(context, NexySpeechService.ACTION_RESUME)
-                                        },
-                                        onStopSpeech = {
-                                            NexySpeechService.command(context, NexySpeechService.ACTION_STOP)
-                                        },
-                                        onReplaySpeech = {
-                                            NexySpeechService.command(context, NexySpeechService.ACTION_REPLAY)
-                                        },
                                     )
                                 }
                             }
@@ -2147,6 +2100,119 @@ fun ChatScreen(
         }
     }
     } // CompositionLocalProvider
+}
+
+@Composable
+private fun CapabilitySheet(
+    skills: List<io.nexy.android.data.model.SkillConfig>,
+    mcpServers: List<io.nexy.android.data.model.McpServerInfo>,
+    profileJson: String,
+    preflightJson: String,
+    projectName: String?,
+    hasProject: Boolean,
+    hasAgent: Boolean,
+    desktopConnected: Boolean,
+    onOpenMcpServers: (() -> Unit)?,
+    onRefresh: () -> Unit,
+    onActivate: (scope: String, skillIds: List<String>, mcp: List<Map<String, String>>) -> Unit,
+) {
+    val profile = remember(profileJson) { runCatching { JSONObject(profileJson) }.getOrDefault(JSONObject()) }
+    val initialSkills = remember(profileJson) {
+        profile.optJSONArray("skillIds")?.let { array -> (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }.toSet() } ?: emptySet()
+    }
+    val initialMcp = remember(profileJson) {
+        profile.optJSONArray("mcp")?.let { array -> (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("serverId")?.takeIf(String::isNotBlank) }.toSet() } ?: emptySet()
+    }
+    var selectedSkills by remember(profileJson) { mutableStateOf(initialSkills) }
+    var selectedMcp by remember(profileJson) { mutableStateOf(initialMcp) }
+    var selectedScope by remember { mutableStateOf("chat") }
+    val preflight = remember(preflightJson) { runCatching { JSONObject(preflightJson) }.getOrDefault(JSONObject()) }
+    val ready = preflight.optBoolean("ready", false)
+    val desktopOnly = preflight.optBoolean("desktopOnly", selectedMcp.isNotEmpty())
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NexyIcon(NexyIconName.Tool, contentDescription = null, modifier = Modifier.size(20.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Capabilities", style = MaterialTheme.typography.titleMedium)
+                Text("Use skills and tools without creating an agent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextButton(onClick = onRefresh) { Text("Check") }
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+            Text(
+                when {
+                    !desktopConnected && desktopOnly -> "This setup needs the connected desktop. MCP credentials and browser sessions stay there."
+                    ready -> "Ready. New MCP access still asks before each use."
+                    else -> "Choose a skill or MCP capability, then check readiness before sending your task."
+                },
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text("Use this setup", style = MaterialTheme.typography.labelLarge)
+        CapabilityScopeOption("This chat", "One-off use (recommended)", selectedScope == "chat") { selectedScope = "chat" }
+        if (hasProject) CapabilityScopeOption("This project", projectName ?: "Available to future project chats", selectedScope == "project") { selectedScope = "project" }
+        if (hasAgent) CapabilityScopeOption("This agent", "Reusable defaults for this agent", selectedScope == "agent") { selectedScope = "agent" }
+
+        Text("Skills", style = MaterialTheme.typography.labelLarge)
+        if (skills.isEmpty()) Text("No imported skills yet. Import one from the Skills screen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        skills.forEach { skill ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Checkbox(checked = selectedSkills.contains(skill.id), onCheckedChange = { checked -> selectedSkills = if (checked) selectedSkills + skill.id else selectedSkills - skill.id })
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("${skill.icon} ${skill.name}", style = MaterialTheme.typography.bodyMedium)
+                    if (skill.description.isNotBlank()) Text(skill.description, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        Text("MCP tools", style = MaterialTheme.typography.labelLarge)
+        if (mcpServers.isEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("No MCP servers configured yet.", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (onOpenMcpServers != null) TextButton(onClick = onOpenMcpServers) { Text("Open MCP setup") }
+            }
+        }
+        mcpServers.forEach { server ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Checkbox(checked = selectedMcp.contains(server.id), onCheckedChange = { checked -> selectedMcp = if (checked) selectedMcp + server.id else selectedMcp - server.id })
+                Text(server.name, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        if (mcpServers.isNotEmpty() && onOpenMcpServers != null) {
+            TextButton(onClick = onOpenMcpServers) { Text("Manage or add MCP capabilities") }
+        }
+        val activateEnabled = desktopConnected && (selectedSkills.isNotEmpty() || selectedMcp.isNotEmpty())
+        Button(
+            onClick = {
+                onActivate(selectedScope, selectedSkills.toList(), selectedMcp.map { mapOf("serverId" to it, "trust" to "always-ask") })
+            },
+            enabled = activateEnabled,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (!desktopConnected) "Connect desktop to activate" else when (selectedScope) {
+                "project" -> "Add to project"
+                "agent" -> "Attach to agent"
+                else -> "Use in this chat"
+            })
+        }
+        Spacer(Modifier.padding(bottom = 12.dp))
+    }
+}
+
+@Composable
+private fun CapabilityScopeOption(label: String, detail: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect)) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Column {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable

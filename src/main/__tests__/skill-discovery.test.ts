@@ -38,6 +38,17 @@ function writePackage(rootDir: string, slug: string, description = `Use ${slug} 
   return pkg
 }
 
+function writeManifest(packagePath: string): void {
+  writeFileSync(join(packagePath, 'manifest.json'), JSON.stringify({
+    dependencies: {
+      browser: {
+        requiredCapabilities: ['navigate', 'screenshot'],
+        optionalCapabilities: ['authenticatedGet'],
+      },
+    },
+  }), 'utf8')
+}
+
 function root(path: string): SkillDiscoveryRoot {
   return { path, label: path, scope: 'user', source: 'filesystem' }
 }
@@ -90,9 +101,10 @@ describe('skill discovery roots', () => {
 
   it('builds project roots per source directory and skips blank paths', () => {
     const built = projectSkillDiscoveryRoots(['/repo/one', '', '   '])
-    expect(built).toHaveLength(2)
+    expect(built).toHaveLength(3)
     expect(built.every((r) => r.scope === 'project')).toBe(true)
-    expect(built.map((r) => r.source)).toEqual(['claude', 'filesystem'])
+    expect(built.map((r) => r.source)).toEqual(['claude', 'filesystem', 'filesystem'])
+    expect(built.map((r) => r.path.replace(/\\/g, '/'))).toEqual(['/repo/one/.claude/skills', '/repo/one/.agents/skills', '/repo/one/skills'])
   })
 })
 
@@ -126,6 +138,20 @@ describe('discoverSkillPackages', () => {
 
     const found = await discoverSkillPackages([root(dir)], new Set([hash]))
     expect(found[0].alreadyImported).toBe(true)
+  })
+
+  it('surfaces browser requirements from a package manifest', async () => {
+    const dir = tempRoot()
+    const pkg = writePackage(dir, 'thingsboard-audit')
+    writeManifest(pkg)
+
+    const found = await discoverSkillPackages([root(dir)], new Set())
+    expect(found[0].runtimeRequirements).toEqual({
+      browser: {
+        requiredCapabilities: ['navigate', 'screenshot'],
+        optionalCapabilities: ['authenticatedGet'],
+      },
+    })
   })
 
   it('reports a malformed package as invalid instead of throwing', async () => {

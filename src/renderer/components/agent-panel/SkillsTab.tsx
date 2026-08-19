@@ -59,6 +59,11 @@ export function SkillsTab({
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{skill.name}</p>
                       <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{skill.description || 'Reusable instructions and tool defaults'}</p>
+                      {skill.runtimeRequirements?.browser && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 truncate">
+                          Requires browser MCP capabilities
+                        </p>
+                      )}
                     </div>
                     <button
                       type="button"

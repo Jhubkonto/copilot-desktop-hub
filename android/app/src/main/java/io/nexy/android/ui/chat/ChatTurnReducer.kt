@@ -35,6 +35,12 @@ data class ChatTurnCost(
     val inputTokens: Int,
     val outputTokens: Int,
     val totalCostUsd: Double,
+    val quality: String? = null,
+    val source: String? = null,
+    val requestCount: Int? = null,
+    val complete: Boolean? = null,
+    val cachedInputTokens: Int? = null,
+    val reasoningTokens: Int? = null,
 )
 
 data class ChatTurnError(
@@ -317,6 +323,12 @@ fun reduceChatTurn(state: ChatTurnState, event: WsEvent.ChatTurnEvent): ChatTurn
                 inputTokens = payload.optInt("inputTokens", 0),
                 outputTokens = payload.optInt("outputTokens", 0),
                 totalCostUsd = payload.optDouble("totalCostUsd", 0.0),
+                quality = payload.nullableString("quality"),
+                source = payload.nullableString("source"),
+                requestCount = if (payload.has("requestCount")) payload.optInt("requestCount") else null,
+                complete = if (payload.has("complete")) payload.optBoolean("complete") else null,
+                cachedInputTokens = if (payload.has("cachedInputTokens")) payload.optInt("cachedInputTokens") else null,
+                reasoningTokens = if (payload.has("reasoningTokens")) payload.optInt("reasoningTokens") else null,
             ),
         )
 

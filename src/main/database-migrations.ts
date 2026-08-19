@@ -1926,6 +1926,32 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON credential_bindings(project_id, agent_id, capability);
     `,
   },
+  {
+    // Structured web citations belong to the assistant response, not to the provider's raw
+    // stream. Keeping them in their own JSON column preserves the original response text while
+    // giving the renderer enough information to turn provider reference IDs into real links.
+    version: 95,
+    sql: `ALTER TABLE messages ADD COLUMN citations TEXT`,
+  },
+  {
+    // Secret-free, conversation-scoped capability references. MCP credentials remain in the
+    // existing encrypted server configuration and are never copied into this profile.
+    version: 96,
+    sql: `
+      ALTER TABLE conversations ADD COLUMN capability_profile_json TEXT NOT NULL DEFAULT '{"version":1,"skillIds":[],"mcp":[]}'
+      ;
+      CREATE TABLE IF NOT EXISTS conversation_capability_invocations (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+        trigger TEXT NOT NULL CHECK (trigger IN ('explicit', 'implicit')),
+        created_at INTEGER NOT NULL,
+        UNIQUE(conversation_id, skill_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_capability_invocations_conversation
+        ON conversation_capability_invocations(conversation_id, created_at);
+    `,
+  },
 ];
 
 
@@ -1946,6 +1972,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       pinned INTEGER NOT NULL DEFAULT 0,
       project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       title TEXT NOT NULL DEFAULT 'New Chat',
+      capability_profile_json TEXT NOT NULL DEFAULT '{"version":1,"skillIds":[],"mcp":[]}',
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
@@ -1960,6 +1987,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       previous_content TEXT,
       timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       timeline_order INTEGER,
+      citations TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
 

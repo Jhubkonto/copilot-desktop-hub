@@ -1,6 +1,6 @@
 {
   "name": "nexy",
-  "version": "1.3.36",
+  "version": "1.3.40",
   "description": "A provider-agnostic native AI workspace — locally-first, multi-provider, with MCP tools, CLI adapters, and project-scoped workspaces.",
   "type": "module",
   "main": "dist/main/index.js",
@@ -17,6 +17,8 @@
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",
+    "security:scan": "node scripts/security-scan.mjs",
+    "check:package-boundary": "node scripts/check-package-boundary.mjs",
     "generate:ui-theme": "node scripts/generate-ui-theme.mjs",
     "check:ui-theme": "node scripts/generate-ui-theme.mjs --check",
     "check:ui-contrast": "node scripts/check-ui-contrast.mjs"
@@ -76,7 +78,6 @@
     "rehype-highlight": "^7.0.0",
     "remark-gfm": "^4.0.0",
     "selfsigned": "^5.5.0",
-    "sherpa-onnx-node": "1.13.4",
     "tesseract.js": "^7.0.0",
     "ws": "^8.21.0",
     "zustand": "^5.0.12"

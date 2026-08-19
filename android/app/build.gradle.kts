@@ -4,7 +4,14 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
-    id("com.google.gms.google-services")
+}
+
+// google-services.json is intentionally never committed. Android builds
+// without it remain valid builds with FCM disabled; CI may copy a protected
+// file into this location for a Firebase-enabled release.
+val hasFirebaseConfig = file("google-services.json").isFile
+if (hasFirebaseConfig) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 // Derive versionCode from the git commit count so every APK the desktop builds

@@ -13,7 +13,6 @@ import { useSlashMenu } from '../hooks/useSlashMenu'
 import { useRateLimitTimer } from '../hooks/useRateLimitTimer'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { usePushToTalkShortcut } from '../hooks/usePushToTalkShortcut'
-import { useSpokenOutput } from '../hooks/useSpokenOutput'
 import { appendTranscriptToDraft } from '../lib/composer-draft'
 import { useAppStore } from '../store/app-store'
 import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from '../lib/context-token-estimate'
@@ -85,11 +84,13 @@ export function ChatWindow() {
   const installedClis = useAppStore((state) => state.authState.clis ?? { claude: state.authState.cliInstalled, codex: false })
   const isReady = authenticated || cliInstalled
   const theme = useAppStore((state) => state.theme)
+  const skills = useAppStore((state) => state.skills)
   const conversationCreated = useAppStore((state) => state.conversationCreated)
   const loadConversations = useAppStore((state) => state.loadConversations)
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
   const openSectionPane = useAppStore((state) => state.openSectionPane)
+  const setShowMcpPanel = useAppStore((state) => state.setShowMcpPanel)
   const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
   const openEditProject = useAppStore((state) => state.openEditProject)
   const selectConversation = useAppStore((state) => state.selectConversation)
@@ -215,12 +216,6 @@ export function ChatWindow() {
     handleVoiceError,
     conversationId ?? `new:${activeProjectId ?? 'standalone'}`,
   )
-  const spokenOutput = useSpokenOutput()
-  const speechWasGeneratingRef = useRef(false)
-
-  useEffect(() => {
-    if (voiceState === 'recording') spokenOutput.stop()
-  }, [voiceState, spokenOutput.stop])
 
   const [voiceDockEnabled, setVoiceDockEnabled] = useState(() => {
     // Force docked mode on every fresh app launch — floating position can land
@@ -237,11 +232,28 @@ export function ChatWindow() {
     localStorage.setItem('nexy.voiceDock.enabled', String(enabled))
   }, [])
 
+  useEffect(() => {
+    const syncVoiceDockSetting = () => {
+      setVoiceDockEnabled(localStorage.getItem('nexy.voiceDock.enabled') === 'true')
+    }
+    window.addEventListener('nexy.voiceDock.settingsChanged', syncVoiceDockSetting)
+    return () => window.removeEventListener('nexy.voiceDock.settingsChanged', syncVoiceDockSetting)
+  }, [])
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const pendingSourceMessageIdRef = useRef<string | null>(null)
   const prevGeneratingRef = useRef(false)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const ensureConversationForCapability = useCallback(async () => {
+    const created = await window.api.createConversation(activeAgentId ?? undefined, activeProjectId ?? undefined)
+    if (!('error' in created)) {
+      await conversationCreated(created.id)
+      return created.id
+    }
+    addToast(String(created.error), 'error')
+    return null
+  }, [activeAgentId, activeProjectId, conversationCreated, addToast])
 
   useEffect(() => {
     const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus())
@@ -473,13 +485,6 @@ export function ChatWindow() {
     stop: stopVoice,
     cancel: cancelVoice,
   })
-  useEffect(() => {
-    const justFinished = speechWasGeneratingRef.current && !chat.isGenerating
-    speechWasGeneratingRef.current = chat.isGenerating
-    if (!justFinished || !spokenOutput.settings.autoPlay) return
-    const latestAssistant = [...chat.messages].reverse().find((message) => message.role === 'assistant' && !message.isError)
-    if (latestAssistant) spokenOutput.speakResponse(latestAssistant.id, latestAssistant.content)
-  }, [chat.isGenerating, chat.messages, spokenOutput.settings.autoPlay, spokenOutput.speakResponse])
   const fileInput = useFileInput(conversationId)
   const slashMenu = useSlashMenu()
   const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId, projectRootDir })
@@ -1410,6 +1415,14 @@ export function ChatWindow() {
       rateLimitRemainingSec={rateLimitRemainingSec}
       conversationId={conversationId}
       effectiveModel={effectiveModel}
+      capabilitySkills={skills}
+      capabilityProjectId={chatProjectId}
+      capabilityProjectName={chatProject?.name}
+      capabilityAgentId={chatAgentId}
+      capabilityAgentName={chatAgent?.name}
+      onEnsureConversationForCapability={ensureConversationForCapability}
+      onOpenMcp={() => setShowMcpPanel(true)}
+      onOpenSkills={() => openSectionPane('skills')}
       modelSourceLabel={modelSourceLabel}
       pendingAttachments={fileInput.pendingAttachments}
       pendingImages={fileInput.pendingImages}
@@ -2019,27 +2032,6 @@ export function ChatWindow() {
             ])
           }}
           liveTurnState={chat.liveTurnState}
-          spokenOutput={{
-            supported: spokenOutput.supported,
-            activeMessageId: spokenOutput.active?.messageId ?? null,
-            state: spokenOutput.state,
-            kind: spokenOutput.active?.kind ?? 'response',
-            model: spokenOutput.active?.model ?? null,
-            aiRecapMessageId: spokenOutput.aiRecapMessageId,
-            aiRecapError: spokenOutput.aiRecapError,
-            aiRecapErrorMessageId: spokenOutput.aiRecapErrorMessageId,
-            voices: spokenOutput.voices,
-            settings: spokenOutput.settings,
-            supertonicReady: Boolean(spokenOutput.supertonicStatus?.ready),
-            onRead: spokenOutput.speakResponse,
-            onQuickRecap: spokenOutput.speakQuickRecap,
-            onAiRecap: spokenOutput.speakAiRecap,
-            onPause: spokenOutput.pause,
-            onResume: spokenOutput.resume,
-            onStop: spokenOutput.stop,
-            onReplay: spokenOutput.replay,
-            onSettingsChange: spokenOutput.setSettings,
-          }}
         />
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

@@ -47,6 +47,8 @@ import io.nexy.android.data.model.CompressionSections
 import io.nexy.android.data.model.ContextInspectorAttachmentSnapshot
 import io.nexy.android.data.model.ContextInspectorRefSnapshot
 import io.nexy.android.data.model.ContextInspectorSnapshot
+import io.nexy.android.data.model.ContextInspectorNextRequest
+import io.nexy.android.data.model.ContextInspectorTurnTotal
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.NewContentConversation
 import io.nexy.android.data.model.HistoryMessage
@@ -258,7 +260,6 @@ fun parseWsEvent(
                     protocolVersion = voice?.optInt("protocolVersion", 0) ?: 0,
                     audioUpload = voice?.optBoolean("audioUpload", false) ?: false,
                     localWhisperReady = voice?.optBoolean("localWhisperReady", false) ?: false,
-                    spokenOutputPersistence = voice?.optBoolean("spokenOutputPersistence", false) ?: false,
                     maxAudioBytes = voice?.optLong("maxAudioBytes", 0) ?: 0,
                     maxRecordingSeconds = voice?.optInt("maxRecordingSeconds", 0) ?: 0,
                 )
@@ -297,18 +298,6 @@ fun parseWsEvent(
                 sessionId = data?.nullableString("sessionId"),
                 code = data?.optString("code", "upload-failed") ?: "upload-failed",
                 message = data?.optString("message", "Voice upload failed.") ?: "Voice upload failed.",
-            )
-
-            "voice:ai-recap" -> WsEvent.VoiceAiRecap(
-                messageId = data?.optString("messageId") ?: return,
-                spokenText = data.optString("spokenText", ""),
-                model = data.nullableString("model"),
-                generationKind = data.optString("generationKind", "provider"),
-            )
-
-            "voice:ai-recap-error" -> WsEvent.VoiceAiRecapError(
-                messageId = data?.optString("messageId") ?: return,
-                message = data.optString("message", "AI summary failed."),
             )
 
             "sync:welcome" -> WsEvent.SyncWelcome(
@@ -464,6 +453,26 @@ fun parseWsEvent(
                     hasMore = data?.optBoolean("hasMore", false) ?: false,
                 )
             }
+
+            "conversation:capabilities" -> WsEvent.ConversationCapabilities(
+                conversationId = data?.optString("conversationId") ?: "",
+                profileJson = data?.optJSONObject("profile")?.toString() ?: "{}",
+            )
+
+            "capabilities:preflight" -> WsEvent.CapabilityPreflight(
+                conversationId = data?.optString("conversationId") ?: "",
+                preflightJson = data?.toString() ?: "{}",
+            )
+
+            "capabilities:activated" -> WsEvent.CapabilitiesActivated(
+                conversationId = data?.optString("conversationId") ?: "",
+                profileJson = data?.optJSONObject("profile")?.toString() ?: "{}",
+            )
+
+            "capabilities:error" -> WsEvent.CapabilitiesError(
+                conversationId = data?.optString("conversationId") ?: "",
+                message = data?.optString("message") ?: "Capability setup failed",
+            )
 
             "project:list" -> {
                 val projectsArray = data?.optJSONArray("projects") ?: JSONArray()
@@ -983,6 +992,24 @@ fun parseWsEvent(
                         currentInputTokens = data.optInt("currentInputTokens"),
                         totalTokens = data.optInt("totalTokens"),
                         maxTokens = data.optInt("maxTokens", 16000),
+                        nextRequest = data.optJSONObject("nextRequest")?.let { next ->
+                            ContextInspectorNextRequest(
+                                inputTokens = next.optInt("inputTokens"),
+                                quality = next.optString("quality", "estimate"),
+                                source = next.optString("source", "heuristic"),
+                                model = next.nullableString("model"),
+                            )
+                        },
+                        turnTotal = data.optJSONObject("turnTotal")?.let { total ->
+                            ContextInspectorTurnTotal(
+                                inputTokens = total.optInt("inputTokens"),
+                                outputTokens = total.optInt("outputTokens"),
+                                requestCount = total.optInt("requestCount"),
+                                quality = total.optString("quality", "estimate"),
+                                source = total.optString("source", "heuristic"),
+                                complete = total.optBoolean("complete", false),
+                            )
+                        },
                     )
                 }
                 WsEvent.InspectorSnapshot(snapshot)

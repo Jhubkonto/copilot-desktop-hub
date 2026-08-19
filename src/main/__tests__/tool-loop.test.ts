@@ -996,6 +996,52 @@ describe('runProviderMcpToolLoop', () => {
     expect(caller).toHaveBeenLastCalledWith(expect.any(Array), undefined, 'none')
   })
 
+  it('fixed BYOK bug: surfaces the specific empty-response diagnosis instead of the generic fallback', async () => {
+    // Mirrors the real production path: streamChatCompletions detects finish_reason:'stop' with
+    // empty content and throws a specific, actionable error. Nothing has streamed yet, so the loop
+    // falls through to the non-streaming caller — which (like sendOpenAIWithTools in production,
+    // post-fix) also detects the empty/truncated response and throws the same kind of specific
+    // error instead of silently returning content: null. The loop must now surface that specific
+    // diagnosis rather than the generic, unhelpful "no final response" placeholder.
+    const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
+      if (toolChoice === 'none') {
+        throw new Error(
+          'The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'
+        )
+      }
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    const onChunk = vi.fn()
+    const finalStreamCaller = vi.fn(async () => {
+      throw new Error(
+        'The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'
+      )
+    })
+
+    const result = await runWithFinalStream(caller, onChunk, finalStreamCaller)
+
+    // FIXED: the specific truncation diagnosis now reaches the user instead of the generic placeholder.
+    expect(result).toBe(
+      'The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'
+    )
+    expect(caller).toHaveBeenLastCalledWith(expect.any(Array), undefined, 'none')
+  })
+
+  it('still falls back to the generic placeholder for non-diagnostic errors on the final call', async () => {
+    const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
+      if (toolChoice === 'none') throw new Error('socket hang up')
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    const onChunk = vi.fn()
+    const finalStreamCaller = vi.fn(async () => { throw new Error('endpoint rejected stream') })
+
+    const result = await runWithFinalStream(caller, onChunk, finalStreamCaller)
+
+    expect(result).toBe('I completed some tool actions, but the provider stopped before providing a final response.')
+  })
+
   it('keeps partial text when finalStreamCaller fails after emitting', async () => {
     const caller: ModelToolCaller = vi.fn(async (_messages, _tools, toolChoice) => {
       if (toolChoice === 'none') throw new Error('non-streaming final caller should not be used after partial stream')

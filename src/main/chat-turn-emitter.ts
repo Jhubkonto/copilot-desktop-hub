@@ -4,6 +4,7 @@ import type { WsPushEvent } from './ws-server'
 import { debugLog } from './debug-mode'
 import { recordActiveChatTurnEvent } from './active-chat-turns'
 import { startActivity, endActivity } from './activity-tracker'
+import type { TokenCountQuality, TokenCountSource } from '../shared/token-usage'
 
 export interface ChatTurnEmitterSinks {
   sendDesktop?: (channel: string, ...args: unknown[]) => void
@@ -222,10 +223,15 @@ export class ChatTurnEmitter {
     return this.emit({ type: 'user_input_cancelled', requestId, reason })
   }
 
-  cost(inputTokens: number, outputTokens: number, totalCostUsd: number): ChatTurnEvent {
-    const event = this.emit({ type: 'cost_updated', inputTokens, outputTokens, totalCostUsd })
-    const data = this.withMeta({ conversationId: this.conversationId, inputTokens, outputTokens, totalCostUsd }, event)
-    this.sinks.sendDesktop?.('chat:cli-cost', { inputTokens, outputTokens, totalCostUsd })
+  cost(
+    inputTokens: number,
+    outputTokens: number,
+    totalCostUsd: number,
+    metadata: { quality?: TokenCountQuality; source?: TokenCountSource; requestCount?: number; complete?: boolean; cachedInputTokens?: number; reasoningTokens?: number } = {},
+  ): ChatTurnEvent {
+    const event = this.emit({ type: 'cost_updated', inputTokens, outputTokens, totalCostUsd, ...metadata })
+    const data = this.withMeta({ conversationId: this.conversationId, inputTokens, outputTokens, totalCostUsd, ...metadata }, event)
+    this.sinks.sendDesktop?.('chat:cli-cost', { inputTokens, outputTokens, totalCostUsd, ...metadata })
     this.sinks.broadcastMobile?.({ event: 'chat:cost', data })
     return event
   }

@@ -45,6 +45,7 @@ function normalizeImportedMessages(
     attachmentsJson: message.attachments.length > 0 ? JSON.stringify(message.attachments) : null,
     contextSnapshotJson: serializeContextSnapshot(message, importedIntoExisting),
     timestamp: baseTimestamp == null ? message.timestamp : baseTimestamp + index + 1,
+    citationsJson: message.citations?.length ? JSON.stringify(message.citations) : null,
   }));
 }
 
@@ -96,8 +97,8 @@ export function importConversationExport(
 
     const insertMessage = db.prepare(
       `INSERT INTO messages
-        (id, conversation_id, role, content, model, is_edited, previous_content, attachments, context_snapshot, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, conversation_id, role, content, model, is_edited, previous_content, attachments, context_snapshot, timestamp, citations)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const message of messages) {
       insertMessage.run(
@@ -111,6 +112,7 @@ export function importConversationExport(
         message.attachmentsJson,
         message.contextSnapshotJson,
         message.timestamp,
+        message.citationsJson,
       );
     }
 

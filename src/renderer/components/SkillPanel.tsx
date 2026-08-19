@@ -146,7 +146,7 @@ export function SkillPanel() {
           <section className="space-y-2">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Skill</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Skills are package-backed instructions loaded only when activated. Tool access and approvals stay on the agent.
+              Skills are package-backed instructions loaded only when activated. Tool access and approvals are selected in the chat, project, or agent capability setup.
             </p>
             <div className="flex items-center gap-2">
               <input

@@ -271,7 +271,7 @@ export function Sidebar() {
             </div>
             {pinnedConvs.length > visiblePinnedConvs.length && (
               <button
-                onClick={() => openSectionPane('chats')}
+                onClick={() => openSectionPane('pinned')}
                 className="w-full px-2 pt-1.5 text-left text-[10px] font-medium text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 dark:hover:text-cyan-100"
               >
                 View all {pinnedConvs.length}…

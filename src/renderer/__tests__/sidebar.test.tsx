@@ -105,7 +105,7 @@ describe('Sidebar', () => {
     expect(mockStore.loadConversations).toHaveBeenCalled()
   })
 
-  it('links an overflowing pinned shelf to the full chat history', async () => {
+  it('links an overflowing pinned shelf to the dedicated pinned chats pane', async () => {
     mockStore = createMockAppStore({
       conversations: Array.from({ length: 6 }, (_, index) => ({
         id: `pinned-${index}`,
@@ -120,6 +120,6 @@ describe('Sidebar', () => {
     render(<Sidebar />)
     await user.click(screen.getByText('View all 6…'))
 
-    expect(mockStore.openSectionPane).toHaveBeenCalledWith('chats')
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('pinned')
   })
 })

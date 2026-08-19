@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
-import android.speech.tts.TextToSpeech
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.ConnectionState
@@ -18,9 +17,6 @@ import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
 import io.nexy.android.ui.theme.UiStylePreference
-import io.nexy.android.service.SpokenOutputSettings
-import io.nexy.android.service.SpokenVoiceOption
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -41,7 +37,6 @@ data class UpdateInstallState(
 
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val preferenceStore = PreferenceStore.getInstance(app)
-    private var voiceCatalogTts: TextToSpeech? = null
 
     val connectionState: StateFlow<ConnectionState> = WsRepository.connectionState
     val preferStandaloneMode: StateFlow<Boolean> = WsRepository.preferStandaloneMode
@@ -55,17 +50,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val androidUpdateManifest: StateFlow<AndroidUpdateManifest?> = WsRepository.androidUpdateManifest
     val themePreference: StateFlow<ThemePreference> = ThemePreferenceStore.themePreference
     val uiStylePreference: StateFlow<UiStylePreference> = ThemePreferenceStore.uiStylePreference
-    private val preferencesFlow: Flow<Boolean> = PreferenceStore.getInstance(app).getReadAloudEnabled()
-    val readAloudEnabled: StateFlow<Boolean> = preferencesFlow.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, false)
     val voiceDockEnabled: StateFlow<Boolean> = PreferenceStore.getInstance(app)
         .getVoiceDockV1()
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, true)
-    val spokenOutputEnabled: StateFlow<Boolean> = preferenceStore.getSpokenOutputV1()
-        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, false)
-    val spokenOutputSettings: StateFlow<SpokenOutputSettings> = preferenceStore.getSpokenOutputSettings()
-        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, preferenceStore.currentSpokenOutputSettings())
-    private val _spokenVoices = MutableStateFlow<List<SpokenVoiceOption>>(emptyList())
-    val spokenVoices: StateFlow<List<SpokenVoiceOption>> = _spokenVoices
     private val _notificationDiagnostics = MutableStateFlow(readNotificationDiagnostics(app))
     val notificationDiagnostics: StateFlow<NotificationDiagnostics> = _notificationDiagnostics
     private val _updateInstallState = MutableStateFlow(UpdateInstallState())
@@ -75,23 +62,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         get() = UpdateInstallVerification.runningBuild(getApplication())
     val installVerification: StateFlow<String?> =
         UpdateInstallVerification.loadStatus(app)
-
-    init {
-        voiceCatalogTts = TextToSpeech(app) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                _spokenVoices.value = voiceCatalogTts?.voices.orEmpty()
-                    .map {
-                        SpokenVoiceOption(
-                            id = it.name,
-                            label = it.name,
-                            localeTag = it.locale.toLanguageTag(),
-                            offline = !it.isNetworkConnectionRequired,
-                        )
-                    }
-                    .sortedWith(compareBy({ it.localeTag }, { it.label }))
-            }
-        }
-    }
 
     val savedEndpoint: String?
         get() = WsRepository.pairedServer()?.endpoint
@@ -202,25 +172,11 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         WsRepository.setPreferStandaloneMode(prefer, getApplication())
     }
 
-    fun setReadAloudEnabled(enabled: Boolean) {
-        PreferenceStore.getInstance(getApplication()).setReadAloudEnabled(enabled)
-    }
-
     fun setVoiceDockEnabled(enabled: Boolean) {
         PreferenceStore.getInstance(getApplication()).setVoiceDockV1(enabled)
     }
 
-    fun setSpokenOutputEnabled(enabled: Boolean) {
-        preferenceStore.setSpokenOutputV1(enabled)
-    }
-
-    fun setSpokenOutputSettings(settings: SpokenOutputSettings) {
-        preferenceStore.setSpokenOutputSettings(settings)
-    }
-
     override fun onCleared() {
-        voiceCatalogTts?.shutdown()
-        voiceCatalogTts = null
         super.onCleared()
     }
 

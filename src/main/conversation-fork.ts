@@ -158,6 +158,7 @@ export function maybeCompressForkMessages(
     contextSnapshotJson: JSON.stringify({ nexyCompression: metadata }),
     timestamp: compressed[0]?.timestamp ?? now,
     rewritten: true,
+    citationsJson: null,
   };
   const retainedWithMetadata = retained.map((message) => ({
     ...message,
@@ -195,6 +196,7 @@ function rewriteMessageForTarget(row: MessageExportRow, now: number, sourceConve
     contextSnapshotJson: buildForkContextSnapshot(row, now, sourceConversationId, rewrites),
     timestamp: row.timestamp,
     rewritten: rewrites.length > 0,
+    citationsJson: row.citations,
   };
 }
 
@@ -227,7 +229,7 @@ export function forkConversation(
   const rows = db
     .prepare(
       `SELECT id, conversation_id, role, content, model, is_edited, previous_content,
-              timestamp, attachments, context_snapshot
+              timestamp, attachments, context_snapshot, citations
        FROM messages
        WHERE conversation_id = ?${cutoff !== null ? " AND timestamp <= ?" : ""}
        ORDER BY timeline_order ASC, timestamp ASC, id ASC`,
@@ -246,14 +248,14 @@ export function forkConversation(
 
     const insertMessage = db.prepare(
       `INSERT INTO messages
-        (id, conversation_id, role, content, model, is_edited, previous_content, attachments, context_snapshot, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, conversation_id, role, content, model, is_edited, previous_content, attachments, context_snapshot, timestamp, citations)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const message of forkMessages) {
       insertMessage.run(
         randomUUID(), forkId, message.role, message.content, message.model,
         message.isEdited, message.previousContent, message.attachmentsJson,
-        message.contextSnapshotJson, message.timestamp,
+        message.contextSnapshotJson, message.timestamp, message.citationsJson,
       );
     }
   });

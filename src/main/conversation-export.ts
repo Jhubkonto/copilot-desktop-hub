@@ -96,6 +96,7 @@ function mapExportMessage(row: MessageExportRow): ConversationExportMessage {
     context_refs: extractContextRefs(contextSnapshot),
     context_snapshot: contextSnapshot,
     tool_call: row.role === "tool-call" ? summarizeToolCall(row.content) : null,
+    ...(arrayFromJson(row.citations).length > 0 ? { citations: arrayFromJson(row.citations) } : {}),
   };
 }
 
@@ -110,7 +111,7 @@ export function buildConversationExport(db: Database.Database, conversationId: s
   const messages = db
     .prepare(
       `SELECT id, conversation_id, role, content, model, is_edited, previous_content,
-              timestamp, attachments, context_snapshot
+              timestamp, attachments, context_snapshot, citations
        FROM messages
        WHERE conversation_id = ?
        ORDER BY timeline_order ASC, timestamp ASC, id ASC`,

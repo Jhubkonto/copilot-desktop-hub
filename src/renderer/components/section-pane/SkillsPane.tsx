@@ -289,6 +289,11 @@ export function SkillsPane() {
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
                       {discovery.rootLabel} · {discovery.source}
                     </p>
+                    {discovery.runtimeRequirements?.browser && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 truncate" title={discovery.runtimeRequirements.browser.requiredCapabilities.join(', ')}>
+                        Requires browser capabilities
+                      </p>
+                    )}
                   </div>
                   {discovery.alreadyImported ? (
                     <span className="text-[9px] uppercase text-nexy-muted shrink-0">In library</span>
@@ -331,7 +336,7 @@ export function SkillsPane() {
             </div>
           )}
           <p className="mt-3 px-1 pt-2 border-t border-nexy-border/60 text-[9px] leading-snug text-nexy-muted">
-            Scans your Claude, Codex, Hermes, and project skills folders. Set{' '}
+            Scans your Claude, Codex, Hermes, and project skills folders (including <code className="text-[9px]">skills/</code>). Set{' '}
             <code className="text-[9px]">CLAUDE_CONFIG_DIR</code> or <code className="text-[9px]">CODEX_HOME</code> to
             point Nexy at a custom harness location. Skills you attach to a CLI agent are synced into that
             harness&apos;s folder automatically while the agent runs.

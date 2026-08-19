@@ -149,6 +149,12 @@ export interface ChatCostUpdatedEvent extends ChatTurnEventBase {
   inputTokens: number
   outputTokens: number
   totalCostUsd: number
+  quality?: 'provider' | 'tokenizer' | 'estimate'
+  source?: string
+  requestCount?: number
+  complete?: boolean
+  cachedInputTokens?: number
+  reasoningTokens?: number
 }
 
 export interface ChatModelChangedEvent extends ChatTurnEventBase {

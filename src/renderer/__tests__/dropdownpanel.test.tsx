@@ -56,13 +56,13 @@ describe('DropdownPanel', () => {
 
     render(
       <DropdownPanel open onClose={onClose} trigger={<button>Listen</button>}>
-        <button role="menuitem">Full response</button>
+        <button role="menuitem">Primary option</button>
       </DropdownPanel>,
     )
 
     const panel = await waitFor(() => document.querySelector<HTMLElement>('[data-dropdown-panel]')!)
     expect(panel).toHaveAttribute('data-placement', 'below')
-    fireEvent.mouseDown(screen.getByRole('menuitem', { name: 'Full response' }))
+    fireEvent.mouseDown(screen.getByRole('menuitem', { name: 'Primary option' }))
     expect(onClose).not.toHaveBeenCalled()
 
     measurements.mockRestore()

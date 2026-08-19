@@ -18,15 +18,16 @@ import { activeCliAbortControllers } from './provider-stream-state'
 import { safeHandle } from './safe-handle'
 import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
+import { getConversationMcpServerIds, getEffectiveCapabilityProfile } from './capability-service'
 import { requestApproval, denyPendingApprovalsForConversation } from './tools'
 import { cancelPendingUserInputsForConversation, requestUserInput, userInputQuestionsFromArgs } from './user-input'
 import { getAdapter } from './cli-adapters/registry'
-import { getSkillConfigsForAgent } from './skills'
+import { getSkillConfig, getSkillConfigsForAgent } from './skills'
 import { bridgeSkillsForCliRun, releaseBridgedSkills, type BridgedSkill } from './cli-skill-bridge'
 import { requestsSkillCapture } from './skill-service'
 import { startSkillSaveMcpBridge, type SkillSaveMcpBridge } from './skill-save-mcp-bridge'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
-import { sendChatCompleteNotification, generateSpokenSummary } from './fcm-sender'
+import { sendChatCompleteNotification } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { HermesAdapter } from './cli-adapters/hermes'
@@ -46,6 +47,7 @@ import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
 import { ChatTurnEmitter } from './chat-turn-emitter'
 import type { ResolvedUserInput } from '../shared/chat-turn-types'
+import type { SkillConfig } from '../shared/types'
 import { endActivity } from './activity-tracker'
 import { clearActiveChatTurn } from './active-chat-turns'
 import { assertConversationStartsAllowed } from './emergency-stop'
@@ -53,6 +55,9 @@ import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 import { estimateInputTokens, formatEstimatedTokens } from '../shared/token-estimate'
 import { saveFinalizedPlanArtifact } from './artifacts'
 import { isLegacyPortableOperationalSummary } from '../shared/conversation-portability'
+import type { Citation } from '../shared/citations'
+import { mergeCitations } from '../shared/citations'
+import { TurnUsageAccumulator, type TokenCount } from '../shared/token-usage'
 
 export { clearDirListingCache } from './chat-context-builder'
 
@@ -96,11 +101,14 @@ function recordServerContextFacts(
 function recordServerUsage(
   db: ReturnType<typeof getDatabase>,
   messageId: string | null,
-  inputTokens: number,
-  outputTokens: number,
+  usage: ReturnType<TurnUsageAccumulator['snapshot']>,
 ): void {
-  if (inputTokens <= 0 && outputTokens <= 0) return
-  patchContextSnapshot(db, messageId, { serverInputTokens: inputTokens, serverOutputTokens: outputTokens })
+  if (usage.inputTokens <= 0 && usage.outputTokens <= 0) return
+  patchContextSnapshot(db, messageId, {
+    serverInputTokens: usage.inputTokens,
+    serverOutputTokens: usage.outputTokens,
+    turnTotal: usage,
+  })
 }
 
 function persistAssistantMessage(
@@ -112,6 +120,7 @@ function persistAssistantMessage(
   textSegments?: Map<string, ThinkingBlockEntry>,
   timestamp: number = Date.now(),
   userInputs?: ResolvedUserInput[],
+  citations?: Citation[],
 ): string {
   const msgId = randomUUID()
   const thinkingJson = thinkingBlocks && thinkingBlocks.size > 0
@@ -128,8 +137,8 @@ function persistAssistantMessage(
     ? JSON.stringify(Array.from(textSegments.values()))
     : null
   db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks, text_segments, user_inputs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(msgId, conversationId, 'assistant', content, null, timestamp, model, thinkingJson, textSegmentsJson, userInputs?.length ? JSON.stringify(userInputs) : null)
+    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks, text_segments, user_inputs, citations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(msgId, conversationId, 'assistant', content, null, timestamp, model, thinkingJson, textSegmentsJson, userInputs?.length ? JSON.stringify(userInputs) : null, citations?.length ? JSON.stringify(citations) : null)
   return msgId
 }
 
@@ -178,7 +187,7 @@ function buildToolHistoryDigest(historyMessages: { role: string; content: string
 export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
   const rows = (db.prepare(
-    `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
+    `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs, citations FROM messages
        WHERE conversation_id = ? ORDER BY timeline_order DESC, timestamp DESC, id DESC LIMIT 20`,
   ).all(conversationId) as unknown[]).reverse()
   broadcastToMobile({
@@ -626,6 +635,8 @@ export async function dispatchChatSend(
       : undefined,
     broadcastMobile: broadcastToMobile,
   })
+  const turnUsage = new TurnUsageAccumulator()
+  let activeUserMessageId: string | null = null
   turnEmitter.started()
   const resolvedUserInputs: ResolvedUserInput[] = []
   const collectResolvedUserInput = (request: ResolvedUserInput['request'], answers: ResolvedUserInput['answers']) => {
@@ -657,18 +668,19 @@ export async function dispatchChatSend(
     turnEmitter.assistantTextDelta(chunk, blockId)
   }
   const sendStreamEnd = (options?: { suppressNotification?: boolean }) => {
+    const finalUsage = turnUsage.markComplete()
+    if (finalUsage.inputTokens > 0 || finalUsage.outputTokens > 0) {
+      turnEmitter.cost(finalUsage.inputTokens, finalUsage.outputTokens, finalUsage.totalCostUsd, finalUsage)
+      recordServerUsage(getDatabase(), activeUserMessageId, finalUsage)
+    }
     turnEmitter.streamEnd()
     clearActiveChatTurn(conversationId, turnEmitter.turnId)
     sendActivity({ state: 'complete', label: 'Complete' })
     const db = getDatabase()
     const convRow = db.prepare('SELECT title, project_id FROM conversations WHERE id = ?').get(conversationId) as { title: string; project_id: string | null } | undefined
     const convTitle = convRow?.title ?? 'Chat'
-    const projectId = convRow?.project_id ?? null
     if (!options?.suppressNotification && !isMobileInForeground()) {
-      void (async () => {
-        const summary = await generateSpokenSummary(db, conversationId, projectId)
-        void sendChatCompleteNotification(db, { conversationId, title: convTitle, summary: summary ?? undefined })
-      })()
+      void sendChatCompleteNotification(db, { conversationId, title: convTitle })
     }
   }
 
@@ -773,6 +785,7 @@ export async function dispatchChatSend(
 
     const userMsgId = options?.messageId ?? randomUUID()
     newUserMsgId = userMsgId
+    activeUserMessageId = newUserMsgId
     const storedAttachments = buildStoredAttachments(attachments, pastedImages)
     const attachmentsJson = storedAttachments.length > 0 ? JSON.stringify(storedAttachments) : null
     const persistedUserContent = options?.displayContent ?? content
@@ -1121,7 +1134,9 @@ export async function dispatchChatSend(
   const assignedAgentMcpServerIds = Array.isArray(agentCfg2?.mcpServers)
     ? (agentCfg2.mcpServers as string[])
     : []
-  const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
+  const chatMcpServerIds = getConversationMcpServerIds(db, conversationId)
+  const effectiveMcpServerIds = [...new Set([...assignedAgentMcpServerIds, ...chatMcpServerIds])]
+  const agentHasAssignedMcpServers = effectiveMcpServerIds.length > 0
   const credentialForModel = getProviderCredential(providerName, { projectId: orchProjId, agentId: effectiveAgentId })
   const fallbackCliBackend = resolveEffectiveBackend({
     cliBackend,
@@ -1216,7 +1231,7 @@ export async function dispatchChatSend(
       const cliMcpServers =
         (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli' || effectiveBackend === 'hermes-cli') &&
         agentHasAssignedMcpServers
-          ? getMcpServerConfigsForCli(assignedAgentMcpServerIds)
+          ? getMcpServerConfigsForCli(effectiveMcpServerIds)
           : undefined
 
       type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
@@ -1254,6 +1269,7 @@ export async function dispatchChatSend(
         }
       }
       const cliThinkingBuffer = new Map<string, ThinkingBlockEntry>()
+      const cliCitations: Citation[] = []
       // Mirrors cliThinkingBuffer, but for the response text itself — the adapter tags
       // each chunk with which contiguous burst it belongs to (a burst ends whenever a
       // tool call interrupts it), so bursts can be persisted and later re-interleaved
@@ -1275,7 +1291,7 @@ export async function dispatchChatSend(
         sendActivity({ state: 'thinking', label: 'Starting CLI agent' })
         if (cliMcpServers && cliMcpServers.length > 0) {
           sendActivity({ state: 'thinking', label: 'Preparing MCP tools' })
-          await ensureMcpServersReady(assignedAgentMcpServerIds)
+          await ensureMcpServersReady(effectiveMcpServerIds)
         }
         // Build the allowed-tools list for the CLI, respecting per-tool and server-level
         // trust settings. Tools whose server is set to 'always-ask' are excluded so the
@@ -1301,7 +1317,7 @@ export async function dispatchChatSend(
           // starting. Approved servers are included; denied servers are excluded entirely.
           const approvedServerIds = new Set<string>()
           const serverIds = [...new Set(
-            getAvailableMcpTools(assignedAgentMcpServerIds).map((t) => t.serverId)
+            getAvailableMcpTools(effectiveMcpServerIds).map((t) => t.serverId)
           )]
           for (const serverId of serverIds) {
             const server = cliMcpServers.find((s) => s.id === serverId)
@@ -1309,7 +1325,7 @@ export async function dispatchChatSend(
 
             // Determine the effective trust for this server: check if ALL its tools
             // are disabled/blocked, all are auto, or any require approval.
-            const serverTools = getAvailableMcpTools(assignedAgentMcpServerIds).filter((t) => t.serverId === serverId)
+            const serverTools = getAvailableMcpTools(effectiveMcpServerIds).filter((t) => t.serverId === serverId)
             let serverNeedsApproval = false
             let serverFullyBlocked = false
             const toolStatuses = serverTools.map((tool) => {
@@ -1357,7 +1373,7 @@ export async function dispatchChatSend(
             }
           }
 
-          const allowedTools = getAvailableMcpTools(assignedAgentMcpServerIds).flatMap((tool) => {
+          const allowedTools = getAvailableMcpTools(effectiveMcpServerIds).flatMap((tool) => {
             if (!approvedServerIds.has(tool.serverId)) return []
             const server = cliMcpServers.find((s) => s.id === tool.serverId)
             if (!server) return []
@@ -1477,7 +1493,13 @@ export async function dispatchChatSend(
         // Claude/Codex-backed run can discover them. Nexy owns and reference-counts these copies;
         // they are removed in the finally below once no other in-flight run still needs them.
         if (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli') {
-          const attachedSkills = getSkillConfigsForAgent(effectiveAgentId ?? 'default')
+          const chatSkills = getEffectiveCapabilityProfile(db, conversationId).skillIds
+            .map((skillId) => getSkillConfig(skillId))
+            .filter((skill): skill is SkillConfig => Boolean(skill))
+          const attachedSkills = [...new Map([
+            ...getSkillConfigsForAgent(effectiveAgentId ?? 'default'),
+            ...chatSkills,
+          ].map((skill) => [skill.id, skill])).values()]
           bridgedSkills = bridgeSkillsForCliRun(effectiveBackend, attachedSkills)
           if (bridgedSkills.length > 0) {
             debugLog('chat', `cli-adapter: bridged ${bridgedSkills.length} skill(s) into ${effectiveBackend} skills dir`)
@@ -1595,8 +1617,16 @@ export async function dispatchChatSend(
               } : undefined)
               sendActivity({ state: 'thinking', label: 'Processing tool result' })
             } else if (event.type === 'cost') {
-              turnEmitter.cost(event.inputTokens, event.outputTokens, event.totalCostUsd)
-              recordServerUsage(db, newUserMsgId, event.inputTokens, event.outputTokens)
+              const usage = turnUsage.add({
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                totalCostUsd: event.totalCostUsd,
+                quality: 'provider',
+                source: effectiveBackend,
+                requestId: event.requestId,
+              })
+              turnEmitter.cost(usage.inputTokens, usage.outputTokens, usage.totalCostUsd, usage)
+              recordServerUsage(db, newUserMsgId, usage)
             } else if (event.type === 'thinking_chunk') {
               turnEmitter.thinkingDelta(event.blockId, event.chunk)
               const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false, firstSeenAt: nextOccurrenceAt() }
@@ -1614,6 +1644,8 @@ export async function dispatchChatSend(
               finalizedPlan = event.plan
             } else if (event.type === 'activity') {
               sendActivity({ state: 'thinking', label: event.label })
+            } else if (event.type === 'citations') {
+              mergeCitations(cliCitations, event.citations)
             }
           },
           cliAbortController.signal,
@@ -1659,6 +1691,7 @@ export async function dispatchChatSend(
           cliTextBuffer,
           nextOccurrenceAt(),
           resolvedUserInputs,
+          cliCitations,
         )
         if (finalizedPlan) {
           saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
@@ -1809,7 +1842,7 @@ export async function dispatchChatSend(
     { role: 'user' as const, content: userContent },
   ]
 
-  const assignedServerIds = Array.isArray(agentCfg2?.mcpServers) ? (agentCfg2.mcpServers as string[]) : []
+  const assignedServerIds = effectiveMcpServerIds
   if (assignedServerIds.length > 0) {
     sendActivity({ state: 'thinking', label: 'Preparing MCP tools' })
     await ensureMcpServersReady(assignedServerIds)
@@ -1964,6 +1997,7 @@ export async function dispatchChatSend(
     return byokLastOccurrenceAt
   }
   const byokTextBuffer = new Map<string, ThinkingBlockEntry>()
+  const byokCitations: Citation[] = []
   const closeByokTextSegments = () => {
     for (const [blockId, block] of byokTextBuffer) {
       if (!block.done) byokTextBuffer.set(blockId, { ...block, done: true })
@@ -2013,7 +2047,24 @@ export async function dispatchChatSend(
       sendChunk: byokSendChunk,
       sendActivity,
       onModel: handleStreamModel,
-      onUsage: (usage) => recordServerUsage(db, newUserMsgId, usage.inputTokens, usage.outputTokens),
+      onUsage: (usage) => {
+        const total = turnUsage.add({
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          quality: 'provider',
+          source: providerName,
+        })
+        turnEmitter.cost(total.inputTokens, total.outputTokens, total.totalCostUsd, total)
+        recordServerUsage(db, newUserMsgId, total)
+      },
+      onPreflightUsage: (count: TokenCount) => {
+        patchContextSnapshot(db, newUserMsgId, { nextRequest: count })
+        turnEmitter.activity({
+          state: 'thinking',
+          label: `${count.inputTokens.toLocaleString('en-US')} input tokens · provider count`,
+        })
+      },
+      onCitations: (citations) => mergeCitations(byokCitations, citations),
       systemPrompt,
       toolPolicy: toolPolicy ?? undefined,
       fullAutoApprove: effectiveFullAutoApprove,
@@ -2107,6 +2158,7 @@ export async function dispatchChatSend(
     byokTextBuffer,
     byokNextOccurrenceAt(),
     resolvedUserInputs,
+    byokCitations,
   )
   if (finalizedPlan) {
     saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })

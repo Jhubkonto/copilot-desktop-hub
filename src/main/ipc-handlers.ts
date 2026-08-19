@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { registerProjectHandlers, registerProjectAgentHandlers } from './project-handlers'
 import { registerSettingsHandlers } from './settings-handlers'
 import { registerConversationHandlers, registerMessageHandlers } from './conversation-handlers'
+import { registerCapabilityHandlers } from './capability-handlers'
 import { registerChatHandlers } from './chat-handlers'
 import { registerEmergencyStopHandlers } from './emergency-stop'
 import { registerFileHandlers, registerContextHandlers } from './file-handlers'
@@ -54,6 +55,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerProjectWikiMcpHandlers()
   registerPromptHandlers()
   registerConversationHandlers()
+  registerCapabilityHandlers()
   registerChatHandlers()
   registerEmergencyStopHandlers()
   registerMessageHandlers()

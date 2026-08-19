@@ -8,22 +8,10 @@ export interface Message {
   previousContent?: string | null
   timestamp: number
   attachments?: Attachment[]
+  citations?: import('./citations').Citation[]
 }
 
-export type {
-  MessageSpokenOutput,
-  SaveSpokenOutputInput,
-  SpokenOutputGenerationKind,
-  SpokenOutputKind,
-} from './spoken-output'
-
-export type {
-  SpeechEngine,
-  SupertonicLanguage,
-  SupertonicStatus,
-  SupertonicSynthesisInput,
-  SupertonicSynthesisResult,
-} from './neural-tts'
+export type { TokenCount, TokenCountQuality, TokenCountSource, TokenUsage, TurnUsageTotal } from './token-usage'
 
 import type { HermesProfileInfo, HermesAcpReadiness } from './hermes'
 export type { HermesProfileInfo, HermesAcpReadiness } from './hermes'
@@ -43,6 +31,52 @@ export interface Conversation {
   createdAt: number
   updatedAt: number
   completedAt: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Conversation capabilities
+// ---------------------------------------------------------------------------
+
+export type CapabilityScope = 'chat' | 'project' | 'agent'
+export type CapabilityTrust = 'auto' | 'always-ask' | 'block'
+
+/** Secret-free references to capabilities enabled for one conversation. */
+export interface ConversationCapabilityProfile {
+  version: 1
+  skillIds: string[]
+  mcp: Array<{ serverId: string; trust: CapabilityTrust }>
+  builtInTools?: Partial<Record<'fileEdit' | 'terminal' | 'webFetch', {
+    enabled: boolean
+    approval: 'auto' | 'always-ask' | 'disabled'
+  }>>
+}
+
+export type CapabilityReadiness = 'ready' | 'missing' | 'invalid' | 'disconnected' | 'unsupported'
+
+export interface CapabilityPreflightItem {
+  kind: 'skill' | 'mcp' | 'model'
+  id: string
+  label: string
+  status: CapabilityReadiness
+  detail: string
+  provenance: 'this-chat' | 'agent' | 'project' | 'global'
+  requiredCapabilities?: string[]
+}
+
+export interface CapabilityPreflight {
+  conversationId: string
+  profile: ConversationCapabilityProfile
+  items: CapabilityPreflightItem[]
+  ready: boolean
+  desktopOnly: boolean
+}
+
+export interface CapabilityActivationInput {
+  scope: CapabilityScope
+  /** Project or agent ID when scope is not chat. Defaults to the conversation's active scope. */
+  targetId?: string | null
+  skillIds?: string[]
+  mcp?: Array<{ serverId: string; trust?: CapabilityTrust }>
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +454,14 @@ export interface SkillPackageFile {
   sizeBytes: number
 }
 
+/** Runtime capabilities declared by an optional skill-package manifest.json. */
+export interface SkillRuntimeRequirements {
+  browser?: {
+    requiredCapabilities: string[]
+    optionalCapabilities: string[]
+  }
+}
+
 export interface SkillConfig {
   id: string
   name: string
@@ -439,6 +481,8 @@ export interface SkillConfig {
   scope?: 'user' | 'project' | 'bundled'
   source?: 'nexy' | 'filesystem' | 'codex' | 'claude' | 'hermes' | 'import'
   validationStatus?: 'valid' | 'warning' | 'invalid'
+  /** Capability requirements declared by the package, if present. */
+  runtimeRequirements?: SkillRuntimeRequirements
   /** Portable package contents used by sync/import/export. Never contains a host filesystem path. */
   packageFiles?: SkillPackageFile[]
   /** Losslessly retained standard/provider frontmatter that Nexy does not execute itself. */
@@ -470,6 +514,8 @@ export interface DiscoveredSkill {
   contentHash?: string
   /** True when a managed skill already has identical package contents. */
   alreadyImported: boolean
+  /** Capability requirements declared by the package, if present. */
+  runtimeRequirements?: SkillRuntimeRequirements
 }
 
 export interface CliInstallStatus {
@@ -604,6 +650,8 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
   terminalSandboxBypass: boolean
   /** Optional project-level fallback used when a chat and its agent have no override. */
   defaultThinkingEffort?: ThinkingEffort | null
+  /** Secret-free capability defaults inherited by conversations in this project. */
+  capabilityProfile?: ConversationCapabilityProfile
 }
 
 export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max' | 'disabled'
@@ -628,6 +676,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   strategyRetrievalEnabled: false,
   terminalSandboxBypass: false,
   defaultThinkingEffort: null,
+  capabilityProfile: { version: 1, skillIds: [], mcp: [] },
 }
 
 export interface McpServerConfig {
@@ -1256,6 +1305,7 @@ export interface ConversationRow {
   codex_execution_mode_override: CodexExecutionModeOverride | null
   rating: number | null
   kind: 'chat' | 'project-conversation-mode'
+  capability_profile_json?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -1299,6 +1349,7 @@ export interface MessageRow {
   thinking_blocks: string | null
   text_segments: string | null
   user_inputs: string | null
+  citations: string | null
 }
 
 export interface ConversationExportAttachment {
@@ -1361,6 +1412,7 @@ export interface ConversationExportMessage {
   context_refs: ConversationExportContextRef[]
   context_snapshot: unknown
   tool_call: ConversationExportToolCall | null
+  citations?: import('./citations').Citation[]
 }
 
 export interface ConversationExportV1 {
@@ -1430,6 +1482,7 @@ export interface NewContentConversation {
 
 export type ConversationPageScope =
   | { type: 'all' }
+  | { type: 'pinned' }
   | { type: 'project'; id: string | null }
   | { type: 'agent'; id: string }
 
@@ -1521,6 +1574,8 @@ export interface ContextInspectorSnapshot {
   currentInputTokens: number
   totalTokens: number
   maxTokens: number
+  nextRequest?: { inputTokens: number; quality: string; source: string; model?: string | null }
+  turnTotal?: { inputTokens: number; outputTokens: number; requestCount: number; quality: string; source: string; complete: boolean }
 }
 
 export interface KnowledgeFile {
@@ -2220,6 +2275,10 @@ export type IpcReturnMap = {
   'conversation:set-model': boolean
   'conversation:set-mode': boolean
   'conversation:set-pinned': boolean
+  'conversation:get-capabilities': ConversationCapabilityProfile
+  'conversation:set-capabilities': ConversationCapabilityProfile
+  'capabilities:resolve': CapabilityPreflight
+  'capabilities:activate': ConversationCapabilityProfile
   'conversation:update-context': boolean
   'conversation:generate-debrief': DebriefArtifactResult
   'conversation:start-debrief-generation': { artifactId: string }
@@ -2506,12 +2565,6 @@ export type IpcReturnMap = {
   'voice:get-status': { executablePath: string; modelPath: string; ready: boolean }
   'voice:install-local': { installed: boolean; executablePath: string; modelPath: string } | { error: string }
   'voice:transcribe': { text: string } | { error: string }
-  'voice:save-spoken-output': import('./spoken-output').MessageSpokenOutput
-  'voice:generate-ai-recap': import('./spoken-output').MessageSpokenOutput | null
-  'tts:get-status': import('./neural-tts').SupertonicStatus
-  'tts:install-supertonic': import('./neural-tts').SupertonicStatus
-  'tts:remove-supertonic': import('./neural-tts').SupertonicStatus
-  'tts:synthesize-supertonic': import('./neural-tts').SupertonicSynthesisResult
   // Tool
   'tool:approval-response': boolean
   'tool:auto-approved': void
@@ -2705,6 +2758,10 @@ export type IpcChannels =
   | 'conversation:set-model'
   | 'conversation:set-mode'
   | 'conversation:set-pinned'
+  | 'conversation:get-capabilities'
+  | 'conversation:set-capabilities'
+  | 'capabilities:resolve'
+  | 'capabilities:activate'
   | 'conversation:update-context'
   | 'conversation:generate-debrief'
   | 'conversation:start-debrief-generation'
@@ -2898,12 +2955,6 @@ export type IpcChannels =
   | 'voice:get-status'
   | 'voice:install-local'
   | 'voice:transcribe'
-  | 'voice:save-spoken-output'
-  | 'voice:generate-ai-recap'
-  | 'tts:get-status'
-  | 'tts:install-supertonic'
-  | 'tts:remove-supertonic'
-  | 'tts:synthesize-supertonic'
   | 'tool:approval-response'
   | 'tool:auto-approved'
   | 'tool:request-approval'

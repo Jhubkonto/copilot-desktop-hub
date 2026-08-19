@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockExecSync, mockExistsSync, mockReadFileSync, getCachedAnthropicModelsMock, getCachedClaudeCliPtyModelsMock } = vi.hoisted(() => {
+const { mockIpcMain, mockExecSync, mockExecFile, mockExistsSync, mockReadFileSync, getCachedAnthropicModelsMock, getCachedClaudeCliPtyModelsMock } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   return {
     mockIpcMain: {
@@ -11,6 +11,7 @@ const { mockIpcMain, mockExecSync, mockExistsSync, mockReadFileSync, getCachedAn
       _handlers: handlers
     },
     mockExecSync: vi.fn(),
+    mockExecFile: vi.fn(),
     mockExistsSync: vi.fn(),
     mockReadFileSync: vi.fn(),
     getCachedAnthropicModelsMock: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock('electron', () => ({
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
   exec: vi.fn(),
-  execFile: vi.fn(),
+  execFile: mockExecFile,
   spawn: vi.fn(),
   spawnSync: vi.fn()
 }))
@@ -58,6 +59,9 @@ beforeEach(() => {
   // findCli now resolves paths through the shared resolveCliPath cache (utils.ts), which is
   // module-level and would otherwise leak positive/negative entries across these fast cases.
   clearCliPathCache()
+  mockExecFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: (error: Error, stdout: string, stderr: string) => void) => {
+    callback(new Error('not found'), '', '')
+  })
   mockReadFileSync.mockImplementation(() => {
     throw new Error('no file')
   })
@@ -77,12 +81,14 @@ describe('CLI Detection', () => {
   })
 
   it('cli:status returns installed when CLI found via which/where', async () => {
-    mockExecSync.mockImplementation((cmd: string) => {
-      if ((cmd.includes('where') || cmd.includes('which')) && cmd.includes('copilot')) {
-        return '/usr/local/bin/copilot\n'
+    mockExecFile.mockImplementation((command: string, args: string[], _options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+      if ((command.includes('where') || command.includes('which')) && args[0] === 'copilot') {
+        callback(null, '/usr/local/bin/copilot\n', '')
+      } else if (args[0] === '--version') {
+        callback(null, '1.0.0', '')
+      } else {
+        callback(new Error('unknown'), '', '')
       }
-      if (cmd.includes('--version')) return '1.0.0'
-      throw new Error('unknown')
     })
     mockExistsSync.mockReturnValue(true)
 
@@ -95,11 +101,12 @@ describe('CLI Detection', () => {
 
   it('cli:check forces re-detection', async () => {
     // First: CLI found
-    mockExecSync.mockImplementation((cmd: string) => {
-      if ((cmd.includes('where') || cmd.includes('which')) && cmd.includes('copilot')) {
-        return '/usr/bin/copilot'
+    mockExecFile.mockImplementation((command: string, args: string[], _options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+      if ((command.includes('where') || command.includes('which')) && args[0] === 'copilot') {
+        callback(null, '/usr/bin/copilot', '')
+      } else {
+        callback(new Error('unknown'), '', '')
       }
-      throw new Error('unknown')
     })
     mockExistsSync.mockReturnValue(true)
 
@@ -107,7 +114,7 @@ describe('CLI Detection', () => {
     expect(r1.installed).toBe(true)
 
     // Now CLI disappears
-    mockExecSync.mockImplementation(() => { throw new Error('not found') })
+    mockExecFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: (error: Error, stdout: string, stderr: string) => void) => callback(new Error('not found'), '', ''))
     mockExistsSync.mockReturnValue(false)
 
     // cli:status would return cached true
@@ -119,33 +126,32 @@ describe('CLI Detection', () => {
     expect(r2.installed).toBe(false)
   })
 
-  it('checkCliOnStartup returns CLI status', () => {
-    mockExecSync.mockImplementation(() => { throw new Error('not found') })
+  it('checkCliOnStartup returns CLI status', async () => {
+    mockExecFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: (error: Error, stdout: string, stderr: string) => void) => callback(new Error('not found'), '', ''))
     mockExistsSync.mockReturnValue(false)
 
-    const result = checkCliOnStartup()
+    const result = await checkCliOnStartup()
     expect(result.installed).toBe(false)
   })
 
   it('detectAllClis returns status for all CLIs', async () => {
-    mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('copilot') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/copilot\n'
-      if (cmd.includes('claude') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/claude\n'
-      if (cmd.includes('codex') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/codex\n'
-      if (cmd.includes('gh') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/gh\n'
-      if (cmd.includes('hermes') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/hermes\n'
-      if (cmd.includes('ollama') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/ollama\n'
-      if (cmd.includes('github-copilot-cli --version') || cmd.includes('copilot --version')) return '1.0.0'
-      if (cmd.includes('claude --version')) return '0.9.1'
-      if (cmd.includes('codex --version')) return 'codex 0.1.0'
-      if (cmd.includes('gh --version')) return 'gh version 2.0.0\nmore'
-      if (cmd.includes('hermes --version')) return 'hermes 1.0.0'
-      if (cmd.includes('ollama --version')) return '0.7.0'
-      throw new Error(`unknown command: ${cmd}`)
+    mockExecFile.mockImplementation((command: string, args: string[], _options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+      if (command.includes('where') || command.includes('which')) {
+        const paths: Record<string, string> = {
+          'github-copilot-cli': '/usr/bin/copilot', 'copilot': '/usr/bin/copilot', 'claude': '/usr/bin/claude', 'codex': '/usr/bin/codex',
+          'gh': '/usr/bin/gh', 'hermes': '/usr/bin/hermes', 'ollama': '/usr/bin/ollama',
+        }
+        callback(null, `${paths[args[0]]}\n`, '')
+        return
+      }
+      const versions: Record<string, string> = {
+        copilot: '1.0.0', claude: '0.9.1', codex: 'codex 0.1.0', gh: 'gh version 2.0.0\nmore', hermes: 'hermes 1.0.0', ollama: '0.7.0',
+      }
+      callback(null, versions[command.split(/[\\/]/).pop()!.replace('.exe', '')] ?? '', '')
     })
     mockExistsSync.mockReturnValue(true)
 
-    const result = detectAllClis()
+    const result = await detectAllClis()
     expect(result).toEqual({
       copilot: { installed: true, path: '/usr/bin/copilot', version: '1.0.0' },
       claude: { installed: true, path: '/usr/bin/claude', version: '0.9.1' },
@@ -159,11 +165,11 @@ describe('CLI Detection', () => {
     expect(viaIpc).toEqual(result)
   })
 
-  it('detectAllClis returns not-installed when commands fail', () => {
-    mockExecSync.mockImplementation(() => { throw new Error('not found') })
+  it('detectAllClis returns not-installed when commands fail', async () => {
+    mockExecFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: (error: Error, stdout: string, stderr: string) => void) => callback(new Error('not found'), '', ''))
     mockExistsSync.mockReturnValue(false)
 
-    expect(detectAllClis()).toEqual({
+    await expect(detectAllClis()).resolves.toEqual({
       copilot: { installed: false, path: null, version: null },
       claude: { installed: false, path: null, version: null },
       codex: { installed: false, path: null, version: null },
@@ -174,11 +180,12 @@ describe('CLI Detection', () => {
   })
 
   it('handles version command failure gracefully', async () => {
-    mockExecSync.mockImplementation((cmd: string) => {
-      if ((cmd.includes('where') || cmd.includes('which')) && cmd.includes('copilot')) {
-        return '/usr/bin/copilot'
+    mockExecFile.mockImplementation((command: string, args: string[], _options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+      if ((command.includes('where') || command.includes('which')) && args[0] === 'copilot') {
+        callback(null, '/usr/bin/copilot', '')
+      } else {
+        callback(new Error('no version'), '', '')
       }
-      throw new Error('no version')
     })
     mockExistsSync.mockReturnValue(true)
 

@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { Copy, Check, ExternalLink } from 'lucide-react'
 import { localPathFromHref } from '../lib/link-routing'
+import type { Citation } from '../../shared/citations'
 
 function CopyButton({ getText }: { getText: () => string }) {
   const [copied, setCopied] = useState(false)
@@ -111,9 +112,62 @@ function CodeBlockWrapper({ children, lang }: { children: ReactNode; lang: strin
 
 interface MarkdownRendererProps {
   content: string
+  citations?: Citation[]
 }
 
-function MarkdownRendererBase({ content }: MarkdownRendererProps) {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function citationAwareContent(content: string, citations: Citation[]): string {
+  let rendered = content
+  const references = citations.flatMap((citation, index) => [
+    citation.id,
+    ...(citation.aliases ?? []),
+  ].filter(Boolean).map((reference) => ({ reference, index })))
+    .sort((a, b) => b.reference.length - a.reference.length)
+  for (const { reference, index } of references) {
+    const citation = citations[index]
+    rendered = rendered.replace(
+      new RegExp(escapeRegExp(reference), 'g'),
+      `[${index + 1}](<${citation.url}>)`,
+    )
+  }
+  // Some web-capable providers put internal citation tokens in the text stream even when
+  // their structured citation metadata is unavailable. Those tokens are implementation
+  // details, not useful prose, and should never appear as "CiteTurn…" or boxed markers.
+  return rendered
+    .replace(/【[^】]*(?:cite|turn|search|view)\d+[^】]*】/gi, '')
+    .replace(/\bCiteTurn\d+(?:search|view|fetch)\d+\b/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([,.;:!?])/g, '$1')
+}
+
+function CitationSources({ citations }: { citations: Citation[] }) {
+  if (citations.length === 0) return null
+  return (
+    <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-2" aria-label="Sources">
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Sources</div>
+      <ol className="m-0 list-none space-y-1 p-0">
+        {citations.map((citation, index) => (
+          <li key={`${citation.id}-${citation.url}`} className="text-xs">
+            <a
+              href={citation.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="!text-blue-500 hover:!text-blue-400 !underline"
+              title={`Open ${citation.url} in your external browser`}
+            >
+              [{index + 1}] {citation.title || citation.url}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function MarkdownRendererBase({ content, citations = [] }: MarkdownRendererProps) {
   return (
     <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words
       prose-blockquote:border-l-2 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600
@@ -214,8 +268,9 @@ function MarkdownRendererBase({ content }: MarkdownRendererProps) {
           ),
         }}
       >
-        {content}
+        {citationAwareContent(content, citations)}
       </ReactMarkdown>
+      <CitationSources citations={citations} />
     </div>
   )
 }

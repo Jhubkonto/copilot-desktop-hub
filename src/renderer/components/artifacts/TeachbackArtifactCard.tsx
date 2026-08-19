@@ -18,7 +18,6 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [turnNumber, setTurnNumber] = useState(0)
   const [parentAttemptId, setParentAttemptId] = useState<string | undefined>()
-  const [speaking, setSpeaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [grading, setGrading] = useState(false)
@@ -101,8 +100,6 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
     setCurrentPrompt('')
     setTurnNumber(0)
     setParentAttemptId(undefined)
-    window.speechSynthesis?.cancel()
-    setSpeaking(false)
     setError(null)
     setVoiceError(null)
     void cancelVoice()
@@ -147,25 +144,8 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
     }
   }, [artifact?.projectId, artifactId, currentPrompt, parentAttemptId, transcript, turnNumber, version])
 
-  const toggleSpeech = useCallback(() => {
-    if (!('speechSynthesis' in window) || !currentPrompt) return
-    if (speaking) {
-      window.speechSynthesis.cancel()
-      setSpeaking(false)
-      return
-    }
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(currentPrompt)
-    utterance.onend = () => setSpeaking(false)
-    utterance.onerror = () => setSpeaking(false)
-    setSpeaking(true)
-    window.speechSynthesis.speak(utterance)
-  }, [currentPrompt, speaking])
-
   const answerFollowUp = useCallback(async (question: string) => {
     await cancelVoice()
-    window.speechSynthesis?.cancel()
-    setSpeaking(false)
     setCurrentPrompt(question)
     setTurnNumber((turn) => turn + 1)
     setParentAttemptId((current) => current ?? feedback?.attemptId)
@@ -228,9 +208,6 @@ export function TeachbackArtifactCard({ artifactId, versionId, pending = false }
         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Explain in your own words</p>
         <div className="mt-1 flex items-start gap-2">
           <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap flex-1">{currentPrompt}</p>
-          <button type="button" onClick={toggleSpeech} className="p-1.5 rounded-md text-teal-600 hover:bg-teal-100 dark:hover:bg-teal-900/30" title={speaking ? 'Stop speaking' : 'Read prompt aloud'} aria-label={speaking ? 'Stop speaking' : 'Read prompt aloud'}>
-            <NexyIcon name={speaking ? 'stop' : 'play'} size={16} />
-          </button>
         </div>
         {turnNumber > 0 && <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-1">Viva follow-up {turnNumber} of 2</p>}
       </div>

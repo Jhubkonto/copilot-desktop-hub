@@ -8,19 +8,6 @@ import { promisify } from 'util'
 import { getDatabase } from './database'
 import { getLocalWhisperConfig, transcribeLocalWhisper } from './local-whisper'
 import { safeHandle } from './safe-handle'
-import {
-  generateAiSpokenOutput,
-  getAssistantMessageContext,
-  saveMessageSpokenOutput,
-} from './spoken-output'
-import type { SaveSpokenOutputInput } from '../shared/spoken-output'
-import type { SupertonicSynthesisInput } from '../shared/neural-tts'
-import {
-  getSupertonicStatus,
-  installSupertonicModel,
-  removeSupertonicModel,
-  synthesizeSupertonic,
-} from './local-supertonic'
 
 const execFileAsync = promisify(execFile)
 const WHISPER_VERSION = 'v1.9.1'
@@ -62,12 +49,6 @@ async function findFile(directory: string, fileName: string): Promise<string | n
 
 export function registerVoiceHandlers(): void {
   safeHandle('voice:get-status', () => getLocalWhisperConfig())
-  safeHandle('tts:get-status', () => getSupertonicStatus())
-  safeHandle('tts:install-supertonic', () => installSupertonicModel())
-  safeHandle('tts:remove-supertonic', () => removeSupertonicModel())
-  safeHandle('tts:synthesize-supertonic', (_event, input: SupertonicSynthesisInput) => {
-    return synthesizeSupertonic(input)
-  })
 
   safeHandle('voice:install-local', async () => {
     const installDir = path.join(app.getPath('userData'), 'voice', `whisper.cpp-${WHISPER_VERSION}`)
@@ -121,14 +102,4 @@ export function registerVoiceHandlers(): void {
     return transcribeLocalWhisper(audio)
   })
 
-  safeHandle('voice:save-spoken-output', (_event, input: SaveSpokenOutputInput) => {
-    return saveMessageSpokenOutput(getDatabase(), input)
-  })
-
-  safeHandle('voice:generate-ai-recap', async (_event, messageId: string) => {
-    const db = getDatabase()
-    const context = getAssistantMessageContext(db, messageId)
-    if (!context) throw new Error('Assistant message not found')
-    return generateAiSpokenOutput(db, context, 'ai-recap')
-  })
 }

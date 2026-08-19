@@ -30,6 +30,24 @@ describe('MarkdownRenderer', () => {
     expect(link.closest('a')).toHaveAttribute('href', 'https://example.com')
   })
 
+  it('turns metadata-backed provider citation IDs into clickable sources', () => {
+    render(<MarkdownRenderer
+      content="According to CiteTurn1view0, the result is available."
+      citations={[{ id: 'CiteTurn1view0', title: 'Example source', url: 'https://example.com/source' }]}
+    />)
+    const links = document.querySelectorAll('a[href="https://example.com/source"]')
+    expect(links).toHaveLength(2)
+    expect(links[0]).toHaveTextContent('1')
+    expect(links[1]).toHaveTextContent('Example source')
+  })
+
+  it('hides unresolved provider citation markers instead of showing internal tokens', () => {
+    render(<MarkdownRenderer content="A useful answer CiteTurn0search0【citeTurn1search2†turn1search2】 continues." />)
+    expect(screen.getByText('A useful answer continues.')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('CiteTurn0search0')
+    expect(document.body).not.toHaveTextContent('citeTurn1search2')
+  })
+
   it('renders code blocks with pre wrapper', () => {
     render(<MarkdownRenderer content={'```js\nconsole.log("hi")\n```'} />)
     const pre = document.querySelector('pre')

@@ -7,6 +7,7 @@ import { ProjectsPane } from './section-pane/ProjectsPane'
 import { AgentsPane } from './section-pane/AgentsPane'
 import { AgentHistoryPane } from './section-pane/AgentHistoryPane'
 import { ChatsPane } from './section-pane/ChatsPane'
+import { PinnedChatsPane } from './section-pane/PinnedChatsPane'
 import { ProjectHistoryPane } from './section-pane/ProjectHistoryPane'
 import { SkillsPane } from './section-pane/SkillsPane'
 import { ScheduledPane } from './section-pane/ScheduledPane'
@@ -14,12 +15,13 @@ import { AutomatedWorkflowsPane } from './section-pane/AutomatedWorkflowsPane'
 import { ArtifactsPane } from './section-pane/ArtifactsPane'
 import { RatingsPane } from './section-pane/RatingsPane'
 
-type SectionType = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings'
+type SectionType = 'projects' | 'agents' | 'chats' | 'pinned' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings'
 
 const SECTION_LABELS: Record<SectionType, string> = {
   projects: 'Projects',
   agents: 'Agents',
   chats: 'All Chats',
+  pinned: 'Pinned Chats',
   skills: 'Skills',
   scheduled: 'Schedules',
   workflows: 'Automated Workflows',
@@ -109,6 +111,7 @@ export function SectionPane({ section }: SectionPaneProps) {
         {section === 'agents' && !showingAgentHistory && <AgentsPane />}
         {section === 'agents' && showingAgentHistory && <AgentHistoryPane />}
         {section === 'chats' && <ChatsPane />}
+        {section === 'pinned' && <PinnedChatsPane />}
         {section === 'skills' && <SkillsPane />}
         {section === 'scheduled' && <ScheduledPane />}
         {section === 'workflows' && <AutomatedWorkflowsPane />}

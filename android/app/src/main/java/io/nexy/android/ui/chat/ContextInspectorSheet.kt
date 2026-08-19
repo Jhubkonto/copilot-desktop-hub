@@ -107,6 +107,25 @@ fun ContextInspectorSheet(
             state.snapshot?.let { snapshot ->
                 item { TokenBudgetCard(snapshot.totalTokens, snapshot.maxTokens) }
 
+                snapshot.nextRequest?.let { next ->
+                    item {
+                        InfoRow(
+                            label = "Next request",
+                            detail = "${next.quality} · ${next.source}",
+                            value = "${next.inputTokens} input tok",
+                        )
+                    }
+                }
+                snapshot.turnTotal?.let { total ->
+                    item {
+                        InfoRow(
+                            label = "Turn total",
+                            detail = "${total.quality} · ${total.source} · ${total.requestCount} request${if (total.requestCount == 1) "" else "s"}",
+                            value = "${total.inputTokens}↑ ${total.outputTokens}↓",
+                        )
+                    }
+                }
+
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatCard("System", fmtTokens(snapshot.systemPromptTokens), Modifier.weight(1f))

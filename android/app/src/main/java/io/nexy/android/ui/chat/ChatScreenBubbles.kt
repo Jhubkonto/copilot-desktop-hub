@@ -63,7 +63,6 @@ import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -139,9 +138,6 @@ import io.nexy.android.ui.theme.Purple700
 import io.nexy.android.ui.theme.Purple900
 import io.nexy.android.ui.theme.Purple950
 import io.nexy.android.ui.theme.Red500
-import io.nexy.android.service.SpokenPlaybackState
-import io.nexy.android.service.SpokenPlaybackStatus
-import io.nexy.android.service.SpokenOutputKind
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -814,15 +810,6 @@ fun MessageBubble(
     onSaveAsArtifact: (() -> Unit)? = null,
     onSaveAsPrompt: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
-    onReadAloud: (() -> Unit)? = null,
-    onQuickRecap: (() -> Unit)? = null,
-    onAiRecap: (() -> Unit)? = null,
-    aiRecapLoading: Boolean = false,
-    spokenPlaybackState: SpokenPlaybackState? = null,
-    onPauseSpeech: (() -> Unit)? = null,
-    onResumeSpeech: (() -> Unit)? = null,
-    onStopSpeech: (() -> Unit)? = null,
-    onReplaySpeech: (() -> Unit)? = null,
     isHighlighted: Boolean = false,
 ) {
     val isUser = msg.isUser
@@ -836,7 +823,6 @@ fun MessageBubble(
         // --- Assistant: full-width, no bubble, left-border accent ---
         var menuExpanded by remember { mutableStateOf(false) }
         var overflowExpanded by remember { mutableStateOf(false) }
-        var listenExpanded by remember { mutableStateOf(false) }
         val textColor = MaterialTheme.colorScheme.onSurface
         val textColorArgb = textColor.toArgb()
         val markwon = LocalMarkwon.current
@@ -1009,33 +995,6 @@ fun MessageBubble(
                             NexyIcon(NexyIconName.Share, contentDescription = "Share message", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    if (onReadAloud != null) {
-                        Box {
-                            IconButton(onClick = { listenExpanded = true }, modifier = Modifier.size(32.dp)) {
-                                Icon(
-                                    Icons.Filled.VolumeUp,
-                                    contentDescription = "Listen",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            DropdownMenu(expanded = listenExpanded, onDismissRequest = { listenExpanded = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Full response") },
-                                    onClick = { listenExpanded = false; onReadAloud() },
-                                )
-                                if (onQuickRecap != null) DropdownMenuItem(
-                                    text = { Text("Short version") },
-                                    onClick = { listenExpanded = false; onQuickRecap() },
-                                )
-                                if (onAiRecap != null) DropdownMenuItem(
-                                    text = { Text(if (aiRecapLoading) "Creating AI summary…" else "AI summary") },
-                                    onClick = { listenExpanded = false; onAiRecap() },
-                                    enabled = !aiRecapLoading,
-                                )
-                            }
-                        }
-                    }
                     Box {
                         IconButton(onClick = { overflowExpanded = true }, modifier = Modifier.size(32.dp)) {
                             NexyIcon(NexyIconName.More, contentDescription = "More message actions", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1049,48 +1008,6 @@ fun MessageBubble(
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
                         }
-                    }
-                }
-            }
-            if (spokenPlaybackState != null) {
-                Row(
-                    modifier = Modifier.padding(start = 12.dp, top = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        when {
-                            spokenPlaybackState.status == SpokenPlaybackStatus.ERROR ->
-                                spokenPlaybackState.error ?: "Playback error"
-                            spokenPlaybackState.kind == SpokenOutputKind.QUICK_RECAP -> "Reading short version"
-                            spokenPlaybackState.kind == SpokenOutputKind.AI_RECAP ->
-                                "AI summary${spokenPlaybackState.model?.let { " · $it" }.orEmpty()}"
-                            else -> "Reading response"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (spokenPlaybackState.status == SpokenPlaybackStatus.ERROR) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                    if (spokenPlaybackState.status == SpokenPlaybackStatus.PAUSED) {
-                        IconButton(onClick = { onResumeSpeech?.invoke() }, enabled = onResumeSpeech != null) {
-                            NexyIcon(NexyIconName.Play, contentDescription = "Resume spoken response")
-                        }
-                    } else if (
-                        spokenPlaybackState.status == SpokenPlaybackStatus.PLAYING ||
-                        spokenPlaybackState.status == SpokenPlaybackStatus.PREPARING
-                    ) {
-                        IconButton(onClick = { onPauseSpeech?.invoke() }, enabled = onPauseSpeech != null) {
-                            NexyIcon(NexyIconName.Pause, contentDescription = "Pause spoken response")
-                        }
-                    }
-                    IconButton(onClick = { onStopSpeech?.invoke() }, enabled = onStopSpeech != null) {
-                        NexyIcon(NexyIconName.Stop, contentDescription = "Stop spoken response")
-                    }
-                    IconButton(onClick = { onReplaySpeech?.invoke() }, enabled = onReplaySpeech != null) {
-                        NexyIcon(NexyIconName.Play, contentDescription = "Replay spoken response")
                     }
                 }
             }

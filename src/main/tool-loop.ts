@@ -85,6 +85,20 @@ function isInspectionTool(toolName: string): boolean {
   return INSPECTION_TOOL_KEYWORDS.some((kw) => lower.includes(kw))
 }
 
+/**
+ * Recognizes the specific empty/truncated-response diagnoses providers throw (see
+ * emptyResponseError in providers/openai-provider.ts and the streaming empty-stop rejection above
+ * it) so the forced-final-answer catch below can surface the real reason instead of the generic
+ * "no final response" placeholder. Matched by message prefix rather than an `instanceof` check
+ * since these errors cross the caller-function boundary as plain Errors, not a shared class.
+ */
+function isDiagnosticEmptyResponseError(error: unknown): error is Error {
+  return error instanceof Error && (
+    error.message.startsWith('The model returned an empty response') ||
+    error.message.startsWith('The model\'s response was cut off')
+  )
+}
+
 export interface ModelToolCaller {
   (
     messages: ProviderMessage[],
@@ -535,8 +549,15 @@ export async function runProviderMcpToolLoop(
   try {
     finalResult = await caller(finalMessages, undefined, 'none')
   } catch (error) {
-    if (fullResponse || executedTool) {
-      return fullResponse || 'I completed some tool actions, but the provider stopped before providing a final response.'
+    if (fullResponse) return fullResponse
+    if (executedTool) {
+      // Providers that detect a truncated/empty forced-final-answer (see openai-provider.ts
+      // emptyResponseError) throw a specific, actionable diagnosis instead of silently returning
+      // empty content. Surface that instead of the generic placeholder so the user knows *why* —
+      // e.g. a max_tokens cutoff after a long tool loop — rather than just "no final response".
+      return isDiagnosticEmptyResponseError(error)
+        ? error.message
+        : 'I completed some tool actions, but the provider stopped before providing a final response.'
     }
     throw error
   }

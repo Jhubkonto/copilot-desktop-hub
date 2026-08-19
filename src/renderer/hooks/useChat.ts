@@ -226,6 +226,10 @@ export function useChat({
                 images: parsedAttachments?.some((a) => a.type === 'image') ? undefined : imageMap.get(message.id),
                 contextSnapshot: message.context_snapshot ?? undefined,
               }
+              if (message.role === 'assistant' && message.citations) {
+                try { base.citations = JSON.parse(message.citations) }
+                catch { /* malformed — ignore */ }
+              }
               if (message.role === 'assistant' && message.thinking_blocks) {
                 try {
                   const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean; firstSeenAt?: number }>
@@ -337,6 +341,10 @@ export function useChat({
             attachments: parsedAttachments,
             images: parsedAttachments?.some((a) => a.type === 'image') ? undefined : imageMap.get(message.id),
             contextSnapshot: message.context_snapshot ?? undefined,
+          }
+          if (message.role === 'assistant' && message.citations) {
+            try { base.citations = JSON.parse(message.citations) }
+            catch { /* malformed — ignore */ }
           }
           if (message.role === 'assistant' && message.thinking_blocks) {
             try {

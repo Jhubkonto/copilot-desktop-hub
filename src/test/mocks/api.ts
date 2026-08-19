@@ -252,13 +252,7 @@ export function createMockApi() {
 
     // Voice
     getVoiceStatus: vi.fn().mockResolvedValue({ ready: false }),
-  getSupertonicStatus: vi.fn().mockResolvedValue({ supported: true, installed: false, ready: false, installing: false }),
-  installSupertonic: vi.fn().mockResolvedValue({ supported: true, installed: true, ready: true, installing: false }),
-  removeSupertonic: vi.fn().mockResolvedValue({ supported: true, installed: false, ready: false, installing: false }),
-  synthesizeSupertonic: vi.fn().mockResolvedValue({ audio: new Uint8Array(), sampleRate: 24_000, durationSeconds: 0 }),
-  transcribeVoice: vi.fn().mockResolvedValue({ text: '' }),
-  saveSpokenOutput: vi.fn().mockResolvedValue(null),
-  generateAiRecap: vi.fn().mockResolvedValue(null),
+    transcribeVoice: vi.fn().mockResolvedValue({ text: '' }),
     onMobileClientCount: vi.fn().mockReturnValue(() => {}),
 
     // Providers

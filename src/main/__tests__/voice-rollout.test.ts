@@ -16,11 +16,9 @@ describe('voice feature rollout', () => {
   it('ships voice features on while preserving explicit rollback switches', () => {
     expect(getVoiceFeatureFlags(fakeDatabase({}))).toEqual({
       voiceDockV1: true,
-      spokenOutputV1: true,
     })
     expect(getVoiceFeatureFlags(fakeDatabase({ feature_voice_dock_v1: 'false' }))).toEqual({
       voiceDockV1: false,
-      spokenOutputV1: true,
     })
   })
 
@@ -29,7 +27,6 @@ describe('voice feature rollout', () => {
       protocolVersion: 1,
       audioUpload: true,
       localWhisperReady: false,
-      spokenOutputPersistence: true,
       maxAudioBytes: 50 * 1024 * 1024,
       maxRecordingSeconds: 15 * 60,
     })

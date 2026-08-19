@@ -7,6 +7,7 @@ import type { BrowserWindow } from 'electron'
 import type { UserInputQuestion } from '../../shared/chat-turn-types'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, stripAnsi, createLineBuffer, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
+import { extractCitations } from '../../shared/citations'
 
 type TextResult = { text: string; isDelta: boolean; blockId?: string; done?: boolean }
 type ThinkingResult = { text: string; done?: boolean; isDelta: boolean }
@@ -248,7 +249,7 @@ function normalizeErrorMessage(message: string): string {
   return message
 }
 
-function extractCost(line: string): { inputTokens: number; outputTokens: number } | null {
+function extractCost(line: string): { inputTokens: number; outputTokens: number; requestId?: string } | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>
     if (obj.type === 'response.done') {
@@ -258,6 +259,7 @@ function extractCost(line: string): { inputTokens: number; outputTokens: number 
         return {
           inputTokens: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
           outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+          ...(typeof response?.id === 'string' ? { requestId: response.id } : {}),
         }
       }
     }
@@ -267,6 +269,7 @@ function extractCost(line: string): { inputTokens: number; outputTokens: number 
         return {
           inputTokens: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
           outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+          ...(typeof obj.id === 'string' ? { requestId: obj.id } : {}),
         }
       }
     }
@@ -691,6 +694,8 @@ function sendCodexPlanViaAppServer(
       if (method === 'item/completed') {
         const item = asRecord(params.item)
         if (!item) return
+        const citations = extractCitations(item)
+        if (citations.length > 0) onEvent?.({ type: 'citations', citations })
         const itemId = typeof item.id === 'string' ? item.id : ''
         if ((item.type === 'agentMessage' || item.type === 'plan') && !streamedTextItems.has(itemId)) {
           const text = typeof item.text === 'string' ? item.text : ''
@@ -1036,7 +1041,9 @@ export const CodexAdapter: CliAgentAdapter = {
         if (settled) return
         if (!line.trim()) return
         try {
-          JSON.parse(line)
+          const parsed = JSON.parse(line)
+          const citations = extractCitations(parsed)
+          if (citations.length > 0) onEvent?.({ type: 'citations', citations })
           parsedAnyJson = true
         } catch {
           // raw text fallback still applies if the stream never produced JSON

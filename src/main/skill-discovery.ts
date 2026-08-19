@@ -108,6 +108,12 @@ export function projectSkillDiscoveryRoots(sourceRoots: string[]): SkillDiscover
       scope: 'project',
       source: 'filesystem',
     })
+    roots.push({
+      path: join(src, 'skills'),
+      label: `${projectLabel}/skills`,
+      scope: 'project',
+      source: 'filesystem',
+    })
   }
   return roots
 }
@@ -138,6 +144,7 @@ async function describePackage(
       importable: true,
       contentHash,
       alreadyImported: contentHash ? knownHashes.has(contentHash) : false,
+      runtimeRequirements: loaded.runtimeRequirements,
     }
   } catch {
     // A malformed package is surfaced as invalid rather than hidden, so the user can see why it

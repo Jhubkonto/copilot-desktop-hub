@@ -5,9 +5,7 @@ vi.mock('../database', () => ({ getDatabase: vi.fn() }))
 
 const {
   safeHandleMock,
-  isAvailableClaude,
-  isAvailableCodex,
-  isAvailableHermes,
+  detectCliMock,
   getCliModelsMock,
   isProviderConfiguredMock,
   getProviderModelIdsMock,
@@ -23,9 +21,7 @@ const {
   fetchAndCacheAnthropicModelsMock,
 } = vi.hoisted(() => ({
   safeHandleMock: vi.fn(),
-  isAvailableClaude: vi.fn(),
-  isAvailableCodex: vi.fn(),
-  isAvailableHermes: vi.fn(),
+  detectCliMock: vi.fn(),
   getCliModelsMock: vi.fn(),
   isProviderConfiguredMock: vi.fn(),
   getProviderModelIdsMock: vi.fn((provider: { models: string[] }) => provider.models),
@@ -42,10 +38,7 @@ const {
 }))
 
 vi.mock('../safe-handle', () => ({ safeHandle: safeHandleMock }))
-vi.mock('../cli-adapters/claude', () => ({ ClaudeAdapter: { isAvailable: isAvailableClaude } }))
-vi.mock('../cli-adapters/codex', () => ({ CodexAdapter: { isAvailable: isAvailableCodex } }))
-vi.mock('../cli-adapters/hermes', () => ({ HermesAdapter: { isAvailable: isAvailableHermes } }))
-vi.mock('../cli-detection', () => ({ getCliModels: getCliModelsMock }))
+vi.mock('../cli-detection', () => ({ detectCli: detectCliMock, getCliModels: getCliModelsMock }))
 vi.mock('../providers', () => ({
   PROVIDERS: [
     { name: 'anthropic', label: 'Anthropic', models: ['claude-sonnet-4-6', 'claude-opus-4-8'] },
@@ -71,9 +64,7 @@ vi.mock('../anthropic-models', () => ({
 import { getAvailableModelGroups, registerModelAvailabilityHandlers } from '../model-availability'
 
 afterEach(() => {
-  isAvailableClaude.mockReset()
-  isAvailableCodex.mockReset()
-  isAvailableHermes.mockReset()
+  detectCliMock.mockReset()
   getCliModelsMock.mockReset()
   isProviderConfiguredMock.mockReset()
   retrieveApiKeyMock.mockReset()
@@ -95,81 +86,77 @@ afterEach(() => {
 
 describe('getAvailableModelGroups', () => {
   beforeEach(() => {
-    isAvailableClaude.mockReturnValue(false)
-    isAvailableCodex.mockReturnValue(false)
-    isAvailableHermes.mockReturnValue(false)
+    detectCliMock.mockResolvedValue({ installed: false, path: null, version: null })
     isProviderConfiguredMock.mockReturnValue(false)
   })
 
-  it('returns empty array when nothing is configured', () => {
-    expect(getAvailableModelGroups()).toEqual([])
+  it('returns empty array when nothing is configured', async () => {
+    await expect(getAvailableModelGroups()).resolves.toEqual([])
   })
 
-  it('returns one CLI group for Claude CLI only', () => {
-    isAvailableClaude.mockReturnValue(true)
+  it('returns one CLI group for Claude CLI only', async () => {
+    detectCliMock.mockImplementation((name: string) => Promise.resolve({ installed: name === 'claude', path: '/usr/bin/claude', version: null }))
     getCliModelsMock.mockReturnValue([{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(1)
     expect(groups[0].sourceKey).toBe('claude-cli')
     expect(groups[0].sourceType).toBe('cli')
     expect(groups[0].sourceLabel).toBe('Claude CLI')
   })
 
-  it('returns one CLI group for Codex CLI only', () => {
-    isAvailableCodex.mockReturnValue(true)
+  it('returns one CLI group for Codex CLI only', async () => {
+    detectCliMock.mockImplementation((name: string) => Promise.resolve({ installed: name === 'codex', path: '/usr/bin/codex', version: null }))
     getCliModelsMock.mockReturnValue([{ id: 'gpt-5.5', label: 'GPT-5.5' }])
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(1)
     expect(groups[0].sourceKey).toBe('codex-cli')
     expect(groups[0].sourceType).toBe('cli')
   })
 
-  it('returns one CLI group for Hermes Agent only', () => {
-    isAvailableHermes.mockReturnValue(true)
+  it('returns one CLI group for Hermes Agent only', async () => {
+    detectCliMock.mockImplementation((name: string) => Promise.resolve({ installed: name === 'hermes', path: '/usr/bin/hermes', version: null }))
     getCliModelsMock.mockReturnValue([{ id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' }])
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(1)
     expect(groups[0].sourceKey).toBe('hermes-cli')
     expect(groups[0].sourceType).toBe('cli')
     expect(groups[0].sourceLabel).toBe('Hermes Agent')
   })
 
-  it('returns two CLI groups when both CLIs available, claude first', () => {
-    isAvailableClaude.mockReturnValue(true)
-    isAvailableCodex.mockReturnValue(true)
+  it('returns two CLI groups when both CLIs available, claude first', async () => {
+    detectCliMock.mockImplementation((name: string) => Promise.resolve({ installed: name === 'claude' || name === 'codex', path: `/usr/bin/${name}`, version: null }))
     getCliModelsMock.mockImplementation((backend: string) =>
       backend === 'claude-cli'
         ? [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }]
         : [{ id: 'gpt-5.5', label: 'GPT-5.5' }]
     )
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(2)
     expect(groups[0].sourceKey).toBe('claude-cli')
     expect(groups[1].sourceKey).toBe('codex-cli')
   })
 
-  it('returns one provider group when a single provider is configured', () => {
+  it('returns one provider group when a single provider is configured', async () => {
     isProviderConfiguredMock.mockImplementation((name: string) => name === 'anthropic')
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(1)
     expect(groups[0].sourceKey).toBe('anthropic')
     expect(groups[0].sourceType).toBe('provider')
     expect(groups[0].sourceLabel).toBe('Anthropic')
   })
 
-  it('prefixes azure model IDs with azure:', () => {
+  it('prefixes azure model IDs with azure:', async () => {
     isProviderConfiguredMock.mockImplementation((name: string) => name === 'azure')
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(1)
     expect(groups[0].models[0].id).toBe('azure:gpt-4o')
   })
 
-  it('returns CLI groups before provider groups', () => {
-    isAvailableClaude.mockReturnValue(true)
-    isAvailableCodex.mockReturnValue(true)
+  it('returns CLI groups before provider groups', async () => {
+    detectCliMock.mockImplementation((name: string) => Promise.resolve({ installed: name === 'claude' || name === 'codex', path: `/usr/bin/${name}`, version: null }))
     isProviderConfiguredMock.mockImplementation((name: string) => name === 'anthropic' || name === 'openai')
     getCliModelsMock.mockReturnValue([{ id: 'model-x', label: 'Model X' }])
-    const groups = getAvailableModelGroups()
+    const groups = await getAvailableModelGroups()
     expect(groups).toHaveLength(4)
     expect(groups[0].sourceKey).toBe('claude-cli')
     expect(groups[1].sourceKey).toBe('codex-cli')
@@ -177,10 +164,10 @@ describe('getAvailableModelGroups', () => {
     expect(groups[3].sourceKey).toBe('openai')
   })
 
-  it('excludes CLI groups with no models', () => {
-    isAvailableClaude.mockReturnValue(true)
+  it('excludes CLI groups with no models', async () => {
+    detectCliMock.mockImplementation((name: string) => Promise.resolve({ installed: name === 'claude', path: '/usr/bin/claude', version: null }))
     getCliModelsMock.mockReturnValue([])
-    expect(getAvailableModelGroups()).toEqual([])
+    await expect(getAvailableModelGroups()).resolves.toEqual([])
   })
 })
 

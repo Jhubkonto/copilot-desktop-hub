@@ -12,7 +12,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -25,11 +24,6 @@ fun NotificationsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val notificationDiagnostics by vm.notificationDiagnostics.collectAsStateWithLifecycle()
-    val readAloudEnabled by vm.readAloudEnabled.collectAsStateWithLifecycle()
-    val voiceDockEnabled by vm.voiceDockEnabled.collectAsStateWithLifecycle()
-    val spokenOutputEnabled by vm.spokenOutputEnabled.collectAsStateWithLifecycle()
-    val spokenOutputSettings by vm.spokenOutputSettings.collectAsStateWithLifecycle()
-    val spokenVoices by vm.spokenVoices.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshNotificationDiagnostics() }
 
     Scaffold(
@@ -50,21 +44,6 @@ fun NotificationsScreen(
             NotificationsSection(
                 notificationDiagnostics = notificationDiagnostics,
                 onOpenNotificationSettings = { vm.openNotificationSettings() },
-            )
-            ReadAloudSection(
-                readAloudEnabled = readAloudEnabled,
-                onReadAloudEnabledChanged = { vm.setReadAloudEnabled(it) },
-            )
-            SpokenOutputSettingsSection(
-                enabled = spokenOutputEnabled,
-                settings = spokenOutputSettings,
-                voices = spokenVoices,
-                onEnabledChanged = vm::setSpokenOutputEnabled,
-                onSettingsChanged = vm::setSpokenOutputSettings,
-            )
-            VoiceDockSettingsSection(
-                enabled = voiceDockEnabled,
-                onEnabledChanged = vm::setVoiceDockEnabled,
             )
         }
     }

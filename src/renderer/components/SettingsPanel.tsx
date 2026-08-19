@@ -7,6 +7,7 @@ import { extractPromptVariables } from '../../shared/prompt-variables'
 import { isApiError } from '../../shared/types'
 import { ModalShell } from './ui/primitives'
 import { GeneralTab } from './settings/GeneralTab'
+import { VoiceAudioTab } from './settings/VoiceAudioTab'
 import { ProvidersTab } from './settings/ProvidersTab'
 import { CliTab } from './settings/CliTab'
 import { PromptsTab } from './settings/PromptsTab'
@@ -14,12 +15,12 @@ import { MobileTab } from './settings/MobileTab'
 import { DeveloperTab } from './settings/DeveloperTab'
 import type { ProviderInfo } from './settings/types'
 import { useClickOutside } from '../hooks/useClickOutside'
-import type { SupertonicStatus } from '../../shared/neural-tts'
 
-type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts' | 'developer'
+type SettingsCategory = 'general' | 'voice' | 'providers' | 'cli' | 'mobile' | 'prompts' | 'developer'
 
 const NAV_ITEMS: { id: SettingsCategory; label: string; icon: NexyIconName }[] = [
   { id: 'general',   label: 'General',       icon: 'settings' },
+  { id: 'voice',     label: 'Voice & audio', icon: 'microphone' },
   { id: 'providers', label: 'API Providers', icon: 'key' },
   { id: 'cli',       label: 'CLI Tools',     icon: 'prompt' },
   { id: 'prompts',   label: 'Prompts',       icon: 'clipboard' },
@@ -115,8 +116,6 @@ export function SettingsPanel() {
   const [whisperModelPath, setWhisperModelPath] = useState('')
   const [whisperInstalling, setWhisperInstalling] = useState(false)
   const [whisperReady, setWhisperReady] = useState(false)
-  const [supertonicStatus, setSupertonicStatus] = useState<SupertonicStatus | null>(null)
-  const [supertonicInstalling, setSupertonicInstalling] = useState(false)
 
   // Mobile companion state
   const [mobileEnabled, setMobileEnabled] = useState(false)
@@ -158,6 +157,7 @@ export function SettingsPanel() {
   const [signingDraft, setSigningDraft] = useState<AndroidSigningConfig>({ keystorePath: '', keystorePassword: '', keyAlias: '', keyPassword: '' })
   const [signingValidation, setSigningValidation] = useState<PreflightCheck[] | null>(null)
   const [adbDevices, setAdbDevices] = useState<AdbDevice[]>([])
+  const [adbRefreshing, setAdbRefreshing] = useState(false)
   const [adbInstalling, setAdbInstalling] = useState(false)
   const [androidPublishResult, setAndroidPublishResult] = useState<string | null>(null)
   const [androidUpdateManifest, setAndroidUpdateManifest] = useState<AndroidUpdateManifest | null>(null)
@@ -219,7 +219,6 @@ export function SettingsPanel() {
     })
     window.api.listProviders().then(setProviders)
     window.api.getVoiceStatus().then((status) => setWhisperReady(!('error' in status) && status.ready)).catch(() => setWhisperReady(false))
-    window.api.getSupertonicStatus().then(setSupertonicStatus).catch(() => setSupertonicStatus(null))
     window.api.getAzureEndpoint().then((ep: string | null) => {
       if (ep) setAzureEndpoint(ep)
     })
@@ -700,8 +699,14 @@ export function SettingsPanel() {
   }
 
   const handleRefreshAdbDevices = async () => {
-    const devices = await window.api.androidListAdbDevices()
-    setAdbDevices(devices)
+    if (adbRefreshing) return
+    setAdbRefreshing(true)
+    try {
+      const devices = await window.api.androidListAdbDevices()
+      setAdbDevices(devices)
+    } finally {
+      setAdbRefreshing(false)
+    }
   }
 
   const latestAdbInstallRecord = androidBuildRecords
@@ -888,62 +893,6 @@ export function SettingsPanel() {
     }
   }
 
-  const handleInstallSupertonic = async () => {
-    setSupertonicInstalling(true)
-    try {
-      const result = await window.api.installSupertonic()
-      if (isApiError(result)) {
-        addToast(result.error, 'error')
-        return
-      }
-      setSupertonicStatus(result)
-      window.dispatchEvent(new Event('nexy:supertonic-status-changed'))
-      addToast('Supertonic installed and ready', 'success')
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : 'Supertonic installation failed', 'error')
-    } finally {
-      setSupertonicInstalling(false)
-    }
-  }
-
-  const handleRemoveSupertonic = async () => {
-    try {
-      const result = await window.api.removeSupertonic()
-      if (isApiError(result)) {
-        addToast(result.error, 'error')
-        return
-      }
-      setSupertonicStatus(result)
-      window.dispatchEvent(new Event('nexy:supertonic-status-changed'))
-      addToast('Supertonic model removed', 'success')
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : 'Unable to remove Supertonic', 'error')
-    }
-  }
-
-  const handlePreviewSupertonic = async () => {
-    try {
-      const result = await window.api.synthesizeSupertonic({
-        text: 'Hello from Nexy. This voice is generated privately on your computer.',
-        speakerId: 0,
-        language: 'en',
-        speed: 1,
-      })
-      if (isApiError(result)) {
-        addToast(result.error, 'error')
-        return
-      }
-      const bytes = new Uint8Array(result.audio)
-      const url = URL.createObjectURL(new Blob([bytes.buffer], { type: 'audio/wav' }))
-      const audio = new Audio(url)
-      audio.onended = () => URL.revokeObjectURL(url)
-      audio.onerror = () => URL.revokeObjectURL(url)
-      await audio.play()
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : 'Supertonic preview failed', 'error')
-    }
-  }
-
   // suppress unused variable warning — activeAgent is computed for potential future use
   void activeAgent
 
@@ -997,12 +946,6 @@ export function SettingsPanel() {
             modelIds={modelIds}
             temperature={temperature}
             maxTokens={maxTokens}
-            whisperCppPath={whisperCppPath}
-            whisperModelPath={whisperModelPath}
-            whisperInstalling={whisperInstalling}
-            whisperReady={whisperReady}
-            supertonicStatus={supertonicStatus}
-            supertonicInstalling={supertonicInstalling}
             catalogModels={catalogModels}
             onToggleAutoStart={() => void handleAutoStartToggle()}
             onToggleRunInBackground={() => void handleRunInBackgroundToggle()}
@@ -1013,17 +956,23 @@ export function SettingsPanel() {
             onSetDefaultModelMenuRect={setDefaultModelMenuRect}
             onSetTemperature={setTemperature}
             onSetMaxTokens={setMaxTokens}
-            onSetWhisperCppPath={setWhisperCppPath}
-            onSetWhisperModelPath={setWhisperModelPath}
-            onSaveWhisper={() => void handleSaveWhisper()}
-            onInstallWhisper={() => void handleInstallWhisper()}
-            onInstallSupertonic={() => void handleInstallSupertonic()}
-            onRemoveSupertonic={() => void handleRemoveSupertonic()}
-            onPreviewSupertonic={() => void handlePreviewSupertonic()}
             onSaveAdvanced={() => void handleSaveAdvanced()}
             onOpenMcp={onOpenMcp}
             defaultModelMenuRef={defaultModelMenuRef}
             defaultModelButtonRef={defaultModelButtonRef}
+          />
+        )}
+
+        {category === 'voice' && (
+          <VoiceAudioTab
+            whisperCppPath={whisperCppPath}
+            whisperModelPath={whisperModelPath}
+            whisperInstalling={whisperInstalling}
+            whisperReady={whisperReady}
+            onSetWhisperCppPath={setWhisperCppPath}
+            onSetWhisperModelPath={setWhisperModelPath}
+            onSaveWhisper={() => void handleSaveWhisper()}
+            onInstallWhisper={() => void handleInstallWhisper()}
           />
         )}
 
@@ -1176,6 +1125,7 @@ export function SettingsPanel() {
             onSaveSigningConfig={() => void handleSaveSigningConfig()}
             onValidateSigningConfig={() => void handleValidateSigningConfig()}
             adbDevices={adbDevices}
+            adbRefreshing={adbRefreshing}
             adbInstalling={adbInstalling}
             latestAdbInstallRecord={latestAdbInstallRecord}
             latestAdbInstallApk={latestAdbInstallApk}

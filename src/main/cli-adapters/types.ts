@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import type { ProviderMessage } from '../providers'
 import type { UserInputAnswer, UserInputQuestion } from '../../shared/chat-turn-types'
+import type { Citation } from '../../shared/citations'
 
 export interface CliAdapterRequest {
   systemPrompt?: string
@@ -49,7 +50,7 @@ export interface CliAdapterRequest {
 export type CliStreamEvent =
   | { type: 'tool_start'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_end'; id: string; content: string; isError: boolean }
-  | { type: 'cost'; totalCostUsd: number; inputTokens: number; outputTokens: number }
+  | { type: 'cost'; totalCostUsd: number; inputTokens: number; outputTokens: number; requestId?: string }
   | { type: 'thinking_chunk'; blockId: string; chunk: string }
   | { type: 'thinking_end'; blockId: string }
   // Marks a response-text burst (see onChunk's blockId) as closed — without this, a
@@ -65,6 +66,7 @@ export type CliStreamEvent =
   // thinking_chunk/thinking_end, which accumulate into a reasoning block that sticks
   // around after the turn completes.
   | { type: 'activity'; label: string }
+  | { type: 'citations'; citations: Citation[] }
 
 export interface CliAgentAdapter {
   readonly name: string

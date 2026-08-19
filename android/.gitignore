@@ -7,6 +7,7 @@ app/build/
 /offline-build/
 
 # IDE
+/.idea/
 /.idea/caches/
 /.idea/libraries/
 /.idea/modules.xml
@@ -20,10 +21,16 @@ app/build/
 .externalNativeBuild/
 .cxx/
 
+# Kotlin/compiler and local agent verification state
+/.kotlin/
+/.kotlin-spoken-check/
+/android/
+
 # Keystore (never commit signing keys)
 *.keystore
 *.jks
 
-# Firebase — a placeholder google-services.json is committed so the build works without Firebase setup.
-# To enable FCM push notifications: replace app/google-services.json with the real file from
-# your Firebase console (Project settings → General → Your apps → google-services.json).
+# Firebase — never commit the real project configuration. CI/local release
+# builds may provide it temporarily from protected storage.
+/app/google-services.json
+/app/google-services.json.*.local

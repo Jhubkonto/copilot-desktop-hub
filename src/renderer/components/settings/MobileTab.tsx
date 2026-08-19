@@ -46,6 +46,34 @@ function SectionHeader({ title, description }: { title: string; description?: st
   )
 }
 
+const mobileCardClass = 'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/30'
+
+function MobileToggleRow({
+  title,
+  description,
+  checked,
+  onChange,
+  disabled,
+  ariaLabel,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onChange: () => void
+  disabled?: boolean
+  ariaLabel: string
+}) {
+  return (
+    <div className={`${mobileCardClass} flex min-h-[68px] items-center justify-between gap-4 px-4 py-3`}>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{title}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{description}</p>
+      </div>
+      <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} size="sm" ariaLabel={ariaLabel} />
+    </div>
+  )
+}
+
 function UrlProfileRow({
   profile,
   onActivate,
@@ -85,7 +113,7 @@ function UrlProfileRow({
   const urlError = editing && editing.url.trim() && !editing.url.trim().startsWith('wss://')
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5 transition-colors ${profile.active ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40'}`}>
+    <div className={`rounded-lg border px-3 py-3 transition-colors ${profile.active ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40'}`}>
       {editing ? (
         <div className="space-y-1.5">
           <input
@@ -217,46 +245,33 @@ export function MobileTab({
       {/* ── Server ── */}
       <SectionHeader title="Server" />
 
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700/60">
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Enable mobile server</p>
-            <p className="text-xs text-gray-500">Starts a local WebSocket server on your network</p>
-          </div>
-          <ToggleSwitch
-            checked={mobileEnabled}
-            onChange={() => onToggle()}
-            disabled={mobileLoading}
-            size="sm"
-            ariaLabel="Enable mobile server"
-          />
-        </div>
-
-        {/* Auto-start toggle */}
-        <div className="flex items-center justify-between px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Auto-start with app</p>
-            <p className="text-xs text-gray-500">Start the mobile server automatically when Nexy opens</p>
-          </div>
-          <ToggleSwitch
-            checked={autoStartEnabled}
-            onChange={onToggleAutoStart}
-            size="sm"
-            ariaLabel="Auto-start mobile server"
-          />
-        </div>
+      <div className="space-y-2">
+        <MobileToggleRow
+          title="Enable mobile server"
+          description="Starts a local WebSocket server on your network"
+          checked={mobileEnabled}
+          onChange={onToggle}
+          disabled={mobileLoading}
+          ariaLabel="Enable mobile server"
+        />
+        <MobileToggleRow
+          title="Auto-start with app"
+          description="Start the mobile server automatically when Nexy opens"
+          checked={autoStartEnabled}
+          onChange={onToggleAutoStart}
+          ariaLabel="Auto-start mobile server"
+        />
       </div>
 
       {mobileEnabled && (
         <>
           {/* Status card */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-xs space-y-1.5">
+          <div className={`${mobileCardClass} bg-gray-50 px-4 py-3.5 text-xs dark:bg-gray-800/50`}>
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Local IP</span>
               <span className="font-mono text-gray-800 dark:text-gray-200">{mobileLocalIp}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
+            <div className="mt-3 flex items-center justify-between gap-3">
               <span className="text-gray-500">Active endpoint</span>
               <span className="flex items-center gap-1 text-gray-800 dark:text-gray-200">
                 {isUsingLan
@@ -265,18 +280,18 @@ export function MobileTab({
                 }
               </span>
             </div>
-            <div className="flex items-start justify-between gap-3">
+            <div className="mt-3 flex items-start justify-between gap-3">
               <span className="text-gray-500 shrink-0">Pairing URL</span>
               <span className="font-mono text-right text-gray-800 dark:text-gray-200 break-all">
                 {mobilePairingUrl ?? 'Not available'}
               </span>
             </div>
-            <div className="flex items-center justify-between">
+            <div className="mt-3 flex items-center justify-between">
               <span className="text-gray-500">Connected devices</span>
               <span className="font-mono text-gray-800 dark:text-gray-200">{mobileClients}</span>
             </div>
             {connectedDevices.length > 0 && (
-              <div className="space-y-1 pt-1">
+              <div className="mt-3 space-y-1.5 border-t border-gray-200/70 pt-3 dark:border-gray-700/70">
                 <span className="text-gray-500">Connected app versions</span>
                 {connectedDevices.map((device) => (
                   <div key={device.deviceId} className="flex items-center justify-between gap-3 pl-2">
@@ -292,11 +307,11 @@ export function MobileTab({
                 ))}
               </div>
             )}
-            <div className="pt-0.5">
+            <div className="mt-3 border-t border-gray-200/70 pt-3 dark:border-gray-700/70">
               <button
                 type="button"
                 onClick={onRefreshStatus}
-                className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
+                className="inline-flex min-h-7 items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <NexyIcon name="refresh" size={12} /> Refresh status
               </button>
@@ -308,7 +323,7 @@ export function MobileTab({
 
           <div className="space-y-2">
             {/* LAN option */}
-            <div className={`rounded-lg border px-3 py-2 flex items-center gap-2 ${isUsingLan ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700'}`}>
+            <div className={`rounded-lg border px-3 py-3 flex items-center gap-2 ${isUsingLan ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/30'}`}>
               <button
                 type="button"
                 onClick={useLocalLan}
@@ -343,7 +358,7 @@ export function MobileTab({
               type="button"
               onClick={addProfile}
               disabled={mobileLoading}
-              className="inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-40"
+              className="inline-flex min-h-8 items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-40"
             >
               <NexyIcon name="add" size={14} />
               Add external profile
@@ -354,7 +369,7 @@ export function MobileTab({
           <SectionHeader title="Pairing" />
 
           {mobileClients === 0 && (
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3.5 dark:border-blue-800 dark:bg-blue-900/20">
               <p className="text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">First time? Here's how to pair:</p>
               <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-0.5 list-none">
                 <li>1. Download the <span className="font-medium">Nexy</span> app from the Play Store</li>

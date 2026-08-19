@@ -27,8 +27,6 @@ import type {
   DiscoveredSkill,
   SkillGeneratorMessage,
   SkillGeneratorSpec,
-  SaveSpokenOutputInput,
-  SupertonicSynthesisInput,
   ScheduleGeneratorMessage,
   ScheduleGeneratorSpec,
   AutomatedWorkflowConfirmationMode,
@@ -53,6 +51,9 @@ import type {
   CredentialBindingUpdateInput,
   CredentialMetadata,
   CredentialUpdateInput,
+  CapabilityActivationInput,
+  CapabilityPreflight,
+  ConversationCapabilityProfile,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -93,14 +94,6 @@ const api = {
   getVoiceStatus: () => typedInvoke('voice:get-status'),
   installLocalVoice: () => typedInvoke('voice:install-local'),
   transcribeVoice: (audio: Uint8Array) => typedInvoke('voice:transcribe', audio),
-  saveSpokenOutput: (input: SaveSpokenOutputInput) =>
-    typedInvoke('voice:save-spoken-output', input),
-  generateAiRecap: (messageId: string) => typedInvoke('voice:generate-ai-recap', messageId),
-  getSupertonicStatus: () => typedInvoke('tts:get-status'),
-  installSupertonic: () => typedInvoke('tts:install-supertonic'),
-  removeSupertonic: () => typedInvoke('tts:remove-supertonic'),
-  synthesizeSupertonic: (input: SupertonicSynthesisInput) =>
-    typedInvoke('tts:synthesize-supertonic', input),
   onDebugLog: (callback: (entry: { prefix: string; message: string; timestamp: number }) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -230,8 +223,8 @@ const api = {
     typedOn('chat:cli-tool-end', handler)
     return () => typedOff('chat:cli-tool-end', handler)
   },
-  onCliCost: (callback: (data: { totalCostUsd: number; inputTokens: number; outputTokens: number }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { totalCostUsd: number; inputTokens: number; outputTokens: number }) => callback(data)
+  onCliCost: (callback: (data: { totalCostUsd: number; inputTokens: number; outputTokens: number; quality?: string; source?: string; requestCount?: number; complete?: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { totalCostUsd: number; inputTokens: number; outputTokens: number; quality?: string; source?: string; requestCount?: number; complete?: boolean }) => callback(data)
     typedOn('chat:cli-cost', handler)
     return () => typedOff('chat:cli-cost', handler)
   },
@@ -317,6 +310,14 @@ const api = {
     typedInvoke('conversation:set-mode', id, mode),
   setConversationPinned: (id: string, pinned: boolean) =>
     typedInvoke('conversation:set-pinned', id, pinned),
+  getConversationCapabilities: (id: string): Promise<ConversationCapabilityProfile> =>
+    typedInvoke('conversation:get-capabilities', id),
+  setConversationCapabilities: (id: string, profile: ConversationCapabilityProfile): Promise<ConversationCapabilityProfile> =>
+    typedInvoke('conversation:set-capabilities', id, profile),
+  resolveCapabilities: (id: string, modelId?: string | null): Promise<CapabilityPreflight> =>
+    typedInvoke('capabilities:resolve', id, modelId),
+  activateCapabilities: (id: string, input: CapabilityActivationInput): Promise<ConversationCapabilityProfile> =>
+    typedInvoke('capabilities:activate', id, input),
   updateConversationContext: (
     conversationId: string,
     updates: { projectId?: string | null; agentId?: string | null }

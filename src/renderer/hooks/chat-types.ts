@@ -69,6 +69,7 @@ export interface ChatMessage {
   // reply text was never interrupted (the common case).
   textSegments?: Map<string, { blockId: string; content: string; done: boolean; firstSeenAt?: number }>
   userInputs?: import('../../shared/chat-turn-types').ResolvedUserInput[]
+  citations?: import('../../shared/citations').Citation[]
   // True for a text segment optimistically promoted into `messages` mid-turn (as soon as
   // it closes) so it interleaves with tool-call messages in true chronological order
   // instead of staying stuck in the live-only render area until the whole turn settles.
@@ -81,6 +82,12 @@ export interface CliCostSummary {
   totalCostUsd: number
   inputTokens: number
   outputTokens: number
+  quality?: 'provider' | 'tokenizer' | 'estimate'
+  source?: string
+  requestCount?: number
+  complete?: boolean
+  cachedInputTokens?: number
+  reasoningTokens?: number
 }
 
 export interface ContextRef {
@@ -118,6 +125,8 @@ export interface ContextSnapshot {
    *  the estimate above is the only number available for those. */
   serverInputTokens?: number
   serverOutputTokens?: number
+  nextRequest?: import('../../shared/token-usage').TokenCount
+  turnTotal?: import('../../shared/token-usage').TurnUsageTotal
 }
 
 export interface TeamActivityStep {

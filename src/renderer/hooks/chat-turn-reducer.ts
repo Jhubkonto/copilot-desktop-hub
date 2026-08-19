@@ -258,6 +258,12 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
           inputTokens: event.inputTokens,
           outputTokens: event.outputTokens,
           totalCostUsd: event.totalCostUsd,
+          quality: event.quality,
+          source: event.source,
+          requestCount: event.requestCount,
+          complete: event.complete,
+          cachedInputTokens: event.cachedInputTokens,
+          reasoningTokens: event.reasoningTokens,
         },
       }
 

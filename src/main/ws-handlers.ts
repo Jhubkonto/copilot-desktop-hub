@@ -1,16 +1,13 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { listConversationPage } from './conversation-pagination'
 import type { ConversationPageRequest } from '../shared/types'
+import type { CapabilityTrust } from '../shared/types'
 import type { UserInputAnswer, UserInputRequest } from '../shared/chat-turn-types'
 import { createHash, randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
+import { activateConversationCapabilities, getConversationCapabilityProfile, resolveConversationCapabilities } from './capability-service'
 import { applyLifecycleSetting, setAutoStartEnabled } from './app-lifecycle-settings'
-import {
-  generateAiSpokenOutput,
-  getAssistantMessageContext,
-  saveMessageSpokenOutput,
-} from './spoken-output'
 import { abortActiveStream, PROVIDERS, getProviderModelIds, isProviderConfigured } from './providers'
 import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
 import { activateEmergencyStop, getEmergencyStopStatus, resumeConversations } from './emergency-stop'
@@ -331,39 +328,6 @@ export function registerWsHandlers(): void {
     }
     if (command === 'voice:upload-cancel') {
       reply(voiceUploadSessions.cancel(connectionId, data.sessionId))
-      return
-    }
-    if (command === 'voice:generate-ai-recap') {
-      const messageId = typeof data.messageId === 'string' ? data.messageId : ''
-      try {
-        const db = getDatabase()
-        const context = getAssistantMessageContext(db, messageId)
-        if (!context) throw new Error('Assistant message not found')
-        const output = await generateAiSpokenOutput(db, context, 'ai-recap')
-        if (!output) throw new Error('No provider or Claude CLI is available for an AI recap.')
-        reply({ event: 'voice:ai-recap', data: output })
-      } catch (error) {
-        reply({
-          event: 'voice:ai-recap-error',
-          data: {
-            messageId,
-            message: error instanceof Error ? error.message : 'AI recap failed.',
-          },
-        })
-      }
-      return
-    }
-    if (command === 'voice:save-spoken-output') {
-      try {
-        saveMessageSpokenOutput(getDatabase(), {
-          messageId: typeof data.messageId === 'string' ? data.messageId : '',
-          spokenText: typeof data.spokenText === 'string' ? data.spokenText : '',
-          outputKind: data.outputKind === 'quick-recap' ? 'quick-recap' : 'response',
-          generationKind: 'deterministic',
-        })
-      } catch {
-        // Playback remains available if a stale/deleted message cannot be persisted.
-      }
       return
     }
     if (command === 'ping') return
@@ -1222,6 +1186,54 @@ export function registerWsHandlers(): void {
       return
     }
 
+    // Capability activation can target a chat, project, or agent. The profile contains IDs and
+    // approval policy only; MCP secrets and desktop connection details never cross the WebSocket.
+    if (command === 'conversation:get-capabilities') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      try {
+        reply({ event: 'conversation:capabilities', data: { conversationId, profile: getConversationCapabilityProfile(db, conversationId) } })
+      } catch (error) {
+        reply({ event: 'capabilities:error', data: { conversationId, message: error instanceof Error ? error.message : 'Conversation not found' } })
+      }
+      return
+    }
+
+    if (command === 'capabilities:resolve') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      try {
+        reply({ event: 'capabilities:preflight', data: resolveConversationCapabilities(db, conversationId, typeof data.modelId === 'string' ? data.modelId : null) })
+      } catch (error) {
+        reply({ event: 'capabilities:error', data: { conversationId, message: error instanceof Error ? error.message : 'Could not resolve capabilities' } })
+      }
+      return
+    }
+
+    if (command === 'capabilities:activate') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      try {
+        const skillIds = Array.isArray(data.skillIds) ? data.skillIds.filter((id): id is string => typeof id === 'string') : []
+        const mcp = Array.isArray(data.mcp)
+          ? data.mcp.flatMap((entry) => {
+            if (!entry || typeof entry !== 'object') return []
+            const row = entry as { serverId?: unknown; trust?: unknown }
+            if (typeof row.serverId !== 'string') return []
+            const trust: CapabilityTrust = row.trust === 'auto' || row.trust === 'block' || row.trust === 'always-ask' ? row.trust : 'always-ask'
+            return [{ serverId: row.serverId, trust }]
+          })
+          : []
+        const scope = data.scope === 'project' || data.scope === 'agent' ? data.scope : 'chat'
+        const targetId = typeof data.targetId === 'string' ? data.targetId : undefined
+        const profile = activateConversationCapabilities(db, conversationId, { scope, targetId, skillIds, mcp })
+        reply({ event: 'capabilities:activated', data: { conversationId, profile } })
+      } catch (error) {
+        reply({ event: 'capabilities:error', data: { conversationId, message: error instanceof Error ? error.message : 'Could not activate capabilities' } })
+      }
+      return
+    }
+
     if (command === 'project:list') {
       const rows = db.prepare(`
           SELECT p.id, p.name, p.color, p.default_model,
@@ -1249,12 +1261,12 @@ export function registerWsHandlers(): void {
         const beforeId = typeof data.beforeId === 'string' ? data.beforeId : null
         const descendingRows = beforeTimestamp != null && beforeId != null
           ? db.prepare(
-            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
+`SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs, citations FROM messages
                WHERE conversation_id = ? AND (timestamp < ? OR (timestamp = ? AND id < ?))
                ORDER BY timestamp DESC, id DESC LIMIT ?`
           ).all(conversationId, beforeTimestamp, beforeTimestamp, beforeId, limit + 1)
           : db.prepare(
-            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
+            `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs, citations FROM messages
                WHERE conversation_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`
           ).all(conversationId, limit + 1)
         const hasMore = descendingRows.length > limit
@@ -1335,7 +1347,7 @@ export function registerWsHandlers(): void {
         return
       }
       const rows = db.prepare(
-        `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs FROM messages
+        `SELECT id, role, content, model, attachments, timestamp, timeline_order, thinking_blocks, text_segments, user_inputs, citations FROM messages
            WHERE conversation_id = ? ORDER BY timeline_order ASC, timestamp ASC, id ASC`
       ).all(conversationId)
       reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })
@@ -1828,11 +1840,11 @@ export function registerWsHandlers(): void {
     if (command === 'app:cli-status') {
       // Android is a companion and cannot run `hermes` locally, so the profile list +
       // ACP readiness ride along with the CLI-status reply for the Hermes profile picker.
-      const readiness = hermesAcpReadiness()
+      const [readiness, clis] = await Promise.all([hermesAcpReadiness(), detectAllClis()])
       reply({
         event: 'app:cli-status',
         data: {
-          clis: detectAllClis(),
+          clis,
           hermes: {
             profiles: listHermesProfiles(),
             acpReady: readiness.ready,

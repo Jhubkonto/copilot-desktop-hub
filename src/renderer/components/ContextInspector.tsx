@@ -438,13 +438,17 @@ export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot |
       : null
   const modelChanged = Boolean(serverModel && serverModel !== model)
   const hasRealUsage = typeof snapshot.serverInputTokens === 'number'
+  const nextRequest = snapshot.nextRequest && typeof snapshot.nextRequest.inputTokens === 'number' ? snapshot.nextRequest : null
+  const turnTotal = snapshot.turnTotal && typeof snapshot.turnTotal.inputTokens === 'number' ? snapshot.turnTotal : null
   const isInteresting =
     historyLength > 0 ||
     contextRefs.length > 0 ||
     attachments.length > 0 ||
     Boolean(serverCompression) ||
     modelChanged ||
-    hasRealUsage
+    hasRealUsage ||
+    Boolean(nextRequest) ||
+    Boolean(turnTotal)
   if (!isInteresting) return null
 
   return (
@@ -488,6 +492,18 @@ export function ContextSnapshotBadge({ snapshot }: { snapshot: ContextSnapshot |
               <span className="font-medium">Actual usage:</span>{' '}
               {snapshot.serverInputTokens} input{typeof snapshot.serverOutputTokens === 'number' ? ` / ${snapshot.serverOutputTokens} output` : ''} tok
               <span className="text-gray-400 dark:text-gray-500"> (estimate was ~{estimatedTokens})</span>
+            </div>
+          )}
+          {nextRequest && (
+            <div>
+              <span className="font-medium">Next request:</span>{' '}
+              {nextRequest.inputTokens.toLocaleString()} input tok · {nextRequest.quality} ({nextRequest.source})
+            </div>
+          )}
+          {turnTotal && (
+            <div>
+              <span className="font-medium">Turn total:</span>{' '}
+              {turnTotal.inputTokens.toLocaleString()} input / {turnTotal.outputTokens.toLocaleString()} output tok · {turnTotal.requestCount} request{turnTotal.requestCount === 1 ? '' : 's'}
             </div>
           )}
           {modelChanged && (

@@ -100,6 +100,13 @@ describe('conversation:list — rating column', () => {
     expect(second.items.map((item) => item.id)).toEqual(['a-new'])
     expect(second.totalCount).toBe(3)
     expect(second.hasMore).toBe(false)
+
+    const pinned = await invoke<{
+      items: Array<{ id: string }>; totalCount: number; hasMore: boolean
+    }>('conversation:list-page', { scope: { type: 'pinned' }, limit: 2 })
+    expect(pinned.items.map((item) => item.id)).toEqual(['z-pinned'])
+    expect(pinned.totalCount).toBe(1)
+    expect(pinned.hasMore).toBe(false)
   })
 
   it('applies server-side search to both page rows and the authoritative count', async () => {

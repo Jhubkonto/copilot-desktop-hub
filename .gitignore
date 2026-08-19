@@ -11,6 +11,23 @@ esbuild-*.js
 .env
 .env.local
 .env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+!.env.example
+!**/.env.example
+
+# Credentials, signing material, and provider configuration
+**/auth.json
+**/*credentials*.json
+**/*service-account*.json
+**/google-services.json
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.key
 
 # Editor
 .vscode/
@@ -28,6 +45,22 @@ desktop.ini
 *.log
 npm-debug.log*
 
+# Runtime databases, browser state, and session artifacts
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+**/sessions/
+**/logs/
+**/cache/
+**/caches/
+**/browser-data/
+**/user-data/
+**/screenshots/
+**/pairing/
+**/sandboxes/
+
 # TypeScript
 *.tsbuildinfo
 
@@ -43,6 +76,7 @@ src/planning/
 
 # Local Claude/Codex tooling state
 .claude/
+.agents/
 
 # Android local Gradle cache
 android/.gradle-user/
@@ -50,3 +84,7 @@ android/.gradle-user/
 # Temporary visual test data
 tmp-nexy-visual/
 tmp-mcp-visual.cjs
+tmp-nexy-visual-probe.cjs
+
+# Local remediation/recovery material
+.nexy-remediation/

@@ -5,6 +5,7 @@ import { buildCliChildEnv, createOpenBlockTracker, resolveCliPath } from './util
 import { debugLog } from '../debug-mode'
 import { recordErrorLogEntry } from '../error-log-handlers'
 import { listHermesProfiles } from '../cli-detection'
+import { extractCitations } from '../../shared/citations'
 
 // Local-model Hermes profiles run vision/aux capability probes against the configured endpoint
 // during session bootstrap, so `session/new` legitimately takes tens of seconds (observed ~28s
@@ -213,6 +214,8 @@ export class HermesAcpAdapter implements CliAgentAdapter {
     if (message.method !== 'session/update') return
     const update = message.params?.update as Record<string, unknown> | undefined
     if (!update) return
+    const citations = extractCitations(update)
+    if (citations.length > 0) session?.onEvent?.({ type: 'citations', citations })
     const kind = update.sessionUpdate
     const tracker = session ? this.getTracker(session, update) : undefined
     if (kind === 'agent_message_chunk') {
@@ -240,7 +243,23 @@ export class HermesAcpAdapter implements CliAgentAdapter {
       if (status === 'completed' || status === 'failed') session?.onEvent?.({ type: 'tool_end', id: String(update.toolCallId ?? ''), content, isError: status === 'failed' })
     } else if (kind === 'usage_update') {
       const cost = update.cost as { amount?: number; currency?: string } | undefined
-      if (cost?.currency === 'USD' && typeof cost.amount === 'number') session?.onEvent?.({ type: 'cost', totalCostUsd: cost.amount, inputTokens: Number(update.used ?? 0), outputTokens: 0 })
+      // ACP's historical `used` field is not defined as input tokens; it may represent a
+      // context budget, a running total, or provider-specific accounting. Only accept the
+      // explicit fields proposed by the Hermes ACP usage contract.
+      const inputTokens = typeof update.inputTokens === 'number'
+        ? update.inputTokens
+        : typeof update.input_tokens === 'number' ? update.input_tokens : undefined
+      const outputTokens = typeof update.outputTokens === 'number'
+        ? update.outputTokens
+        : typeof update.output_tokens === 'number' ? update.output_tokens : undefined
+      if (inputTokens != null && outputTokens != null) {
+        session?.onEvent?.({
+          type: 'cost',
+          totalCostUsd: cost?.currency === 'USD' && typeof cost.amount === 'number' ? cost.amount : 0,
+          inputTokens,
+          outputTokens,
+        })
+      }
     }
   }
 

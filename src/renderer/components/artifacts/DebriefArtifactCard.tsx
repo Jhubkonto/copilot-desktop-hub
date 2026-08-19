@@ -23,23 +23,7 @@ const LABEL_CLASS = 'text-[10px] font-semibold uppercase tracking-wider text-gra
 const MOOD_EMOJI: Record<StoryMood, string> = { problem: '🧩', attempt: '🔧', discovery: '💡', resolution: '✅' }
 
 function StoryBeatView({ caption, mood, svg }: { caption: string; mood: StoryMood; svg: string }) {
-  const [speaking, setSpeaking] = useState(false)
   const safeSvg = sanitizeStorySvg(svg)
-
-  const toggleSpeech = () => {
-    if (!('speechSynthesis' in window)) return
-    if (speaking) {
-      window.speechSynthesis.cancel()
-      setSpeaking(false)
-      return
-    }
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(caption)
-    utterance.onend = () => setSpeaking(false)
-    utterance.onerror = () => setSpeaking(false)
-    setSpeaking(true)
-    window.speechSynthesis.speak(utterance)
-  }
 
   return (
     <div className="flex items-start gap-3 rounded-nexy-sm border-2 border-nexy-border bg-nexy-raised p-2.5">
@@ -49,17 +33,6 @@ function StoryBeatView({ caption, mood, svg }: { caption: string; mood: StoryMoo
           : <span className="text-lg leading-none">{MOOD_EMOJI[mood]}</span>}
       </div>
       <p className="text-sm text-gray-700 dark:text-gray-300 flex-1 pt-1.5">{caption}</p>
-      {'speechSynthesis' in window && (
-        <button
-          type="button"
-          onClick={toggleSpeech}
-          title={speaking ? 'Stop reading' : 'Read beat aloud'}
-          aria-label={speaking ? 'Stop reading' : 'Read beat aloud'}
-          className="shrink-0 p-1 mt-1 rounded-md text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900/30"
-        >
-          <NexyIcon name={speaking ? 'stop' : 'play'} size={14} />
-        </button>
-      )}
     </div>
   )
 }

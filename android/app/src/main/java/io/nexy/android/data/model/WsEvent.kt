@@ -15,7 +15,6 @@ data class VoiceCapabilitiesWire(
     val protocolVersion: Int = 0,
     val audioUpload: Boolean = false,
     val localWhisperReady: Boolean = false,
-    val spokenOutputPersistence: Boolean = false,
     val maxAudioBytes: Long = 0,
     val maxRecordingSeconds: Int = 0,
 )
@@ -48,13 +47,6 @@ sealed class WsEvent {
         val code: String,
         val message: String,
     ) : WsEvent()
-    data class VoiceAiRecap(
-        val messageId: String,
-        val spokenText: String,
-        val model: String?,
-        val generationKind: String,
-    ) : WsEvent()
-    data class VoiceAiRecapError(val messageId: String, val message: String) : WsEvent()
     data class SyncWelcome(
         val protocolVersion: Int,
         val desktopDeviceId: String,
@@ -175,6 +167,11 @@ sealed class WsEvent {
         val durationMs: Long?,
     ) : WsEvent()
     data class ConversationList(val conversations: List<Conversation>) : WsEvent()
+    /** Secret-free capability profile for a single chat. MCP execution remains desktop-hosted. */
+    data class ConversationCapabilities(val conversationId: String, val profileJson: String) : WsEvent()
+    data class CapabilityPreflight(val conversationId: String, val preflightJson: String) : WsEvent()
+    data class CapabilitiesActivated(val conversationId: String, val profileJson: String) : WsEvent()
+    data class CapabilitiesError(val conversationId: String, val message: String) : WsEvent()
     data class ConversationPage(
         val requestId: String,
         val conversations: List<Conversation>,
@@ -654,6 +651,22 @@ data class ContextInspectorAttachmentSnapshot(
     val estimatedTokens: Int,
 )
 
+data class ContextInspectorNextRequest(
+    val inputTokens: Int,
+    val quality: String,
+    val source: String,
+    val model: String? = null,
+)
+
+data class ContextInspectorTurnTotal(
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val requestCount: Int,
+    val quality: String,
+    val source: String,
+    val complete: Boolean,
+)
+
 /** Mirrors the desktop's ContextInspectorSnapshot (src/shared/types.ts) relayed from the focused Electron window. */
 data class ContextInspectorSnapshot(
     val conversationId: String?,
@@ -667,6 +680,8 @@ data class ContextInspectorSnapshot(
     val currentInputTokens: Int,
     val totalTokens: Int,
     val maxTokens: Int,
+    val nextRequest: ContextInspectorNextRequest? = null,
+    val turnTotal: ContextInspectorTurnTotal? = null,
 )
 
 data class ProjectAgentEntry(

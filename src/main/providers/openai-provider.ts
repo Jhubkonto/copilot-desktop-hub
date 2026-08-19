@@ -5,6 +5,7 @@ import { toOpenAICompatibleMessages } from '../provider-messages'
 import { runStreamingRequest, rejectHttpError } from './streaming'
 import { debugLog } from '../debug-mode'
 import { resolveProviderCredentialInput, type ProviderCredentialInput } from '../credential-vault'
+import { extractCitations, type Citation } from '../../shared/citations'
 
 // Returns true for OpenAI o-series and compatible reasoning models.
 function supportsReasoningEffort(model: string): boolean {
@@ -150,10 +151,32 @@ function extractMessage(parsed: Record<string, unknown>): Record<string, unknown
   return choices?.[0]?.message
 }
 
+function extractFinishReason(parsed: Record<string, unknown>): string | undefined {
+  const choices = parsed.choices as Array<{ finish_reason?: string }> | undefined
+  return choices?.[0]?.finish_reason
+}
+
+/**
+ * Builds the same "empty response" diagnosis the streaming path already produces, but for the
+ * non-streaming forced-final-answer call, which previously had no detection at all and silently
+ * returned `content: null`. The `finishReason` is attached to the error (not just embedded in the
+ * message) so callers can programmatically distinguish a token-budget cutoff (`'length'`, worth
+ * retrying with more tokens) from a genuine empty stop.
+ */
+function emptyResponseError(finishReason: string | undefined): Error & { finishReason?: string } {
+  const message = finishReason === 'length'
+    ? 'The model\'s response was cut off because it ran out of tokens. Try increasing the max output tokens or shortening the conversation.'
+    : 'The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'
+  const err = new Error(message) as Error & { finishReason?: string }
+  err.finishReason = finishReason
+  return err
+}
+
 interface StreamOptions {
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  onCitations?: (citations: Citation[]) => void
 }
 
 /**
@@ -170,6 +193,7 @@ function streamChatCompletions(
 ): Promise<string> {
   return runStreamingRequest(conversationId, endpoint.url, endpoint.headers, body, (res, finish) => {
     let fullContent = ''
+    let latestUsage: { inputTokens: number; outputTokens: number } | undefined
     const contentType = res.headers['content-type'] ?? ''
     debugLog('openai', `stream: HTTP ${res.statusCode} url=${endpoint.url} contentType="${contentType.split(';')[0]}"`)
 
@@ -190,6 +214,7 @@ function streamChatCompletions(
       res.on('end', () => {
         try {
           const parsed = JSON.parse(rawBody)
+          options.onCitations?.(extractCitations(parsed))
           const content = parsed.choices?.[0]?.message?.content
           if (content) { fullContent = content; onChunk(content) }
         } catch { /* malformed */ }
@@ -204,9 +229,10 @@ function streamChatCompletions(
     parseSseStream(res, (data) => {
       try {
         const parsed = JSON.parse(data)
+        options.onCitations?.(extractCitations(parsed))
         const usage = parsed.usage
         if (usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number') {
-          options.onUsage?.({ inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens })
+          latestUsage = { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
         }
         const choice = parsed.choices?.[0]
         const delta = choice?.delta
@@ -237,6 +263,7 @@ function streamChatCompletions(
       }
     })
       .then(() => {
+        if (latestUsage) options.onUsage?.(latestUsage)
         if (fullContent === '' && sawEmptyStop) {
           finish.reject(new Error('The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'))
           return
@@ -295,6 +322,7 @@ function streamChatCompletionsWithTools(
       res.on('end', () => {
         try {
           const parsed = JSON.parse(rawBody) as Record<string, unknown>
+          options.onCitations?.(extractCitations(parsed))
           const msg = extractMessage(parsed)
           const content = typeof msg?.content === 'string' ? msg.content : null
           if (content) onChunk(content)
@@ -325,11 +353,11 @@ function streamChatCompletionsWithTools(
     parseSseStream(res, (data) => {
       try {
         const parsed = JSON.parse(data) as OpenAIStreamPayload
+        options.onCitations?.(extractCitations(parsed))
         if (typeof parsed.model === 'string') model = parsed.model
         const parsedUsage = parsed.usage
         if (parsedUsage && typeof parsedUsage.prompt_tokens === 'number' && typeof parsedUsage.completion_tokens === 'number') {
           usage = { inputTokens: parsedUsage.prompt_tokens, outputTokens: parsedUsage.completion_tokens }
-          options.onUsage?.(usage)
         }
         const choice = parsed.choices?.[0]
         const delta = choice?.delta ?? {}
@@ -391,6 +419,7 @@ function streamChatCompletionsWithTools(
           ...(model ? { model } : {}),
           ...(usage ? { usage } : {}),
         }
+        if (usage) options.onUsage?.(usage)
         finish.resolve(fullContent)
       })
       .catch((err: Error) => finish.reject(err))
@@ -410,6 +439,7 @@ export async function sendOpenAIMessage(
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+    onCitations?: (citations: Citation[]) => void
   } = {},
   baseUrl?: string
 ): Promise<string> {
@@ -447,9 +477,11 @@ export async function sendOpenAINonStreaming(
 
   const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body)
   const msg = extractMessage(parsed)
+  const citations = extractCitations(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls: []
+    toolCalls: [],
+    ...(citations.length > 0 ? { citations } : {}),
   }
 }
 
@@ -467,6 +499,7 @@ export async function sendOpenAIWithTools(
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+    onCitations?: (citations: Citation[]) => void
   } = {},
   baseUrl?: string
 ): Promise<ProviderNonStreamResult> {
@@ -488,6 +521,8 @@ export async function sendOpenAIWithTools(
 
   const parsed = await chatCompletionsRequest(openAiEndpoint(apiKey, baseUrl), body, options.conversationId)
   const msg = extractMessage(parsed)
+  const citations = extractCitations(parsed)
+  options.onCitations?.(citations)
   const usage = extractUsage(parsed)
   if (usage) options.onUsage?.(usage)
   // Some OpenAI-compatible endpoints (OpenRouter, etc.) surface non-streamed reasoning as
@@ -498,11 +533,52 @@ export async function sendOpenAIWithTools(
     options.onThinkingChunk('reasoning-0', reasoning)
     options.onThinkingEnd?.('reasoning-0')
   }
+  const content = typeof msg?.content === 'string' ? msg.content : null
+  const toolCalls = extractToolCalls(msg)
+  const finishReason = extractFinishReason(parsed)
+  // Mirrors the streaming path's empty-stop detection (see streamChatCompletions above), which this
+  // non-streaming call previously lacked entirely: a `null`/empty message with no tool calls and a
+  // terminal finish_reason ('stop' or 'length') means the model produced nothing usable, not that it
+  // chose to say nothing. Surfacing this as a specific error (instead of silently returning
+  // `content: null`) lets the tool loop show an actionable message and, on 'length', retry with a
+  // bigger token budget instead of the vague "no final response" fallback.
+  if (!content && toolCalls.length === 0 && (finishReason === 'stop' || finishReason === 'length')) {
+    debugLog('openai', `withTools: empty response detected finishReason=${finishReason ?? 'unknown'} model=${model}`)
+    throw emptyResponseError(finishReason)
+  }
   return {
-    content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls: extractToolCalls(msg),
+    content,
+    toolCalls,
     ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
     ...(usage ? { usage } : {}),
+    ...(citations.length > 0 ? { citations } : {}),
+  }
+}
+
+/**
+ * Wraps {@link sendOpenAIWithTools} with a single automatic retry when the forced final answer
+ * came back empty because the model hit its `max_tokens` cap (`finishReason === 'length'`). Long
+ * agentic tool loops routinely leave little budget for the wrap-up summary; a one-shot retry with a
+ * doubled budget (capped at 16384, matching the app-wide max_tokens ceiling) recovers the common
+ * case instead of surfacing a truncation error to the user.
+ */
+export async function sendOpenAIWithToolsResilient(
+  apiKey: ProviderCredentialInput,
+  model: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  options: Parameters<typeof sendOpenAIWithTools>[5] = {},
+  baseUrl?: string,
+): Promise<ProviderNonStreamResult> {
+  try {
+    return await sendOpenAIWithTools(apiKey, model, messages, tools, toolChoice, options, baseUrl)
+  } catch (error) {
+    const finishReason = error instanceof Error ? (error as Error & { finishReason?: string }).finishReason : undefined
+    if (finishReason !== 'length') throw error
+    const bumped = Math.min(16384, (options.maxTokens ?? 4096) * 2)
+    debugLog('openai', `withTools: retrying truncated final answer with bumped max_tokens=${bumped} model=${model}`)
+    return sendOpenAIWithTools(apiKey, model, messages, tools, toolChoice, { ...options, maxTokens: bumped }, baseUrl)
   }
 }
 
@@ -521,6 +597,7 @@ export function sendOpenAIWithToolsStream(
     onThinkingChunk?: (blockId: string, chunk: string) => void
     onThinkingEnd?: (blockId: string) => void
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+    onCitations?: (citations: Citation[]) => void
   } = {},
   baseUrl?: string,
 ): Promise<ProviderNonStreamResult> {
@@ -554,7 +631,7 @@ export async function sendAzureMessage(
   deployment: string,
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: { maxTokens?: number; temperature?: number; onCitations?: (citations: Citation[]) => void } = {}
 ): Promise<string> {
   apiKey = resolveProviderCredentialInput(apiKey)
   const body = JSON.stringify({
@@ -563,7 +640,7 @@ export async function sendAzureMessage(
     max_tokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7
   })
-  return streamChatCompletions(conversationId, azureEndpoint(apiKey, endpoint, deployment), body, onChunk)
+  return streamChatCompletions(conversationId, azureEndpoint(apiKey, endpoint, deployment), body, onChunk, options)
 }
 
 export async function sendAzureNonStreaming(
@@ -583,9 +660,11 @@ export async function sendAzureNonStreaming(
 
   const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body)
   const msg = extractMessage(parsed)
+  const citations = extractCitations(parsed)
   return {
     content: typeof msg?.content === 'string' ? msg.content : null,
-    toolCalls: []
+    toolCalls: [],
+    ...(citations.length > 0 ? { citations } : {}),
   }
 }
 
@@ -601,6 +680,7 @@ export async function sendAzureWithTools(
     temperature?: number
     conversationId?: string
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+    onCitations?: (citations: Citation[]) => void
   } = {}
 ): Promise<ProviderNonStreamResult> {
   apiKey = resolveProviderCredentialInput(apiKey)
@@ -618,6 +698,8 @@ export async function sendAzureWithTools(
 
   const parsed = await chatCompletionsRequest(azureEndpoint(apiKey, endpoint, deployment), body, options.conversationId)
   const msg = extractMessage(parsed)
+  const citations = extractCitations(parsed)
+  options.onCitations?.(citations)
   const usage = extractUsage(parsed)
   if (usage) options.onUsage?.(usage)
   return {
@@ -625,6 +707,7 @@ export async function sendAzureWithTools(
     toolCalls: extractToolCalls(msg),
     ...(typeof parsed.model === 'string' ? { model: parsed.model } : {}),
     ...(usage ? { usage } : {}),
+    ...(citations.length > 0 ? { citations } : {}),
   }
 }
 
@@ -641,6 +724,7 @@ export function sendAzureWithToolsStream(
     temperature?: number
     conversationId?: string
     onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+    onCitations?: (citations: Citation[]) => void
   } = {},
 ): Promise<ProviderNonStreamResult> {
   apiKey = resolveProviderCredentialInput(apiKey)

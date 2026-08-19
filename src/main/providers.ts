@@ -60,6 +60,7 @@ export {
   sendOpenAIMessage,
   sendOpenAINonStreaming,
   sendOpenAIWithTools,
+  sendOpenAIWithToolsResilient,
   sendOpenAIWithToolsStream,
   sendAzureMessage,
   sendAzureNonStreaming,

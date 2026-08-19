@@ -3,6 +3,7 @@ package io.nexy.android.ui.fileviewer
 import android.graphics.Color as AndroidColor
 import android.text.method.LinkMovementMethod
 import android.widget.TextView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -47,6 +48,11 @@ import java.util.UUID
 
 @Composable
 fun MarkdownViewerScreen(path: String, onBack: () -> Unit) {
+    // The destination beneath the viewer may have its own BackHandler (for example, the file
+    // explorer uses back to move through its directory history). Register one here so system and
+    // gesture back always dismiss the viewer before reaching that parent handler.
+    BackHandler { onBack() }
+
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val markwon = remember(context, colorScheme) {

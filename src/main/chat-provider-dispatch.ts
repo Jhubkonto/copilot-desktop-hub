@@ -2,7 +2,7 @@ import type { WebContents } from 'electron'
 import {
   PROVIDERS,
   sendOpenAIMessage,
-  sendOpenAIWithTools,
+  sendOpenAIWithToolsResilient,
   sendOpenAIWithToolsStream,
   sendAnthropicMessage,
   sendAnthropicMessagesStream,
@@ -26,6 +26,9 @@ import { getCachedCatalog } from './model-catalog'
 import { debugLog } from './debug-mode'
 import { PROVIDER_THINKING_SUPPORT } from '../shared/types'
 import type { ProviderCredentialInput } from './credential-vault'
+import type { Citation } from '../shared/citations'
+import { countProviderInputTokens } from './token-counting'
+import type { TokenCount } from '../shared/token-usage'
 
 function stripImageParts(msgs: ProviderMessage[]): ProviderMessage[] {
   return msgs.map((msg) => {
@@ -56,6 +59,8 @@ export type ProviderDispatchOptions = {
   sendActivity: (a: MobileChatActivity) => void
   onModel?: (model: string) => void
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  onCitations?: (citations: Citation[]) => void
+  onPreflightUsage?: (count: TokenCount) => void
   systemPrompt: string
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
@@ -170,6 +175,17 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       : `openrouter-heuristic id="${providerModel.toLowerCase().replace(/^~/, '')}"`
   const effectiveToolDefs = toolsSupported ? toolDefs : []
   const hasToolLoop = effectiveToolDefs.length > 0
+  if (opts.onPreflightUsage) {
+    const count = await countProviderInputTokens({
+      providerName,
+      model: providerModel,
+      credential: byokKey,
+      messages: chatMessages,
+      tools: effectiveToolDefs,
+      conversationId,
+    })
+    if (count) opts.onPreflightUsage(count)
+  }
   debugLog('provider', `dispatch: provider=${providerName} model=${providerModel} toolsSupported=${toolsSupported} toolSupportSource=${toolSupportSource} toolDefs=${toolDefs.length} effectiveTools=${effectiveToolDefs.length} hasToolLoop=${hasToolLoop} agenticMode=${agenticMode}`)
   const inlineHandlers = wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined
   const agentId = effectiveAgentId ?? 'default'
@@ -212,6 +228,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         webContents?.send('chat:thinking-end', { blockId })
       }
     },
+    onCitations: (citations: Citation[]) => opts.onCitations?.(citations),
   }
 
   if (providerName === 'anthropic') {
@@ -273,7 +290,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
           callWithResilience(
-            (c) => sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }),
+            (c) => sendOpenAIWithToolsResilient(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }),
             choice,
           ),
         chatMessages,
@@ -329,7 +346,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       const caller = (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, choice: ToolChoice): Promise<ProviderNonStreamResult> =>
         callWithResilience(async (c) => {
           try {
-            return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }, baseUrl)
+            return await sendOpenAIWithToolsResilient(byokKey, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, ...thinkingCallbacks, onUsage, conversationId }, baseUrl)
           } catch (err) {
             if (!(err instanceof Error)) throw err
             if (err.message.includes('No endpoints found that support tool use')) {
@@ -402,7 +419,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       }, baseUrl)
     } catch (err) {
       if (err instanceof Error && err.message.includes('No endpoints found that support image input')) {
-        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, { ...effectiveGenerationOptions, onUsage }, baseUrl)
+        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, { ...effectiveGenerationOptions, onUsage, onCitations: opts.onCitations }, baseUrl)
       }
       throw err
     }
@@ -419,7 +436,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     return runProviderMcpToolLoop(
       (msgs, tools, choice) =>
         callWithResilience(
-          (c) => sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, onUsage, conversationId }),
+          (c) => sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], c, { ...effectiveGenerationOptions, onUsage, onCitations: opts.onCitations, conversationId }),
           choice,
         ),
       chatMessages,
@@ -441,13 +458,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       forceFirstToolChoice,
       onUsage,
       async (msgs, onChunk) => {
-        await sendAzureMessage(conversationId, byokKey, azureEndpoint, providerModel, toOpenAICompatibleMessages(msgs), onChunk, effectiveGenerationOptions)
+        await sendAzureMessage(conversationId, byokKey, azureEndpoint, providerModel, toOpenAICompatibleMessages(msgs), onChunk, { ...effectiveGenerationOptions, onCitations: opts.onCitations })
       },
       onToolStarted,
       makeStreamingToolRoundCaller((msgs, tools, choice, onChunk) =>
         sendAzureWithToolsStream(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, onChunk, {
           ...effectiveGenerationOptions,
           onUsage,
+          onCitations: opts.onCitations,
           conversationId,
         })
       ),
@@ -461,6 +479,6 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     providerModel,
     chatMessages,
     sendChunk,
-    effectiveGenerationOptions,
+    { ...effectiveGenerationOptions, onCitations: opts.onCitations },
   )
 }

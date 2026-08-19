@@ -2528,6 +2528,30 @@ object WsRepository : WsClient {
         .take(2_000)
 
     fun listConversations() { send("conversation:list", emptyMap()) }
+    fun getConversationCapabilities(conversationId: String) {
+        send("conversation:get-capabilities", mapOf("conversationId" to conversationId))
+    }
+    fun resolveCapabilities(conversationId: String, modelId: String? = null) {
+        send("capabilities:resolve", buildMap {
+            put("conversationId", conversationId)
+            modelId?.let { put("modelId", it) }
+        })
+    }
+    fun activateCapabilities(
+        conversationId: String,
+        skillIds: List<String> = emptyList(),
+        mcp: List<Map<String, String>> = emptyList(),
+        scope: String = "chat",
+        targetId: String? = null,
+    ) {
+        send("capabilities:activate", buildMap {
+            put("conversationId", conversationId)
+            put("skillIds", skillIds)
+            put("mcp", mcp)
+            put("scope", scope)
+            targetId?.let { put("targetId", it) }
+        })
+    }
     fun listConversationPage(
         scopeType: String,
         scopeId: String?,

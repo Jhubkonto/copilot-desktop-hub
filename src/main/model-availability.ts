@@ -1,7 +1,4 @@
-import { ClaudeAdapter } from './cli-adapters/claude'
-import { CodexAdapter } from './cli-adapters/codex'
-import { HermesAdapter } from './cli-adapters/hermes'
-import { getCliModels } from './cli-detection'
+import { detectCli, getCliModels } from './cli-detection'
 import {
   PROVIDERS,
   isProviderConfigured,
@@ -26,24 +23,29 @@ import type { AvailableModelGroup } from '../shared/types'
  *   its profile name — so the Hermes group reflects that profile's own `config.yaml` model
  *   rather than the default profile's (a localllm-scoped agent otherwise shows the wrong model).
  */
-export function getAvailableModelGroups(hermesProfile?: string): AvailableModelGroup[] {
+export async function getAvailableModelGroups(hermesProfile?: string): Promise<AvailableModelGroup[]> {
   const groups: AvailableModelGroup[] = []
+  const [claude, codex, hermes] = await Promise.all([
+    detectCli('claude'),
+    detectCli('codex'),
+    detectCli('hermes'),
+  ])
 
-  if (ClaudeAdapter.isAvailable()) {
+  if (claude.installed) {
     const models = getCliModels('claude-cli')
     if (models.length > 0) {
       groups.push({ sourceKey: 'claude-cli', sourceLabel: 'Claude CLI', sourceType: 'cli', models })
     }
   }
 
-  if (CodexAdapter.isAvailable()) {
+  if (codex.installed) {
     const models = getCliModels('codex-cli')
     if (models.length > 0) {
       groups.push({ sourceKey: 'codex-cli', sourceLabel: 'Codex CLI', sourceType: 'cli', models })
     }
   }
 
-  if (HermesAdapter.isAvailable()) {
+  if (hermes.installed) {
     const models = getCliModels('hermes-cli', hermesProfile)
     if (models.length > 0) {
       groups.push({ sourceKey: 'hermes-cli', sourceLabel: 'Hermes Agent', sourceType: 'cli', models })
@@ -65,9 +67,9 @@ export function getAvailableModelGroups(hermesProfile?: string): AvailableModelG
 }
 
 export function registerModelAvailabilityHandlers(): void {
-  safeHandle('model:list-available', (_event, hermesProfile?: string) => {
+  safeHandle('model:list-available', async (_event, hermesProfile?: string) => {
     debugTime('model:list-available')
-    const r = getAvailableModelGroups(hermesProfile)
+    const r = await getAvailableModelGroups(hermesProfile)
     debugTimeEnd('model:list-available')
     return r
   })

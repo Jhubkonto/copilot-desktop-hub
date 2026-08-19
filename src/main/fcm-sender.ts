@@ -1,7 +1,6 @@
 import { safeStorage } from 'electron'
 import { GoogleAuth } from 'google-auth-library'
 import type Database from 'better-sqlite3'
-import { findLatestAssistantMessage, generateAiSpokenOutput } from './spoken-output'
 
 const FCM_SA_KEY = 'fcm_service_account'
 const FCM_SA_ENCRYPTED_KEY = 'fcm_service_account_encrypted'
@@ -70,23 +69,6 @@ function getAuth(saJson: string): GoogleAuth {
   cachedAuth = new GoogleAuth({ credentials: JSON.parse(saJson), scopes: FCM_SCOPES })
   cachedSaJson = saJson
   return cachedAuth
-}
-
-export async function generateSpokenSummary(db: Database.Database, conversationId: string, projectId: string | null): Promise<string | null> {
-  try {
-    const context = findLatestAssistantMessage(db, conversationId)
-    if (!context) return null
-    // Preserve the caller-provided project for legacy/imported conversations whose
-    // project_id may be absent while notifications are being dispatched.
-    const result = await generateAiSpokenOutput(
-      db,
-      { ...context, projectId: context.projectId ?? projectId },
-      'notification-recap',
-    )
-    return result?.spokenText ?? null
-  } catch {
-    return null
-  }
 }
 
 export async function sendSchedulerRunNotification(
@@ -251,7 +233,7 @@ export async function sendIpChangedPush(
 
 export async function sendChatCompleteNotification(
   db: Database.Database,
-  payload: { conversationId: string; title: string; summary?: string },
+  payload: { conversationId: string; title: string },
 ): Promise<void> {
   const saJson = loadFcmServiceAccountJson(db)
   if (!saJson) return
@@ -280,9 +262,6 @@ export async function sendChatCompleteNotification(
         type: 'chat:complete',
         conversationId: payload.conversationId,
         title: payload.title,
-      }
-      if (payload.summary) {
-        data.summary = payload.summary
       }
       const body = JSON.stringify({
         message: {

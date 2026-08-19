@@ -264,52 +264,6 @@ describe('MessageBubble', () => {
     expect(screen.getByRole('menuitem', { name: 'Regenerate' })).toHaveAttribute('title', 'Regenerate')
   })
 
-  it('groups full, short, and AI listening modes behind one Listen action', () => {
-    const onRead = vi.fn()
-    const onQuickRecap = vi.fn()
-    const onAiRecap = vi.fn()
-    render(
-      <MessageBubble
-        {...baseProps}
-        role="assistant"
-        spokenOutput={{
-          supported: true,
-          active: false,
-          state: 'idle',
-        kind: 'response',
-        model: null,
-        aiRecapLoading: false,
-        aiRecapError: null,
-          voices: [],
-          settings: { engine: 'system', voiceUri: null, supertonicSpeakerId: 0, supertonicLanguage: 'en', rate: 1, pitch: 1, offlineOnly: true, autoPlay: false },
-          supertonicReady: false,
-          onRead,
-        onQuickRecap,
-        onAiRecap,
-          onPause: vi.fn(),
-          onResume: vi.fn(),
-          onStop: vi.fn(),
-          onReplay: vi.fn(),
-          onSettingsChange: vi.fn(),
-        }}
-      />
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Listen' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Full response' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Listen' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Short version' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Listen' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'AI summary' }))
-
-    expect(onRead).toHaveBeenCalledOnce()
-    expect(onQuickRecap).toHaveBeenCalledOnce()
-    expect(onAiRecap).toHaveBeenCalledOnce()
-
-    expect(screen.queryByRole('button', { name: 'More message actions' })).not.toBeInTheDocument()
-  })
-
-
   it('shows choose model action for model_not_available errors', () => {
     const onPickModel = vi.fn()
     render(

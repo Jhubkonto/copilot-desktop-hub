@@ -208,6 +208,7 @@ Packaged distributable files are written to the `release/` directory. The unpack
 ```
 
 For a detailed breakdown of modules, data flows, database schema, IPC model, and security model, see [ARCHITECTURE.md](src/docs/ARCHITECTURE.md).
+For a plain-language product explanation and SWAD/SWDD design records, see the [Nexy architecture document set](docs/architecture/README.md).
 For the current documentation map and the status of historical roadmaps, see [Documentation maintenance](docs/DOCUMENTATION_MAINTENANCE.md).
 
 ## Troubleshooting
@@ -237,4 +238,24 @@ Contributions are welcome. Before making major changes, review the roadmaps in `
 
 ## License
 
-MIT
+Nexy is licensed under the [MIT License](LICENSE). This is a free and
+permissive license: anyone, including an employer, may use, copy, modify,
+redistribute, and commercially use a released copy, provided the required
+copyright and license notices are retained.
+
+The MIT license grants permission to use the software; it does not itself
+assign copyright ownership to the person or organization using it. To the
+extent the rights are owned by the author, the Nexy project and its original
+copyright remain attributed to Julian Lacis. Ownership can nevertheless be
+affected by employment contracts, contributions from other authors, or
+mandatory law, so the project notice is not a substitute for an employment/IP
+agreement.
+
+The project may use a different license for a future release. A later license
+change applies to that release and later releases; it does not revoke the MIT
+rights already granted to recipients of an earlier MIT release. See the
+[third-party notices](THIRD_PARTY_NOTICES.md).
+
+Nexy does not include or grant access to Anthropic, OpenAI, Claude Code, or
+Codex services. Users provide their own provider accounts, API keys, or local
+CLI installations, and those services remain subject to their own terms.

@@ -14,7 +14,8 @@ import { applyWikiChangeProposal, listRecentWikiEntries, proposeWikiChange } fro
 import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './diff-utils'
-import { getSkillConfigsForAgent } from './skills'
+import { getSkillConfig, getSkillConfigsForAgent } from './skills'
+import { getEffectiveCapabilityProfile } from './capability-service'
 import { persistSkillCapture, prepareSkillCapture, requestsSkillCapture } from './skill-service'
 import { portableSkillName, readSkillResource, skillEntryMarkdown } from './skill-packages'
 import type { ArtifactKind, SkillConfig } from '../shared/types'
@@ -372,15 +373,26 @@ export async function buildChatContext(
     .get(conversationId) as { agent_id: string | null } | undefined
 
   const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
-  const availableSkills = effectiveAgentId ? getSkillConfigsForAgent(effectiveAgentId) : []
+  const chatCapabilityProfile = getEffectiveCapabilityProfile(db, conversationId)
+  const agentSkills = effectiveAgentId ? getSkillConfigsForAgent(effectiveAgentId) : []
+  const chatSkills = chatCapabilityProfile.skillIds
+    .map((skillId) => getSkillConfig(skillId))
+    .filter((skill): skill is SkillConfig => Boolean(skill))
+  const availableSkills = [...new Map([...agentSkills, ...chatSkills].map((skill) => [skill.id, skill])).values()]
   const activatedSkillIds = new Set<string>()
   const recordSkillActivation = (skill: SkillConfig, trigger: 'explicit' | 'implicit') => {
-    if (!effectiveAgentId || activatedSkillIds.has(skill.id)) return
+    if (activatedSkillIds.has(skill.id)) return
+    if (effectiveAgentId) {
+      db.prepare(
+        `INSERT OR IGNORE INTO conversation_skill_invocations
+         (id, conversation_id, skill_id, agent_id, content_hash, trigger, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'activated', ?)`,
+      ).run(randomUUID(), conversationId, skill.id, effectiveAgentId, skill.contentHash ?? null, trigger, Date.now())
+    }
     db.prepare(
-      `INSERT OR IGNORE INTO conversation_skill_invocations
-       (id, conversation_id, skill_id, agent_id, content_hash, trigger, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'activated', ?)`,
-    ).run(randomUUID(), conversationId, skill.id, effectiveAgentId, skill.contentHash ?? null, trigger, Date.now())
+      `INSERT OR IGNORE INTO conversation_capability_invocations
+       (id, conversation_id, skill_id, trigger, created_at) VALUES (?, ?, ?, ?, ?)`,
+    ).run(randomUUID(), conversationId, skill.id, trigger, Date.now())
     activatedSkillIds.add(skill.id)
   }
   const findAvailableSkill = (name: string) => {
@@ -388,7 +400,7 @@ export async function buildChatContext(
     return availableSkills.find((skill) => portableSkillName(String(skill.frontmatter?.name ?? skill.name)) === slug) ?? null
   }
 
-  if (effectiveAgentId) {
+  if (availableSkills.length > 0 || effectiveAgentId) {
     if (availableSkills.length > 0) {
       const catalog = availableSkills
         .map((skill) => `- ${portableSkillName(String(skill.frontmatter?.name ?? skill.name))}: ${skill.description}`)
@@ -407,7 +419,7 @@ export async function buildChatContext(
       }
     }
 
-    const agentCfg = getAgentConfig(effectiveAgentId)
+    const agentCfg = effectiveAgentId ? getAgentConfig(effectiveAgentId) : null
     if (agentCfg?.systemPrompt) {
       let systemPromptText = agentCfg.systemPrompt as string
 

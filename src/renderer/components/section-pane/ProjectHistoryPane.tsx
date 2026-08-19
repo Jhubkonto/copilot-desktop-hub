@@ -5,7 +5,7 @@ import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
 import { formatRelativeTime } from '../../../shared/utils'
-import { isPinned, groupByDate, withLivePinState } from './shared'
+import { isPinned, groupByDate, PROJECT_COLOR_MAP, projectColorHex, withLivePinState } from './shared'
 import { PaneEmptyState } from './pane-primitives'
 import { PaginationFooter } from '../ui/PaginationFooter'
 import { useConversationPagination } from '../../hooks/useConversationPagination'
@@ -15,6 +15,7 @@ export function ProjectHistoryPane() {
   const cachedConversations = useAppStore((s) => s.conversations)
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const historyProjectId = useAppStore((s) => s.historyProjectId)
+  const projects = useAppStore((s) => s.projects)
   const agents = useAppStore((s) => s.agents)
   const selectConversation = useAppStore((s) => s.selectConversation)
   const deleteConversation = useAppStore((s) => s.deleteConversation)
@@ -49,6 +50,7 @@ export function ProjectHistoryPane() {
 
   const renderConv = (conv: Conversation) => {
     const isActive = currentConversationId === conv.id
+    const project = conv.project_id ? projects.find((candidate) => candidate.id === conv.project_id) : null
     const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
     const isUnread = unreadConversationIds.includes(conv.id)
     const isGenerating = generatingConversationIds.includes(conv.id)
@@ -56,43 +58,44 @@ export function ProjectHistoryPane() {
     // project-scoped conversation that arrived via pagination wouldn't be in it — fall back to the
     // conversation's own completed_at (the source of truth the all-chats list and chat header use).
     const isCompleted = conv.completed_at != null || completedConversationIds.includes(conv.id)
+    const colors = project ? (PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue) : null
     return (
       <div
         key={conv.id}
         onClick={() => selectConversation(conv.id)}
         aria-current={isActive ? 'page' : undefined}
-        className={`group flex items-start gap-2 px-3 py-2 rounded-nexy-sm border cursor-pointer transition-colors ${
+        className={`group flex items-stretch gap-0 rounded-nexy-sm border cursor-pointer transition-colors overflow-hidden ${
           isActive
             ? 'border-nexy-accent bg-nexy-accent/10 shadow-nexy'
             : 'border-transparent hover:border-nexy-border-soft hover:bg-nexy-recessed'
         }`}
       >
-        {isPinned(conv) && <NexyIcon name="pin" className="w-3 h-3 text-nexy-muted shrink-0 mt-0.5" />}
-        {isGenerating ? (
-          <span title="Generating…"><Loader2 className="w-4 h-4 mt-0.5 text-blue-500 animate-spin shrink-0" /></span>
-        ) : isCompleted ? (
-          <span title="Complete"><NexyIcon name="checked-box" className="w-4 h-4 text-nexy-success shrink-0" /></span>
-        ) : isUnread ? (
-          <span className="nexy-notification-dot w-2 h-2 bg-blue-500 animate-pulse shrink-0 mt-1.5" />
-        ) : null}
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{conv.title}</p>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            {agent && (
-              <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                {agent.icon} {agent.name}
-              </span>
-            )}
-            <span className="text-[10px] text-gray-400 dark:text-gray-500">
-              {formatRelativeTime(conv.updated_at)}
-            </span>
+        {colors
+          ? <div className={`w-1 shrink-0 ${colors.dot}`} style={{ backgroundColor: projectColorHex(project?.color ?? 'blue') }} />
+          : <div className="w-1 shrink-0" />
+        }
+        <div className="flex items-start gap-2 px-3 py-2 flex-1 min-w-0">
+          {isPinned(conv) && <NexyIcon name="pin" className="w-3 h-3 text-nexy-muted shrink-0 mt-0.5" />}
+          {isGenerating ? (
+            <span title="Generating…"><Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0 mt-0.5" /></span>
+          ) : isUnread ? (
+            <span className="nexy-notification-dot w-2 h-2 bg-nexy-info shrink-0 mt-1.5" />
+          ) : isCompleted ? (
+            <span title="Complete"><NexyIcon name="checked-box" className="w-4 h-4 text-nexy-success shrink-0" /></span>
+          ) : null}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-nexy-text truncate">{conv.title}</p>
+            <p className="text-[10px] text-nexy-muted mt-0.5 truncate">
+              {[agent && `${agent.icon} ${agent.name}`, project?.name, formatRelativeTime(conv.updated_at)]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
           </div>
-        </div>
         <div className="invisible group-hover:visible flex items-center gap-0.5 shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); void setConversationPinned(conv.id, !isPinned(conv)) }}
-            className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${
-              isPinned(conv) ? 'text-nexy-accent hover:text-gray-400' : 'text-gray-400 hover:text-nexy-accent'
+            className={`p-1 rounded-nexy-sm hover:bg-nexy-recessed ${
+              isPinned(conv) ? 'text-nexy-accent hover:text-nexy-muted' : 'text-nexy-muted hover:text-nexy-accent'
             }`}
             title={isPinned(conv) ? 'Unpin' : 'Pin'}
             aria-label={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
@@ -107,7 +110,7 @@ export function ProjectHistoryPane() {
                   pagination.updateItem(conv.id, (c) => ({ ...c, completed_at: null }))
                 )
               }}
-              className="p-1 rounded text-emerald-500 hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="p-1 rounded-nexy-sm text-nexy-success hover:text-nexy-muted hover:bg-nexy-recessed"
               title="Mark incomplete"
               aria-label="Mark conversation incomplete"
             >
@@ -121,7 +124,7 @@ export function ProjectHistoryPane() {
                   pagination.updateItem(conv.id, (c) => ({ ...c, completed_at: Date.now() }))
                 )
               }}
-              className="p-1 rounded text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+              className="p-1 rounded-nexy-sm text-nexy-muted hover:text-nexy-success hover:bg-nexy-recessed"
               title="Mark complete"
               aria-label="Mark conversation complete"
             >
@@ -130,12 +133,13 @@ export function ProjectHistoryPane() {
           )}
           <button
             onClick={(e) => { e.stopPropagation(); setPendingDeleteConv({ id: conv.id, title: conv.title }) }}
-            className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
+            className="p-1 rounded-nexy-sm text-nexy-muted hover:text-nexy-error hover:bg-nexy-recessed shrink-0"
             title="Delete"
             aria-label="Delete conversation"
           >
             <NexyIcon name="delete" className="w-3 h-3" />
           </button>
+        </div>
         </div>
       </div>
     )
