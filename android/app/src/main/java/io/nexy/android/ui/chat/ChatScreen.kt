@@ -62,6 +62,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -324,9 +328,14 @@ fun ChatScreen(
     LaunchedEffect(statusProjectId) {
         if (!statusProjectId.isNullOrBlank()) WsRepository.getProjectConfig(statusProjectId) else chatProjectWorkflowMode = null
     }
-    LaunchedEffect(conversationId, selectedModel) {
-        WsRepository.getConversationCapabilities(conversationId)
-        WsRepository.resolveCapabilities(conversationId, selectedModel)
+    LaunchedEffect(conversationId, selectedModel, conversation?.id) {
+        // A new chat is a client-side draft until its first message reaches the desktop. The
+        // capability service intentionally requires a persisted conversation row, so querying it
+        // here used to show "Conversation not found" every time a fresh chat was opened.
+        if (conversation != null) {
+            WsRepository.getConversationCapabilities(conversationId)
+            WsRepository.resolveCapabilities(conversationId, selectedModel)
+        }
     }
     // Warm the project→primary-agent cache so a project draft chat (no bound agent yet) can show
     // its inherited agent before the first send. Only needed while the conversation itself carries
@@ -2126,12 +2135,26 @@ private fun CapabilitySheet(
     var selectedSkills by remember(profileJson) { mutableStateOf(initialSkills) }
     var selectedMcp by remember(profileJson) { mutableStateOf(initialMcp) }
     var selectedScope by remember { mutableStateOf("chat") }
+    var skillSearch by remember { mutableStateOf("") }
     val preflight = remember(preflightJson) { runCatching { JSONObject(preflightJson) }.getOrDefault(JSONObject()) }
     val ready = preflight.optBoolean("ready", false)
     val desktopOnly = preflight.optBoolean("desktopOnly", selectedMcp.isNotEmpty())
+    val filteredSkills = remember(skills, skillSearch) {
+        val query = skillSearch.trim()
+        if (query.isBlank()) skills
+        else skills.filter {
+            it.name.contains(query, ignoreCase = true) ||
+                it.description.contains(query, ignoreCase = true)
+        }
+    }
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2161,7 +2184,20 @@ private fun CapabilitySheet(
 
         Text("Skills", style = MaterialTheme.typography.labelLarge)
         if (skills.isEmpty()) Text("No imported skills yet. Import one from the Skills screen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        skills.forEach { skill ->
+        else {
+            OutlinedTextField(
+                value = skillSearch,
+                onValueChange = { skillSearch = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search skills") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+            )
+        }
+        if (skills.isNotEmpty() && filteredSkills.isEmpty()) {
+            Text("No skills match \"$skillSearch\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        filteredSkills.forEach { skill ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Checkbox(checked = selectedSkills.contains(skill.id), onCheckedChange = { checked -> selectedSkills = if (checked) selectedSkills + skill.id else selectedSkills - skill.id })
                 Column(modifier = Modifier.weight(1f)) {
