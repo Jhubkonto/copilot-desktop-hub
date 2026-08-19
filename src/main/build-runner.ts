@@ -57,13 +57,15 @@ export interface RunBuildProcessOptions {
   collectArtifacts?: () => Promise<{ artifactPaths: string[]; artifactChecksums?: Record<string, string> }>
   /** Extra work after the DB update + done event (e.g. auto-publish, endActivity). */
   onDone?: (status: BuildStatus, exitCode: number) => void
+  /** Cleanup for temporary build inputs, such as protected Firebase config. */
+  cleanup?: () => void
 }
 
 export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
   const {
     db, buildId, spawnCmd, spawnArgs, cwd, env,
     logEvent, doneEvent, window: win, mirrorToMobile = false,
-    registry, collectArtifacts, onDone,
+    registry, collectArtifacts, onDone, cleanup,
   } = options
 
   const emit = (event: string, data: unknown): void => {
@@ -124,6 +126,7 @@ export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
   child.on('close', (code) => {
     return (async () => {
       registry.delete(buildId)
+      cleanup?.()
       const existing = db.prepare('SELECT status FROM build_records WHERE id = ?').get(buildId) as { status?: BuildStatus } | undefined
       // cancelBuildProcess records the terminal state immediately. Do not let
       // the shell's later close event overwrite it with "failed".
@@ -166,10 +169,12 @@ export interface CancelBuildProcessOptions {
   mobileDoneEvent?: string
   /** Extra cleanup (e.g. endActivity). */
   onCancelled?: () => void
+  /** Cleanup for temporary build inputs when cancellation skips normal close handling. */
+  cleanup?: () => void
 }
 
 export function cancelBuildProcess(options: CancelBuildProcessOptions): boolean {
-  const { db, buildId, registry, mobileDoneEvent, onCancelled } = options
+  const { db, buildId, registry, mobileDoneEvent, onCancelled, cleanup } = options
   const child = registry.get(buildId)
   if (!child) return false
   if (child.pid != null) {
@@ -199,6 +204,7 @@ export function cancelBuildProcess(options: CancelBuildProcessOptions): boolean 
   } else {
     child.kill('SIGTERM')
   }
+  cleanup?.()
   registry.delete(buildId)
   onCancelled?.()
   db.prepare(`UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`).run(Date.now(), buildId)

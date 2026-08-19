@@ -526,7 +526,10 @@ function buildSnapshot(
     SELECT id FROM conversations ORDER BY updated_at DESC, id DESC LIMIT ?
   `).all(SNAPSHOT_MAX_CONVERSATIONS) as Array<{ id: string }>).map(row => row.id)
   const conversations = conversationIds.length === 0 ? [] : db.prepare(`
-    SELECT c.id, c.title, c.agent_id, c.project_id, c.model, c.pinned, c.archived, c.completed_at, c.kind, c.created_at, c.updated_at,
+    SELECT c.id, c.title, c.agent_id, c.project_id, c.model, c.pinned, c.archived, c.completed_at,
+           c.thinking_effort_override, c.full_auto_approve_override, c.agentic_mode_override,
+           c.terminal_sandbox_override, c.cli_mode_override, c.codex_execution_mode_override,
+           c.kind, c.created_at, c.updated_at,
            json_extract(a.config_json, '$.name') AS agent_name,
            json_extract(a.config_json, '$.icon') AS agent_icon,
            p.name AS project_name,

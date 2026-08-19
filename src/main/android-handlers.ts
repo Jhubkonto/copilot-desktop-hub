@@ -3,7 +3,7 @@ import { execSync, spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import path from 'path'
 import { networkInterfaces } from 'os'
@@ -32,6 +32,7 @@ import { saveFcmServiceAccount, getFcmConfigStatus } from './fcm-sender'
 
 import type { ChildProcess } from 'child_process'
 const activeAndroidProcesses = new Map<string, ChildProcess>()
+const androidBuildCleanups = new Map<string, () => void>()
 
 // Keep this in sync with android/app/build.gradle.kts.  Gradle adds this
 // offset to the Git commit count so a release rebuilt from an unchanged commit
@@ -199,6 +200,48 @@ function getAdbCommand(): string {
   }
 
   return 'adb'
+}
+
+function resolveAndroidSdkRoot(): string | null {
+  const candidates = [
+    process.env.ANDROID_SDK_ROOT,
+    process.env.ANDROID_HOME,
+    process.platform === 'win32' && process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk')
+      : undefined,
+    process.platform === 'darwin' ? path.join(process.env.HOME ?? '', 'Library', 'Android', 'sdk') : undefined,
+    process.platform === 'linux' ? path.join(process.env.HOME ?? '', 'Android', 'Sdk') : undefined,
+  ].filter((value): value is string => Boolean(value))
+
+  return candidates.find((candidate) => existsSync(path.join(candidate, 'platforms'))) ?? null
+}
+
+/**
+ * Stage the protected Firebase file only for this Gradle process. The source
+ * path is supplied outside the repository through the environment so it can
+ * never be added accidentally by a normal Git operation.
+ */
+function prepareFirebaseConfig(workspacePath: string): () => void {
+  const sourceValue = process.env.NEXY_FIREBASE_GOOGLE_SERVICES_PATH?.trim()
+  if (!sourceValue) return () => {}
+
+  const target = path.join(workspacePath, 'app', 'google-services.json')
+  if (existsSync(target)) {
+    throw new Error('android/app/google-services.json already exists. Remove the local Firebase file before starting a protected build.')
+  }
+
+  const source = path.resolve(sourceValue)
+  if (!existsSync(source) || !statSync(source).isFile()) {
+    throw new Error('NEXY_FIREBASE_GOOGLE_SERVICES_PATH does not point to a readable Firebase configuration file.')
+  }
+
+  copyFileSync(source, target)
+  let cleaned = false
+  return () => {
+    if (cleaned) return
+    cleaned = true
+    try { unlinkSync(target) } catch { /* best-effort cleanup after Gradle exits */ }
+  }
 }
 
 function saveSigningConfig(db: Database.Database, config: AndroidSigningConfig): void {
@@ -528,8 +571,10 @@ function buildAndroidBuildEnv(
 ): NodeJS.ProcessEnv {
   const env = signingConfig ? buildSigningEnv(signingConfig) : { ...process.env }
   const withJdk = withVerifiedAndroidJdk(env)
+  const sdkRoot = resolveAndroidSdkRoot()
   return {
     ...withJdk,
+    ...(sdkRoot ? { ANDROID_HOME: sdkRoot, ANDROID_SDK_ROOT: sdkRoot } : {}),
     ...(versionCode == null ? {} : { [ANDROID_VERSION_CODE_ENV]: String(versionCode) }),
     [ANDROID_BUILD_ID_ENV]: buildId,
     [ANDROID_COMMIT_SHA_ENV]: workspaceInfo.commitSha ?? 'unknown',
@@ -646,6 +691,8 @@ export async function startAndroidBuildFromMobile(
     workspaceInfo,
     now,
   )
+  const firebaseCleanup = prepareFirebaseConfig(workspacePath)
+  androidBuildCleanups.set(buildId, firebaseCleanup)
 
   db.prepare(
     `INSERT INTO build_records
@@ -668,7 +715,11 @@ export async function startAndroidBuildFromMobile(
     mirrorToMobile: true,
     registry: activeAndroidProcesses,
     collectArtifacts: () => collectAndroidArtifacts(workspacePath, command, now),
-    onDone: () => endActivity(`android-build:${buildId}`),
+    cleanup: firebaseCleanup,
+    onDone: () => {
+      androidBuildCleanups.delete(buildId)
+      endActivity(`android-build:${buildId}`)
+    },
   })
 
   return { buildId }
@@ -680,7 +731,11 @@ export function cancelAndroidBuildFromMobile(buildId: string): boolean {
     buildId,
     registry: activeAndroidProcesses,
     mobileDoneEvent: 'build:command-done',
-    onCancelled: () => endActivity(`android-build:${buildId}`),
+    cleanup: androidBuildCleanups.get(buildId),
+    onCancelled: () => {
+      androidBuildCleanups.delete(buildId)
+      endActivity(`android-build:${buildId}`)
+    },
   })
 }
 
@@ -731,6 +786,8 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       workspaceInfo,
       now,
     )
+    const firebaseCleanup = prepareFirebaseConfig(workspacePath)
+    androidBuildCleanups.set(buildId, firebaseCleanup)
 
     db.prepare(
       `INSERT INTO build_records
@@ -751,7 +808,11 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       window: mainWindow,
       registry: activeAndroidProcesses,
       collectArtifacts: () => collectAndroidArtifacts(workspacePath, command, now),
-      onDone: () => endActivity(`android-build:${buildId}`),
+      cleanup: firebaseCleanup,
+      onDone: () => {
+        androidBuildCleanups.delete(buildId)
+        endActivity(`android-build:${buildId}`)
+      },
     })
 
     return { buildId }
@@ -762,7 +823,11 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       db,
       buildId,
       registry: activeAndroidProcesses,
-      onCancelled: () => endActivity(`android-build:${buildId}`),
+      cleanup: androidBuildCleanups.get(buildId),
+      onCancelled: () => {
+        androidBuildCleanups.delete(buildId)
+        endActivity(`android-build:${buildId}`)
+      },
     })
   })
 
