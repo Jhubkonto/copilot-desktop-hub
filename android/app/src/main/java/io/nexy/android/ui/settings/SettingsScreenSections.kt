@@ -310,11 +310,17 @@ fun NotificationsSection(
                 color = if (notificationDiagnostics.approvalNotificationsEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
             )
             Text(approvalNotificationStatusDetail(notificationDiagnostics), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                offlinePushStatusDetail(notificationDiagnostics),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 SettingsInfoRow("Permission", notificationPermissionLabel(notificationDiagnostics))
                 SettingsInfoRow("App notifications", if (notificationDiagnostics.appNotificationsEnabled) "Enabled" else "Disabled")
                 SettingsInfoRow("Tool approvals channel", if (notificationDiagnostics.approvalChannelEnabled) "Enabled" else "Disabled")
+                SettingsInfoRow("Firebase client", offlinePushStatusLabel(notificationDiagnostics))
             }
 
             NexySecondaryButton(text = "Open Android settings", onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth())

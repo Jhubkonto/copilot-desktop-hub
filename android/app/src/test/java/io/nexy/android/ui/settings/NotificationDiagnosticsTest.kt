@@ -50,4 +50,21 @@ class NotificationDiagnosticsTest {
         assertTrue(state.approvalNotificationsEnabled)
         assertEquals("Not required on this Android version", notificationPermissionLabel(state))
     }
+
+    @Test
+    fun firebaseBuildStatusExplainsOfflinePushRequirement() {
+        val state = NotificationDiagnostics(
+            permissionRequired = true,
+            permissionGranted = true,
+            appNotificationsEnabled = true,
+            approvalChannelEnabled = true,
+            firebaseConfigured = false,
+        )
+
+        assertEquals("Firebase client not included", offlinePushStatusLabel(state))
+        assertEquals(
+            "This APK was built without Firebase configuration, so offline push notifications are unavailable.",
+            offlinePushStatusDetail(state),
+        )
+    }
 }
