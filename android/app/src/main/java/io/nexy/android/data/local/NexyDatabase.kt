@@ -35,7 +35,7 @@ class LocalConverters {
         LocalSettingsEntity::class,
         DiagnosticLogEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(LocalConverters::class)
@@ -63,7 +63,7 @@ abstract class NexyDatabase : RoomDatabase() {
                     NexyDatabase::class.java,
                     "nexy-local.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .enableMultiInstanceInvalidation()
                     .build()
                     .also { instance = it }
@@ -139,6 +139,17 @@ abstract class NexyDatabase : RoomDatabase() {
                     )""",
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_diagnostic_logs_ts ON diagnostic_logs(ts)")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_conversations ADD COLUMN thinkingEffortOverride TEXT")
+                db.execSQL("ALTER TABLE local_conversations ADD COLUMN fullAutoApproveOverride INTEGER")
+                db.execSQL("ALTER TABLE local_conversations ADD COLUMN agenticModeOverride INTEGER")
+                db.execSQL("ALTER TABLE local_conversations ADD COLUMN terminalSandboxOverride INTEGER")
+                db.execSQL("ALTER TABLE local_conversations ADD COLUMN cliModeOverride TEXT")
+                db.execSQL("ALTER TABLE local_conversations ADD COLUMN codexExecutionModeOverride TEXT")
             }
         }
     }
