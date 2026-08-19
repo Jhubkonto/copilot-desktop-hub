@@ -48,7 +48,6 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 ### MCP & Tools
 
 - MCP (Model Context Protocol) server management: add, enable/disable, inspect discovered tools, and configure per-agent trust
-- Easy Redmine MCP connector: local stdio integration for project/issue lookup and approval-gated ticket creation ([setup](integrations/easyredmine-mcp/README.md))
 - Built-in tools: file editing and web fetch — with per-tool approval controls
 - Desktop Navigator MCP (built-in): list windows, screenshot, OCR, clipboard read/write, mouse movement and clicks, keyboard input, window focus, and scroll — full desktop automation for agents using `@nut-tree-fork/nut-js`
 
