@@ -998,6 +998,12 @@ class LocalDataRepository private constructor(
                 projectId = row.nullableString("project_id"),
                 projectName = row.nullableString("project_name"),
                 model = row.nullableString("model"),
+                thinkingEffortOverride = row.nullableString("thinking_effort_override"),
+                fullAutoApproveOverride = row.nullableBoolean("full_auto_approve_override"),
+                agenticModeOverride = row.nullableBoolean("agentic_mode_override"),
+                terminalSandboxOverride = row.nullableBoolean("terminal_sandbox_override"),
+                cliModeOverride = row.nullableString("cli_mode_override"),
+                codexExecutionModeOverride = row.nullableString("codex_execution_mode_override"),
                 lastMessage = row.nullableString("last_message"),
                 pinned = row.optInt("pinned", 0) != 0,
                 archived = row.optInt("archived", 0) != 0,
@@ -1385,6 +1391,17 @@ class LocalDataRepository private constructor(
         when (event) {
             is WsEvent.ConversationList -> event.conversations.forEach { mergeRemoteConversation(it) }
             is WsEvent.ConversationPage -> event.conversations.forEach { mergeRemoteConversation(it) }
+            is WsEvent.ConversationModelUpdated -> updateRemoteConversation(event.conversationId) { it.copy(model = event.model) }
+            is WsEvent.ConversationModeUpdated -> updateRemoteConversation(event.conversationId) {
+                it.copy(
+                    thinkingEffortOverride = event.thinkingEffortOverride,
+                    fullAutoApproveOverride = event.fullAutoApproveOverride,
+                    agenticModeOverride = event.agenticModeOverride,
+                    terminalSandboxOverride = event.terminalSandboxOverride,
+                    cliModeOverride = event.cliModeOverride,
+                    codexExecutionModeOverride = event.codexExecutionModeOverride,
+                )
+            }
             is WsEvent.ConversationMessages -> {
                 val incoming = event.messages.map { it.toEntity(event.conversationId) }
                 // An unpaged response is the complete, authoritative conversation snapshot.
@@ -1399,6 +1416,7 @@ class LocalDataRepository private constructor(
             }
             is WsEvent.AgentList -> event.agents.forEach { mergeRemoteAgent(it) }
             is WsEvent.ProjectList -> event.projects.forEach { mergeRemoteProject(it) }
+            is WsEvent.ProjectConfig -> updateRemoteProjectConfig(event.id, event.config)
             is WsEvent.MessageInserted -> {
                 val current = database.messages().get(event.messageId)
                 if (current?.syncStatus != SyncStatus.PENDING) database.messages().upsert(
@@ -1561,6 +1579,13 @@ class LocalDataRepository private constructor(
         }
     }
 
+    private suspend fun updateRemoteConversation(id: String, update: (ConversationEntity) -> ConversationEntity) {
+        val current = database.conversations().get(id) ?: return
+        if (current.syncStatus != SyncStatus.PENDING) {
+            database.conversations().upsert(update(current).copy(remoteVersion = current.remoteVersion + 1))
+        }
+    }
+
     private suspend fun mergeRemoteAgent(model: Agent) {
         val current = database.agents().get(model.id)
         val remote = AgentEntity(
@@ -1585,6 +1610,9 @@ class LocalDataRepository private constructor(
 
     private suspend fun mergeRemoteProject(model: Project) {
         val current = database.projects().get(model.id)
+        val config = runCatching { JSONObject(current?.configJson ?: "{}") }.getOrDefault(JSONObject())
+            .put("defaultModel", model.defaultModel ?: JSONObject.NULL)
+        model.defaultThinkingEffort?.let { config.put("defaultThinkingEffort", it) }
         val remote = ProjectEntity(
             id = model.id,
             name = model.name,
@@ -1592,6 +1620,7 @@ class LocalDataRepository private constructor(
             chatCount = model.chatCount,
             agentIconsJson = JSONArray(model.agentIcons).toString(),
             rootDirectory = model.rootDirectory,
+            configJson = config.toString(),
             createdAt = current?.createdAt ?: System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis(),
             remoteVersion = (current?.remoteVersion ?: 0) + 1,
@@ -1603,6 +1632,20 @@ class LocalDataRepository private constructor(
             }
         } else {
             database.projects().upsert(remote.copy(localVersion = current?.localVersion ?: 0))
+        }
+    }
+
+    private suspend fun updateRemoteProjectConfig(id: String, config: ProjectSettingsConfig) {
+        val current = database.projects().get(id) ?: return
+        if (current.syncStatus != SyncStatus.PENDING) {
+            database.projects().upsert(
+                current.copy(
+                    rootDirectory = config.rootDirectory,
+                    configJson = config.toJson().toString(),
+                    updatedAt = System.currentTimeMillis(),
+                    remoteVersion = current.remoteVersion + 1,
+                ),
+            )
         }
     }
 
@@ -1737,6 +1780,12 @@ private fun ConversationEntity.toModel() = Conversation(
     project_id = projectId,
     project_name = projectName,
     model = model,
+    thinking_effort_override = thinkingEffortOverride,
+    full_auto_approve_override = fullAutoApproveOverride,
+    agentic_mode_override = agenticModeOverride,
+    terminal_sandbox_override = terminalSandboxOverride,
+    cli_mode_override = cliModeOverride,
+    codex_execution_mode_override = codexExecutionModeOverride,
     last_message = lastMessage,
     pinned = pinned,
     archived = archived,
@@ -1755,6 +1804,12 @@ private fun Conversation.toEntity(remoteVersion: Long) = ConversationEntity(
     projectId = project_id,
     projectName = project_name,
     model = model,
+    thinkingEffortOverride = thinking_effort_override,
+    fullAutoApproveOverride = full_auto_approve_override,
+    agenticModeOverride = agentic_mode_override,
+    terminalSandboxOverride = terminal_sandbox_override,
+    cliModeOverride = cli_mode_override,
+    codexExecutionModeOverride = codex_execution_mode_override,
     lastMessage = last_message,
     pinned = pinned,
     archived = archived,
@@ -1814,6 +1869,12 @@ private fun ConversationEntity.toSyncJson(): String = JSONObject()
     .put("agentId", agentId)
     .put("projectId", projectId)
     .put("model", model)
+    .put("thinkingEffortOverride", thinkingEffortOverride)
+    .put("fullAutoApproveOverride", fullAutoApproveOverride)
+    .put("agenticModeOverride", agenticModeOverride)
+    .put("terminalSandboxOverride", terminalSandboxOverride)
+    .put("cliModeOverride", cliModeOverride)
+    .put("codexExecutionModeOverride", codexExecutionModeOverride)
     .put("pinned", pinned)
     .put("archived", archived)
     .put("deleted", deleted)
@@ -2008,6 +2069,7 @@ private fun ProjectSettingsConfig.toJson(): JSONObject = JSONObject()
     .put("outOfScope", JSONArray(outOfScope))
     .put("milestones", JSONArray(milestones))
     .put("defaultModel", defaultModel)
+    .put("defaultThinkingEffort", defaultThinkingEffort)
 
 private fun List<AttachmentMeta>.toAttachmentsJson(): String = JSONArray().also { array ->
     forEach { item ->
@@ -2105,6 +2167,9 @@ private fun JSONObject.nullableString(key: String): String? =
 
 private fun JSONObject.nullableLong(key: String): Long? =
     if (has(key) && !isNull(key)) optLong(key) else null
+
+private fun JSONObject.nullableBoolean(key: String): Boolean? =
+    if (has(key) && !isNull(key)) optInt(key) != 0 else null
 
 private fun JSONObject.jsonObjectOrString(key: String): JSONObject? {
     optJSONObject(key)?.let { return it }

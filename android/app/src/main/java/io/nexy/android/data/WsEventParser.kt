@@ -488,6 +488,10 @@ fun parseWsEvent(
                         agentIcons = agentIcons,
                         rootDirectory = p.nullableString("root_directory"),
                         defaultModel = p.nullableString("default_model"),
+                        // `project:list` does not include the thinking default. Preserve the
+                        // value hydrated from the full sync snapshot until project:config is
+                        // requested, rather than replacing it with null.
+                        defaultThinkingEffort = projects.value.firstOrNull { it.id == p.optString("id") }?.defaultThinkingEffort,
                     )
                 }
                 projects.value = list
@@ -1787,8 +1791,11 @@ fun parseWsEvent(
                 val id = data?.optString("id") ?: ""
                 data?.optJSONObject("config")?.let { config ->
                     val defaultModel = config.nullableString("defaultModel")
+                    val defaultThinkingEffort = config.nullableString("defaultThinkingEffort")?.takeIf {
+                        it in setOf("low", "medium", "high", "max", "disabled")
+                    }
                     projects.value = projects.value.map { project ->
-                        if (project.id == id) project.copy(defaultModel = defaultModel) else project
+                        if (project.id == id) project.copy(defaultModel = defaultModel, defaultThinkingEffort = defaultThinkingEffort) else project
                     }
                 }
                 WsEvent.ProjectConfigUpdated(id = id)
@@ -1798,8 +1805,11 @@ fun parseWsEvent(
                 val id = data?.optString("id") ?: ""
                 data?.optJSONObject("config")?.let { config ->
                     val defaultModel = config.nullableString("defaultModel")
+                    val defaultThinkingEffort = config.nullableString("defaultThinkingEffort")?.takeIf {
+                        it in setOf("low", "medium", "high", "max", "disabled")
+                    }
                     projects.value = projects.value.map { project ->
-                        if (project.id == id) project.copy(defaultModel = defaultModel) else project
+                        if (project.id == id) project.copy(defaultModel = defaultModel, defaultThinkingEffort = defaultThinkingEffort) else project
                     }
                 }
                 WsEvent.ProjectConfigChanged(id = id)
