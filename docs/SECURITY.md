@@ -17,6 +17,20 @@ For a Firebase-enabled build, CI must expose the protected file through
 and remove it in a cleanup step that runs on success and failure. The file must
 never be placed in a source archive, desktop package, or release artifact.
 
+The Android Build Dashboard uses the same contract when the desktop process is
+started with `NEXY_FIREBASE_GOOGLE_SERVICES_PATH` set. It also discovers the
+standard Android Studio SDK location, so `android/local.properties` is not
+required. On Windows, for example:
+
+```powershell
+$env:NEXY_FIREBASE_GOOGLE_SERVICES_PATH = 'C:\path\outside\repo\google-services.json'
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+npm run dev
+```
+
+Then run `assembleRelease` from Settings → Developer → Android. The dashboard
+removes the temporary Firebase file after the build or cancellation.
+
 Android signing remains environment-based through the existing
 `NEXY_KEYSTORE_*` variables; keystores and signing passwords are never checked
 in.
