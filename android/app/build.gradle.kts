@@ -87,6 +87,7 @@ android {
         buildConfigField("String", "NEXY_COMMIT_SHA", buildConfigString(sourceCommit))
         buildConfigField("boolean", "NEXY_SOURCE_DIRTY", sourceDirty.toString())
         buildConfigField("long", "NEXY_BUILD_TIMESTAMP", "${buildTimestamp}L")
+        buildConfigField("boolean", "NEXY_FIREBASE_ENABLED", hasFirebaseConfig.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

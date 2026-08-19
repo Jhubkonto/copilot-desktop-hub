@@ -11,11 +11,13 @@ import io.nexy.android.share.ShareTargetPublisher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class NexyApp : Application() {
     private var resumedActivityCount = 0
+    @Volatile private var fcmRegistrationStarted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -44,6 +46,16 @@ class NexyApp : Application() {
         })
         io.nexy.android.ui.theme.ThemePreferenceStore.init(this)
         io.nexy.android.data.WsRepository.init(this)
+        // Firebase is intentionally an optional build input. Registration is deferred until a
+        // desktop connection exists because push notifications are delivered by the paired
+        // desktop, not by standalone Android mode. Auto-init is disabled in the manifest so a
+        // build without google-services.json remains a valid local/standalone APK; explicitly
+        // enabling it here is therefore part of the paired-device onboarding handshake.
+        CoroutineScope(Dispatchers.Default).launch {
+            io.nexy.android.data.WsRepository.connectionState
+                .filter { it == io.nexy.android.data.ConnectionState.CONNECTED }
+                .collect { ensureFcmRegistration() }
+        }
         CoroutineScope(Dispatchers.Default).launch {
             io.nexy.android.data.WsRepository.conversations
                 .map { rows -> rows.map { Triple(it.id, it.title, it.updated_at) } }
@@ -74,25 +86,36 @@ class NexyApp : Application() {
         }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
-        // FCM is optional for local/standalone builds. FirebaseMessaging.getInstance()
-        // throws synchronously when no real google-services.json is present, so guard the
-        // lookup before requesting the token. Firebase-enabled builds still send the token.
-        val firebaseMessaging = runCatching { FirebaseMessaging.getInstance() }
-            .onFailure {
-                android.util.Log.i(
-                    "NexyApp",
-                    "Firebase is not configured; continuing without FCM registration",
-                    it,
-                )
-            }
-            .getOrNull()
-        firebaseMessaging?.token?.addOnSuccessListener { token ->
-                val deviceId = NexyFcmService.getOrCreateDeviceId(this)
-                io.nexy.android.data.WsRepository.sendOrQueue(
-                    "mobile:fcm-token",
-                    mapOf("deviceId" to deviceId, "token" to token)
-                )
-            }
+    }
+
+    private fun ensureFcmRegistration() {
+        if (!BuildConfig.NEXY_FIREBASE_ENABLED || fcmRegistrationStarted) return
+        fcmRegistrationStarted = true
+        runCatching {
+            val messaging = FirebaseMessaging.getInstance()
+            // Manifest auto-init is disabled for builds without a Firebase config. Re-enable it
+            // only after the app has a paired desktop to receive and use the token.
+            messaging.setAutoInitEnabled(true)
+            messaging.token
+                .addOnSuccessListener { token ->
+                    val deviceId = NexyFcmService.getOrCreateDeviceId(this)
+                    io.nexy.android.data.WsRepository.sendOrQueue(
+                        "mobile:fcm-token",
+                        mapOf("deviceId" to deviceId, "token" to token),
+                    )
+                }
+                .addOnFailureListener { error ->
+                    fcmRegistrationStarted = false
+                    android.util.Log.w("NexyApp", "Unable to obtain Firebase push token", error)
+                }
+        }.onFailure { error ->
+            fcmRegistrationStarted = false
+            android.util.Log.i(
+                "NexyApp",
+                "Firebase is not configured; continuing without FCM registration",
+                error,
+            )
+        }
     }
 
     companion object {
