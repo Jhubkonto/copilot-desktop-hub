@@ -82,7 +82,8 @@ desktop over the authenticated WebSocket connection:
 - Home screen with scoped conversation history (filter by project or agent)
 - Chat screen with live streaming output and voice input (on-device speech-to-text)
 - Tool call approval with real-time activity feed (thinking, tool execution)
-- FCM push notifications for offline approval requests (requires Firebase service account)
+- FCM push notifications for offline approval requests (requires a Firebase-enabled Android build
+  and the desktop Firebase service account; neither credential is committed to the repository)
 - Agent, skill, prompt, wiki, project, and artifact browsers — all remotely managed from desktop
 - Agent and project generator wizards
 - MCP server and CLI management
