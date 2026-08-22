@@ -147,7 +147,12 @@ function androidGradleArgs(command: AndroidBuildCommandName): string[] {
   // setting such as the missing VS Code runtime shown in build diagnostics.
   // Quote the value because Android Studio's default JBR path contains spaces
   // on Windows; the build runner invokes Gradle through the platform shell.
-  return [`-Dorg.gradle.java.home="${jdkHome}"`, ...ANDROID_COMMANDS[command]]
+  return [
+    `-Dorg.gradle.java.home="${jdkHome}"`,
+    '--console=plain',
+    '--stacktrace',
+    ...ANDROID_COMMANDS[command],
+  ]
 }
 
 /**

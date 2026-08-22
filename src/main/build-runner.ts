@@ -16,6 +16,15 @@ import type { BuildRecord, BuildStatus } from '../shared/types'
 // Retain the complete Gradle failure diagnostic block (source location,
 // compiler error, task summary, and recovery guidance) in build history.
 const MAX_LOG_CHARS = 256 * 1024
+const MAX_FAILURE_SUMMARY_CHARS = 4000
+
+function summarizeBuildFailure(logTail: string, exitCode: number): string {
+  const failureStart = logTail.lastIndexOf('FAILURE:')
+  const diagnostic = failureStart >= 0 ? logTail.slice(failureStart) : logTail
+  const trimmed = diagnostic.trim()
+  if (!trimmed) return `Build exited with code ${exitCode}. See the build output for details.`
+  return trimmed.slice(-MAX_FAILURE_SUMMARY_CHARS)
+}
 
 export function mapBuildRecord(row: Record<string, unknown>): BuildRecord {
   return {
@@ -153,7 +162,12 @@ export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
         ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), buildId)
       }
 
-      emit(doneEvent, { buildId, status, exitCode })
+      emit(doneEvent, {
+        buildId,
+        status,
+        exitCode,
+        ...(status === 'failed' ? { error: summarizeBuildFailure(logTail, exitCode) } : {}),
+      })
       onDone?.(status, exitCode)
     })()
   })
