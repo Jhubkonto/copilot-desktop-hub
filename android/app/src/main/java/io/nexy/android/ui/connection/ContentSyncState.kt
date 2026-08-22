@@ -14,15 +14,24 @@ enum class ContentSyncState {
     /** Nothing outstanding — local content matches the desktop. */
     SYNCED,
 
-    /** A sync is in flight, or local edits are queued to push. */
+    /** A transfer is actually in flight right now. This is the only state that animates. */
     SYNCING,
+
+    /**
+     * Local edits are queued but nothing is being transferred at this moment (offline, waiting for
+     * the next flush, or a push that has not started yet). Deliberately distinct from [SYNCING]:
+     * a queue that cannot drain must not present as perpetual motion, which is indistinguishable
+     * from a hung sync and was reported as "the spinner never stops".
+     */
+    PENDING,
 
     /** A push failed or a change conflicts and needs the user to follow up. */
     ERROR,
 }
 
 /**
- * @param syncInProgress        a whole-app reconcile is running.
+ * @param syncInProgress        a whole-app reconcile is running *right now*. This signal is
+ *                              bounded by WsRepository so a lost desktop reply cannot pin it true.
  * @param pendingChanges        local edits queued to push to the desktop.
  * @param failedChanges         local edits that exhausted their retries.
  * @param conflicts             unresolved local/remote divergences.
@@ -42,8 +51,8 @@ fun resolveContentSyncState(
 ): ContentSyncState = when {
     failedChanges > 0 || conflicts > 0 -> ContentSyncState.ERROR
     contentSyncInProgress == true ||
-        (contentSyncInProgress == null && syncInProgress) ||
-        pendingChanges > 0 -> ContentSyncState.SYNCING
+        (contentSyncInProgress == null && syncInProgress) -> ContentSyncState.SYNCING
+    pendingChanges > 0 -> ContentSyncState.PENDING
     else -> ContentSyncState.SYNCED
 }
 
@@ -62,6 +71,8 @@ fun getContentSyncPresentation(state: ContentSyncState): ContentSyncPresentation
         ContentSyncPresentation("Synced", SyncedGreen, "Content is up to date with the desktop")
     ContentSyncState.SYNCING ->
         ContentSyncPresentation("Syncing…", SyncingAmber, "Synchronizing content with the desktop")
+    ContentSyncState.PENDING ->
+        ContentSyncPresentation("Changes queued", SyncingAmber, "Local changes are waiting to sync with the desktop")
     ContentSyncState.ERROR ->
         ContentSyncPresentation("Sync problem", ErrorRed, "A sync problem needs your attention")
 }

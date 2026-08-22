@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.outboxDrainExplanation
 import io.nexy.android.data.local.ConflictEntity
 import io.nexy.android.data.local.OutboxEntity
 import io.nexy.android.ui.theme.LocalNexyEightBit
@@ -65,13 +66,14 @@ import io.nexy.android.ui.theme.LocalNexyEightBit
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContentSyncIndicator(
-    contentSyncInProgress: Boolean? = null,
     modifier: Modifier = Modifier,
+    contentSyncInProgress: Boolean? = null,
 ) {
     val syncInProgress by WsRepository.syncInProgress.collectAsStateWithLifecycle()
     val capabilities by WsRepository.capabilities.collectAsStateWithLifecycle()
     val outbox by WsRepository.syncOutbox.collectAsStateWithLifecycle()
     val conflicts by WsRepository.syncConflicts.collectAsStateWithLifecycle()
+    val drainDecision by WsRepository.outboxDrainDecision.collectAsStateWithLifecycle()
     val state = resolveContentSyncState(
         syncInProgress = syncInProgress,
         pendingChanges = capabilities.pendingChanges,
@@ -98,9 +100,12 @@ fun ContentSyncIndicator(
     if (showSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         SyncStatusSheet(
+            state = state,
+            screenScoped = contentSyncInProgress == true,
             pending = outbox.filter { it.state == "pending" },
             failed = outbox.filter { it.state == "failed" },
             conflicts = conflicts,
+            pendingDetail = outboxDrainExplanation(drainDecision),
             sheetState = sheetState,
             onDismiss = { showSheet = false },
         )
@@ -138,6 +143,14 @@ private fun ContentSyncGlyph(state: ContentSyncState, color: Color) {
                 .size(22.dp)
                 .graphicsLayer(rotationZ = rotation),
         )
+        // Queued-but-idle work is shown, not animated. Perpetual motion for a queue that is not
+        // draining reads as a hung app rather than as progress.
+        ContentSyncState.PENDING -> Icon(
+            Icons.Default.Sync,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(22.dp),
+        )
         ContentSyncState.ERROR -> Icon(
             Icons.Default.SyncProblem,
             contentDescription = null,
@@ -150,9 +163,12 @@ private fun ContentSyncGlyph(state: ContentSyncState, color: Color) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SyncStatusSheet(
+    state: ContentSyncState,
+    screenScoped: Boolean,
     pending: List<OutboxEntity>,
     failed: List<OutboxEntity>,
     conflicts: List<ConflictEntity>,
+    pendingDetail: String,
     sheetState: SheetState,
     onDismiss: () -> Unit,
 ) {
@@ -170,7 +186,8 @@ private fun SyncStatusSheet(
         // legible before scanning the itemized sections below.
         val summary = buildString {
             if (pending.isNotEmpty()) {
-                append(if (pending.size == 1) "Syncing 1 change…" else "Syncing ${pending.size} changes…")
+                val verb = if (state == ContentSyncState.SYNCING) "Syncing" else "Queued:"
+                append(if (pending.size == 1) "$verb 1 change" else "$verb ${pending.size} changes")
             }
             if (failed.isNotEmpty()) {
                 if (isNotEmpty()) append(" · ")
@@ -189,7 +206,26 @@ private fun SyncStatusSheet(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
         }
-        if (pending.isEmpty() && failed.isEmpty() && conflicts.isEmpty()) {
+        if ((pending.isNotEmpty() || failed.isNotEmpty()) && state != ContentSyncState.SYNCING) {
+            // Queued work that is not currently draining is now shown as a settled state rather
+            // than as endless motion, so give the user the one action that can actually move it.
+            TextButton(
+                onClick = { WsRepository.retryStandaloneSync() },
+                modifier = Modifier.padding(horizontal = 12.dp),
+            ) { Text("Sync now") }
+        }
+        // When the glyph is busy but nothing is itemized below, say why. Without this the only
+        // readable state was "spinning for an unknown reason", which is exactly what made a stuck
+        // indicator impossible to diagnose from the device.
+        if (state == ContentSyncState.SYNCING && pending.isEmpty() && failed.isEmpty() && conflicts.isEmpty()) {
+            Text(
+                if (screenScoped) "Loading this conversation's history from the desktop…"
+                else "Reconciling content with the desktop…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        } else if (pending.isEmpty() && failed.isEmpty() && conflicts.isEmpty()) {
             Text(
                 "Everything is up to date.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -227,7 +263,7 @@ private fun SyncStatusSheet(
                     items(pending, key = { it.operationId }) { op ->
                         SyncProblemRow(
                             title = "${operationLabel(op.operation)} ${entityLabel(op.entityType)}",
-                            detail = "Waiting to sync",
+                            detail = pendingDetail,
                         )
                     }
                 }
