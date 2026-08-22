@@ -45,6 +45,10 @@ import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.icons.NexyIcon
 import io.nexy.android.ui.icons.NexyIconName
+import io.nexy.android.ui.fileviewer.isRemoteImagePath
+import io.nexy.android.ui.projects.ProjectSourceAddResult
+import io.nexy.android.ui.projects.ProjectSourceAddState
+import io.nexy.android.ui.projects.projectSourceAddResult
 
 /** Shows the tail of a long path (the part nearest the leaf), since that's what identifies
  *  "where am I" at a glance — the drive/home prefix is usually the least useful part. */
@@ -62,16 +66,20 @@ fun FileExplorerScreen(
     onOpenProjectSettings: (() -> Unit)? = null,
     initialPath: String = "",
     allowFileSelection: Boolean = false,
+    isAddingProjectSource: Boolean = false,
     // Pure content-consumption mode: browse folders and open Markdown to read, with no
     // "Select this folder" affordance — nothing is picked or returned to a caller.
     browseMode: Boolean = false,
     onMarkdownSelected: ((String) -> Unit)? = null,
+    onImageSelected: ((String) -> Unit)? = null,
     vm: FileExplorerViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val connectionState by WsRepository.connectionState.collectAsStateWithLifecycle()
     val lastError by WsRepository.lastError.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
+    var projectSourceAddState by remember { mutableStateOf<ProjectSourceAddState?>(null) }
+    var projectSourceAddError by remember { mutableStateOf<String?>(null) }
     val projectScoped = browseMode && projectId.isNotBlank()
     var projectConfig by remember(projectId) { mutableStateOf<ProjectSettingsConfig?>(null) }
 
@@ -111,6 +119,38 @@ fun FileExplorerScreen(
         if (!projectScoped) vm.openInitial(initialPath)
     }
 
+    // Keep the picker open until the desktop has persisted and acknowledged the new source. If we
+    // pop immediately after sending the command, the settings screen can miss the one-shot WS
+    // event and continue displaying its stale in-memory source list.
+    LaunchedEffect(projectId, isAddingProjectSource) {
+        if (!isAddingProjectSource || projectId.isBlank()) return@LaunchedEffect
+        WsRepository.events.collect { event ->
+            val state = projectSourceAddState ?: return@collect
+            if (event is WsEvent.ProjectConfigChanged && event.id == projectId && event.config == null) {
+                // The desktop broadcasts this event alongside the source reply. Fetching the
+                // authoritative config here preserves compatibility with older desktops that do
+                // not include the hierarchy in their config-changed broadcast.
+                WsRepository.getProjectConfig(projectId)
+                return@collect
+            }
+            when (val result = projectSourceAddResult(state, projectId, event)) {
+                ProjectSourceAddResult.Added -> {
+                    projectSourceAddState = null
+                    // The settings destination may still be below this screen, or may be
+                    // recreated after navigation. Leave a durable refresh marker for it rather
+                    // than relying on its activity lifecycle receiving another ON_RESUME event.
+                    WsRepository.pendingProjectSourceRefresh.value = projectId
+                    onBack()
+                }
+                is ProjectSourceAddResult.Error -> {
+                    projectSourceAddState = null
+                    projectSourceAddError = result.message
+                }
+                ProjectSourceAddResult.Pending -> Unit
+            }
+        }
+    }
+
     // `history` is a breadcrumb stack the user drills into via folder taps, with no NavGraph
     // route per level — without this, system/gesture back exits the whole screen from any depth
     // instead of going up one directory at a time the way the breadcrumb bar's own taps do.
@@ -124,6 +164,7 @@ fun FileExplorerScreen(
                         Text(
                             when {
                                 allowFileSelection -> "Attach from desktop"
+                                isAddingProjectSource -> "Add project folder"
                                 browseMode -> "Project files"
                                 else -> "Choose folder"
                             },
@@ -154,8 +195,23 @@ fun FileExplorerScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Button(onClick = { onFolderSelected(currentPath) }) {
-                            Text(if (allowFileSelection) "Attach folder" else "Select this folder")
+                        Button(
+                            enabled = projectSourceAddState == null,
+                            onClick = {
+                                if (isAddingProjectSource) {
+                                    projectSourceAddState = ProjectSourceAddState.inFlight(currentPath)
+                                    projectSourceAddError = null
+                                }
+                                onFolderSelected(currentPath)
+                            },
+                        ) {
+                            Text(
+                                when {
+                                    allowFileSelection -> "Attach folder"
+                                    isAddingProjectSource -> "Add folder"
+                                    else -> "Select this folder"
+                                },
+                            )
                         }
                     }
                 }
@@ -163,6 +219,13 @@ fun FileExplorerScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            projectSourceAddError?.let { message ->
+                Text(
+                    message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             if (state.history.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -267,9 +330,11 @@ fun FileExplorerScreen(
                                     entry = entry,
                                     allowFileSelection = allowFileSelection,
                                     allowMarkdownSelection = onMarkdownSelected != null,
+                                    allowImageSelection = onImageSelected != null,
                                     onOpen = {
                                         if (entry.isDirectory) vm.open(entry.fullPath)
                                         else if (onMarkdownSelected != null && entry.name.endsWith(".md", ignoreCase = true)) onMarkdownSelected(entry.fullPath)
+                                        else if (onImageSelected != null && entry.name.isRemoteImagePath()) onImageSelected(entry.fullPath)
                                         else onFolderSelected(entry.fullPath)
                                     },
                                 )
@@ -437,8 +502,17 @@ private fun LocationRow(
 }
 
 @Composable
-private fun EntryRow(entry: FsEntry, allowFileSelection: Boolean, allowMarkdownSelection: Boolean, onOpen: () -> Unit) {
-    val canOpen = entry.isDirectory || allowFileSelection || (allowMarkdownSelection && entry.name.endsWith(".md", ignoreCase = true))
+private fun EntryRow(
+    entry: FsEntry,
+    allowFileSelection: Boolean,
+    allowMarkdownSelection: Boolean,
+    allowImageSelection: Boolean,
+    onOpen: () -> Unit,
+) {
+    val isImage = !entry.isDirectory && entry.name.isRemoteImagePath()
+    val canOpen = entry.isDirectory || allowFileSelection ||
+        (allowMarkdownSelection && entry.name.endsWith(".md", ignoreCase = true)) ||
+        (allowImageSelection && isImage)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -453,7 +527,11 @@ private fun EntryRow(entry: FsEntry, allowFileSelection: Boolean, allowMarkdownS
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         }
         NexyIcon(
-            if (entry.isDirectory) NexyIconName.Folder else NexyIconName.File,
+            when {
+                entry.isDirectory -> NexyIconName.Folder
+                isImage -> NexyIconName.Image
+                else -> NexyIconName.File
+            },
             contentDescription = null,
             tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else contentColor,
         )

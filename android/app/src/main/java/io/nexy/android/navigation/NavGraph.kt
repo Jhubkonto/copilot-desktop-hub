@@ -33,6 +33,9 @@ import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.codepanel.CodePanelScreen
 import io.nexy.android.ui.fileexplorer.FileExplorerScreen
 import io.nexy.android.ui.fileviewer.MarkdownViewerScreen
+import io.nexy.android.ui.fileviewer.ImageViewerScreen
+import io.nexy.android.ui.projectpeek.ProjectPeekScreen
+import io.nexy.android.ui.projectpeek.ProjectPeekViewerScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectHomeScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowListScreen
@@ -413,6 +416,7 @@ fun NavGraph(
                 },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
                 onOpenCodePanel = { pid -> navController.navigate("code-panel/${Uri.encode(pid)}") },
+                onOpenProjectPeek = { peekProjectId -> navController.navigate("project-peek/${Uri.encode(peekProjectId)}") },
                 onOpenAutomatedWorkflow = { workflowProjectId -> navController.navigate("automated-workflow/${Uri.encode(workflowProjectId)}") },
                 onOpenDesktopPathPicker = {
                     navController.navigate("file-explorer?projectId=&startPath=&selectionMode=attachment")
@@ -590,6 +594,9 @@ fun NavGraph(
                 onOpenFileExplorer = { startPath ->
                     navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=${Uri.encode(startPath)}&selectionMode=folder")
                 },
+                onAddSourceFolder = {
+                    navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=&selectionMode=source")
+                },
             )
         }
 
@@ -613,18 +620,54 @@ fun NavGraph(
                 onFolderSelected = { path ->
                     if (selectionMode == "attachment") {
                         WsRepository.pendingSelectedAttachmentPath.value = path
+                    } else if (selectionMode == "source") {
+                        WsRepository.addProjectSource(projectId, path)
                     } else {
                         WsRepository.pendingSelectedDirectory.value = path
                     }
-                    navController.popBackStack()
+                    if (selectionMode != "source") navController.popBackStack()
                 },
                 initialPath = startPath,
                 allowFileSelection = selectionMode == "attachment",
+                isAddingProjectSource = selectionMode == "source",
                 browseMode = selectionMode == "browse",
                 // Reading Markdown is a browse-mode affordance only; the folder picker
                 // (selectionMode == "folder") stays a pure path chooser.
                 onMarkdownSelected = if (selectionMode == "browse") { path -> navController.navigate("markdown-viewer?path=${Uri.encode(path)}") } else null,
+                onImageSelected = if (selectionMode == "browse") { path -> navController.navigate("image-viewer?path=${Uri.encode(path)}") } else null,
             )
+        }
+
+        composable(
+            route = "project-peek/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            ProjectPeekScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
+                onPreview = { sourceId, entry ->
+                    navController.navigate(
+                        "project-peek-preview/${Uri.encode(projectId)}/${Uri.encode(sourceId)}?path=${Uri.encode(entry.relativePath)}&category=${Uri.encode(entry.category)}",
+                    )
+                },
+            )
+        }
+
+        composable(
+            route = "project-peek-preview/{projectId}/{sourceId}?path={path}&category={category}",
+            arguments = listOf(
+                navArgument("projectId") { type = NavType.StringType },
+                navArgument("sourceId") { type = NavType.StringType },
+                navArgument("path") { type = NavType.StringType },
+                navArgument("category") { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            val sourceId = backStackEntry.arguments?.getString("sourceId") ?: return@composable
+            val path = backStackEntry.arguments?.getString("path") ?: return@composable
+            val category = backStackEntry.arguments?.getString("category") ?: return@composable
+            ProjectPeekViewerScreen(projectId, sourceId, path, category, onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -633,6 +676,14 @@ fun NavGraph(
         ) { backStackEntry ->
             val path = backStackEntry.arguments?.getString("path") ?: return@composable
             MarkdownViewerScreen(path = path, onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = "image-viewer?path={path}",
+            arguments = listOf(navArgument("path") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val path = backStackEntry.arguments?.getString("path") ?: return@composable
+            ImageViewerScreen(path = path, onBack = { navController.popBackStack() })
         }
 
         composable(

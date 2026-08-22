@@ -48,6 +48,14 @@ import java.util.UUID
 
 @Composable
 fun MarkdownViewerScreen(path: String, onBack: () -> Unit) {
+    // Navigation restores the previous destination after an app reload. Older builds routed
+    // every project file through this destination, so an image can arrive here even though the
+    // current explorer uses image-viewer. Recover that stale route before requesting it as text.
+    if (fileViewerKind(path) == FileViewerKind.IMAGE) {
+        ImageViewerScreen(path = path, onBack = onBack)
+        return
+    }
+
     // The destination beneath the viewer may have its own BackHandler (for example, the file
     // explorer uses back to move through its directory history). Register one here so system and
     // gesture back always dismiss the viewer before reaching that parent handler.
