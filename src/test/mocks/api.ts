@@ -161,6 +161,21 @@ export function createMockApi() {
     setConversationModel: vi.fn().mockResolvedValue(true),
     setConversationMode: vi.fn().mockResolvedValue(true),
     setConversationPinned: vi.fn().mockResolvedValue(true),
+    getConversationCapabilities: vi.fn().mockResolvedValue({ version: 1, skillIds: [], mcp: [] }),
+    setConversationCapabilities: vi.fn().mockResolvedValue({ version: 1, skillIds: [], mcp: [] }),
+    resolveCapabilities: vi.fn().mockResolvedValue({
+      conversationId: 'conv-1',
+      profile: { version: 1, skillIds: [], mcp: [] },
+      scopeProfiles: {
+        chat: { version: 1, skillIds: [], mcp: [] },
+        project: null,
+        agent: null,
+      },
+      items: [],
+      ready: true,
+      desktopOnly: false,
+    }),
+    activateCapabilities: vi.fn().mockResolvedValue({ version: 1, skillIds: [], mcp: [] }),
     updateConversationContext: vi.fn().mockResolvedValue(true),
 
     // Messages
