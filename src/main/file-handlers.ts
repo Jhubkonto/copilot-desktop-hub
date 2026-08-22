@@ -262,6 +262,22 @@ export function listDirectoryEntriesForRemote(path: string, authorizedRoots?: st
 }
 
 const FS_REMOTE_READ_LIMIT = 512_000
+const FS_REMOTE_IMAGE_LIMIT = 16 * 1024 * 1024
+const REMOTE_TEXT_EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.adoc', '.json', '.yaml', '.yml'])
+
+const REMOTE_IMAGE_MIME_TYPES: Record<string, string> = {
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+}
+
+export function isRemoteImagePath(filePath: string): boolean {
+  return extname(filePath).toLowerCase() in REMOTE_IMAGE_MIME_TYPES
+}
 
 /** Read a bounded UTF-8 text file for the remote Android document viewer. */
 export function readTextFileForRemote(filePath: string, authorizedRoots?: string[]): { path: string; content: string; truncated: boolean; error?: string } {
@@ -269,8 +285,8 @@ export function readTextFileForRemote(filePath: string, authorizedRoots?: string
   if (authorizedRoots && !isRemotePathAuthorized(filePath, authorizedRoots)) {
     return { path: filePath, content: '', truncated: false, error: 'This file is not available through the remote explorer' }
   }
-  if (extname(filePath).toLowerCase() !== '.md') {
-    return { path: filePath, content: '', truncated: false, error: 'Only Markdown files can be viewed' }
+  if (!REMOTE_TEXT_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+    return { path: filePath, content: '', truncated: false, error: 'Only supported text documents can be viewed' }
   }
   let descriptor: number | undefined
   try {
@@ -303,6 +319,60 @@ export function readTextFileForRemote(filePath: string, authorizedRoots?: string
   } finally {
     if (descriptor !== undefined) closeSync(descriptor)
   }
+}
+
+/** Read a bounded raster image as base64 for the remote Android image viewer. */
+export function readImageFileForRemote(filePath: string, authorizedRoots?: string[]): {
+  path: string
+  content: string
+  truncated: boolean
+  mimeType: string
+  encoding: 'base64'
+  error?: string
+} {
+  const mimeType = REMOTE_IMAGE_MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+  const empty = (error?: string) => ({
+    path: filePath,
+    content: '',
+    truncated: false,
+    mimeType,
+    encoding: 'base64' as const,
+    ...(error ? { error } : {}),
+  })
+
+  if (!filePath || !existsSync(filePath)) return empty('File not found')
+  if (authorizedRoots && !isRemotePathAuthorized(filePath, authorizedRoots)) {
+    return empty('This file is not available through the remote explorer')
+  }
+
+  let descriptor: number | undefined
+  try {
+    if (!statSync(filePath).isFile()) return empty('Not a file')
+    descriptor = openSync(filePath, 'r')
+    const buffer = Buffer.alloc(FS_REMOTE_IMAGE_LIMIT + 1)
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0)
+    if (bytesRead > FS_REMOTE_IMAGE_LIMIT) {
+      return empty('This image is larger than the 16 MB remote viewing limit')
+    }
+    return {
+      path: filePath,
+      content: buffer.subarray(0, bytesRead).toString('base64'),
+      truncated: false,
+      mimeType,
+      encoding: 'base64' as const,
+    }
+  } catch {
+    return empty('Could not read this image')
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
+}
+
+/** Dispatch a legacy generic file request without ever sending raster bytes through the text reader. */
+export function readFileForRemote(filePath: string, authorizedRoots?: string[]) {
+  return isRemoteImagePath(filePath)
+    ? readImageFileForRemote(filePath, authorizedRoots)
+    : readTextFileForRemote(filePath, authorizedRoots)
 }
 
 export function getFsStartRoots(): { home: string; recents: string[] } {
