@@ -561,6 +561,57 @@ describe('CLI adapters', () => {
     expect(spawnArgs).toEqual(expect.arrayContaining(['app-server', '--stdio']))
   })
 
+  it('CodexAdapter bridges Plan-mode MCP approval elicitations to Nexy approval', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const requestPermission = vi.fn().mockResolvedValue(true)
+
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'use the browser' }],
+      cwd: 'C:\\workspace',
+      model: 'gpt-5.5',
+      conversationId: 'conv-plan-mcp',
+      executionMode: 'plan',
+      mcpServers: [{
+        id: 'server-1',
+        key: 'playwright_chromium',
+        command: 'npx',
+        args: ['-y', '@playwright/mcp'],
+      }],
+      allowedTools: ['mcp__playwright_chromium__browser_navigate'],
+      requestPermission,
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ id: 1, result: { userAgent: 'codex-test' } })}\n`))
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ id: 2, result: { thread: { id: 'thread-1' }, model: 'gpt-5.5' } })}\n`))
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      id: 4,
+      method: 'mcpServer/elicitation/request',
+      params: {
+        serverName: 'playwright_chromium',
+        mode: 'form',
+        message: 'Allow browser navigation?',
+        requestedSchema: { type: 'object' },
+        meta: { codex_approval_kind: 'mcp_tool_call' },
+      },
+    })}\n`))
+
+    await vi.waitFor(() => expect(requestPermission).toHaveBeenCalledWith(
+      'mcp__playwright_chromium',
+      expect.objectContaining({ serverName: 'playwright_chromium', message: 'Allow browser navigation?' }),
+    ))
+    expect(proc.stdin.write).toHaveBeenCalledWith(
+      JSON.stringify({ id: 4, result: { action: 'accept', content: null } }) + '\n',
+      'utf8',
+    )
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      method: 'turn/completed',
+      params: { turn: { status: 'completed' } },
+    })}\n`))
+    await expect(sendPromise).resolves.toBe('')
+  })
+
   it('ClaudeAdapter reports availability from execSync', () => {
     mockExecSync.mockReturnValue('C:\\claude.exe\n')
     expect(ClaudeAdapter.isAvailable()).toBe(true)
@@ -890,6 +941,8 @@ describe('CLI adapters', () => {
       'mcp_servers.playwright_chromium.env.BROWSER="chromium"',
       '-c',
       'mcp_servers.playwright_chromium.enabled_tools=["browser_navigate"]',
+      '-c',
+      'mcp_servers.playwright_chromium.default_tools_approval_mode="approve"',
     ]))
     expect(onEvent).toHaveBeenCalledWith({
       type: 'tool_start',

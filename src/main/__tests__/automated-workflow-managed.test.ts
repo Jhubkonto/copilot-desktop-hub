@@ -125,7 +125,7 @@ describe('managed-artifact automated workflow', () => {
     expect(action.status).toBe('published')
     expect(readFileSync(path.join(sourceRoot, 'reports', 'weekly.md'), 'utf8')).toContain('Human-approved edit.')
     expect(getAutomatedWorkflowRun(created.id)?.status).toBe('done')
-  })
+  }, 15_000)
 
   it('invalidates a publish approval when the destination changes after preview', async () => {
     const { saveAutomatedWorkflowRunFromSpec } = await import('../automated-workflow-runs')

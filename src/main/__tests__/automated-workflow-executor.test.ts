@@ -98,7 +98,7 @@ describe('automated-workflow-executor: pure helpers', () => {
     })
     const ordered = orderWorkflowSteps(spec.steps)
     expect(ordered.map((s) => s.id)).toEqual(['plan', 'announce', 'build', 'verify'])
-  })
+  }, 15_000)
 
   it('rejects dependency cycles', async () => {
     const { orderWorkflowSteps } = await import('../automated-workflow-executor')

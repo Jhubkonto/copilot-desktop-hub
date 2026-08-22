@@ -192,6 +192,33 @@ describe('startBuildFromMobile', () => {
     expect((doneCalls[0][0].data as Record<string, unknown>).status).toBe('success')
   })
 
+  it('includes the Gradle failure diagnostic in the failed done event and record', async () => {
+    const child = makeChild()
+    spawnMockFn.mockReturnValue(child)
+
+    const { broadcastToMobile } = await import('../ws-server')
+    const broadcastMock = vi.mocked(broadcastToMobile)
+    broadcastMock.mockClear()
+
+    const { startBuildFromMobile } = await import('../build-handlers')
+    const { buildId } = await startBuildFromMobile('test')
+    child.stderr.emit('data', Buffer.from('FAILURE: Build failed with an exception.\n> Task :app:compileReleaseKotlin FAILED\n'))
+
+    await closeChild(child, 1)
+
+    const doneCall = broadcastMock.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.event === 'build:command-done')
+    expect(doneCall?.data).toEqual(expect.objectContaining({
+      buildId,
+      status: 'failed',
+      error: expect.stringContaining('FAILURE: Build failed with an exception.'),
+    }))
+
+    const row = db.prepare('SELECT log_tail FROM build_records WHERE id = ?').get(buildId) as { log_tail: string }
+    expect(row.log_tail).toContain('FAILURE: Build failed with an exception.')
+  })
+
   it('rejects a package build up front when the desktop is running from a dev checkout', async () => {
     const { app } = await import('electron')
     ;(app as unknown as { isPackaged: boolean }).isPackaged = false

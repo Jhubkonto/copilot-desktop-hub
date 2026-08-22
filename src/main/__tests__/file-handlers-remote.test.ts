@@ -36,7 +36,7 @@ vi.mock('fs', () => ({
   realpathSync: state.realpath,
 }))
 
-import { readTextFileForRemote } from '../file-handlers'
+import { isRemoteImagePath, readFileForRemote, readImageFileForRemote, readTextFileForRemote } from '../file-handlers'
 
 describe('readTextFileForRemote', () => {
   beforeEach(() => {
@@ -62,8 +62,37 @@ describe('readTextFileForRemote', () => {
   })
 
   it('rejects non-Markdown files before opening them', () => {
-    expect(readTextFileForRemote('C:/project/secret.txt').error).toBe('Only Markdown files can be viewed')
+    expect(readTextFileForRemote('C:/project/secret.pdf').error).toBe('Only supported text documents can be viewed')
     expect(state.open).not.toHaveBeenCalled()
+  })
+
+  it('reads supported plain-text documentation formats', () => {
+    expect(readTextFileForRemote('C:/project/notes.txt')).toMatchObject({
+      path: 'C:/project/notes.txt', content: '# Notes\n', truncated: false,
+    })
+  })
+
+  it('reads supported images as base64 with their MIME type', () => {
+    expect(isRemoteImagePath('C:/project/photo.PNG')).toBe(true)
+    expect(readImageFileForRemote('C:/project/photo.PNG')).toEqual({
+      path: 'C:/project/photo.PNG',
+      content: Buffer.from('# Notes\n').toString('base64'),
+      truncated: false,
+      mimeType: 'image/png',
+      encoding: 'base64',
+    })
+    expect(state.open).toHaveBeenCalledWith('C:/project/photo.PNG', 'r')
+    expect(state.close).toHaveBeenCalledWith(11)
+  })
+
+  it('dispatches image paths to the binary reader instead of the Markdown reader', () => {
+    expect(readFileForRemote('C:/project/photo.PNG')).toEqual({
+      path: 'C:/project/photo.PNG',
+      content: Buffer.from('# Notes\n').toString('base64'),
+      truncated: false,
+      mimeType: 'image/png',
+      encoding: 'base64',
+    })
   })
 
   it('returns a truncation marker without reading beyond the configured limit', () => {

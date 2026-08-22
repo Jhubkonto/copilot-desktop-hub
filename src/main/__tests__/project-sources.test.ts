@@ -82,6 +82,23 @@ describe('project source hierarchy compatibility', () => {
       .toEqual(['repo-existing'])
   })
 
+  it('adds a secondary source without dropping existing sources or repositories', async () => {
+    await addProjectSource(db, 'p1', { localPath: 'C:\\work\\portal', scan: false })
+    const primary = listProjectSources(db, 'p1').sources[0]
+    db.prepare(`INSERT INTO project_repositories
+      (id, project_id, source_id, label, relative_path, enabled, available, created_at, updated_at)
+      VALUES ('repo-existing', 'p1', ?, 'portal', '', 1, 1, 1, 1)`)
+      .run(primary.id)
+
+    const hierarchy = await addProjectSource(db, 'p1', { localPath: 'D:\\shared\\docs', scan: false })
+
+    expect(hierarchy.sources.map((source) => source.localPath)).toEqual([
+      'C:\\work\\portal',
+      'D:\\shared\\docs',
+    ])
+    expect(hierarchy.repositories.map((repository) => repository.id)).toEqual(['repo-existing'])
+  })
+
   it('removes only the selected repository from Nexy', async () => {
     await addProjectSource(db, 'p1', { localPath: 'C:\\work\\portal', scan: false })
     const source = listProjectSources(db, 'p1').sources[0]

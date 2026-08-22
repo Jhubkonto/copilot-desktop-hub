@@ -287,7 +287,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
-      expect.arrayContaining(['assembleRelease']),
+      expect.arrayContaining(['assembleRelease', '--console=plain', '--stacktrace']),
       expect.any(Object)
     )
   })

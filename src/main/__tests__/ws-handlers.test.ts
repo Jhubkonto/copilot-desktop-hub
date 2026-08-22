@@ -21,6 +21,7 @@ const state = vi.hoisted(() => {
   const listProjectAuditFiles = vi.fn<(sessionId: string) => ProjectTouchedFile[]>(() => [])
   const getProjectAuditDiff = vi.fn<(sessionId: string, relativePath: string) => ProjectFileDiff | null>(() => null)
   let projectConfigJson: string | null = null
+  let projectSources: Array<Record<string, unknown>> = []
   const runAutomatedWorkflowGeneratorChatForAndroid = vi.fn()
   const getAutomatedWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
   const setAutomatedWorkflowGeneratorModel = vi.fn()
@@ -31,6 +32,18 @@ const state = vi.hoisted(() => {
   const getRatingStats = vi.fn<() => ConversationRatingStats>(() => ({
     averageByAgent: [], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [],
   }))
+  const readFileForRemote = vi.fn((): {
+    path: string
+    content: string
+    truncated: boolean
+    mimeType?: string
+    encoding?: 'utf8' | 'base64'
+    error?: string
+  } => ({ path: '', content: '', truncated: false }))
+  const readImageFileForRemote = vi.fn(() => ({
+    path: 'C:/project/photo.png', content: 'encoded', truncated: false, mimeType: 'image/png', encoding: 'base64' as const,
+  }))
+  const isRemoteImagePath = vi.fn((path: string) => /\.(avif|bmp|gif|jpe?g|png|webp)$/i.test(path))
 
   return {
     get commandHandler() { return commandHandler },
@@ -53,8 +66,13 @@ const state = vi.hoisted(() => {
     deleteRatingForConversation,
     listRatings,
     getRatingStats,
+    readFileForRemote,
+    readImageFileForRemote,
+    isRemoteImagePath,
     get projectConfigJson() { return projectConfigJson },
     set projectConfigJson(value) { projectConfigJson = value },
+    get projectSources() { return projectSources },
+    set projectSources(value) { projectSources = value },
   }
 })
 
@@ -66,6 +84,7 @@ vi.mock('../database', () => ({
   getDatabase: () => ({
     prepare: (sql: string) => ({
       all: (..._args: unknown[]) => {
+        if (sql.includes('FROM project_sources')) return state.projectSources
         if (sql.includes('FROM conversations c')) return [{ id: 'conv-1', title: 'Chat 1' }]
         if (sql.includes('FROM projects p')) return [{ id: 'proj-1', name: 'Project 1' }]
         if (sql.includes('FROM messages')) return [{ id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 }]
@@ -116,6 +135,15 @@ vi.mock('../project-audit', () => ({
   listProjectAuditSessions: state.listProjectAuditSessions,
   listProjectAuditFiles: state.listProjectAuditFiles,
   getProjectAuditDiff: state.getProjectAuditDiff,
+}))
+
+vi.mock('../file-handlers', () => ({
+  listDirectoryEntriesForRemote: vi.fn(),
+  readFileForRemote: state.readFileForRemote,
+  readImageFileForRemote: state.readImageFileForRemote,
+  isRemoteImagePath: state.isRemoteImagePath,
+  getFsStartRoots: vi.fn(() => ({ home: 'C:/Users/test', recents: [] })),
+  getFsAuthorizedRoots: vi.fn(() => ['C:/project']),
 }))
 
 vi.mock('../cli-detection', () => ({
@@ -238,9 +266,71 @@ describe('ws handlers', () => {
     })
   })
 
+  it('routes the dedicated image command to the binary reader', () => {
+    const reply = sendCommand('fs:read-image', { path: 'C:/project/photo.png', requestId: 'image-1' })
+
+    expect(state.readImageFileForRemote).toHaveBeenCalledWith('C:/project/photo.png', ['C:/project'])
+    expect(state.readFileForRemote).not.toHaveBeenCalled()
+    expect(reply).toHaveBeenCalledWith({
+      event: 'fs:file-content',
+      data: {
+        path: 'C:/project/photo.png',
+        content: 'encoded',
+        truncated: false,
+        mimeType: 'image/png',
+        encoding: 'base64',
+        requestId: 'image-1',
+      },
+    })
+  })
+
+  it('keeps the generic file command binary-safe for legacy image viewers', () => {
+    state.readFileForRemote.mockReturnValue({
+      path: 'C:/project/photo.png',
+      content: 'encoded',
+      truncated: false,
+      mimeType: 'image/png',
+      encoding: 'base64',
+    })
+    const reply = sendCommand('fs:read-file', { path: 'C:/project/photo.png', requestId: 'legacy-image-1' })
+
+    expect(state.readFileForRemote).toHaveBeenCalledWith('C:/project/photo.png', ['C:/project'])
+    expect(reply).toHaveBeenCalledWith({
+      event: 'fs:file-content',
+      data: {
+        path: 'C:/project/photo.png',
+        content: 'encoded',
+        truncated: false,
+        mimeType: 'image/png',
+        encoding: 'base64',
+        requestId: 'legacy-image-1',
+      },
+    })
+  })
+
+  it('returns opaque Project Peek source identities without desktop paths', () => {
+    state.projectSources = [{
+      id: 'source-1', project_id: 'proj-1', label: 'Private workspace', kind: 'workspace-root',
+      local_path: 'C:/private/workspace', enabled: 1, is_primary: 1, created_at: 1, updated_at: 1,
+    }]
+
+    const reply = sendCommand('project-peek:get-sources', { projectId: 'proj-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'project-peek:sources',
+      data: { projectId: 'proj-1', sources: [{ id: 'source-1', projectId: 'proj-1', label: 'Private workspace', enabled: true, isPrimary: true }] },
+    })
+  })
+
   beforeEach(() => {
     state.replies.length = 0
     state.runs.length = 0
+    state.readFileForRemote.mockReset()
+    state.readImageFileForRemote.mockReset()
+    state.readImageFileForRemote.mockReturnValue({
+      path: 'C:/project/photo.png', content: 'encoded', truncated: false, mimeType: 'image/png', encoding: 'base64',
+    })
+    state.isRemoteImagePath.mockClear()
     state.abortActiveStream.mockClear()
     state.dispatchChatSend.mockClear()
     state.dispatchChatSend.mockResolvedValue(undefined)
@@ -248,6 +338,7 @@ describe('ws handlers', () => {
     state.broadcastToMobile.mockClear()
     state.approveConversationApprovals.mockClear()
     state.projectConfigJson = null
+    state.projectSources = []
     state.listProjectAuditSessions.mockReset()
     state.listProjectAuditSessions.mockReturnValue([])
     state.listProjectAuditFiles.mockReset()
