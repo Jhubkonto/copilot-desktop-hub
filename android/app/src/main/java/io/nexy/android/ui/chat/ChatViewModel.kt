@@ -15,6 +15,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -30,6 +31,16 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private const val ACTIVE_HISTORY_POLL_MS = 2_500L
+
+/**
+ * How long the app-bar content-sync indicator may claim this chat is still reconciling with the
+ * desktop without hearing anything back. `conversation:get-messages` is an event-only protocol
+ * with no retained completion state: if the reply is lost (half-open socket, a desktop that never
+ * answers, a response addressed to a superseded requestId) nothing else will ever clear the flag,
+ * and the indicator spins for the whole life of the screen. Every history event re-arms this, so a
+ * slow-but-progressing response is never cut short - only silence settles it.
+ */
+internal const val HISTORY_RECONCILE_TIMEOUT_MS = 15_000L
 private const val INITIAL_HISTORY_PAGE_SIZE = 20
 private const val OLDER_HISTORY_PAGE_SIZE = 60
 
@@ -252,13 +263,20 @@ class ChatViewModel(
     private val _isReconcilingHistory = MutableStateFlow(true)
     val isReconcilingHistory: StateFlow<Boolean> = _isReconcilingHistory
 
+    private var historyReconcileWatchdogJob: Job? = null
+
     private var historyLoaded = false
     private var latestHistoryVersion: String? = localData?.historyVersion(conversationId)
     private var pendingLatestHistoryRequestId: String? = null
     private var pendingOlderHistoryRequestId: String? = null
     private var chunkedHistoryMessages: List<HistoryMessage> = emptyList()
     private var chunkedHistoryIsOlder = false
-    private val chatOpenStartedAtMs = android.os.SystemClock.elapsedRealtime()
+    private var expectedHistoryChunkCount: Int? = null
+    private val receivedHistoryChunkIndices = mutableSetOf<Int>()
+    // System.nanoTime is monotonic on Android and is also implemented by the JVM test runtime.
+    // Calling android.os.SystemClock directly makes every ChatViewModel unit test fail because
+    // the local Android framework stub throws for elapsedRealtime().
+    private val chatOpenStartedAtMs = monotonicTimeMs()
     private var firstFrameReported = false
     private var richContentSettledReported = false
     private var oldestLoadedTimestamp: Long? = null
@@ -500,16 +518,10 @@ class ChatViewModel(
                 }
             }
         }
-        // Re-opening a chat creates a fresh ViewModel, but the latest page is already in Room
-        // from the previous visit. Hydrate that page first, then reconcile it with the desktop in
-        // the background. Keeping the refresh indicator hidden here avoids making a cached chat
-        // look as though it is loading from scratch every time the user returns to it.
-        if (localData != null) {
-            hydrateCachedHistoryThenRefresh()
-        } else {
-            refreshMessages()
-        }
-        viewModelScope.launch {
+        // Attach the collector before requesting initial history. The websocket event flow has no
+        // replay buffer, so a fast empty-history response must not be emitted before this screen
+        // starts listening.
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             wsClient.events.collect { event ->
                 when {
                     event is WsEvent.ConversationHistoryStart && event.conversationId == conversationId -> {
@@ -519,6 +531,19 @@ class ChatViewModel(
                         chunkedHistoryMessages = emptyList()
                         chunkedHistoryIsOlder =
                             event.requestId.isNotBlank() && event.requestId == pendingOlderHistoryRequestId
+                        expectedHistoryChunkCount = event.chunkCount
+                        receivedHistoryChunkIndices.clear()
+                        // An empty chunked response has no history-chunk event to carry the
+                        // completion state. The start event is authoritative in that case; do
+                        // not leave a new/empty conversation showing a permanent sync spinner
+                        // while waiting for a terminal event that an older desktop may omit.
+                        if (!chunkedHistoryIsOlder && event.chunkCount == 0 && event.totalItems == 0) {
+                            settleHistoryReconciliation()
+                        } else {
+                            // Chunks are on the way: the response is progressing, so give it a
+                            // fresh window rather than the one opened when the request was sent.
+                            armHistoryReconcileWatchdog()
+                        }
                         WsRepository.appendDebugLog(
                             "chat-open-timing",
                             "history-start conversationId=$conversationId total=${event.totalItems} " +
@@ -531,9 +556,7 @@ class ChatViewModel(
                         latestHistoryVersion?.let { localData?.saveHistoryVersion(conversationId, it) }
                         historyLoaded = true
                         pendingLatestHistoryRequestId = null
-                        _isInitialHistoryLoading.value = false
-                        _isRefreshing.value = false
-                        _isReconcilingHistory.value = false
+                        settleHistoryReconciliation()
                         WsRepository.appendDebugLog(
                             "chat-open-timing",
                             "not-modified conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
@@ -549,12 +572,13 @@ class ChatViewModel(
                         oldestLoadedId = event.nextBeforeId ?: oldestLoadedId
                         hasOlderMessages = event.hasMore
                         _isLoadingOlder.value = false
-                        _isRefreshing.value = false
-                        _isReconcilingHistory.value = false
+                        settleHistoryReconciliation()
                         pendingLatestHistoryRequestId = null
                         pendingOlderHistoryRequestId = null
                         chunkedHistoryMessages = emptyList()
                         chunkedHistoryIsOlder = false
+                        expectedHistoryChunkCount = null
+                        receivedHistoryChunkIndices.clear()
                         WsRepository.appendDebugLog(
                             "chat-open-timing",
                             "history-complete conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
@@ -570,6 +594,11 @@ class ChatViewModel(
                         // also parses attachment and rich-message metadata, so keep that CPU
                         // work off Compose's main thread and only publish the finished list.
                         val wireMessages = if (event.chunkIndex != null) {
+                            // Progress heartbeat: a response that is still streaming chunks keeps
+                            // the reconciliation window open.
+                            armHistoryReconcileWatchdog()
+                            receivedHistoryChunkIndices += event.chunkIndex
+                            if (event.chunkCount != null) expectedHistoryChunkCount = event.chunkCount
                             chunkedHistoryMessages =
                                 if (event.chunkIndex == 0) event.messages else event.messages + chunkedHistoryMessages
                             chunkedHistoryMessages
@@ -588,7 +617,16 @@ class ChatViewModel(
                                 (chunkedHistoryIsOlder || _isLoadingOlder.value) &&
                                 oldestLoadedTimestamp != null
                         if (!isOlderHistoryPage && event.chunkIndex == null) {
-                            _isReconcilingHistory.value = false
+                            settleHistoryReconciliation(clearRefreshing = false)
+                        }
+                        if (!isOlderHistoryPage && event.chunkIndex != null &&
+                            expectedHistoryChunkCount != null &&
+                            receivedHistoryChunkIndices.size >= expectedHistoryChunkCount!!
+                        ) {
+                            // The terminal event is normally sent immediately after the final
+                            // chunk. Treat receipt of every advertised chunk as sufficient as a
+                            // defensive fallback for transports that drop that final event.
+                            settleHistoryReconciliation()
                         }
                         if (isOlderHistoryPage) {
                             // Cursor pages are strictly older than the visible history, so do
@@ -1113,6 +1151,15 @@ class ChatViewModel(
                 }
             }
         }
+        // Re-opening a chat creates a fresh ViewModel, but the latest page is already in Room
+        // from the previous visit. Hydrate that page first, then reconcile it with the desktop in
+        // the background. Keeping the refresh indicator hidden here avoids making a cached chat
+        // look as though it is loading from scratch every time the user returns to it.
+        if (localData != null) {
+            hydrateCachedHistoryThenRefresh()
+        } else {
+            refreshMessages()
+        }
     }
 
     fun addAttachment(name: String, mimeType: String, dataUrl: String?, textContent: String?) {
@@ -1530,9 +1577,46 @@ class ChatViewModel(
         activeHistoryPollJob = null
     }
 
+    /**
+     * Opens (or re-opens) the bounded window in which this screen is allowed to report itself as
+     * reconciling. See [HISTORY_RECONCILE_TIMEOUT_MS]: the indicator is a claim about work in
+     * flight, so it must expire on its own if the desktop never answers.
+     */
+    private fun armHistoryReconcileWatchdog() {
+        historyReconcileWatchdogJob?.cancel()
+        historyReconcileWatchdogJob = viewModelScope.launch {
+            delay(HISTORY_RECONCILE_TIMEOUT_MS)
+            if (_isReconcilingHistory.value || _isRefreshing.value || _isInitialHistoryLoading.value) {
+                WsRepository.appendDebugLog(
+                    "chat-open-timing",
+                    "history-reconcile-timeout conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
+                )
+            }
+            settleHistoryReconciliation()
+        }
+    }
+
+    /**
+     * The single place this screen stops claiming to be syncing. Cancels the watchdog so a later
+     * deadline cannot re-clear (or contradict) state that has already settled.
+     *
+     * @param clearRefreshing false for call sites that run before `shouldApplyHistory`, which reads
+     *   `_isRefreshing` to decide whether an incoming page supersedes the visible one.
+     */
+    private fun settleHistoryReconciliation(clearRefreshing: Boolean = true) {
+        historyReconcileWatchdogJob?.cancel()
+        historyReconcileWatchdogJob = null
+        _isReconcilingHistory.value = false
+        _isInitialHistoryLoading.value = false
+        if (clearRefreshing) _isRefreshing.value = false
+    }
+
     private fun requestLatestHistory() {
         val requestId = UUID.randomUUID().toString()
         pendingLatestHistoryRequestId = requestId
+        expectedHistoryChunkCount = null
+        receivedHistoryChunkIndices.clear()
+        armHistoryReconcileWatchdog()
         WsRepository.appendDebugLog(
             "chat-open-timing",
             "history-requested conversationId=$conversationId elapsedMs=${chatOpenElapsedMs()}",
@@ -1615,6 +1699,8 @@ class ChatViewModel(
     }
 
     private fun chatOpenElapsedMs(): Long =
-        (android.os.SystemClock.elapsedRealtime() - chatOpenStartedAtMs).coerceAtLeast(0L)
+        (monotonicTimeMs() - chatOpenStartedAtMs).coerceAtLeast(0L)
+
+    private fun monotonicTimeMs(): Long = System.nanoTime() / 1_000_000L
 
 }

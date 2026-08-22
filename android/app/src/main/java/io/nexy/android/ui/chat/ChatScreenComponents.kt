@@ -408,7 +408,7 @@ fun ChatLoadingSkeleton() {
         )
         ChatSkeletonRows(
             shape = RoundedCornerShape(2.dp),
-            decoration = Modifier
+            modifier = Modifier
                 .graphicsLayer(alpha = pulseAlpha)
                 .nexyDither(
                     background = MaterialTheme.colorScheme.surfaceVariant,
@@ -430,7 +430,7 @@ fun ChatLoadingSkeleton() {
     )
     ChatSkeletonRows(
         shape = RoundedCornerShape(8.dp),
-        decoration = Modifier.background(
+        modifier = Modifier.background(
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.25f),
         ),
     )
@@ -439,7 +439,7 @@ fun ChatLoadingSkeleton() {
 @Composable
 private fun ChatSkeletonRows(
     shape: RoundedCornerShape,
-    decoration: Modifier,
+    modifier: Modifier,
 ) {
     Column(
         modifier = Modifier
@@ -455,7 +455,7 @@ private fun ChatSkeletonRows(
                         .fillMaxWidth(row.widthFraction)
                         .height(16.dp)
                         .clip(shape)
-                        .then(decoration),
+                        .then(modifier),
                 )
             }
         }
