@@ -87,6 +87,29 @@ private const val STANDALONE_SYNC_HYDRATION_MODE = "shell"
 private const val PREFETCH_CONVERSATION_COUNT = 5
 private const val PREFETCH_MESSAGE_LIMIT = 5
 
+/**
+ * How long the app-wide sync signal may stay true without any observable progress before it is
+ * treated as stalled and cleared.
+ *
+ * `syncInProgress` drives the animated content-sync indicator, and standalone sync is an
+ * event-only protocol: `sync:hello` / `sync:push` set it true and only a matching desktop reply
+ * ever sets it false. A reply that never arrives (half-open socket, a desktop that dies mid-batch,
+ * a snapshot apply that is cancelled) therefore used to pin the indicator on forever. Progress
+ * (a changed SyncProgress) re-arms the window, so a genuinely slow snapshot is never cut short.
+ */
+private const val SYNC_STALL_TIMEOUT_MS = 30_000L
+
+/**
+ * How long a `sync:push` may wait for its `sync:ack` before the outbox is considered drainable
+ * again. Without this, a push whose reply is lost (half-open socket, desktop killed mid-batch)
+ * would leave `pushInFlight` true forever and permanently suppress auto-draining — trading one
+ * stuck-queue bug for another.
+ */
+private const val SYNC_PUSH_ACK_TIMEOUT_MS = 30_000L
+
+/** Debounce for outbox-driven pushes, so a burst of enqueues in one turn becomes one batch. */
+private const val OUTBOX_DRAIN_DEBOUNCE_MS = 250L
+
 data class SyncProgress(
     val phase: SyncProgressPhase = SyncProgressPhase.COMPLETE,
     val completed: Int = 0,
@@ -253,6 +276,9 @@ object WsRepository : WsClient {
     // convention exists in this codebase — this mirrors the pendingHighlight* pattern above).
     val pendingSelectedDirectory = MutableStateFlow<String?>(null)
     val pendingSelectedAttachmentPath = MutableStateFlow<String?>(null)
+    // Set after the add-source acknowledgment. The settings screen consumes this so it reloads
+    // the authoritative hierarchy even if the picker covered the settings destination.
+    val pendingProjectSourceRefresh = MutableStateFlow<String?>(null)
 
     // Emits requestIds resolved via notification (approve or reject) so HomeViewModel
     // can clear the in-app approval dialog immediately, before the tool finishes.
@@ -395,6 +421,113 @@ object WsRepository : WsClient {
     val syncOutbox: StateFlow<List<OutboxEntity>> = _syncOutbox
     private val _syncInProgress = MutableStateFlow(false)
     val syncInProgress: StateFlow<Boolean> = _syncInProgress
+    private var syncWatchdogJob: Job? = null
+
+    /**
+     * True between sending a `sync:push` and settling its reply. Guards against pushing the same
+     * batch twice when several operations are enqueued while one push is already awaiting its ack.
+     */
+    private var pushInFlight = false
+    private var pushAckTimeoutJob: Job? = null
+    private var outboxDrainJob: Job? = null
+    private var outboxRetryJob: Job? = null
+
+    /** Latest drain decision, exposed so the sync-status sheet can name why a queue is waiting. */
+    private val _outboxDrainDecision = MutableStateFlow(OutboxDrainDecision.NOTHING_QUEUED)
+    val outboxDrainDecision: StateFlow<OutboxDrainDecision> = _outboxDrainDecision
+
+    private fun markPushInFlight() {
+        pushInFlight = true
+        pushAckTimeoutJob?.cancel()
+        pushAckTimeoutJob = scope.launch {
+            delay(SYNC_PUSH_ACK_TIMEOUT_MS)
+            if (!pushInFlight) return@launch
+            appendDebugLog("sync-timing", "push-ack-timeout")
+            settlePushInFlight()
+            scheduleOutboxDrain()
+        }
+    }
+
+    private fun settlePushInFlight() {
+        pushInFlight = false
+        pushAckTimeoutJob?.cancel()
+        pushAckTimeoutJob = null
+    }
+
+    /**
+     * Re-evaluates the outbox after anything that could change its drainability (a new operation,
+     * an ack, a reconnect) and pushes when it can.
+     *
+     * This is the fix for a change that stays "Waiting to sync" forever on a healthy connection:
+     * draining previously required one of a handful of call sites to remember to flush, and the
+     * paths that write messages were not among them.
+     */
+    private fun scheduleOutboxDrain() {
+        outboxDrainJob?.cancel()
+        outboxDrainJob = scope.launch {
+            delay(OUTBOX_DRAIN_DEBOUNCE_MS)
+            drainOutboxNow()
+        }
+    }
+
+    private suspend fun drainOutboxNow() {
+        val queue = _syncOutbox.value
+        val now = System.currentTimeMillis()
+        val decision = resolveOutboxDrain(
+            connected = _connectionState.value == ConnectionState.CONNECTED,
+            pushInFlight = pushInFlight,
+            outbox = queue,
+            now = now,
+        )
+        _outboxDrainDecision.value = decision
+        // A backed-off operation is the only case nothing else will ever wake: the desktop sends
+        // nothing and the user does nothing. Arm the retry explicitly rather than hoping an
+        // unrelated event fires after the window elapses.
+        outboxRetryJob?.cancel()
+        outboxRetryJob = null
+        if (decision == OutboxDrainDecision.WAITING_FOR_BACKOFF) {
+            val delayMs = nextOutboxRetryDelayMs(queue, now) ?: return
+            outboxRetryJob = scope.launch {
+                delay(delayMs)
+                drainOutboxNow()
+            }
+            return
+        }
+        if (decision != OutboxDrainDecision.PUSH) return
+        flushStandaloneOutbox()
+    }
+
+    /**
+     * Single entry point for the app-wide sync signal. Starting a sync also starts a stall
+     * watchdog (see [SYNC_STALL_TIMEOUT_MS]) so the indicator can never outlive the work it
+     * claims to represent; settling it cancels the watchdog.
+     */
+    private fun setSyncInProgress(active: Boolean) {
+        syncWatchdogJob?.cancel()
+        syncWatchdogJob = null
+        _syncInProgress.value = active
+        if (!active) return
+        syncWatchdogJob = scope.launch {
+            var lastObservedProgress = _syncProgress.value
+            while (true) {
+                delay(SYNC_STALL_TIMEOUT_MS)
+                if (!_syncInProgress.value) return@launch
+                val current = _syncProgress.value
+                if (current != lastObservedProgress) {
+                    lastObservedProgress = current
+                    continue
+                }
+                appendDebugLog(
+                    "sync-timing",
+                    "sync-stalled phase=${current.phase} completed=${current.completed} total=${current.total}",
+                )
+                _syncInProgress.value = false
+                _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
+                return@launch
+            }
+        }
+    }
+
     private val _syncProgress = MutableStateFlow(SyncProgress())
     val syncProgress: StateFlow<SyncProgress> = _syncProgress
 
@@ -950,6 +1083,7 @@ object WsRepository : WsClient {
                         }
                     }
                     is WsEvent.SyncAck -> {
+                        settlePushInFlight()
                         scope.launch {
                             try {
                                 localData?.acknowledge(event.operationIds)
@@ -982,6 +1116,7 @@ object WsRepository : WsClient {
                         }
                     }
                     is WsEvent.SyncError -> {
+                        settlePushInFlight()
                         // Desktop builds from before the foreground probe was introduced answer
                         // with unknown-command. Reconnect through the legacy path without
                         // misclassifying queued user edits as failed synchronization operations.
@@ -995,7 +1130,7 @@ object WsRepository : WsClient {
                             appendDebugLog("sync-timing", "protocol-v2-unsupported fallback=v1")
                             beginStandaloneSync(protocolVersion = 1)
                         } else {
-                            _syncInProgress.value = false
+                            setSyncInProgress(false)
                             _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
                             _lastError.value = event.message
                             scope.launch {
@@ -1174,10 +1309,19 @@ object WsRepository : WsClient {
             scope.launch { local.promptEntries.collect { _promptEntries.value = it } }
             scope.launch { local.capabilities.collect { _capabilities.value = it } }
             scope.launch { local.conflicts.collect { _syncConflicts.value = it } }
-            scope.launch { local.outbox.collect { _syncOutbox.value = it } }
+            scope.launch {
+                local.outbox.collect {
+                    _syncOutbox.value = it
+                    // Queued work drains itself. Every enqueue site used to have to remember to
+                    // flush, and the message-write paths did not.
+                    scheduleOutboxDrain()
+                }
+            }
             scope.launch {
                 _connectionState.collect { state ->
                     local.setDesktopConnected(state == ConnectionState.CONNECTED)
+                    if (state != ConnectionState.CONNECTED) settlePushInFlight()
+                    scheduleOutboxDrain()
                 }
             }
         }
@@ -1600,12 +1744,12 @@ object WsRepository : WsClient {
         val token = currentToken ?: return
         val datasetId = syncDatasetId(token)
         if (!local.bindDataset(datasetId)) {
-            _syncInProgress.value = false
+            setSyncInProgress(false)
             _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
             _lastError.value = "This Android dataset belongs to a different paired desktop. Restore or clear local data before switching datasets."
             return
         }
-        _syncInProgress.value = true
+        setSyncInProgress(true)
         negotiatedSyncProtocolVersion = protocolVersion
         _syncProgress.value = SyncProgress(SyncProgressPhase.RECEIVING)
         syncStartedAtMs = android.os.SystemClock.elapsedRealtime()
@@ -1638,12 +1782,22 @@ object WsRepository : WsClient {
     }
 
     private suspend fun flushStandaloneOutbox() {
-        if (_connectionState.value != ConnectionState.CONNECTED) return
+        // Nothing can be pushed from here. Returning while the signal is still true is what left
+        // the indicator animating with no transfer behind it (queued changes remain visible as
+        // ContentSyncState.PENDING, which is the honest state for work that cannot drain yet).
+        if (_connectionState.value != ConnectionState.CONNECTED ||
+            localData == null ||
+            currentToken == null
+        ) {
+            setSyncInProgress(false)
+            _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
+            return
+        }
         val local = localData ?: return
         val token = currentToken ?: return
         val operations = local.pendingBatch(100)
         if (operations.isEmpty()) {
-            _syncInProgress.value = false
+            setSyncInProgress(false)
             _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
             if (syncStartedAtMs > 0L) {
                 appendDebugLog("sync-timing", "sync-settled elapsedMs=${elapsedSince(syncStartedAtMs)}")
@@ -1651,7 +1805,8 @@ object WsRepository : WsClient {
             }
             return
         }
-        _syncInProgress.value = true
+        setSyncInProgress(true)
+        markPushInFlight()
         _syncProgress.value = SyncProgress(
             phase = SyncProgressPhase.UPLOADING,
             completed = 0,
@@ -1744,7 +1899,7 @@ object WsRepository : WsClient {
     }
 
     private fun reportSyncFailure(stage: String, error: Exception) {
-        _syncInProgress.value = false
+        setSyncInProgress(false)
         _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
         val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
         _lastError.value = "Android sync failed during $stage: $detail"
@@ -1897,7 +2052,7 @@ object WsRepository : WsClient {
         ws?.close(1000, "User disconnected")
         ws = null
         _connectionState.value = ConnectionState.DISCONNECTED
-        _syncInProgress.value = false
+        setSyncInProgress(false)
         _syncProgress.value = SyncProgress(SyncProgressPhase.COMPLETE)
         _models.value = STANDALONE_MODELS
         _modelSource.value = ModelListSource(type = "standalone", label = "On-device catalog")
@@ -2884,11 +3039,26 @@ object WsRepository : WsClient {
 
     fun listDirectory(path: String) { send("fs:list-directory", mapOf("path" to path)) }
     fun readFile(path: String, requestId: String) { send("fs:read-file", mapOf("path" to path, "requestId" to requestId)) }
+    fun readImageFile(path: String, requestId: String) { send("fs:read-image", mapOf("path" to path, "requestId" to requestId)) }
     fun getFsStartRoots() { send("fs:get-start-roots", emptyMap()) }
+    fun getProjectPeekSources(projectId: String) { send("project-peek:get-sources", mapOf("projectId" to projectId)) }
+    fun listProjectPeekDirectory(projectId: String, sourceId: String, relativePath: String, filter: String) {
+        send("project-peek:list-directory", mapOf(
+            "projectId" to projectId, "sourceId" to sourceId, "relativePath" to relativePath, "filter" to filter,
+        ))
+    }
+    fun readProjectPeekFile(projectId: String, sourceId: String, relativePath: String, requestId: String) {
+        send("project-peek:read-file", mapOf(
+            "projectId" to projectId, "sourceId" to sourceId, "relativePath" to relativePath, "requestId" to requestId,
+        ))
+    }
 
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
     fun updateProjectConfig(id: String, config: ProjectSettingsConfig) {
         send("project:update-config", buildProjectConfigPayload(id, config))
+    }
+    fun addProjectSource(id: String, localPath: String) {
+        send("project:add-source", mapOf("id" to id, "localPath" to localPath))
     }
     fun rescanProjectSources(id: String) { send("project:rescan-sources", mapOf("id" to id)) }
     fun removeProjectRepository(id: String, repositoryId: String) {

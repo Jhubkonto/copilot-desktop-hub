@@ -11,6 +11,23 @@ data class FsEntry(
     val isDirectory: Boolean,
 )
 
+/** A Project Peek source is an opaque desktop-owned source identity; it never includes a path. */
+data class ProjectPeekSource(
+    val id: String,
+    val label: String,
+    val isPrimary: Boolean,
+)
+
+data class ProjectPeekEntry(
+    val name: String,
+    val relativePath: String,
+    val isDirectory: Boolean,
+    val category: String,
+    val sizeBytes: Long,
+    val modifiedAt: Long,
+    val gitState: String,
+)
+
 data class VoiceCapabilitiesWire(
     val protocolVersion: Int = 0,
     val audioUpload: Boolean = false,
@@ -372,7 +389,12 @@ sealed class WsEvent {
     data class ProjectGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class ProjectGeneratorCancelled(val sessionId: String?) : WsEvent()
     data class ProjectConfigUpdated(val id: String) : WsEvent()
-    data class ProjectConfigChanged(val id: String) : WsEvent()
+    data class ProjectConfigChanged(
+        val id: String,
+        // Newer desktops include the authoritative config in this broadcast. Nullable keeps
+        // older desktop versions compatible; Android can fall back to project:get-config.
+        val config: ProjectSettingsConfig? = null,
+    ) : WsEvent()
     data class ProjectConfig(val id: String, val config: ProjectSettingsConfig) : WsEvent()
     data class ProjectSourcesUpdated(val id: String, val action: String, val config: ProjectSettingsConfig) : WsEvent()
     data class ProjectSourcesError(val id: String, val action: String, val message: String) : WsEvent()
@@ -540,6 +562,29 @@ sealed class WsEvent {
         val content: String,
         val truncated: Boolean,
         val error: String?,
+        val mimeType: String = "text/markdown",
+        val encoding: String = "utf8",
+    ) : WsEvent()
+    data class ProjectPeekSources(val projectId: String, val sources: List<ProjectPeekSource>) : WsEvent()
+    data class ProjectPeekDirectory(
+        val projectId: String,
+        val sourceId: String,
+        val relativePath: String,
+        val filter: String,
+        val entries: List<ProjectPeekEntry>,
+        val truncated: Boolean,
+        val error: String?,
+    ) : WsEvent()
+    data class ProjectPeekFileContent(
+        val projectId: String,
+        val sourceId: String,
+        val relativePath: String,
+        val requestId: String?,
+        val content: String,
+        val truncated: Boolean,
+        val error: String?,
+        val mimeType: String?,
+        val encoding: String?,
     ) : WsEvent()
 }
 
