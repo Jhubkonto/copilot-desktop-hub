@@ -1803,16 +1803,23 @@ fun parseWsEvent(
 
             "project:config-changed" -> {
                 val id = data?.optString("id") ?: ""
-                data?.optJSONObject("config")?.let { config ->
-                    val defaultModel = config.nullableString("defaultModel")
-                    val defaultThinkingEffort = config.nullableString("defaultThinkingEffort")?.takeIf {
-                        it in setOf("low", "medium", "high", "max", "disabled")
-                    }
+                // A few older desktop handlers broadcast a settings-only config object. Do not
+                // turn its absent hierarchy into empty lists: that would erase Android's visible
+                // source cards. Only expose a config when both hierarchy arrays are present.
+                val configObject = data?.optJSONObject("config")
+                val defaultModel = configObject?.nullableString("defaultModel")
+                val defaultThinkingEffort = configObject?.nullableString("defaultThinkingEffort")?.takeIf {
+                    it in setOf("low", "medium", "high", "max", "disabled")
+                }
+                val config = configObject
+                    ?.takeIf { it.has("sources") && it.has("repositories") }
+                    ?.let(::parseProjectSettingsConfig)
+                if (configObject != null) {
                     projects.value = projects.value.map { project ->
                         if (project.id == id) project.copy(defaultModel = defaultModel, defaultThinkingEffort = defaultThinkingEffort) else project
                     }
                 }
-                WsEvent.ProjectConfigChanged(id = id)
+                WsEvent.ProjectConfigChanged(id = id, config = config)
             }
 
             "project:config" -> {
@@ -2710,6 +2717,59 @@ fun parseWsEvent(
                 content = data?.optString("content") ?: "",
                 truncated = data?.optBoolean("truncated", false) ?: false,
                 error = data?.nullableString("error"),
+                mimeType = data?.optString("mimeType", "text/markdown") ?: "text/markdown",
+                encoding = data?.optString("encoding", "utf8") ?: "utf8",
+            )
+
+            "project-peek:sources" -> {
+                val sources = data?.optJSONArray("sources") ?: JSONArray()
+                WsEvent.ProjectPeekSources(
+                    projectId = data?.optString("projectId").orEmpty(),
+                    sources = (0 until sources.length()).map { index ->
+                        val source = sources.getJSONObject(index)
+                        io.nexy.android.data.model.ProjectPeekSource(
+                            id = source.optString("id"),
+                            label = source.optString("label"),
+                            isPrimary = source.optBoolean("isPrimary", false),
+                        )
+                    },
+                )
+            }
+
+            "project-peek:directory" -> {
+                val entries = data?.optJSONArray("entries") ?: JSONArray()
+                WsEvent.ProjectPeekDirectory(
+                    projectId = data?.optString("projectId").orEmpty(),
+                    sourceId = data?.optString("sourceId").orEmpty(),
+                    relativePath = data?.optString("relativePath").orEmpty(),
+                    filter = data?.optString("filter", "all") ?: "all",
+                    entries = (0 until entries.length()).map { index ->
+                        val entry = entries.getJSONObject(index)
+                        io.nexy.android.data.model.ProjectPeekEntry(
+                            name = entry.optString("name"),
+                            relativePath = entry.optString("relativePath"),
+                            isDirectory = entry.optString("type") == "dir",
+                            category = entry.optString("category"),
+                            sizeBytes = entry.optLong("sizeBytes", 0L),
+                            modifiedAt = entry.optLong("modifiedAt", 0L),
+                            gitState = entry.optString("gitState", "unknown"),
+                        )
+                    },
+                    truncated = data?.optBoolean("truncated", false) ?: false,
+                    error = data?.nullableString("error"),
+                )
+            }
+
+            "project-peek:file-content" -> WsEvent.ProjectPeekFileContent(
+                projectId = data?.optString("projectId").orEmpty(),
+                sourceId = data?.optString("sourceId").orEmpty(),
+                relativePath = data?.optString("relativePath").orEmpty(),
+                requestId = data?.nullableString("requestId"),
+                content = data?.optString("content").orEmpty(),
+                truncated = data?.optBoolean("truncated", false) ?: false,
+                error = data?.nullableString("error"),
+                mimeType = data?.nullableString("mimeType"),
+                encoding = data?.nullableString("encoding"),
             )
 
             else -> return
