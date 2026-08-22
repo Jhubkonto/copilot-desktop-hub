@@ -66,6 +66,12 @@ export interface CapabilityPreflightItem {
 export interface CapabilityPreflight {
   conversationId: string
   profile: ConversationCapabilityProfile
+  /** The persisted profile at each editable scope, before inheritance is merged. */
+  scopeProfiles: {
+    chat: ConversationCapabilityProfile
+    project: ConversationCapabilityProfile | null
+    agent: ConversationCapabilityProfile | null
+  }
   items: CapabilityPreflightItem[]
   ready: boolean
   desktopOnly: boolean
