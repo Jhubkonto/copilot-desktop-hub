@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronDown, CircleAlert, Loader2, Search, ShieldCheck, X } from 'lucide-react'
-import type { CapabilityPreflight, CapabilityTrust, McpServerWithStatus, SkillConfig } from '../../shared/types'
+import type { CapabilityPreflight, CapabilityScope, CapabilityTrust, ConversationCapabilityProfile, McpServerWithStatus, SkillConfig } from '../../shared/types'
 import { DropdownPanel } from './DropdownPanel'
 
 type Props = {
@@ -37,23 +37,30 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
   const [skillSearch, setSkillSearch] = useState('')
   const activeConversationId = conversationId ?? pendingConversationId
 
+  const applyProfile = useCallback((profile: ConversationCapabilityProfile | null | undefined) => {
+    if (!profile) return
+    setSelectedSkillIds(profile.skillIds)
+    setSelectedMcp(profile.mcp)
+  }, [])
+
   const refresh = useCallback(async () => {
     if (!activeConversationId) return
     setError(null)
     try {
-      const [profile, nextPreflight, nextServers] = await Promise.all([
-        window.api.getConversationCapabilities(activeConversationId),
+      const [nextPreflight, nextServers] = await Promise.all([
         window.api.resolveCapabilities(activeConversationId, modelId),
         window.api.listMcpServers(),
       ])
-      setSelectedSkillIds(profile.skillIds)
-      setSelectedMcp(profile.mcp)
+      // The effective profile is what execution uses, but the controls edit one persisted
+      // scope at a time. Rehydrate from that scope so an inherited stricter policy does not
+      // make a saved value appear to have been reset.
+      applyProfile(nextPreflight.scopeProfiles?.[scope] ?? nextPreflight.profile)
       setPreflight(nextPreflight)
       setServers(nextServers)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load capabilities')
     }
-  }, [activeConversationId, modelId])
+  }, [activeConversationId, applyProfile, modelId, scope])
 
   useEffect(() => {
     if (open) void refresh()
@@ -80,6 +87,15 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
     setSelectedMcp((current) => current.some((entry) => entry.serverId === serverId)
       ? current.filter((entry) => entry.serverId !== serverId)
       : [...current, { serverId, trust: 'always-ask' }])
+  }
+
+  const setServerTrust = (serverId: string, trust: CapabilityTrust) => {
+    setSelectedMcp((current) => current.map((entry) => entry.serverId === serverId ? { ...entry, trust } : entry))
+  }
+
+  const changeScope = (nextScope: CapabilityScope) => {
+    setScope(nextScope)
+    applyProfile(preflight?.scopeProfiles?.[nextScope] ?? (nextScope === 'chat' ? preflight?.profile : null))
   }
 
   const save = async () => {
@@ -162,15 +178,15 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Use this setup</div>
               <div className="space-y-1">
                 <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <input type="radio" name="capability-scope" checked={scope === 'chat'} onChange={() => setScope('chat')} className="mt-0.5 accent-blue-600" />
+                  <input type="radio" name="capability-scope" checked={scope === 'chat'} onChange={() => changeScope('chat')} className="mt-0.5 accent-blue-600" />
                   <span><span className="block text-xs font-medium text-gray-700 dark:text-gray-200">This chat <span className="font-normal text-blue-600">(recommended)</span></span><span className="block text-[11px] text-gray-500 dark:text-gray-400">One-off use; no agent changes.</span></span>
                 </label>
                 {projectId && <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <input type="radio" name="capability-scope" checked={scope === 'project'} onChange={() => setScope('project')} className="mt-0.5 accent-blue-600" />
+                  <input type="radio" name="capability-scope" checked={scope === 'project'} onChange={() => changeScope('project')} className="mt-0.5 accent-blue-600" />
                   <span><span className="block text-xs font-medium text-gray-700 dark:text-gray-200">This project{projectName ? ` · ${projectName}` : ''}</span><span className="block text-[11px] text-gray-500 dark:text-gray-400">Available to future chats in this project.</span></span>
                 </label>}
                 {agentId && <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <input type="radio" name="capability-scope" checked={scope === 'agent'} onChange={() => setScope('agent')} className="mt-0.5 accent-blue-600" />
+                  <input type="radio" name="capability-scope" checked={scope === 'agent'} onChange={() => changeScope('agent')} className="mt-0.5 accent-blue-600" />
                   <span><span className="block text-xs font-medium text-gray-700 dark:text-gray-200">This agent{agentName ? ` · ${agentName}` : ''}</span><span className="block text-[11px] text-gray-500 dark:text-gray-400">Reusable defaults for chats using this agent.</span></span>
                 </label>}
               </div>
@@ -215,17 +231,36 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">MCP tools</div>
               {servers.length === 0 ? (
                 <div className="flex items-center justify-between gap-2"><p className="text-xs text-gray-500 dark:text-gray-400">No MCP servers configured yet.</p>{onOpenMcp && <button type="button" onClick={openMcpSetup} className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline">Open MCP setup</button>}</div>
-              ) : <div className="max-h-40 overflow-y-auto overscroll-contain pr-1">{servers.map((server) => (
-                <label key={server.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <input type="checkbox" checked={selectedServerIds.has(server.id)} onChange={() => toggleServer(server.id)} className="accent-blue-600" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium text-gray-700 dark:text-gray-200">{server.name}</span>
-                    <span className="block text-[11px] text-gray-500 dark:text-gray-400">{server.status} · {server.toolCount} tools</span>
-                  </span>
-                  {server.status === 'connected' && <Check className="h-3.5 w-3.5 text-emerald-500" />}
-                </label>
-              ))}</div>}
-              {selectedMcp.length > 0 && <p className="mt-1 px-2 text-[11px] text-amber-600 dark:text-amber-300">New MCP access asks before each use.</p>}
+              ) : <div className="max-h-40 overflow-y-auto overscroll-contain pr-1">{servers.map((server) => {
+                const entry = selectedMcp.find((e) => e.serverId === server.id)
+                return (
+                  <div key={server.id} className="rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input type="checkbox" checked={selectedServerIds.has(server.id)} onChange={() => toggleServer(server.id)} className="accent-blue-600" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-medium text-gray-700 dark:text-gray-200">{server.name}</span>
+                        <span className="block text-[11px] text-gray-500 dark:text-gray-400">{server.status} · {server.toolCount} tools</span>
+                      </span>
+                      {server.status === 'connected' && <Check className="h-3.5 w-3.5 text-emerald-500" />}
+                    </label>
+                    {entry && (
+                      <div className="mt-1 flex items-center gap-1.5 pl-6">
+                        <span className="text-[10px] text-gray-400">Approval:</span>
+                        <select
+                          value={entry.trust}
+                          onChange={(event) => setServerTrust(server.id, event.target.value as CapabilityTrust)}
+                          className="rounded border border-gray-200 bg-white px-1 py-0.5 text-[10px] text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                        >
+                          <option value="always-ask">Ask every time</option>
+                          <option value="auto">Auto — no prompt (needed for CLI/agent turns)</option>
+                          <option value="block">Blocked</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}</div>}
+              {selectedMcp.some((entry) => entry.trust === 'always-ask') && <p className="mt-1 px-2 text-[11px] text-amber-600 dark:text-amber-300">"Ask every time" servers can't be approved during a headless/CLI turn — set to Auto if the agent needs them without a human present.</p>}
               {onOpenMcp && servers.length > 0 && <button type="button" onClick={openMcpSetup} className="mt-1 px-2 text-[11px] font-medium text-blue-600 hover:underline">Manage or add MCP capabilities</button>}
             </section>
 
