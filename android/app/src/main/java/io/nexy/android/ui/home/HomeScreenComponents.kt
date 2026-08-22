@@ -419,7 +419,7 @@ fun ConversationListSkeleton(rows: Int = 6) {
         HistorySkeletonRows(
             rows = rows,
             shape = RoundedCornerShape(2.dp),
-            decoration = Modifier
+            modifier = Modifier
                 .graphicsLayer(alpha = pulseAlpha)
                 .nexyDither(
                     background = MaterialTheme.colorScheme.surfaceVariant,
@@ -442,7 +442,7 @@ fun ConversationListSkeleton(rows: Int = 6) {
     HistorySkeletonRows(
         rows = rows,
         shape = RoundedCornerShape(8.dp),
-        decoration = Modifier.background(
+        modifier = Modifier.background(
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = pulseAlpha * 0.25f),
         ),
     )
@@ -452,7 +452,7 @@ fun ConversationListSkeleton(rows: Int = 6) {
 private fun HistorySkeletonRows(
     rows: Int,
     shape: RoundedCornerShape,
-    decoration: Modifier,
+    modifier: Modifier,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         repeat(rows) { index ->
@@ -469,14 +469,14 @@ private fun HistorySkeletonRows(
                             .fillMaxWidth(if (index % 2 == 0) 0.55f else 0.4f)
                             .height(14.dp)
                             .clip(shape)
-                            .then(decoration),
+                            .then(modifier),
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.85f)
                             .height(12.dp)
                             .clip(shape)
-                            .then(decoration),
+                            .then(modifier),
                     )
                 }
             }

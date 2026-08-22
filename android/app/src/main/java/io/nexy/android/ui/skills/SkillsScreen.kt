@@ -61,8 +61,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -773,7 +774,9 @@ private fun SkillDetailScreen(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMoreActions by remember { mutableStateOf(false) }
-    val isCompactWidth = LocalConfiguration.current.screenWidthDp < 600
+    val isCompactWidth = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width < 600.dp.toPx()
+    }
 
     // Mirrors the TopAppBar's `onBack = if (isEditing) onCancelEdit else onBack` below — without
     // this, system/gesture back skips straight out of the detail screen (or out of edit mode

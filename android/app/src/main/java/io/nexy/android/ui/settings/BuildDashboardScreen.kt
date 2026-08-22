@@ -442,7 +442,7 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
                                 }
                             }
                             // Only show the shared log stream here when a desktop build owns it.
-                            if (!activeBuildIsAndroid) BuildLogPanel(buildStatus, buildLogLines, logListState)
+                            if (!activeBuildIsAndroid) BuildLogPanel(buildStatus, buildLogLines, logListState, lastBuildError)
                             updateRestartingEvent?.let { evt ->
                                 Box(
                                     modifier = Modifier
@@ -578,7 +578,7 @@ fun BuildDashboardScreen(onBack: () -> Unit, initialTab: String? = null) {
                                 }
                             }
                             // Only show the shared log stream here when an Android build owns it.
-                            if (activeBuildIsAndroid) BuildLogPanel(buildStatus, buildLogLines, logListState)
+                            if (activeBuildIsAndroid) BuildLogPanel(buildStatus, buildLogLines, logListState, lastBuildError)
                         }
                         Spacer(Modifier.height(16.dp))
                     }
@@ -680,7 +680,12 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 
 /** Shared build status line + scrolling log output, reused by the desktop and Android build triggers. */
 @Composable
-private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, logListState: LazyListState) {
+private fun BuildLogPanel(
+    buildStatus: String?,
+    buildLogLines: List<String>,
+    logListState: LazyListState,
+    failureSummary: String? = null,
+) {
     val isRunning = buildStatus == "running"
     buildStatus?.let { status ->
         val statusColor = when (status) {
@@ -738,6 +743,14 @@ private fun BuildLogPanel(buildStatus: String?, buildLogLines: List<String>, log
                         }
                     }
                 }
+            }
+            if (failureSummary != null && buildStatus != "running") {
+                Text(
+                    text = failureSummary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
         }
     }

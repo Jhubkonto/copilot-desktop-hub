@@ -93,6 +93,7 @@ fun DebriefScreen(
     val models by WsRepository.models.collectAsStateWithLifecycle()
     val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
+    val conversations by WsRepository.conversations.collectAsStateWithLifecycle()
     var showModelSheet by remember { mutableStateOf(false) }
     var showStylePicker by remember { mutableStateOf(false) }
     var pendingMarkdownDownload by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -164,7 +165,7 @@ fun DebriefScreen(
                         DebriefView.STRUCTURED -> {
                             val markdown = formatDebriefMarkdown(currentState.debrief)
                             val fileName = debriefFileName(
-                                WsRepository.conversations.value.firstOrNull { it.id == conversationId }?.title,
+                                conversations.firstOrNull { it.id == conversationId }?.title,
                             )
                             LoadedContent(
                                 debrief = currentState.debrief,
