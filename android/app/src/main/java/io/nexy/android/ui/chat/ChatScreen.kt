@@ -52,7 +52,11 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -231,6 +235,7 @@ fun ChatScreen(
     onOpenTeachback: ((String, String) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenCodePanel: ((String) -> Unit)? = null,
+    onOpenProjectPeek: ((String) -> Unit)? = null,
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
     onOpenDesktopPathPicker: (() -> Unit)? = null,
     onOpenMcpServers: (() -> Unit)? = null,
@@ -1530,6 +1535,11 @@ fun ChatScreen(
                     }) {
                         NexyIcon(NexyIconName.Tool, contentDescription = "Capabilities")
                     }
+                    statusProjectId?.let { activeProjectId ->
+                        IconButton(onClick = { onOpenProjectPeek?.invoke(activeProjectId) }) {
+                            NexyIcon(NexyIconName.Folder, contentDescription = "Browse project files")
+                        }
+                    }
                     IconButton(onClick = { showActionsSheet = true }) {
                         NexyIcon(
                             NexyIconName.More,
@@ -2112,6 +2122,7 @@ fun ChatScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun CapabilitySheet(
     skills: List<io.nexy.android.data.model.SkillConfig>,
     mcpServers: List<io.nexy.android.data.model.McpServerInfo>,
@@ -2125,16 +2136,12 @@ private fun CapabilitySheet(
     onRefresh: () -> Unit,
     onActivate: (scope: String, skillIds: List<String>, mcp: List<Map<String, String>>) -> Unit,
 ) {
-    val profile = remember(profileJson) { runCatching { JSONObject(profileJson) }.getOrDefault(JSONObject()) }
-    val initialSkills = remember(profileJson) {
-        profile.optJSONArray("skillIds")?.let { array -> (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }.toSet() } ?: emptySet()
-    }
-    val initialMcp = remember(profileJson) {
-        profile.optJSONArray("mcp")?.let { array -> (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("serverId")?.takeIf(String::isNotBlank) }.toSet() } ?: emptySet()
-    }
-    var selectedSkills by remember(profileJson) { mutableStateOf(initialSkills) }
-    var selectedMcp by remember(profileJson) { mutableStateOf(initialMcp) }
     var selectedScope by remember { mutableStateOf("chat") }
+    val scopeSelection = remember(profileJson, preflightJson, selectedScope) {
+        capabilitySelectionForScope(profileJson, preflightJson, selectedScope)
+    }
+    var selectedSkills by remember(profileJson, preflightJson, selectedScope) { mutableStateOf(scopeSelection.skillIds) }
+    var selectedMcp by remember(profileJson, preflightJson, selectedScope) { mutableStateOf(scopeSelection.mcpTrustByServer) }
     var skillSearch by remember { mutableStateOf("") }
     val preflight = remember(preflightJson) { runCatching { JSONObject(preflightJson) }.getOrDefault(JSONObject()) }
     val ready = preflight.optBoolean("ready", false)
@@ -2169,7 +2176,7 @@ private fun CapabilitySheet(
             Text(
                 when {
                     !desktopConnected && desktopOnly -> "This setup needs the connected desktop. MCP credentials and browser sessions stay there."
-                    ready -> "Ready. New MCP access still asks before each use."
+                    ready -> "Ready. Approval modes are saved for the selected scope."
                     else -> "Choose a skill or MCP capability, then check readiness before sending your task."
                 },
                 modifier = Modifier.padding(12.dp),
@@ -2214,9 +2221,49 @@ private fun CapabilitySheet(
             }
         }
         mcpServers.forEach { server ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Checkbox(checked = selectedMcp.contains(server.id), onCheckedChange = { checked -> selectedMcp = if (checked) selectedMcp + server.id else selectedMcp - server.id })
-                Text(server.name, style = MaterialTheme.typography.bodyMedium)
+            val trust = selectedMcp[server.id]
+            var approvalExpanded by remember(server.id, selectedScope) { mutableStateOf(false) }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Checkbox(
+                        checked = trust != null,
+                        onCheckedChange = { checked ->
+                            selectedMcp = if (checked) selectedMcp + (server.id to "always-ask") else selectedMcp - server.id
+                        },
+                    )
+                    Text(server.name, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (trust != null) {
+                    val trustLabel = capabilityTrustOptions.find { it.first == trust }?.second ?: "Ask every time"
+                    ExposedDropdownMenuBox(
+                        expanded = approvalExpanded,
+                        onExpandedChange = { approvalExpanded = it },
+                        modifier = Modifier.padding(start = 48.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = trustLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Approval") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = approvalExpanded) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = approvalExpanded,
+                            onDismissRequest = { approvalExpanded = false },
+                        ) {
+                            capabilityTrustOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        selectedMcp = selectedMcp + (server.id to value)
+                                        approvalExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
         if (mcpServers.isNotEmpty() && onOpenMcpServers != null) {
@@ -2225,7 +2272,11 @@ private fun CapabilitySheet(
         val activateEnabled = desktopConnected && (selectedSkills.isNotEmpty() || selectedMcp.isNotEmpty())
         Button(
             onClick = {
-                onActivate(selectedScope, selectedSkills.toList(), selectedMcp.map { mapOf("serverId" to it, "trust" to "always-ask") })
+                onActivate(
+                    selectedScope,
+                    selectedSkills.toList(),
+                    selectedMcp.map { (serverId, trust) -> mapOf("serverId" to serverId, "trust" to trust) },
+                )
             },
             enabled = activateEnabled,
             modifier = Modifier.fillMaxWidth(),
