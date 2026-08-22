@@ -127,6 +127,7 @@ fun ProjectConfigScreen(
     onBack: () -> Unit,
     isNew: Boolean = false,
     onOpenFileExplorer: (String) -> Unit = {},
+    onAddSourceFolder: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
     val allAgents by WsRepository.agents.collectAsStateWithLifecycle()
@@ -181,6 +182,17 @@ fun ProjectConfigScreen(
     var sourcesUpdating by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // The settings destination can remain composed underneath the picker, and navigation does
+    // not necessarily produce an Activity ON_RESUME transition. Observe the durable marker
+    // directly so both the kept-alive and recreated destination cases refresh the source cards.
+    LaunchedEffect(projectId) {
+        WsRepository.pendingProjectSourceRefresh.collect { pendingProjectId ->
+            if (shouldRefreshProjectConfigOnResume(pendingProjectId, projectId)) {
+                WsRepository.pendingProjectSourceRefresh.value = null
+                WsRepository.getProjectConfig(projectId)
+            }
+        }
+    }
 
     // Section expand state
     var coreExpanded by rememberSaveable { mutableStateOf(true) }
@@ -271,10 +283,20 @@ fun ProjectConfigScreen(
                         }
                     }
                 }
-                is WsEvent.ProjectConfigChanged -> if (event.id == projectId && loaded && !hasUnsavedChanges) {
-                    // Config changed on another connected client (e.g. desktop). Safe to
-                    // silently refresh since there's nothing unsaved here to clobber.
-                    WsRepository.getProjectConfig(projectId)
+                is WsEvent.ProjectConfigChanged -> if (event.id == projectId) {
+                    if (event.config != null) {
+                        // This broadcast is the authoritative post-mutation hierarchy. Apply it
+                        // directly instead of issuing a second get-config request, which can
+                        // race the add-source command and overwrite the new source with stale
+                        // settings data.
+                        projectSources = event.config.sources
+                        projectRepositories = event.config.repositories
+                        rootDirectory = event.config.rootDirectory.orEmpty()
+                        loadedRootDirectory = event.config.rootDirectory.orEmpty()
+                    } else if (loaded && !hasUnsavedChanges) {
+                        // Compatibility with older desktops that only broadcast the project id.
+                        WsRepository.getProjectConfig(projectId)
+                    }
                 }
                 is WsEvent.ProjectSourcesUpdated -> if (event.id == projectId) {
                     projectSources = event.config.sources
@@ -284,7 +306,11 @@ fun ProjectConfigScreen(
                     sourcesUpdating = false
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (event.action == "remove") "Repository removed from project" else "Project sources rescanned",
+                            when (event.action) {
+                                "add" -> "Folder added to project sources"
+                                "remove" -> "Repository removed from project"
+                                else -> "Project sources rescanned"
+                            },
                             duration = SnackbarDuration.Short,
                         )
                     }
@@ -689,6 +715,11 @@ fun ProjectConfigScreen(
                         ) {
                             TextButton(onClick = { onOpenFileExplorer(rootDirectory) }, enabled = !saving && !sourcesUpdating) {
                                 Text("Choose folder…")
+                            }
+                            if (!isNew) {
+                                TextButton(onClick = onAddSourceFolder, enabled = !saving && !sourcesUpdating) {
+                                    Text("Add folder…")
+                                }
                             }
                             TextButton(
                                 onClick = {
