@@ -125,6 +125,42 @@ class ProjectConfigRoundTripTest {
     }
 
     @Test
+    fun projectConfigChangedParserPreservesTheAuthoritativeSourceHierarchy() = runTest {
+        val event = parseEvent(
+            """
+            {
+              "event": "project:config-changed",
+              "data": {
+                "id": "project-1",
+                "config": {
+                  "rootDirectory": "C:/repo",
+                  "sources": [
+                    {"id":"source-1","projectId":"project-1","label":"repo","localPath":"C:/repo","enabled":true,"isPrimary":true},
+                    {"id":"source-2","projectId":"project-1","label":"docs","localPath":"D:/docs","enabled":true,"isPrimary":false}
+                  ],
+                  "repositories": [
+                    {"id":"repo-1","projectId":"project-1","sourceId":"source-1","label":"repo","relativePath":"","enabled":true,"available":true}
+                  ]
+                }
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.ProjectConfigChanged
+
+        assertEquals(listOf("source-1", "source-2"), event.config?.sources?.map { it.id })
+        assertEquals(listOf("repo-1"), event.config?.repositories?.map { it.id })
+    }
+
+    @Test
+    fun projectConfigChangedParserDoesNotTreatASettingsOnlyPayloadAsAnEmptyHierarchy() = runTest {
+        val event = parseEvent(
+            """{"event":"project:config-changed","data":{"id":"project-1","config":{"defaultModel":"gpt-test"}}}"""
+        ) as WsEvent.ProjectConfigChanged
+
+        assertEquals(null, event.config)
+    }
+
+    @Test
     fun projectSourcesErrorParserPreservesActionAndMessage() = runTest {
         val event = parseEvent(
             """{"event":"project:sources-error","data":{"id":"project-1","action":"rescan","message":"Folder is unavailable"}}"""

@@ -100,10 +100,100 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun `progressively prepends streamed history chunks and settles on completion`() = runTest {
+    fun settlesInitialReconciliationWhenHistoryCompletesSynchronouslyWithRequest() = runTest {
+        val fakeWs = FakeWsClient()
+        fakeWs.onSend = { command, _ ->
+            if (command == "conversation:get-messages") {
+                fakeWs.emitNow(
+                    WsEvent.ConversationHistoryComplete(
+                        conversationId = "conv-1",
+                        requestId = "",
+                        historyVersion = null,
+                        hasMore = false,
+                        nextBeforeTimestamp = null,
+                        nextBeforeId = null,
+                    ),
+                )
+            }
+        }
+
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        assertFalse(vm.isReconcilingHistory.value)
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun settlesEmptyChunkedHistoryFromStartWhenNoChunksFollow() = runTest {
+        val fakeWs = FakeWsClient()
+        fakeWs.onSend = { command, _ ->
+            if (command == "conversation:get-messages") {
+                fakeWs.emitNow(
+                    WsEvent.ConversationHistoryStart(
+                        conversationId = "conv-1",
+                        requestId = "",
+                        totalItems = 0,
+                        chunkCount = 0,
+                        historyVersion = "empty-v1",
+                    ),
+                )
+            }
+        }
+
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        assertFalse(vm.isReconcilingHistory.value)
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun settlesChunkedHistoryAfterAllChunksEvenIfCompletionEventIsLost() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("conv-1", fakeWs)
         advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationHistoryStart(
+                conversationId = "conv-1",
+                requestId = "",
+                totalItems = 2,
+                chunkCount = 2,
+                historyVersion = "v1",
+            ),
+        )
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m2", "assistant", "New", 2)),
+                paged = true,
+                chunkIndex = 0,
+                chunkCount = 2,
+            ),
+        )
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m1", "user", "Old", 1)),
+                paged = true,
+                chunkIndex = 1,
+                chunkCount = 2,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.isReconcilingHistory.value)
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `progressively prepends streamed history chunks and settles on completion`() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        // runCurrent, not advanceUntilIdle: draining virtual time here would burn the whole
+        // reconciliation window before the response this test is about even starts arriving.
+        runCurrent()
 
         fakeWs.emit(
             WsEvent.ConversationHistoryStart(
@@ -126,7 +216,9 @@ class ChatViewModelTest {
                 chunkCount = 2,
             ),
         )
-        advanceUntilIdle()
+        // runCurrent (not advanceUntilIdle) so virtual time does not jump past the
+        // reconciliation watchdog while a legitimate chunked response is still streaming.
+        runCurrent()
         assertEquals(listOf("m2", "m3"), vm.messages.value.map { it.id })
         assertTrue(vm.isReconcilingHistory.value)
 
@@ -178,13 +270,19 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         vm.loadOlderMessages()
+        val olderRequest = fakeWs.sentCommands.last()
         assertEquals(
-            SentCommand(
-                "conversation:get-messages",
-                mapOf("conversationId" to "conv-1", "limit" to 60, "beforeTimestamp" to 3L, "beforeId" to "m3"),
+            mapOf(
+                "conversationId" to "conv-1",
+                "limit" to 60,
+                "beforeTimestamp" to 3L,
+                "beforeId" to "m3",
             ),
-            fakeWs.sentCommands.last(),
+            olderRequest.data - setOf("requestId", "responseMode"),
         )
+        assertEquals("conversation:get-messages", olderRequest.command)
+        assertEquals("chunked-v2", olderRequest.data["responseMode"])
+        assertTrue((olderRequest.data["requestId"] as String).isNotBlank())
 
         fakeWs.emit(
             WsEvent.ConversationMessages(
@@ -761,7 +859,14 @@ class ChatViewModelTest {
                 text = "",
                 isUser = true,
                 isStreaming = false,
-                attachments = listOf(AttachmentMeta(id = attId, name = "photo.png", type = "image", thumbnailDataUrl = null)),
+                attachments = listOf(
+                    AttachmentMeta(
+                        id = attId,
+                        name = "photo.png",
+                        type = "image",
+                        thumbnailDataUrl = "data:image/png;base64,abc123",
+                    ),
+                ),
             ),
             actualMsg,
         )
@@ -1070,13 +1175,140 @@ class ChatViewModelTest {
         )
     }
 
+    @Test
+    fun `settles reconciliation when the desktop never answers the history request`() = runTest {
+        // The chat app-bar spinner is driven by isReconcilingHistory. A request that is never
+        // answered - dropped by a half-open socket, or a desktop that never replies - used to
+        // leave it true for the entire life of the screen, so the indicator span forever.
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        runCurrent()
+
+        assertTrue(vm.isReconcilingHistory.value)
+
+        advanceTimeBy(HISTORY_RECONCILE_TIMEOUT_MS + 1)
+        runCurrent()
+
+        assertFalse(vm.isReconcilingHistory.value)
+        assertFalse(vm.isRefreshing.value)
+        assertFalse(vm.isInitialHistoryLoading.value)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `streaming history chunks keep the reconciliation watchdog armed`() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        runCurrent()
+
+        fakeWs.emit(
+            WsEvent.ConversationHistoryStart(
+                conversationId = "conv-1",
+                requestId = "",
+                totalItems = 3,
+                chunkCount = 3,
+                historyVersion = "v1",
+            ),
+        )
+        runCurrent()
+
+        // A slow but progressing response must not be cut short: each chunk re-arms the watchdog.
+        repeat(2) { index ->
+            advanceTimeBy(HISTORY_RECONCILE_TIMEOUT_MS - 1_000)
+            runCurrent()
+            assertTrue(vm.isReconcilingHistory.value)
+            fakeWs.emit(
+                WsEvent.ConversationMessages(
+                    conversationId = "conv-1",
+                    messages = listOf(HistoryMessage("m$index", "user", "chunk $index", index.toLong() + 1)),
+                    paged = true,
+                    chunkIndex = index,
+                    chunkCount = 3,
+                ),
+            )
+            runCurrent()
+            assertTrue(vm.isReconcilingHistory.value)
+        }
+
+        // ...but silence after the last chunk still settles the indicator.
+        advanceTimeBy(HISTORY_RECONCILE_TIMEOUT_MS + 1)
+        runCurrent()
+        assertFalse(vm.isReconcilingHistory.value)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `manual refresh re-arms and then bounds the reconciliation indicator`() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        runCurrent()
+
+        fakeWs.emit(
+            WsEvent.ConversationHistoryComplete(
+                conversationId = "conv-1",
+                requestId = "",
+                historyVersion = "v1",
+                hasMore = false,
+                nextBeforeTimestamp = null,
+                nextBeforeId = null,
+            ),
+        )
+        runCurrent()
+        assertFalse(vm.isReconcilingHistory.value)
+
+        // A watchdog that fired (or was cancelled) once must not leave later refreshes unbounded.
+        vm.refreshMessages()
+        runCurrent()
+        assertTrue(vm.isReconcilingHistory.value)
+
+        advanceTimeBy(HISTORY_RECONCILE_TIMEOUT_MS + 1)
+        runCurrent()
+        assertFalse(vm.isReconcilingHistory.value)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `a completed response cancels the watchdog instead of leaving it pending`() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        runCurrent()
+
+        fakeWs.emit(
+            WsEvent.ConversationHistoryComplete(
+                conversationId = "conv-1",
+                requestId = "",
+                historyVersion = "v1",
+                hasMore = false,
+                nextBeforeTimestamp = null,
+                nextBeforeId = null,
+            ),
+        )
+        runCurrent()
+
+        // Nothing re-sets the flag when the (already cancelled) watchdog deadline passes.
+        advanceTimeBy(HISTORY_RECONCILE_TIMEOUT_MS * 3)
+        runCurrent()
+        assertFalse(vm.isReconcilingHistory.value)
+
+        vm.viewModelScope.cancel()
+    }
+
     private class FakeWsClient : WsClient {
         private val mutableEvents = MutableSharedFlow<WsEvent>(extraBufferCapacity = 16)
         override val events: SharedFlow<WsEvent> = mutableEvents
         val sentCommands = mutableListOf<SentCommand>()
+        var onSend: ((String, Map<String, Any>) -> Unit)? = null
 
         override fun send(command: String, data: Map<String, Any>) {
             sentCommands += SentCommand(command, data)
+            onSend?.invoke(command, data)
+        }
+
+        fun emitNow(event: WsEvent) {
+            mutableEvents.tryEmit(event)
         }
 
         suspend fun emit(event: WsEvent) {
