@@ -130,6 +130,7 @@ import type { ContextInspectorSnapshot } from '../shared/types'
 import { CLAUDE_CLI_MODES, CODEX_CLI_MODES } from '../shared/types'
 import { getProjectAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
 import {
+  addProjectSource,
   ensureLegacyProjectSource,
   listProjectSources,
   primarySourcePath,
@@ -138,7 +139,8 @@ import {
   setPrimarySourcePath,
 } from './project-sources'
 import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-handlers'
-import { listDirectoryEntriesForRemote, readTextFileForRemote, getFsStartRoots, getFsAuthorizedRoots } from './file-handlers'
+import { listDirectoryEntriesForRemote, readFileForRemote, readImageFileForRemote, isRemoteImagePath, getFsStartRoots, getFsAuthorizedRoots } from './file-handlers'
+import { listProjectPeekDirectory, resolveProjectPeekPath, type ProjectPeekFilter, type ProjectPeekSource } from './project-peek'
 import {
   createSkillConfig,
   discoverSkills,
@@ -1564,6 +1566,33 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'project:add-source') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const localPath = typeof data.localPath === 'string' ? data.localPath.trim() : ''
+      if (!id || !localPath) return
+      try {
+        const hierarchy = await addProjectSource(db, id, { localPath })
+        const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as
+          { config_json: string | null } | undefined
+        if (!row) throw new Error('Project not found')
+        const config = {
+          ...parseProjectConfig(row.config_json),
+          ...hierarchy,
+          rootDirectory: primarySourcePath(hierarchy),
+        }
+        db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(config), Date.now(), id)
+        broadcastToMobile({ event: 'project:config-changed', data: { id, config } })
+        reply({ event: 'project:sources-updated', data: { id, action: 'add', config } })
+      } catch (error) {
+        reply({
+          event: 'project:sources-error',
+          data: { id, action: 'add', message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+      return
+    }
+
     if (command === 'fs:list-directory') {
       const path = typeof data.path === 'string' ? data.path : ''
       const result = listDirectoryEntriesForRemote(path, getFsAuthorizedRoots())
@@ -1574,13 +1603,88 @@ export function registerWsHandlers(): void {
     if (command === 'fs:read-file') {
       const path = typeof data.path === 'string' ? data.path : ''
       const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
-      const result = readTextFileForRemote(path, getFsAuthorizedRoots())
+      const result = readFileForRemote(path, getFsAuthorizedRoots())
+      reply({ event: 'fs:file-content', data: { ...result, requestId } })
+      return
+    }
+
+    // Image previews use a dedicated command so a stale or partially upgraded desktop cannot
+    // accidentally route a raster request through the Markdown-only reader.
+    if (command === 'fs:read-image') {
+      const path = typeof data.path === 'string' ? data.path : ''
+      const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
+      const result = isRemoteImagePath(path)
+        ? readImageFileForRemote(path, getFsAuthorizedRoots())
+        : {
+            path,
+            content: '',
+            truncated: false,
+            mimeType: 'application/octet-stream',
+            encoding: 'base64' as const,
+            error: 'Only raster image files can be viewed in the image viewer',
+          }
       reply({ event: 'fs:file-content', data: { ...result, requestId } })
       return
     }
 
     if (command === 'fs:get-start-roots') {
       reply({ event: 'fs:get-start-roots', data: getFsStartRoots() })
+      return
+    }
+
+    // Project Peek is intentionally separate from the generic remote explorer. Android sends
+    // stable project/source identifiers and source-relative paths only; native desktop paths
+    // never cross this protocol boundary.
+    if (command === 'project-peek:get-sources') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const hierarchy = projectId ? listProjectSources(db, projectId) : { sources: [] }
+      const sources: ProjectPeekSource[] = hierarchy.sources
+        .filter((source) => source.enabled)
+        .map((source) => ({
+          id: source.id, projectId: source.projectId, label: source.label,
+          localPath: source.localPath, enabled: source.enabled, isPrimary: source.isPrimary,
+        }))
+      reply({ event: 'project-peek:sources', data: {
+        projectId,
+        // localPath is deliberately not part of the mobile payload.
+        sources: sources.map(({ localPath: _localPath, ...source }) => source),
+      } })
+      return
+    }
+
+    if (command === 'project-peek:list-directory') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const sourceId = typeof data.sourceId === 'string' ? data.sourceId : ''
+      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      const filter = ['all', 'documents', 'images', 'recent'].includes(String(data.filter))
+        ? data.filter as ProjectPeekFilter : 'all'
+      const source = projectId ? listProjectSources(db, projectId).sources
+        .find((candidate) => candidate.id === sourceId && candidate.enabled) : undefined
+      const result = source
+        ? listProjectPeekDirectory(source, relativePath, filter)
+        : { entries: [], truncated: false, error: 'This project source is not available' }
+      reply({ event: 'project-peek:directory', data: { projectId, sourceId, relativePath, filter, ...result } })
+      return
+    }
+
+    if (command === 'project-peek:read-file') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const sourceId = typeof data.sourceId === 'string' ? data.sourceId : ''
+      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
+      const source = projectId ? listProjectSources(db, projectId).sources
+        .find((candidate) => candidate.id === sourceId && candidate.enabled) : undefined
+      const path = source ? resolveProjectPeekPath(source.localPath, relativePath) : null
+      const result = path && source
+        ? readFileForRemote(path, [source.localPath])
+        : { path: '', content: '', truncated: false, error: 'This project file is not available' }
+      reply({ event: 'project-peek:file-content', data: {
+        projectId, sourceId, relativePath, requestId,
+        content: result.content, truncated: result.truncated, error: result.error,
+        // Project Peek identifies images from the directory entry; the bounded file reader
+        // deliberately keeps its text response contract narrow.
+        encoding: isRemoteImagePath(relativePath) ? 'base64' : 'utf8',
+      } })
       return
     }
 
