@@ -35,6 +35,13 @@ class PairingViewModel(application: Application) : AndroidViewModel(application)
                 if (userInitiated) _error.value = err
             }
         }
+        viewModelScope.launch {
+            WsRepository.connectionState.collect { state ->
+                // A QR callback may start a connection that fails asynchronously. Allow the
+                // next frame to be scanned once that attempt has fully returned to idle.
+                if (state == ConnectionState.DISCONNECTED) qrConnectStarted = false
+            }
+        }
     }
 
     fun startMdnsDiscovery() = mdnsDiscovery.startDiscovery()
