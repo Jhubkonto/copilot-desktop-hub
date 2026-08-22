@@ -284,6 +284,11 @@ export function resolveConversationCapabilities(
   return {
     conversationId,
     profile,
+    scopeProfiles: {
+      chat: chatProfile,
+      project: scopeIds.projectId ? projectProfile : null,
+      agent: scopeIds.agentId ? agentProfile : null,
+    },
     items,
     ready: items.every((item) => item.status === 'ready'),
     desktopOnly: profile.mcp.length > 0,

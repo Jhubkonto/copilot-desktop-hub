@@ -327,6 +327,11 @@ function buildCodexMcpConfigArgs(req: CliAdapterRequest): string[] {
     if (enabledTools.length > 0) {
       args.push('-c', `${prefix}.enabled_tools=${tomlStringArray(enabledTools)}`)
     }
+    // Nexy filters mcpServers to servers approved for this turn before invoking the
+    // adapter. Codex treats the tool allow-list and the server's approval policy as
+    // separate controls, so carry that approval across explicitly. Without this,
+    // headless `codex exec` cancels the MCP call because it has no UI in which to ask.
+    args.push('-c', `${prefix}.default_tools_approval_mode=${tomlString('approve')}`)
   }
 
   return args
@@ -667,6 +672,30 @@ function sendCodexPlanViaAppServer(
           touchActivity()
           writeMessage({ id: requestId, error: { code: -32800, message: 'User input cancelled' } })
         })
+        return
+      }
+      if (message.id !== undefined && method === 'mcpServer/elicitation/request') {
+        const request = asRecord(params.request) ?? params
+        const meta = asRecord(request.meta ?? request._meta ?? params.meta ?? params._meta)
+        if (meta?.codex_approval_kind === 'mcp_tool_call') {
+          const requestId = message.id
+          const serverName = typeof request.serverName === 'string'
+            ? request.serverName
+            : typeof params.serverName === 'string' ? params.serverName : ''
+          const toolName = serverName ? `mcp__${serverName}` : 'mcp'
+          const respond = (approved: boolean) => writeMessage({
+            id: requestId,
+            result: { action: approved ? 'accept' : 'decline', content: null },
+          })
+          if (req.requestPermission) {
+            touchActivity()
+            req.requestPermission(toolName, request)
+              .then((approved) => { touchActivity(); respond(approved) })
+              .catch(() => { touchActivity(); respond(false) })
+          } else {
+            respond(req.skipPermissions === true)
+          }
+        }
         return
       }
       if (method === 'item/agentMessage/delta' || method === 'item/plan/delta') {
