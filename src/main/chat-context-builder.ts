@@ -15,7 +15,7 @@ import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './diff-utils'
 import { getSkillConfig, getSkillConfigsForAgent } from './skills'
-import { getEffectiveCapabilityProfile } from './capability-service'
+import { EMPTY_CAPABILITY_PROFILE, getEffectiveCapabilityProfile } from './capability-service'
 import { persistSkillCapture, prepareSkillCapture, requestsSkillCapture } from './skill-service'
 import { portableSkillName, readSkillResource, skillEntryMarkdown } from './skill-packages'
 import type { ArtifactKind, SkillConfig } from '../shared/types'
@@ -373,7 +373,11 @@ export async function buildChatContext(
     .get(conversationId) as { agent_id: string | null } | undefined
 
   const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
-  const chatCapabilityProfile = getEffectiveCapabilityProfile(db, conversationId)
+  // Capability profiles are additive context. Keep direct/unit callers that provide a
+  // minimal database stub working when there is no persisted conversation row yet.
+  const chatCapabilityProfile = convRow
+    ? getEffectiveCapabilityProfile(db, conversationId)
+    : EMPTY_CAPABILITY_PROFILE
   const agentSkills = effectiveAgentId ? getSkillConfigsForAgent(effectiveAgentId) : []
   const chatSkills = chatCapabilityProfile.skillIds
     .map((skillId) => getSkillConfig(skillId))

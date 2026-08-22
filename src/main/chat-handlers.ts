@@ -1307,10 +1307,19 @@ export async function dispatchChatSend(
             return { cliAllowedMcpTools: undefined, cliMcpServersFiltered: cliMcpServers }
           }
           const agentIdForTrust = effectiveAgentId ?? 'default'
-          const serverTrustRows = db
-            .prepare('SELECT server_id, trust FROM agent_mcp_server_trust WHERE agent_id = ?')
-            .all(agentIdForTrust) as { server_id: string; trust: string }[]
-          const serverTrustMap = new Map(serverTrustRows.map((r) => [r.server_id, r.trust]))
+          // Server-level trust must come from the SAME effective profile (chat + project +
+          // agent, merged) that decided which servers are even attached to this turn — see
+          // getConversationMcpServerIds() above. Querying agent_mcp_server_trust directly here
+          // was a bug: that table is only ever written when a capability is activated with
+          // "This agent" scope (activateConversationCapabilities in capability-service.ts). MCP
+          // servers turned on via "This chat" or "This project" scope store their trust in
+          // capability_profile_json / project config_json instead, so this lookup always missed
+          // for those, silently fell back to 'always-ask', and forced a requestApproval() call
+          // that can never be answered in a non-interactive/headless CLI turn (60s timeout ->
+          // silent deny -> server dropped from the CLI's mcpServers list with no error surfaced).
+          const serverTrustMap = new Map(
+            getEffectiveCapabilityProfile(db, conversationId).mcp.map((entry) => [entry.serverId, entry.trust]),
+          )
 
           // For each assigned server, determine if it needs upfront approval. The CLI
           // runs autonomously so we can't pause mid-run — instead we ask once before
