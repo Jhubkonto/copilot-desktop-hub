@@ -101,6 +101,8 @@ const ALL_CHANNELS = [
   'project:set-default-model',
   'project:set-primary-agent',
   'project:update-config',
+  'project:get-capabilities',
+  'project:set-capabilities',
   'provider:get-azure-endpoint',
   'provider:has-key',
   'provider:list',

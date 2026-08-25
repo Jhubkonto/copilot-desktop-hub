@@ -1172,6 +1172,43 @@ describe('chat handlers', () => {
       conversationId: 'conv-claude-exit-plan',
       plan: 'Implement in two steps.',
     }))
+    await vi.waitFor(() => expect(mockAdapter.send).toHaveBeenCalledTimes(2))
+    expect(mockAdapter.send.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ permissionMode: undefined }))
+  })
+
+  it('uses the Claude Plan MCP completion callback and starts a normal implementation turn after approval', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (
+        _win: unknown,
+        req: { requestPlanApproval?: (plan: string) => Promise<boolean> },
+      ) => {
+        await req.requestPlanApproval?.('# Plan\n\n- Implement it')
+        return '# Plan\n\n- Implement it'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    vi.mocked(requestApproval).mockResolvedValue(true)
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
+      agent_id: null, model: 'claude-sonnet', cli_backend: 'claude-cli', cli_mode_override: 'plan', codex_execution_mode_override: null,
+    })
+    state.getOverrides.set('SELECT thinking_effort_override', {
+      thinking_effort_override: null, full_auto_approve_override: null, terminal_sandbox_override: null, cli_mode_override: null, codex_execution_mode_override: null,
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-claude-plan-bridge', 'plan this change')
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ isDestroyed: expect.any(Function) }), 'exit_plan_mode', { plan: '# Plan\n\n- Implement it' },
+      'Approve this plan and start implementing?', { noRemember: true, conversationId: 'conv-claude-plan-bridge' },
+    )
+    expect(state.modeClears).toContain('claude')
+    await vi.waitFor(() => expect(mockAdapter.send).toHaveBeenCalledTimes(2))
+    expect(mockAdapter.send.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ permissionMode: undefined }))
   })
 
   it('labels the assistant message with the explicitly selected model', async () => {

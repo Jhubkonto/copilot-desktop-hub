@@ -349,6 +349,35 @@ describe('CLI adapters', () => {
     expect(args).not.toContain('--dangerously-skip-permissions')
   })
 
+  it('ClaudeAdapter adds the Nexy plan bridge only for Plan-mode completion callbacks', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+    const requestPlanApproval = vi.fn().mockResolvedValue(true)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'plan it' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-plan',
+      permissionMode: 'plan',
+      requestPlanApproval,
+    }, () => {})
+
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(1))
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Plan ready' }] } })}\n`))
+    proc.emit('close', 0)
+    await sendPromise
+
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    const config = JSON.parse(args[args.indexOf('--mcp-config') + 1])
+    expect(config.mcpServers.nexy_plan).toEqual(expect.objectContaining({
+      command: process.execPath,
+      args: [expect.stringContaining('plan-mcp-worker.cjs')],
+    }))
+    expect(args[args.indexOf('--allowedTools') + 1]).toContain('mcp__nexy_plan__exit_plan_mode')
+    expect(args[args.indexOf('--system-prompt') + 1]).toContain('nexy_plan.exit_plan_mode')
+  })
+
   it('ClaudeAdapter makes bypass mode fully non-interactive and omits the permission hook', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
@@ -416,6 +445,56 @@ describe('CLI adapters', () => {
       },
     })
     expect(requestPermission).toHaveBeenCalledWith('PowerShell', { command: 'Get-ChildItem -Force' })
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } })}\n`))
+    proc.emit('close', 0)
+    await expect(sendPromise).resolves.toBe('done')
+  })
+
+  it('does not wire the nexy_defer bridge unless deferredJobsEnabled is set', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {})
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } })}\n`))
+    proc.emit('close', 0)
+    await sendPromise
+
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    expect(args).not.toContain('--mcp-config')
+    expect(args.join(' ')).not.toContain('nexy_defer')
+  })
+
+  it('wires the nexy_defer bridge and its allowed tool when deferredJobsEnabled is set', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      deferredJobsEnabled: true,
+    }, () => {})
+
+    // Starting the bridge is a real async loopback-server listen, unlike the synchronous
+    // ternaries above — mirrors the vi.waitFor gap used for the permission-hook bridge below.
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled())
+    const args = mockSpawn.mock.calls[0][1] as string[]
+    const configIndex = args.indexOf('--mcp-config')
+    expect(configIndex).toBeGreaterThan(-1)
+    const mcpConfig = JSON.parse(args[configIndex + 1]) as { mcpServers: Record<string, unknown> }
+    expect(mcpConfig.mcpServers.nexy_defer).toBeTruthy()
+    expect(args).toEqual(expect.arrayContaining(['--allowedTools']))
+    expect(args[args.indexOf('--allowedTools') + 1]).toContain('mcp__nexy_defer__run_and_notify')
+    const systemPromptIndex = args.indexOf('--system-prompt')
+    expect(args[systemPromptIndex + 1]).toContain('nexy_defer.run_and_notify')
 
     proc.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } })}\n`))
     proc.emit('close', 0)

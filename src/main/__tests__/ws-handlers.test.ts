@@ -746,6 +746,35 @@ describe('ws handlers', () => {
     })
   })
 
+  it('reads and replaces project capabilities for mobile Project Settings', () => {
+    state.projectConfigJson = JSON.stringify({
+      rootDirectory: 'C:/repo',
+      capabilityProfile: { version: 1, skillIds: [], mcp: [{ serverId: 'browser', trust: 'always-ask' }] },
+    })
+
+    const readReply = sendCommand('project:get-capabilities', { projectId: 'proj-1' })
+    expect(readReply).toHaveBeenCalledWith({
+      event: 'project:capabilities',
+      data: {
+        projectId: 'proj-1',
+        profile: { version: 1, skillIds: [], mcp: [{ serverId: 'browser', trust: 'always-ask' }] },
+      },
+    })
+
+    const saveReply = sendCommand('project:set-capabilities', {
+      projectId: 'proj-1',
+      profile: { version: 1, skillIds: [], mcp: [] },
+    })
+    expect(saveReply).toHaveBeenCalledWith({
+      event: 'project:capabilities-updated',
+      data: { projectId: 'proj-1', profile: { version: 1, skillIds: [], mcp: [] } },
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'project:config-changed',
+      data: expect.objectContaining({ id: 'proj-1' }),
+    }))
+  })
+
   it('updates and broadcasts a project color supplied by mobile', () => {
     sendCommand('project:rename', { id: 'proj-1', name: 'Project 1', color: 'purple' })
 

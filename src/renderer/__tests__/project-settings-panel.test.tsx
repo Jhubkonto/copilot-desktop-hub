@@ -29,6 +29,7 @@ const BASE_CONFIG: ProjectConfig = {
   strategyRetrievalEnabled: false,
   terminalSandboxBypass: false,
   defaultThinkingEffort: null,
+  capabilityProfile: { version: 1, skillIds: [], mcp: [] },
 }
 
 const PROJECT = { id: 'proj-1', name: 'My Project', color: 'blue', created_at: 0, default_model: null }
@@ -61,6 +62,15 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(screen.getByRole('tab', { name: /general/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /scope/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /milestones/i })).toBeInTheDocument()
+  })
+
+  it('k-1b: offers project-scoped capabilities as an editable tab on a saved project', async () => {
+    render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
+    const tab = screen.getByRole('tab', { name: /capabilities/i })
+    expect(tab).toBeInTheDocument()
+
+    await user.click(tab)
+    expect(await screen.findByText(/Skills and MCP servers every chat in this project inherits/)).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Code Changes' })).not.toBeInTheDocument()
   })
@@ -550,6 +560,11 @@ describe('ProjectSettingsPanel — draft mode with new fields', () => {
     )
     expect(screen.getByRole('button', { name: /create project/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
+  })
+
+  it('k-19b: draft mode hides the capabilities tab, which has no project id to write to', () => {
+    render(<ProjectSettingsPanel draft onClose={vi.fn()} onConfirm={vi.fn().mockResolvedValue(undefined)} />)
+    expect(screen.queryByRole('tab', { name: /capabilities/i })).not.toBeInTheDocument()
   })
 
   it('k-20: onConfirm in draft mode includes inScope/outOfScope/milestones', async () => {

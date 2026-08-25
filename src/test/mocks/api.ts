@@ -176,6 +176,8 @@ export function createMockApi() {
       desktopOnly: false,
     }),
     activateCapabilities: vi.fn().mockResolvedValue({ version: 1, skillIds: [], mcp: [] }),
+    getProjectCapabilities: vi.fn().mockResolvedValue({ version: 1, skillIds: [], mcp: [] }),
+    setProjectCapabilities: vi.fn().mockImplementation((_projectId: string, profile: unknown) => Promise.resolve(profile)),
     updateConversationContext: vi.fn().mockResolvedValue(true),
 
     // Messages
