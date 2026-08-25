@@ -597,6 +597,7 @@ fun NavGraph(
                 onAddSourceFolder = {
                     navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=&selectionMode=source")
                 },
+                onOpenMcpServers = { navController.navigate("settings/mcp-servers") },
             )
         }
 
