@@ -41,6 +41,7 @@ interface ChatComposerProps {
   onEnsureConversationForCapability?: () => Promise<string | null>
   onOpenMcp?: () => void
   onOpenSkills?: () => void
+  onOpenProjectCapabilities?: () => void
   modelSourceLabel?: string
   pendingAttachments: LocalAttachment[]
   pendingImages: PastedImage[]
@@ -126,6 +127,7 @@ export function ChatComposer({
   onEnsureConversationForCapability,
   onOpenMcp,
   onOpenSkills,
+  onOpenProjectCapabilities,
   modelSourceLabel,
   pendingAttachments,
   pendingImages,
@@ -313,6 +315,7 @@ export function ChatComposer({
                 onEnsureConversation={onEnsureConversationForCapability}
                 onOpenMcp={onOpenMcp}
                 onOpenSkills={onOpenSkills}
+                onOpenProjectCapabilities={onOpenProjectCapabilities}
               />
               <div className="relative flex items-center">
                 {isCliLocked ? (

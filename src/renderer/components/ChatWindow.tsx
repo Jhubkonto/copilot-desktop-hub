@@ -1423,6 +1423,7 @@ export function ChatWindow() {
       onEnsureConversationForCapability={ensureConversationForCapability}
       onOpenMcp={() => setShowMcpPanel(true)}
       onOpenSkills={() => openSectionPane('skills')}
+      onOpenProjectCapabilities={() => { if (chatProjectId && chatProjectId !== '__none__') openEditProject(chatProjectId, 'capabilities') }}
       modelSourceLabel={modelSourceLabel}
       pendingAttachments={fileInput.pendingAttachments}
       pendingImages={fileInput.pendingImages}

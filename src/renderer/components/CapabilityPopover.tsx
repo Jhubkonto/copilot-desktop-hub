@@ -14,6 +14,7 @@ type Props = {
   onEnsureConversation?: () => Promise<string | null>
   onOpenMcp?: () => void
   onOpenSkills?: () => void
+  onOpenProjectCapabilities?: () => void
 }
 
 const statusLabel: Record<CapabilityPreflight['items'][number]['status'], string> = {
@@ -24,7 +25,7 @@ const statusLabel: Record<CapabilityPreflight['items'][number]['status'], string
   unsupported: 'Model unsupported',
 }
 
-export function CapabilityPopover({ conversationId, modelId, skills, projectId, projectName, agentId, agentName, onEnsureConversation, onOpenMcp, onOpenSkills }: Props) {
+export function CapabilityPopover({ conversationId, modelId, skills, projectId, projectName, agentId, agentName, onEnsureConversation, onOpenMcp, onOpenSkills, onOpenProjectCapabilities }: Props) {
   const [open, setOpen] = useState(false)
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([])
   const [selectedMcp, setSelectedMcp] = useState<Array<{ serverId: string; trust: CapabilityTrust }>>([])
@@ -127,6 +128,11 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
     onOpenSkills?.()
   }
 
+  const openProjectCapabilities = () => {
+    setOpen(false)
+    onOpenProjectCapabilities?.()
+  }
+
   const toggleOpen = async () => {
     if (!open && !conversationId && !pendingConversationId && onEnsureConversation) {
       const createdId = await onEnsureConversation()
@@ -185,6 +191,19 @@ export function CapabilityPopover({ conversationId, modelId, skills, projectId, 
                   <input type="radio" name="capability-scope" checked={scope === 'project'} onChange={() => changeScope('project')} className="mt-0.5 accent-blue-600" />
                   <span><span className="block text-xs font-medium text-gray-700 dark:text-gray-200">This project{projectName ? ` · ${projectName}` : ''}</span><span className="block text-[11px] text-gray-500 dark:text-gray-400">Available to future chats in this project.</span></span>
                 </label>}
+                {/* Project and agent scope only ever add. Say so here, because the checkboxes
+                    below look like they can deselect an inherited grant and they cannot. */}
+                {scope === 'project' && (
+                  <p className="px-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    Saving here only adds to the project.{' '}
+                    {onOpenProjectCapabilities && (
+                      <button type="button" onClick={openProjectCapabilities} className="font-medium text-blue-600 hover:underline">
+                        Manage project capabilities
+                      </button>
+                    )}
+                    {onOpenProjectCapabilities ? ' to remove one or loosen its approval level.' : ' Use Project Settings → Capabilities to remove one or loosen its approval level.'}
+                  </p>
+                )}
                 {agentId && <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800">
                   <input type="radio" name="capability-scope" checked={scope === 'agent'} onChange={() => changeScope('agent')} className="mt-0.5 accent-blue-600" />
                   <span><span className="block text-xs font-medium text-gray-700 dark:text-gray-200">This agent{agentName ? ` · ${agentName}` : ''}</span><span className="block text-[11px] text-gray-500 dark:text-gray-400">Reusable defaults for chats using this agent.</span></span>
