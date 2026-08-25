@@ -48,7 +48,12 @@ class ProjectConfigRoundTripTest {
                   "outOfScope": [{ "id": "out-1", "description": "Build output" }],
                   "milestones": [{ "id": "m-1", "title": "Parity", "description": "Close gaps", "status": "active" }],
                   "defaultModel": "openrouter/test-model",
-                  "defaultThinkingEffort": "high"
+                  "defaultThinkingEffort": "high",
+                  "capabilityProfile": {
+                    "version": 1,
+                    "skillIds": ["skill-a"],
+                    "mcp": [{ "serverId": "browser", "trust": "always-ask" }]
+                  }
                 }
               }
             }
@@ -71,6 +76,41 @@ class ProjectConfigRoundTripTest {
         assertEquals(listOf(mapOf("id" to "m-1", "title" to "Parity", "description" to "Close gaps", "status" to "active")), payload["milestones"])
         assertEquals("openrouter/test-model", payload["defaultModel"])
         assertEquals("high", payload["defaultThinkingEffort"])
+        assertEquals(
+            mapOf(
+                "version" to 1,
+                "skillIds" to listOf("skill-a"),
+                "mcp" to listOf(mapOf("serverId" to "browser", "trust" to "always-ask")),
+            ),
+            payload["capabilityProfile"],
+        )
+    }
+
+    @Test
+    fun capabilityProfileParserNormalizesUnknownTrustAndDuplicateReferences() {
+        val profile = parseCapabilityProfile(
+            org.json.JSONObject(
+                """{"version":99,"skillIds":["audit","audit", ""],"mcp":[{"serverId":"browser","trust":"invalid"},{"serverId":"browser","trust":"auto"}]}""",
+            ),
+        )
+
+        assertEquals(1, profile.version)
+        assertEquals(listOf("audit"), profile.skillIds)
+        assertEquals(1, profile.mcp.size)
+        assertEquals("browser", profile.mcp.single().serverId)
+        assertEquals("always-ask", profile.mcp.single().trust)
+    }
+
+    @Test
+    fun projectCapabilityProtocolEventsPreserveTheSecretFreeProfile() = runTest {
+        val event = parseEvent(
+            """{"event":"project:capabilities-updated","data":{"projectId":"project-1","profile":{"version":1,"skillIds":["audit"],"mcp":[{"serverId":"browser","trust":"auto"}]}}}""",
+        ) as WsEvent.ProjectCapabilitiesUpdated
+
+        assertEquals("project-1", event.projectId)
+        assertEquals(listOf("audit"), event.profile.skillIds)
+        assertEquals("browser", event.profile.mcp.single().serverId)
+        assertEquals("auto", event.profile.mcp.single().trust)
     }
 
     @Test
