@@ -22,6 +22,7 @@ import {
   setPrimarySourcePath,
 } from './project-sources'
 import { normalizeProjectColor, PROJECT_COLOR_NAMES } from '../shared/project-colors'
+import { normalizeCapabilityProfile } from './capability-service'
 
 export { DEFAULT_PROJECT_CONFIG };
 
@@ -196,6 +197,17 @@ function hydrateProjectHierarchy(db: ReturnType<typeof getDatabase>, projectId: 
   return { ...config, ...hierarchy, rootDirectory: primarySourcePath(hierarchy) || config.rootDirectory }
 }
 
+/**
+ * The same view of a project's config that `project:get-config` returns. Exported so writers
+ * outside this module (notably the project capability handlers) can broadcast a config change
+ * to mobile with the identical, hydrated payload rather than a partial one.
+ */
+export function readProjectConfig(db: ReturnType<typeof getDatabase>, projectId: string): ProjectConfig {
+  const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as
+    { config_json: string | null } | undefined
+  return hydrateProjectHierarchy(db, projectId, parseProjectConfig(row?.config_json ?? null))
+}
+
 function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<string, unknown> {
   const normalized = { ...config }
   if (Array.isArray(normalized.rootDirectory)) {
@@ -218,6 +230,12 @@ function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<st
     normalized.workspaceInfo = normalized.workspaceInfo && typeof normalized.workspaceInfo === 'object'
       ? normalized.workspaceInfo
       : null
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'capabilityProfile')) {
+    // Keep this writer in step with `project:set-capabilities`. Without it a generic config
+    // patch could persist an unvalidated capability blob that the capability reader then
+    // silently discards, which reads to the user as a save that did nothing.
+    normalized.capabilityProfile = normalizeCapabilityProfile(normalized.capabilityProfile)
   }
   if (Object.prototype.hasOwnProperty.call(normalized, 'defaultThinkingEffort')) {
     normalized.defaultThinkingEffort = typeof normalized.defaultThinkingEffort === 'string' && THINKING_EFFORTS.has(normalized.defaultThinkingEffort as ThinkingEffort)

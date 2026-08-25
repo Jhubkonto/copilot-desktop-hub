@@ -6,7 +6,15 @@ import type { UserInputAnswer, UserInputRequest } from '../shared/chat-turn-type
 import { createHash, randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { activateConversationCapabilities, getConversationCapabilityProfile, resolveConversationCapabilities } from './capability-service'
+import {
+  activateConversationCapabilities,
+  assertCapabilityProfileValid,
+  getConversationCapabilityProfile,
+  getProjectCapabilityProfile,
+  normalizeCapabilityProfile,
+  resolveConversationCapabilities,
+  setProjectCapabilityProfile,
+} from './capability-service'
 import { applyLifecycleSetting, setAutoStartEnabled } from './app-lifecycle-settings'
 import { abortActiveStream, PROVIDERS, getProviderModelIds, isProviderConfigured } from './providers'
 import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
@@ -138,8 +146,8 @@ import {
   rescanProjectSources,
   setPrimarySourcePath,
 } from './project-sources'
-import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-handlers'
-import { listDirectoryEntriesForRemote, readFileForRemote, readImageFileForRemote, isRemoteImagePath, getFsStartRoots, getFsAuthorizedRoots } from './file-handlers'
+import { parseProjectConfig, detectProjectWorkspaceMetadata, readProjectConfig } from './project-handlers'
+import { listDirectoryEntriesForRemote, readFileForRemote, readImageFileForRemote, readAssetFileForRemote, isRemoteImagePath, getFsStartRoots, getFsAuthorizedRoots } from './file-handlers'
 import { listProjectPeekDirectory, resolveProjectPeekPath, type ProjectPeekFilter, type ProjectPeekSource } from './project-peek'
 import {
   createSkillConfig,
@@ -1236,6 +1244,35 @@ export function registerWsHandlers(): void {
       return
     }
 
+    // Project settings is the authoritative editor for project-scoped capabilities. Unlike the
+    // chat-sheet activation shortcut, this replaces the complete profile so an administrator can
+    // revoke a skill or MCP grant for every chat in the project.
+    if (command === 'project:get-capabilities') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : typeof data.id === 'string' ? data.id : ''
+      if (!projectId) return
+      try {
+        reply({ event: 'project:capabilities', data: { projectId, profile: getProjectCapabilityProfile(db, projectId) } })
+      } catch (error) {
+        reply({ event: 'project:capabilities-error', data: { projectId, message: error instanceof Error ? error.message : 'Project not found' } })
+      }
+      return
+    }
+
+    if (command === 'project:set-capabilities') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : typeof data.id === 'string' ? data.id : ''
+      if (!projectId) return
+      try {
+        const profile = normalizeCapabilityProfile(data.profile)
+        assertCapabilityProfileValid(profile)
+        const saved = setProjectCapabilityProfile(db, projectId, profile)
+        reply({ event: 'project:capabilities-updated', data: { projectId, profile: saved } })
+        broadcastToMobile({ event: 'project:config-changed', data: { id: projectId, config: readProjectConfig(db, projectId) } })
+      } catch (error) {
+        reply({ event: 'project:capabilities-error', data: { projectId, message: error instanceof Error ? error.message : 'Could not save project capabilities' } })
+      }
+      return
+    }
+
     if (command === 'project:list') {
       const rows = db.prepare(`
           SELECT p.id, p.name, p.color, p.default_model,
@@ -1684,6 +1721,29 @@ export function registerWsHandlers(): void {
         // Project Peek identifies images from the directory entry; the bounded file reader
         // deliberately keeps its text response contract narrow.
         encoding: isRemoteImagePath(relativePath) ? 'base64' : 'utf8',
+      } })
+      return
+    }
+
+    // Invisible sub-resource fetches issued by the HTML preview WebView's request interceptor
+    // (shouldInterceptRequest) — never a user-initiated "open this file" action, so this is kept
+    // as its own command rather than overloading project-peek:read-file (see file-handlers.ts's
+    // readAssetFileForRemote for the tighter size cap and distinct extension allowlist).
+    if (command === 'project-peek:read-asset') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const sourceId = typeof data.sourceId === 'string' ? data.sourceId : ''
+      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
+      const source = projectId ? listProjectSources(db, projectId).sources
+        .find((candidate) => candidate.id === sourceId && candidate.enabled) : undefined
+      const path = source ? resolveProjectPeekPath(source.localPath, relativePath) : null
+      const result = path && source
+        ? readAssetFileForRemote(path, [source.localPath])
+        : { path: '', content: '', truncated: false, mimeType: '', encoding: 'base64' as const, error: 'This project asset is not available' }
+      reply({ event: 'project-peek:asset-content', data: {
+        projectId, sourceId, relativePath, requestId,
+        content: result.content, truncated: result.truncated, error: result.error,
+        mimeType: result.mimeType, encoding: result.encoding,
       } })
       return
     }

@@ -463,7 +463,7 @@ async function requestClaudeCliToolPermission(
   toolName: string,
   input: Record<string, unknown>,
   conversationId: string,
-  onPlanFinalized?: (plan: string) => void,
+  onPlanApproval?: (plan: string) => Promise<boolean>,
 ): Promise<boolean> {
   // The process-level flag is fixed at launch, but Nexy's HTTP permission hook remains live.
   // Re-read this conversation's mode so escalating a running turn to Bypass affects subsequent
@@ -487,7 +487,9 @@ async function requestClaudeCliToolPermission(
   // the next turn would start Claude in Plan mode again.
   if (toolName.toLowerCase() === 'exitplanmode') {
     const plan = typeof input.plan === 'string' ? input.plan.trim() : ''
-    if (plan) onPlanFinalized?.(plan)
+    // Newer interactive Claude CLIs can expose this native tool. Route it through the
+    // same application-owned handoff as the --print MCP bridge, including the follow-up turn.
+    if (plan && onPlanApproval) return onPlanApproval(plan)
     sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
     const approved = await requestApproval(
       window?.webContents,
@@ -1277,6 +1279,7 @@ export async function dispatchChatSend(
       const cliTextBuffer = new Map<string, ThinkingBlockEntry>()
       const codexPlanState: { completedPlan: string | null } = { completedPlan: null }
       let implementApprovedCodexPlan = false
+      let implementApprovedClaudePlan = false
       const cliSendChunk = (chunk: string, blockId?: string) => {
         sendChunk(chunk, blockId)
         if (!blockId) return
@@ -1514,6 +1517,25 @@ export async function dispatchChatSend(
             debugLog('chat', `cli-adapter: bridged ${bridgedSkills.length} skill(s) into ${effectiveBackend} skills dir`)
           }
         }
+        const requestClaudePlanApproval = async (plan: string): Promise<boolean> => {
+          finalizedPlan = plan
+          sendActivity({ state: 'approval', label: 'Waiting for plan approval', toolName: 'exit_plan_mode' })
+          const approved = await requestApproval(
+            window?.webContents,
+            'exit_plan_mode',
+            { plan },
+            'Approve this plan and start implementing?',
+            { noRemember: true, conversationId },
+          )
+          if (approved) {
+            clearPersistedPlanMode(conversationId, 'claude')
+            implementApprovedClaudePlan = true
+            sendActivity({ state: 'tool', label: 'Plan approved — leaving plan mode', toolName: 'exit_plan_mode' })
+          } else {
+            sendActivity({ state: 'thinking', label: 'Plan not approved — staying in plan mode' })
+          }
+          return approved
+        }
         const cliResponseContent = await adapter.send(
           window,
           {
@@ -1529,6 +1551,9 @@ export async function dispatchChatSend(
             conversationId,
             mcpServers: cliMcpServersForRequest,
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
+            // Only Claude CLI turns get the nexy_defer bridge wired (see claude.ts) — the flag is
+            // harmless for other backends' adapters, which simply don't read it.
+            deferredJobsEnabled: effectiveBackend === 'claude-cli',
             thinkingEffort: generationOptions.thinkingEffort as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
             skipPermissions: effectiveFullAutoApprove,
             permissionMode: effectivePermissionMode,
@@ -1546,6 +1571,14 @@ export async function dispatchChatSend(
             // this invariant so direct callers cannot accidentally re-enable prompts.
             requestPermission: effectiveBackend === 'claude-cli' && effectivePermissionMode !== 'bypassPermissions'
               ? (toolName, input) => {
+                  // ExitPlanMode is a conversation-lifecycle handoff, not a normal tool
+                  // permission. It must never be short-circuited by a scheduled tool policy.
+                  if (toolName.toLowerCase() === 'exitplanmode' && effectivePermissionMode === 'plan') {
+                    return requestClaudeCliToolPermission(
+                      window, agentCfg2, effectiveAgentId, sendActivity, effectiveFullAutoApprove,
+                      effectivePermissionMode, toolName, input, conversationId, requestClaudePlanApproval,
+                    )
+                  }
                   const decision = scheduledToolDecision(toolName)
                   return decision === null
                     ? requestClaudeCliToolPermission(
@@ -1558,7 +1591,7 @@ export async function dispatchChatSend(
                         toolName,
                         input,
                         conversationId,
-                        (plan) => { finalizedPlan = plan },
+                        effectivePermissionMode === 'plan' ? requestClaudePlanApproval : undefined,
                       )
                     : Promise.resolve(decision)
                 }
@@ -1576,6 +1609,9 @@ export async function dispatchChatSend(
                     ? requestHermesToolPermission(window, sendActivity, toolName, input, conversationId)
                     : Promise.resolve(decision)
                 }
+              : undefined,
+            requestPlanApproval: effectiveBackend === 'claude-cli' && effectivePermissionMode === 'plan'
+              ? requestClaudePlanApproval
               : undefined,
             requestUserInput: effectiveBackend === 'codex-cli' && effectiveCodexExecutionMode === 'plan'
               ? (questions) => requestUserInput(turnEmitter, 'codex', questions, collectResolvedUserInput)
@@ -1706,7 +1742,7 @@ export async function dispatchChatSend(
           saveFinalizedPlanArtifact({ conversationId, sourceMessageId: assistantMsgId, plan: finalizedPlan })
         }
         broadcastConversationMessages(conversationId)
-        sendStreamEnd({ suppressNotification: implementApprovedCodexPlan })
+        sendStreamEnd({ suppressNotification: implementApprovedCodexPlan || implementApprovedClaudePlan })
         if (implementApprovedCodexPlan) {
           // Let this turn settle before beginning the implementation turn. The explicit null
           // override prevents a stale conversation snapshot from re-entering Plan mode, while
@@ -1733,6 +1769,34 @@ export async function dispatchChatSend(
               },
             ).catch((error) => {
               debugLog('chat', `approved Codex plan follow-up failed: ${error instanceof Error ? error.message : String(error)}`)
+            })
+          }, 0)
+        }
+        if (implementApprovedClaudePlan) {
+          // Claude --print sessions cannot transition out of Plan mode in-process. Start a
+          // new normal Claude turn after persisting the approved plan, just as Codex does.
+          setTimeout(() => {
+            const implementationPrompt =
+              'Implement the approved plan now. Continue until it is fully complete, then verify the result.'
+            if (window && !window.webContents.isDestroyed()) {
+              window.webContents.send('chat:remote-message', {
+                conversationId,
+                content: implementationPrompt,
+              })
+            }
+            void dispatchChatSend(
+              window,
+              conversationId,
+              implementationPrompt,
+              {
+                agentId: effectiveAgentId ?? undefined,
+                model: cliModelForRequest || undefined,
+                cliBackend: 'claude-cli',
+                projectId: orchProjId ?? undefined,
+                cliModeOverride: null,
+              },
+            ).catch((error) => {
+              debugLog('chat', `approved Claude plan follow-up failed: ${error instanceof Error ? error.message : String(error)}`)
             })
           }, 0)
         }
