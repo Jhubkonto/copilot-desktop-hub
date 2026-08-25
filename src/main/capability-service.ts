@@ -90,7 +90,7 @@ export function mergeCapabilityProfiles(profiles: ConversationCapabilityProfile[
   return normalizeCapabilityProfile({ version: 1, skillIds, mcp: [...mcp.values()] })
 }
 
-function projectCapabilityProfile(db: Database.Database, projectId: string): ConversationCapabilityProfile {
+export function getProjectCapabilityProfile(db: Database.Database, projectId: string): ConversationCapabilityProfile {
   const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
   if (!row) throw new Error('Project not found')
   try {
@@ -101,7 +101,7 @@ function projectCapabilityProfile(db: Database.Database, projectId: string): Con
   }
 }
 
-function setProjectCapabilityProfile(db: Database.Database, projectId: string, profile: ConversationCapabilityProfile): ConversationCapabilityProfile {
+export function setProjectCapabilityProfile(db: Database.Database, projectId: string, profile: ConversationCapabilityProfile): ConversationCapabilityProfile {
   const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
   if (!row) throw new Error('Project not found')
   let config: Record<string, unknown> = {}
@@ -143,9 +143,25 @@ function conversationScopeIds(db: Database.Database, conversationId: string): { 
 export function getEffectiveCapabilityProfile(db: Database.Database, conversationId: string): ConversationCapabilityProfile {
   const { projectId, agentId } = conversationScopeIds(db, conversationId)
   const profiles = [getConversationCapabilityProfile(db, conversationId)]
-  if (projectId) profiles.push(projectCapabilityProfile(db, projectId))
+  if (projectId) profiles.push(getProjectCapabilityProfile(db, projectId))
   if (agentId) profiles.push(agentCapabilityProfile(db, agentId))
   return mergeCapabilityProfiles(profiles)
+}
+
+/**
+ * Rejects references that cannot be honoured at execution time. Shared by every writer so a
+ * profile persisted from Project Settings is held to the same bar as one activated from a chat.
+ */
+export function assertCapabilityProfileValid(profile: ConversationCapabilityProfile): void {
+  for (const skillId of profile.skillIds) {
+    const skill = getSkillConfig(skillId)
+    if (!skill) throw new Error(`Skill not found: ${skillId}`)
+    if (skill.validationStatus === 'invalid') throw new Error(`Skill is invalid: ${skill.name}`)
+  }
+  const configuredServers = new Set(getMcpServersWithStatus().map((server) => server.id))
+  for (const entry of profile.mcp) {
+    if (!configuredServers.has(entry.serverId)) throw new Error(`MCP server not found: ${entry.serverId}`)
+  }
 }
 
 export function activateConversationCapabilities(
@@ -155,21 +171,13 @@ export function activateConversationCapabilities(
 ): ConversationCapabilityProfile {
   getConversationCapabilityProfile(db, conversationId)
   const requestedSkillIds = input.skillIds ?? []
-  for (const skillId of requestedSkillIds) {
-    const skill = getSkillConfig(skillId)
-    if (!skill) throw new Error(`Skill not found: ${skillId}`)
-    if (skill.validationStatus === 'invalid') throw new Error(`Skill is invalid: ${skill.name}`)
-  }
-  const configuredServers = new Set(getMcpServersWithStatus().map((server) => server.id))
   const requestedMcp = input.mcp ?? []
-  for (const entry of requestedMcp) {
-    if (!configuredServers.has(entry.serverId)) throw new Error(`MCP server not found: ${entry.serverId}`)
-  }
   const requestedProfile = normalizeCapabilityProfile({
     version: 1,
     skillIds: requestedSkillIds,
     mcp: requestedMcp.map((entry) => ({ serverId: entry.serverId, trust: entry.trust ?? 'always-ask' as const })),
   })
+  assertCapabilityProfileValid(requestedProfile)
   const scope = input.scope ?? 'chat'
   if (scope === 'chat') {
     // Chat scope is an explicit override. The submitted checkbox state must be
@@ -182,7 +190,7 @@ export function activateConversationCapabilities(
   if (!targetId) throw new Error(`Choose a ${scope} before activating this capability.`)
 
   if (scope === 'project') {
-    setProjectCapabilityProfile(db, targetId, mergeCapabilityProfiles([projectCapabilityProfile(db, targetId), requestedProfile]))
+    setProjectCapabilityProfile(db, targetId, mergeCapabilityProfiles([getProjectCapabilityProfile(db, targetId), requestedProfile]))
   } else {
     const row = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(targetId) as { config_json: string } | undefined
     if (!row) throw new Error('Agent not found')
@@ -215,7 +223,7 @@ export function resolveConversationCapabilities(
   const profile = getEffectiveCapabilityProfile(db, conversationId)
   const scopeIds = conversationScopeIds(db, conversationId)
   const chatProfile = getConversationCapabilityProfile(db, conversationId)
-  const projectProfile = scopeIds.projectId ? projectCapabilityProfile(db, scopeIds.projectId) : EMPTY_CAPABILITY_PROFILE
+  const projectProfile = scopeIds.projectId ? getProjectCapabilityProfile(db, scopeIds.projectId) : EMPTY_CAPABILITY_PROFILE
   const agentProfile = scopeIds.agentId ? agentCapabilityProfile(db, scopeIds.agentId) : EMPTY_CAPABILITY_PROFILE
   const sourceForSkill = new Map<string, CapabilitySource>()
   for (const skillId of agentProfile.skillIds) sourceForSkill.set(skillId, 'agent')
