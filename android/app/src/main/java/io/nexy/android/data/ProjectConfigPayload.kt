@@ -19,4 +19,11 @@ internal fun buildProjectConfigPayload(id: String, config: ProjectSettingsConfig
         "milestones" to config.milestones,
         "defaultModel" to config.defaultModel.orEmpty(),
         "defaultThinkingEffort" to config.defaultThinkingEffort.orEmpty(),
+        "capabilityProfile" to mapOf(
+            "version" to 1,
+            "skillIds" to config.capabilityProfile.skillIds,
+            "mcp" to config.capabilityProfile.mcp.map { grant ->
+                mapOf("serverId" to grant.serverId, "trust" to grant.trust)
+            },
+        ),
     )

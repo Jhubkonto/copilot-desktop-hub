@@ -3052,10 +3052,33 @@ object WsRepository : WsClient {
             "projectId" to projectId, "sourceId" to sourceId, "relativePath" to relativePath, "requestId" to requestId,
         ))
     }
+    fun readProjectPeekAsset(projectId: String, sourceId: String, relativePath: String, requestId: String) {
+        send("project-peek:read-asset", mapOf(
+            "projectId" to projectId, "sourceId" to sourceId, "relativePath" to relativePath, "requestId" to requestId,
+        ))
+    }
 
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
     fun updateProjectConfig(id: String, config: ProjectSettingsConfig) {
         send("project:update-config", buildProjectConfigPayload(id, config))
+    }
+    fun getProjectCapabilities(projectId: String) {
+        send("project:get-capabilities", mapOf("projectId" to projectId))
+    }
+    fun setProjectCapabilities(projectId: String, profile: io.nexy.android.data.model.CapabilityProfile) {
+        send(
+            "project:set-capabilities",
+            mapOf(
+                "projectId" to projectId,
+                "profile" to mapOf(
+                    "version" to 1,
+                    "skillIds" to profile.skillIds,
+                    "mcp" to profile.mcp.map { grant ->
+                        mapOf("serverId" to grant.serverId, "trust" to grant.trust)
+                    },
+                ),
+            ),
+        )
     }
     fun addProjectSource(id: String, localPath: String) {
         send("project:add-source", mapOf("id" to id, "localPath" to localPath))

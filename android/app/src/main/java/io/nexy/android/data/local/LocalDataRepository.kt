@@ -2070,6 +2070,20 @@ private fun ProjectSettingsConfig.toJson(): JSONObject = JSONObject()
     .put("milestones", JSONArray(milestones))
     .put("defaultModel", defaultModel)
     .put("defaultThinkingEffort", defaultThinkingEffort)
+    .put(
+        "capabilityProfile",
+        JSONObject()
+            .put("version", 1)
+            .put("skillIds", JSONArray(capabilityProfile.skillIds))
+            .put(
+                "mcp",
+                JSONArray().also { array ->
+                    capabilityProfile.mcp.forEach { grant ->
+                        array.put(JSONObject().put("serverId", grant.serverId).put("trust", grant.trust))
+                    }
+                },
+            ),
+    )
 
 private fun List<AttachmentMeta>.toAttachmentsJson(): String = JSONArray().also { array ->
     forEach { item ->

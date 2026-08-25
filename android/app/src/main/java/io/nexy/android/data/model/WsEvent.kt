@@ -189,6 +189,10 @@ sealed class WsEvent {
     data class CapabilityPreflight(val conversationId: String, val preflightJson: String) : WsEvent()
     data class CapabilitiesActivated(val conversationId: String, val profileJson: String) : WsEvent()
     data class CapabilitiesError(val conversationId: String, val message: String) : WsEvent()
+    /** Secret-free, replaceable capability defaults for one project. */
+    data class ProjectCapabilities(val projectId: String, val profile: CapabilityProfile) : WsEvent()
+    data class ProjectCapabilitiesUpdated(val projectId: String, val profile: CapabilityProfile) : WsEvent()
+    data class ProjectCapabilitiesError(val projectId: String, val message: String) : WsEvent()
     data class ConversationPage(
         val requestId: String,
         val conversations: List<Conversation>,
@@ -576,6 +580,19 @@ sealed class WsEvent {
         val error: String?,
     ) : WsEvent()
     data class ProjectPeekFileContent(
+        val projectId: String,
+        val sourceId: String,
+        val relativePath: String,
+        val requestId: String?,
+        val content: String,
+        val truncated: Boolean,
+        val error: String?,
+        val mimeType: String?,
+        val encoding: String?,
+    ) : WsEvent()
+    // Sub-resource replies for the HTML preview WebView's request interceptor — never surfaced
+    // directly in the UI, consumed only by ProjectPeekAssetLoader.
+    data class ProjectPeekAssetContent(
         val projectId: String,
         val sourceId: String,
         val relativePath: String,
@@ -1321,6 +1338,19 @@ data class ProjectSettingsConfig(
     val milestones: List<Map<String, String>> = emptyList(),
     val defaultModel: String?,
     val defaultThinkingEffort: String? = null,
+    /** IDs and approval policy only; MCP credentials never leave the desktop. */
+    val capabilityProfile: CapabilityProfile = CapabilityProfile(),
+)
+
+data class CapabilityProfile(
+    val version: Int = 1,
+    val skillIds: List<String> = emptyList(),
+    val mcp: List<CapabilityMcpGrant> = emptyList(),
+)
+
+data class CapabilityMcpGrant(
+    val serverId: String,
+    val trust: String = "always-ask",
 )
 
 data class AgentGeneratorSpec(

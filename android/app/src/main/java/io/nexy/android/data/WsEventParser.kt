@@ -22,6 +22,8 @@ import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.data.model.SkillGeneratorSpec
 import io.nexy.android.data.model.SkillGeneratorTools
 import io.nexy.android.data.model.ProjectSettingsConfig
+import io.nexy.android.data.model.CapabilityMcpGrant
+import io.nexy.android.data.model.CapabilityProfile
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ProjectGeneratorSpec
 import io.nexy.android.data.model.ProjectGeneratorAgentSpec
@@ -472,6 +474,21 @@ fun parseWsEvent(
             "capabilities:error" -> WsEvent.CapabilitiesError(
                 conversationId = data?.optString("conversationId") ?: "",
                 message = data?.optString("message") ?: "Capability setup failed",
+            )
+
+            "project:capabilities" -> WsEvent.ProjectCapabilities(
+                projectId = data?.optString("projectId") ?: "",
+                profile = parseCapabilityProfile(data?.optJSONObject("profile") ?: JSONObject()),
+            )
+
+            "project:capabilities-updated" -> WsEvent.ProjectCapabilitiesUpdated(
+                projectId = data?.optString("projectId") ?: "",
+                profile = parseCapabilityProfile(data?.optJSONObject("profile") ?: JSONObject()),
+            )
+
+            "project:capabilities-error" -> WsEvent.ProjectCapabilitiesError(
+                projectId = data?.optString("projectId") ?: "",
+                message = data?.optString("message") ?: "Could not save project capabilities",
             )
 
             "project:list" -> {
@@ -2772,6 +2789,18 @@ fun parseWsEvent(
                 encoding = data?.nullableString("encoding"),
             )
 
+            "project-peek:asset-content" -> WsEvent.ProjectPeekAssetContent(
+                projectId = data?.optString("projectId").orEmpty(),
+                sourceId = data?.optString("sourceId").orEmpty(),
+                relativePath = data?.optString("relativePath").orEmpty(),
+                requestId = data?.nullableString("requestId"),
+                content = data?.optString("content").orEmpty(),
+                truncated = data?.optBoolean("truncated", false) ?: false,
+                error = data?.nullableString("error"),
+                mimeType = data?.nullableString("mimeType"),
+                encoding = data?.nullableString("encoding"),
+            )
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
@@ -3182,7 +3211,25 @@ internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConf
         defaultThinkingEffort = config.nullableString("defaultThinkingEffort")?.takeIf {
             it in setOf("low", "medium", "high", "max", "disabled")
         },
+        capabilityProfile = parseCapabilityProfile(config.optJSONObject("capabilityProfile") ?: JSONObject()),
     )
+}
+
+internal fun parseCapabilityProfile(profile: JSONObject): CapabilityProfile {
+    val validTrust = setOf("always-ask", "auto", "block")
+    val skillIds = profile.optJSONArray("skillIds")?.let { array ->
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).trim().takeIf(String::isNotBlank)
+        }.distinct()
+    } ?: emptyList()
+    val mcp = profile.optJSONArray("mcp")?.let { array ->
+        (0 until array.length()).mapNotNull { index ->
+            val entry = array.optJSONObject(index) ?: return@mapNotNull null
+            val serverId = entry.optString("serverId").trim().takeIf(String::isNotBlank) ?: return@mapNotNull null
+            CapabilityMcpGrant(serverId, entry.optString("trust").takeIf { it in validTrust } ?: "always-ask")
+        }.distinctBy(CapabilityMcpGrant::serverId)
+    } ?: emptyList()
+    return CapabilityProfile(version = 1, skillIds = skillIds, mcp = mcp)
 }
 
 private fun parseManagedWorkflowBinding(obj: JSONObject) = ManagedWorkflowBindingRecord(
