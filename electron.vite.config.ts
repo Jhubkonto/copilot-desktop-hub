@@ -24,6 +24,10 @@ function copyWorkers(): import('vite').Plugin {
         resolve(__dirname, 'src/main/skill-save-mcp-worker.cjs'),
         resolve(outDir, 'skill-save-mcp-worker.cjs'),
       )
+      copyFileSync(
+        resolve(__dirname, 'src/main/plan-mcp-worker.cjs'),
+        resolve(outDir, 'plan-mcp-worker.cjs'),
+      )
     },
   }
 }
