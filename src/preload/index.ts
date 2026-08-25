@@ -318,6 +318,10 @@ const api = {
     typedInvoke('capabilities:resolve', id, modelId),
   activateCapabilities: (id: string, input: CapabilityActivationInput): Promise<ConversationCapabilityProfile> =>
     typedInvoke('capabilities:activate', id, input),
+  getProjectCapabilities: (projectId: string): Promise<ConversationCapabilityProfile> =>
+    typedInvoke('project:get-capabilities', projectId),
+  setProjectCapabilities: (projectId: string, profile: ConversationCapabilityProfile): Promise<ConversationCapabilityProfile> =>
+    typedInvoke('project:set-capabilities', projectId, profile),
   updateConversationContext: (
     conversationId: string,
     updates: { projectId?: string | null; agentId?: string | null }

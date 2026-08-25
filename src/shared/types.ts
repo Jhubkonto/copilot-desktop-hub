@@ -2418,6 +2418,8 @@ export type IpcReturnMap = {
   'project:duplicate': ProjectRow | null
   'project:export': boolean
   'project:get-config': ProjectConfig
+  'project:get-capabilities': ConversationCapabilityProfile
+  'project:set-capabilities': ConversationCapabilityProfile
   'project:inspect-workspace': ProjectWorkspaceMetadata | null
   'project:list-sources': { sources: ProjectSource[]; repositories: ProjectRepository[] }
   'project:add-source': { sources: ProjectSource[]; repositories: ProjectRepository[] }
@@ -2868,6 +2870,8 @@ export type IpcChannels =
   | 'project:duplicate'
   | 'project:export'
   | 'project:get-config'
+  | 'project:get-capabilities'
+  | 'project:set-capabilities'
   | 'project:inspect-workspace'
   | 'project:list-sources'
   | 'project:add-source'
