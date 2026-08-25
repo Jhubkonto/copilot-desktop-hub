@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
@@ -74,6 +75,10 @@ import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ProjectSource
 import io.nexy.android.data.model.ProjectRepositoryBinding
+import io.nexy.android.data.model.CapabilityMcpGrant
+import io.nexy.android.data.model.CapabilityProfile
+import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NewChatItem
 import io.nexy.android.ui.components.NexyConfirmDialog
@@ -83,6 +88,7 @@ import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.settings.SettingsNavRow
 import io.nexy.android.ui.chat.ModelPickerSheet
+import io.nexy.android.ui.chat.capabilityTrustOptions
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.home.projectColor
 import io.nexy.android.ui.home.projectColorOptions
@@ -128,6 +134,7 @@ fun ProjectConfigScreen(
     isNew: Boolean = false,
     onOpenFileExplorer: (String) -> Unit = {},
     onAddSourceFolder: () -> Unit = {},
+    onOpenMcpServers: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsStateWithLifecycle()
     val allAgents by WsRepository.agents.collectAsStateWithLifecycle()
@@ -135,6 +142,8 @@ fun ProjectConfigScreen(
     val models by WsRepository.models.collectAsStateWithLifecycle()
     val cliStatus by WsRepository.cliStatus.collectAsStateWithLifecycle()
     val effectiveMode by WsRepository.effectiveMode.collectAsStateWithLifecycle()
+    val availableSkills by WsRepository.skills.collectAsStateWithLifecycle()
+    val availableMcpServers by WsRepository.mcpServers.collectAsStateWithLifecycle()
     val project = projects.find { it.id == projectId }
 
     var color by remember(projectId) { mutableStateOf(project?.color ?: "blue") }
@@ -166,6 +175,10 @@ fun ProjectConfigScreen(
     var loadedShowTeamActivity by remember { mutableStateOf(true) }
     var loadedDefaultModel by remember { mutableStateOf<String?>(null) }
     var loadedDefaultThinkingEffort by remember { mutableStateOf<String?>(null) }
+    var savedCapabilityProfile by remember(projectId) { mutableStateOf(CapabilityProfile()) }
+    var capabilityProfileDraft by remember(projectId) { mutableStateOf(CapabilityProfile()) }
+    var capabilitiesSaving by remember { mutableStateOf(false) }
+    var mcpGrantToRevoke by remember { mutableStateOf<CapabilityMcpGrant?>(null) }
     val variables = remember { mutableStateListOf<Map<String, String>>() }
     val inScope = remember { mutableStateListOf<Map<String, String>>() }
     val outOfScope = remember { mutableStateListOf<Map<String, String>>() }
@@ -201,6 +214,7 @@ fun ProjectConfigScreen(
     var scopeExpanded by rememberSaveable { mutableStateOf(false) }
     var milestonesExpanded by rememberSaveable { mutableStateOf(false) }
     var orchestrationExpanded by rememberSaveable { mutableStateOf(false) }
+    var capabilitiesExpanded by rememberSaveable { mutableStateOf(false) }
     var agentsExpanded by rememberSaveable { mutableStateOf(true) }
 
     val hasUnsavedChanges = loaded && (
@@ -215,6 +229,8 @@ fun ProjectConfigScreen(
         defaultModel != loadedDefaultModel ||
         defaultThinkingEffort != loadedDefaultThinkingEffort
     )
+    val capabilityProfileDirty = !sameCapabilityProfile(capabilityProfileDraft, savedCapabilityProfile)
+    val currentCapabilityProfileDirty by rememberUpdatedState(capabilityProfileDirty)
 
     // Navigating to the file explorer (from "Project files" or the "Choose folder…" picker)
     // disposes and recreates this composable; `loaded` is rememberSaveable so it survives that
@@ -225,6 +241,14 @@ fun ProjectConfigScreen(
             WsRepository.getProjectConfig(projectId)
         }
         WsRepository.listProjectAgents(projectId)
+    }
+
+    LaunchedEffect(projectId, connectionState) {
+        if (connectionState == ConnectionState.CONNECTED) {
+            WsRepository.getProjectCapabilities(projectId)
+            WsRepository.listSkills()
+            WsRepository.getMcpServers()
+        }
     }
 
     LaunchedEffect(projectId) {
@@ -243,6 +267,10 @@ fun ProjectConfigScreen(
                     showTeamActivity = event.config.showTeamActivity
                     defaultModel = event.config.defaultModel
                     defaultThinkingEffort = event.config.defaultThinkingEffort
+                    if (!currentCapabilityProfileDirty) {
+                        savedCapabilityProfile = event.config.capabilityProfile
+                        capabilityProfileDraft = event.config.capabilityProfile
+                    }
                     variables.replaceWith(event.config.variables)
                     inScope.replaceWith(event.config.inScope)
                     outOfScope.replaceWith(event.config.outOfScope)
@@ -293,6 +321,10 @@ fun ProjectConfigScreen(
                         projectRepositories = event.config.repositories
                         rootDirectory = event.config.rootDirectory.orEmpty()
                         loadedRootDirectory = event.config.rootDirectory.orEmpty()
+                        if (!currentCapabilityProfileDirty) {
+                            savedCapabilityProfile = event.config.capabilityProfile
+                            capabilityProfileDraft = event.config.capabilityProfile
+                        }
                     } else if (loaded && !hasUnsavedChanges) {
                         // Compatibility with older desktops that only broadcast the project id.
                         WsRepository.getProjectConfig(projectId)
@@ -322,6 +354,20 @@ fun ProjectConfigScreen(
                 is WsEvent.ProjectAgents -> if (event.id == projectId) {
                     projectAgents.clear()
                     projectAgents.addAll(event.agents)
+                }
+                is WsEvent.ProjectCapabilities -> if (event.projectId == projectId && !currentCapabilityProfileDirty) {
+                    savedCapabilityProfile = event.profile
+                    capabilityProfileDraft = event.profile
+                }
+                is WsEvent.ProjectCapabilitiesUpdated -> if (event.projectId == projectId) {
+                    capabilitiesSaving = false
+                    savedCapabilityProfile = event.profile
+                    capabilityProfileDraft = event.profile
+                    scope.launch { snackbarHostState.showSnackbar("Capabilities saved", duration = SnackbarDuration.Short) }
+                }
+                is WsEvent.ProjectCapabilitiesError -> if (event.projectId == projectId) {
+                    capabilitiesSaving = false
+                    scope.launch { snackbarHostState.showSnackbar(event.message, duration = SnackbarDuration.Long) }
                 }
                 else -> {}
             }
@@ -413,6 +459,22 @@ fun ProjectConfigScreen(
                 WsRepository.removeProjectRepository(projectId, repository.id)
             },
             onDismiss = { repositoryToRemove = null },
+        )
+    }
+
+    mcpGrantToRevoke?.let { grant ->
+        NexyConfirmDialog(
+            title = "Revoke MCP capability?",
+            message = "Remove this MCP capability from every chat in this project? Existing chats will no longer inherit it.",
+            confirmLabel = "Revoke",
+            destructive = true,
+            onConfirm = {
+                capabilityProfileDraft = capabilityProfileDraft.copy(
+                    mcp = capabilityProfileDraft.mcp.filterNot { it.serverId == grant.serverId },
+                )
+                mcpGrantToRevoke = null
+            },
+            onDismiss = { mcpGrantToRevoke = null },
         )
     }
 
@@ -868,6 +930,35 @@ fun ProjectConfigScreen(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+            // — Capabilities —
+            NexyExpandableSection(
+                title = "Capabilities",
+                expanded = capabilitiesExpanded,
+                onToggle = { capabilitiesExpanded = !capabilitiesExpanded },
+                badge = (capabilityProfileDraft.skillIds.size + capabilityProfileDraft.mcp.size)
+                    .takeIf { it > 0 }
+                    ?.toString(),
+            ) {
+                ProjectCapabilitiesSection(
+                    profile = capabilityProfileDraft,
+                    savedProfile = savedCapabilityProfile,
+                    skills = availableSkills,
+                    mcpServers = availableMcpServers,
+                    desktopConnected = !desktopDisconnected,
+                    saving = capabilitiesSaving,
+                    onProfileChange = { capabilityProfileDraft = it },
+                    onRevokeMcp = { mcpGrantToRevoke = it },
+                    onDiscard = { capabilityProfileDraft = savedCapabilityProfile },
+                    onSave = {
+                        capabilitiesSaving = true
+                        WsRepository.setProjectCapabilities(projectId, capabilityProfileDraft)
+                    },
+                    onOpenMcpServers = onOpenMcpServers,
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
             // — Variables —
             NexyExpandableSection(
                 title = "Variables",
@@ -1246,6 +1337,182 @@ private fun MutableList<Map<String, String>>.replaceWith(next: List<Map<String, 
 private fun <T> MutableList<T>.move(from: Int, to: Int) {
     val item = removeAt(from)
     add(to, item)
+}
+
+private fun sameCapabilityProfile(left: CapabilityProfile, right: CapabilityProfile): Boolean =
+    left.skillIds.toSet() == right.skillIds.toSet() &&
+        left.mcp.associate { it.serverId to it.trust } == right.mcp.associate { it.serverId to it.trust }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProjectCapabilitiesSection(
+    profile: CapabilityProfile,
+    savedProfile: CapabilityProfile,
+    skills: List<SkillConfig>,
+    mcpServers: List<McpServerInfo>,
+    desktopConnected: Boolean,
+    saving: Boolean,
+    onProfileChange: (CapabilityProfile) -> Unit,
+    onRevokeMcp: (CapabilityMcpGrant) -> Unit,
+    onDiscard: () -> Unit,
+    onSave: () -> Unit,
+    onOpenMcpServers: () -> Unit,
+) {
+    var skillQuery by remember { mutableStateOf("") }
+    val filteredSkills = skills.filter { skill ->
+        skillQuery.isBlank() || skill.name.contains(skillQuery, ignoreCase = true) ||
+            skill.description.contains(skillQuery, ignoreCase = true)
+    }
+    val skillIds = skills.mapTo(mutableSetOf()) { it.id }
+    val serverIds = mcpServers.mapTo(mutableSetOf()) { it.id }
+    val unavailableSkills = if (desktopConnected) profile.skillIds.filterNot(skillIds::contains) else emptyList()
+    val unavailableMcp = if (desktopConnected) profile.mcp.filterNot { it.serverId in serverIds } else emptyList()
+    val hasUnavailableReferences = unavailableSkills.isNotEmpty() || unavailableMcp.isNotEmpty()
+    val canEdit = desktopConnected && !saving
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+        Text(
+            "Every chat in this project inherits these defaults. Chat and agent setup can add capabilities, but cannot relax a project restriction.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!desktopConnected) {
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+                Text(
+                    "Showing the saved profile. Connect the paired desktop to change capabilities; MCP credentials and browser sessions stay on that desktop.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
+        if (hasUnavailableReferences) {
+            Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
+                Text(
+                    "Remove unavailable capabilities before saving: " +
+                        (unavailableSkills + unavailableMcp.map { it.serverId }).joinToString(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
+
+        Text("Skills", style = MaterialTheme.typography.labelLarge)
+        if (skills.isNotEmpty()) {
+            OutlinedTextField(
+                value = skillQuery,
+                onValueChange = { skillQuery = it },
+                label = { Text("Search skills") },
+                singleLine = true,
+                enabled = canEdit,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (skills.isEmpty() && desktopConnected) {
+            Text("No imported skills yet. Add skills from the Skills screen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        filteredSkills.forEach { skill ->
+            val selected = skill.id in profile.skillIds
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { checked ->
+                        onProfileChange(profile.copy(skillIds = if (checked) profile.skillIds + skill.id else profile.skillIds - skill.id))
+                    },
+                    enabled = canEdit,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(if (skill.icon.isBlank()) skill.name else "${skill.icon} ${skill.name}", style = MaterialTheme.typography.bodyMedium)
+                    if (skill.description.isNotBlank()) {
+                        Text(skill.description, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        unavailableSkills.forEach { skillId ->
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = true, onCheckedChange = { onProfileChange(profile.copy(skillIds = profile.skillIds - skillId)) }, enabled = canEdit)
+                Text("$skillId (unavailable)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        Text("MCP tools", style = MaterialTheme.typography.labelLarge)
+        if (mcpServers.isEmpty() && desktopConnected) {
+            Text("No MCP servers configured yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        mcpServers.forEach { server ->
+            val grant = profile.mcp.firstOrNull { it.serverId == server.id }
+            var approvalExpanded by remember(server.id) { mutableStateOf(false) }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = grant != null,
+                        onCheckedChange = { checked ->
+                            if (checked) onProfileChange(profile.copy(mcp = profile.mcp + CapabilityMcpGrant(server.id)))
+                            else grant?.let(onRevokeMcp)
+                        },
+                        enabled = canEdit,
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(server.name, style = MaterialTheme.typography.bodyMedium)
+                        if (server.description.isNotBlank()) Text(server.description, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (grant != null) {
+                    ExposedDropdownMenuBox(
+                        expanded = approvalExpanded,
+                        onExpandedChange = { if (canEdit) approvalExpanded = it },
+                        modifier = Modifier.padding(start = 48.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = capabilityTrustOptions.find { it.first == grant.trust }?.second ?: "Ask every time",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Approval") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = approvalExpanded) },
+                            enabled = canEdit,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(expanded = approvalExpanded, onDismissRequest = { approvalExpanded = false }) {
+                            capabilityTrustOptions.forEach { (trust, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        onProfileChange(profile.copy(mcp = profile.mcp.map {
+                                            if (it.serverId == server.id) it.copy(trust = trust) else it
+                                        }))
+                                        approvalExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        unavailableMcp.forEach { grant ->
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = true, onCheckedChange = { onRevokeMcp(grant) }, enabled = canEdit)
+                Text("${grant.serverId} (unavailable)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        if (desktopConnected) {
+            TextButton(onClick = onOpenMcpServers, enabled = !saving) { Text("Manage or add MCP capabilities") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            TextButton(
+                onClick = onDiscard,
+                enabled = canEdit && !sameCapabilityProfile(profile, savedProfile),
+                modifier = Modifier.weight(1f),
+            ) { Text("Discard") }
+            Button(
+                onClick = onSave,
+                enabled = canEdit && !hasUnavailableReferences && !sameCapabilityProfile(profile, savedProfile),
+                modifier = Modifier.weight(1f),
+            ) { Text(if (saving) "Saving…" else "Save capabilities") }
+        }
+    }
 }
 
 @Composable

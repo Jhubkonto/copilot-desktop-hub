@@ -2,6 +2,7 @@ package io.nexy.android.ui.projectpeek
 
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.webkit.WebView
 import android.widget.TextView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -76,7 +77,7 @@ fun ProjectPeekViewerScreen(
     Scaffold(topBar = {
         NexyTopAppBar(
             titleContent = { Text(relativePath.substringAfterLast('/')) }, onBack = onBack,
-            actions = { if (category == "document") TextButton(onClick = { sourceMode = !sourceMode }) { Text(if (sourceMode) "Rendered" else "Source") } },
+            actions = { if (category == "document" || category == "html") TextButton(onClick = { sourceMode = !sourceMode }) { Text(if (sourceMode) "Rendered" else "Source") } },
         )
     }) { padding ->
         when {
@@ -95,6 +96,36 @@ fun ProjectPeekViewerScreen(
                 else Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally) {
                     Image(bitmap = bitmap, contentDescription = "Image preview", modifier = Modifier.weight(1f))
                     Text("${bitmap.width} × ${bitmap.height} px", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(8.dp))
+                }
+            }
+            category == "html" && sourceMode -> Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                if (truncated) Text("This document is very large; only the first 500 KB is shown.", color = MaterialTheme.colorScheme.error)
+                Text(content.orEmpty(), style = MaterialTheme.typography.bodySmall)
+            }
+            category == "html" -> {
+                val loader = remember(projectId, sourceId, relativePath) { ProjectPeekAssetLoader(projectId, sourceId) }
+                val baseUrl = remember(sourceId, relativePath) { projectPeekBaseUrl(sourceId, relativePath) }
+                Column(Modifier.fillMaxSize().padding(padding)) {
+                    if (truncated) Text(
+                        "This document is very large; only the first 500 KB is shown.",
+                        color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp),
+                    )
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                // Hardened, read-only preview: no script execution, no reach into
+                                // phone storage, every sub-resource funneled through the
+                                // interceptor below instead of a real network request.
+                                settings.javaScriptEnabled = false
+                                settings.allowFileAccess = false
+                                settings.allowContentAccess = false
+                                settings.blockNetworkLoads = true
+                                webViewClient = ProjectPeekWebViewClient(loader)
+                            }
+                        },
+                        update = { it.loadDataWithBaseURL(baseUrl, content.orEmpty(), "text/html", "utf-8", null) },
+                    )
                 }
             }
             else -> Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
