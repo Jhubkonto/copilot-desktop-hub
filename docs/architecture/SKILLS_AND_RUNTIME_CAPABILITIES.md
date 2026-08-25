@@ -39,6 +39,10 @@ For the Lynx audit:
 3. Select `audit-thingsboard-instance`, select **Playwright (Chromium)** once it is configured,
    and leave MCP trust at **Ask before running**.
 4. Choose **This chat** for a one-off audit, or promote the setup to the current project/agent.
+   Promotion is additive. To later revoke a project grant or loosen its approval level, edit
+   **Project Settings → Capabilities**, which owns the project's full set. Prefer project scope for
+   domain knowledge that belongs to one codebase (an instance-audit skill, a project-specific MCP
+   server); prefer agent scope only for capabilities a role should carry across every project.
 5. Invoke explicitly:
 
    ```text

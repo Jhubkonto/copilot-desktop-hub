@@ -63,6 +63,25 @@ The flow has three scopes:
 The recommended default is **This chat**. It does not create an agent. If the user chooses
 project or agent scope, the UI states exactly what will be changed before applying it.
 
+### One authoritative editor per scope
+
+Each scope has exactly one surface that owns its full set, and that surface is the only one with
+replace semantics:
+
+| Scope | Authoritative editor | Semantics |
+| --- | --- | --- |
+| This chat | Chat composer capability popover | Replace — the submitted selection is the profile |
+| This project | **Project Settings → Capabilities** | Replace — removal and trust loosening happen here |
+| This agent | Agent panel → Skills/MCP | Replace, backed by the agent attachment and trust tables |
+
+The popover's "Add to project" / "Attach to agent" buttons are **additive shortcuts**, not editors.
+They union the selection into the target scope and, through `mergeTrust`, can only ever tighten an
+approval level. That asymmetry is deliberate: a chat must not be able to silently loosen a
+restriction that a project or agent imposed. The consequence is that a grant can only be *removed*,
+and an approval level only *loosened*, from the scope's authoritative editor — so every scope needs
+one. Project scope had no such editor before `project:get-capabilities` /
+`project:set-capabilities`, which made project grants permanent once written.
+
 ## Guided activation flow
 
 The flow should be the same on desktop and Android, with platform-specific controls only where
@@ -169,7 +188,10 @@ Required operations:
 - `conversation:get-capabilities`
 - `conversation:set-capabilities`
 - `capabilities:resolve` (read-only preflight; returns status and provenance)
-- `capabilities:activate` (writes the selected scope after confirmation)
+- `capabilities:activate` (additive write to the selected scope after confirmation)
+- `project:get-capabilities` / `project:set-capabilities` (project scope, replace semantics; the
+  set path normalizes, validates every skill/server reference, then broadcasts
+  `project:config-changed` to mobile like any other project config write)
 
 Android should receive the profile and preflight status through WebSocket events. In standalone
 mode, Android may use skills and direct provider chat only when the selected capability is locally
@@ -240,7 +262,11 @@ conversation, log in interactively, and run the skill without an agent.
 Acceptance: users can promote a working chat setup to a project or agent without re-entering MCP
 configuration or secrets. **Implemented:** project defaults are stored in the existing project
 configuration JSON; agent promotion reuses the existing skill attachment and MCP trust tables;
-the effective resolver applies the most restrictive trust across inherited scopes.
+the effective resolver applies the most restrictive trust across inherited scopes. Project scope is
+edited in the Capabilities tab of Project Settings (`src/renderer/components/project-settings/
+CapabilitiesTab.tsx`), which is the only surface that can revoke a project grant or loosen its
+approval level. Profile entries whose skill or MCP server no longer exists are surfaced as
+"Unavailable" with an explicit Remove control rather than being dropped silently on the next save.
 
 ### Phase 4 — Android parity
 
