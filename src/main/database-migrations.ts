@@ -1952,6 +1952,40 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON conversation_capability_invocations(conversation_id, created_at);
     `,
   },
+  {
+    // Cross-session wake-ups. A conversation that starts a long-running job (a Gradle build, a
+    // packaging run) previously had no way to be re-entered when that job finished: the harness
+    // only delivers a background command's completion back into the session that spawned it, so
+    // "I'll report back when it finishes" was unkeepable once the session ended. Persisting the
+    // binding here lets the resolver dispatch a real follow-up turn into the conversation later,
+    // including after an app restart — and lets a job interrupted by that restart surface as a
+    // visible 'orphaned' row rather than silence.
+    version: 97,
+    sql: `
+      CREATE TABLE IF NOT EXISTS deferred_callbacks (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('process', 'build', 'deadline')),
+        trigger_ref TEXT NOT NULL,
+        label TEXT NOT NULL,
+        pid INTEGER,
+        project_id TEXT,
+        agent_id TEXT,
+        chain_depth INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'fired', 'expired', 'orphaned', 'cancelled', 'failed')) DEFAULT 'pending',
+        result_json TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        fired_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_deferred_callbacks_trigger
+        ON deferred_callbacks(trigger_kind, trigger_ref, status);
+      CREATE INDEX IF NOT EXISTS idx_deferred_callbacks_status
+        ON deferred_callbacks(status, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_deferred_callbacks_conversation
+        ON deferred_callbacks(conversation_id, status);
+    `,
+  },
 ];
 
 
