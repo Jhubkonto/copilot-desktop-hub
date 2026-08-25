@@ -42,9 +42,18 @@ export interface CliAdapterRequest {
   // that support a permission callback (currently Claude Code via PermissionRequest
   // hooks) pause the tool call and delegate the exact request to Nexy's approval UI.
   requestPermission?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>
+  /** Claude --print omits its native ExitPlanMode tool. In Plan mode, its Nexy MCP bridge
+   * invokes this callback and waits for the same approval handoff used by native clients. */
+  requestPlanApproval?: (plan: string) => Promise<boolean>
   /** Pauses a supported CLI protocol request while Nexy's desktop or paired Android UI
    * collects a structured answer. This is deliberately separate from permissions. */
   requestUserInput?: (questions: UserInputQuestion[]) => Promise<UserInputAnswer[]>
+  /** Opts this turn into the `nexy_defer` MCP bridge (currently Claude CLI only), letting the
+   * agent hand off a long shell command to Nexy's deferred-callback tracking instead of blocking
+   * on it — see deferred-callbacks.ts. Off by default so callers that invoke an adapter directly
+   * without a real conversation behind it (tests, one-off tool checks) don't pay for a loopback
+   * server they have no use for. */
+  deferredJobsEnabled?: boolean
 }
 
 export type CliStreamEvent =

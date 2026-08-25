@@ -3,6 +3,9 @@ import { randomUUID } from 'crypto'
 import { createServer } from 'http'
 import type { BrowserWindow } from 'electron'
 import { startUserInputMcpBridge } from '../user-input-mcp-bridge'
+import { startDeferMcpBridge } from '../defer-mcp-bridge'
+import { startPlanMcpBridge } from '../plan-mcp-bridge'
+import { consumeChainDepthHint } from '../deferred-callbacks'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath, killProcess, createLineBuffer, createOpenBlockTracker, buildCliChildEnv, createInactivityWatchdog, CLI_INACTIVITY_TIMEOUT_MS } from './utils'
 import { extractCitations } from '../../shared/citations'
@@ -169,11 +172,31 @@ export const ClaudeAdapter: CliAgentAdapter = {
     const userInputBridge = req.requestUserInput
       ? await startUserInputMcpBridge(req.requestUserInput, (waiting) => { awaitingUserInput = waiting })
       : null
+    // Gives the turn a Nexy-owned alternative to a raw background shell command: a long job
+    // started through it is tracked in `deferred_callbacks` and reported into this conversation
+    // whenever it finishes, rather than only being visible to a session that may have already
+    // ended. `consumeChainDepthHint` carries the depth forward when this turn is itself the
+    // follow-up to an earlier fired/orphaned callback, so a self-resolving loop still hits
+    // MAX_CHAIN_DEPTH instead of arming indefinitely. Opt-in (like the other bridges above) so a
+    // caller that hasn't wired a conversation up for this — direct adapter tests, for one — isn't
+    // forced to pay for a loopback server it has no use for.
+    const deferBridge = req.deferredJobsEnabled
+      ? await startDeferMcpBridge({
+          conversationId: req.conversationId,
+          cwd: req.cwd,
+          chainDepth: consumeChainDepthHint(req.conversationId),
+        })
+      : null
+    const planBridge = req.permissionMode === 'plan' && req.requestPlanApproval
+      ? await startPlanMcpBridge(req.requestPlanApproval)
+      : null
     return new Promise((resolve, reject) => {
       const claudePath = resolveCliPath('claude')
       if (!claudePath) {
         permissionHook?.close()
         userInputBridge?.close()
+        deferBridge?.close()
+        planBridge?.close()
         reject(new Error('claude CLI not found'))
         return
       }
@@ -184,11 +207,20 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // in the user's global ~/.claude.json. We control exactly which servers are
       // available via --mcp-config (or none at all when no servers are permitted).
       const args = ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config']
-      if (req.systemPrompt || userInputBridge) {
+      if (req.systemPrompt || userInputBridge || deferBridge || planBridge) {
         const userInputInstruction = userInputBridge
           ? '\n\nWhen essential information is missing, call nexy_user_input.ask_user and wait for the answer. Do not use AskUserQuestion because Nexy cannot render that native tool in --print mode.'
           : ''
-        args.push('--system-prompt', `${req.systemPrompt ?? ''}${userInputInstruction}`)
+        const deferInstruction = deferBridge
+          ? '\n\nFor any shell command that might run longer than this reply (a build, a long test run, a slow install), ' +
+            'call nexy_defer.run_and_notify instead of waiting on it directly. It starts the command and returns immediately; ' +
+            'Nexy reports the result into this conversation when it finishes, even after this session ends or Nexy restarts. ' +
+            "Do not promise to 'check back later' yourself — you cannot keep that promise, only nexy_defer can."
+          : ''
+        const planInstruction = planBridge
+          ? '\n\nWhen you have completed the implementation plan, call nexy_plan.exit_plan_mode with the complete Markdown plan. Do not attempt to use the native ExitPlanMode tool: it is unavailable in this non-interactive session. Do not call this tool for clarifying questions or an incomplete plan.'
+          : ''
+        args.push('--system-prompt', `${req.systemPrompt ?? ''}${userInputInstruction}${deferInstruction}${planInstruction}`)
       }
       if (req.agents && Object.keys(req.agents).length > 0) {
         args.push('--agents', JSON.stringify(req.agents))
@@ -201,7 +233,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
         const cliEffort = effortMap[req.thinkingEffort]
         if (cliEffort) args.push('--effort', cliEffort)
       }
-      const effectiveMcpServers = [...(req.mcpServers ?? []), ...(userInputBridge ? [userInputBridge.server] : [])]
+      const effectiveMcpServers = [...(req.mcpServers ?? []), ...(userInputBridge ? [userInputBridge.server] : []), ...(deferBridge ? [deferBridge.server] : []), ...(planBridge ? [planBridge.server] : [])]
       if (effectiveMcpServers.length > 0) {
         const mcpConfig = {
           mcpServers: Object.fromEntries(effectiveMcpServers.map((server) => {
@@ -216,7 +248,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
         }
         args.push('--mcp-config', JSON.stringify(mcpConfig))
       }
-      const effectiveAllowedTools = [...(req.allowedTools ?? []), ...(userInputBridge ? [userInputBridge.allowedTool] : [])]
+      const effectiveAllowedTools = [...(req.allowedTools ?? []), ...(userInputBridge ? [userInputBridge.allowedTool] : []), ...(deferBridge ? [deferBridge.allowedTool] : []), ...(planBridge ? [planBridge.allowedTool] : [])]
       if (effectiveAllowedTools.length > 0) {
         args.push('--allowedTools', effectiveAllowedTools.join(','))
       }
@@ -275,6 +307,8 @@ export const ClaudeAdapter: CliAgentAdapter = {
       } catch (error) {
         permissionHook?.close()
         userInputBridge?.close()
+        deferBridge?.close()
+        planBridge?.close()
         reject(error)
         return
       }
@@ -284,7 +318,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // hook server (and its port) is reclaimed exactly once — a hung turn must not orphan it.
       let settled = false
       let hookClosed = false
-      const closeHook = () => { if (!hookClosed) { hookClosed = true; permissionHook?.close(); userInputBridge?.close() } }
+      const closeHook = () => { if (!hookClosed) { hookClosed = true; permissionHook?.close(); userInputBridge?.close(); deferBridge?.close(); planBridge?.close() } }
       const watchdog = createInactivityWatchdog(CLI_INACTIVITY_TIMEOUT_MS, () => {
         if (awaitingUserInput) {
           watchdog.touch()
@@ -524,7 +558,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
           })
         }
         openToolIds.clear()
-        if (fullText === '') {
+        if (fullText === '' && planBridge?.submittedPlan()) {
+          settle(() => resolve(planBridge.submittedPlan()!))
+        } else if (fullText === '') {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
           const codeNote = code !== 0 ? ` (exit ${code})` : ''
           settle(() => reject(new Error(`claude returned an empty response${codeNote}${detail}`)))
