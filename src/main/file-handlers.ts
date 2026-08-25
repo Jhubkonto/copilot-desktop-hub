@@ -263,7 +263,26 @@ export function listDirectoryEntriesForRemote(path: string, authorizedRoots?: st
 
 const FS_REMOTE_READ_LIMIT = 512_000
 const FS_REMOTE_IMAGE_LIMIT = 16 * 1024 * 1024
-const REMOTE_TEXT_EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.adoc', '.json', '.yaml', '.yml'])
+const REMOTE_TEXT_EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.adoc', '.json', '.yaml', '.yml', '.html', '.htm'])
+
+// Sub-resources an HTML preview may reference via relative paths (<link>, <img>, @font-face,
+// CSS url()). Deliberately excludes .js — the Project Peek WebView always runs with JavaScript
+// disabled, so a browser never even issues a request for a script src.
+const FS_REMOTE_ASSET_LIMIT = 4 * 1024 * 1024
+const REMOTE_ASSET_MIME_TYPES: Record<string, string> = {
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.ico': 'image/x-icon',
+}
 
 const REMOTE_IMAGE_MIME_TYPES: Record<string, string> = {
   '.avif': 'image/avif',
@@ -363,6 +382,60 @@ export function readImageFileForRemote(filePath: string, authorizedRoots?: strin
     }
   } catch {
     return empty('Could not read this image')
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
+}
+
+/**
+ * Read a bounded sub-resource (CSS/image/font) referenced by an HTML preview's relative links.
+ * This is invisible-to-the-user infrastructure for the Project Peek HTML viewer's WebView
+ * request interception, not a document the user directly opened — hence its own tighter caps
+ * (smaller size limit, no history/recent-files side effects) rather than reusing
+ * `readFileForRemote`.
+ */
+export function readAssetFileForRemote(filePath: string, authorizedRoots?: string[]): {
+  path: string
+  content: string
+  truncated: boolean
+  mimeType: string
+  encoding: 'base64'
+  error?: string
+} {
+  const mimeType = REMOTE_ASSET_MIME_TYPES[extname(filePath).toLowerCase()] ?? ''
+  const empty = (error?: string) => ({
+    path: filePath,
+    content: '',
+    truncated: false,
+    mimeType: mimeType || 'application/octet-stream',
+    encoding: 'base64' as const,
+    ...(error ? { error } : {}),
+  })
+
+  if (!mimeType) return empty('This asset type is not supported in HTML previews')
+  if (!filePath || !existsSync(filePath)) return empty('File not found')
+  if (authorizedRoots && !isRemotePathAuthorized(filePath, authorizedRoots)) {
+    return empty('This file is not available through the remote explorer')
+  }
+
+  let descriptor: number | undefined
+  try {
+    if (!statSync(filePath).isFile()) return empty('Not a file')
+    descriptor = openSync(filePath, 'r')
+    const buffer = Buffer.alloc(FS_REMOTE_ASSET_LIMIT + 1)
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0)
+    if (bytesRead > FS_REMOTE_ASSET_LIMIT) {
+      return empty('This asset is larger than the remote preview limit')
+    }
+    return {
+      path: filePath,
+      content: buffer.subarray(0, bytesRead).toString('base64'),
+      truncated: false,
+      mimeType,
+      encoding: 'base64' as const,
+    }
+  } catch {
+    return empty('Could not read this asset')
   } finally {
     if (descriptor !== undefined) closeSync(descriptor)
   }

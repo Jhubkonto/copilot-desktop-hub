@@ -286,6 +286,69 @@ export async function sendChatCompleteNotification(
   )
 }
 
+/**
+ * Pushed the moment a deferred job (build, or an agent-tracked background command) resolves —
+ * before the follow-up turn it triggers has even started generating a reply. Without this, a user
+ * who put the phone down while a 20-minute Gradle build ran would only learn it finished once the
+ * assistant's response to that result also finished streaming, which can lag the actual completion
+ * by a full model turn.
+ */
+export async function sendDeferredJobNotification(
+  db: Database.Database,
+  payload: { conversationId: string; title: string; body?: string },
+): Promise<void> {
+  const saJson = loadFcmServiceAccountJson(db)
+  if (!saJson) return
+
+  let parsed: ServiceAccountJson
+  try {
+    parsed = parseSaJson(saJson)
+  } catch {
+    return
+  }
+
+  const tokens = (db.prepare('SELECT device_id, fcm_token FROM mobile_clients').all() as { device_id: string; fcm_token: string }[])
+  if (tokens.length === 0) return
+
+  const auth = getAuth(saJson)
+  const client = await auth.getClient()
+  const tokenResponse = await client.getAccessToken()
+  const accessToken = tokenResponse.token
+  if (!accessToken) return
+
+  const projectId = parsed.project_id
+
+  await Promise.allSettled(
+    tokens.map(async ({ device_id, fcm_token }) => {
+      const data: Record<string, string> = {
+        type: 'deferred:complete',
+        conversationId: payload.conversationId,
+        title: payload.title,
+        ...(payload.body ? { body: payload.body } : {}),
+      }
+      const body = JSON.stringify({
+        message: {
+          token: fcm_token,
+          data,
+        },
+      })
+
+      const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+      })
+
+      if (res.status === 404 || res.status === 410) {
+        db.prepare('DELETE FROM mobile_clients WHERE device_id = ?').run(device_id)
+      }
+    })
+  )
+}
+
 export async function sendDebriefCompleteNotification(
   db: Database.Database,
   payload: { conversationId: string; title: string },
