@@ -19,7 +19,7 @@ export interface ProjectPeekEntry {
   name: string
   relativePath: string
   type: 'file' | 'dir'
-  category: 'document' | 'image' | 'other'
+  category: 'document' | 'image' | 'html' | 'other'
   sizeBytes: number
   modifiedAt: number
   gitState: ProjectPeekGitState
@@ -33,6 +33,7 @@ export interface ProjectPeekDirectoryResult {
 
 const DIRECTORY_LIMIT = 1000
 const DOCUMENT_EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.adoc', '.json', '.yaml', '.yml'])
+const HTML_EXTENSIONS = new Set(['.html', '.htm'])
 
 function withinRoot(candidate: string, root: string): boolean {
   const rel = relative(root, candidate)
@@ -58,13 +59,18 @@ function categoryFor(path: string, type: 'file' | 'dir'): ProjectPeekEntry['cate
   if (type === 'dir') return 'other'
   if (isRemoteImagePath(path)) return 'image'
   const dot = path.lastIndexOf('.')
-  return dot >= 0 && DOCUMENT_EXTENSIONS.has(path.slice(dot).toLowerCase()) ? 'document' : 'other'
+  const ext = dot >= 0 ? path.slice(dot).toLowerCase() : ''
+  if (HTML_EXTENSIONS.has(ext)) return 'html'
+  return DOCUMENT_EXTENSIONS.has(ext) ? 'document' : 'other'
 }
 
 function allows(entry: ProjectPeekEntry, filter: ProjectPeekFilter): boolean {
   if (filter === 'all') return true
   if (filter === 'recent') return entry.type === 'file'
-  return entry.category === (filter === 'images' ? 'image' : 'document')
+  // HTML previews live alongside Markdown/text under the "Documents" filter chip — a separate
+  // chip for one extension pair isn't worth the extra UI surface.
+  if (filter === 'documents') return entry.category === 'document' || entry.category === 'html'
+  return entry.category === 'image'
 }
 
 /** One bounded Git-status read per source request. A non-repository simply stays `unknown`. */
