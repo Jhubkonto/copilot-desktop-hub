@@ -3,6 +3,7 @@ import type { ChildProcess } from 'child_process'
 import type { BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
 import { broadcastToMobile } from './ws-server'
+import { resolveDeferredCallback } from './deferred-callbacks'
 import type { BuildRecord, BuildStatus } from '../shared/types'
 
 /**
@@ -24,6 +25,24 @@ function summarizeBuildFailure(logTail: string, exitCode: number): string {
   const trimmed = diagnostic.trim()
   if (!trimmed) return `Build exited with code ${exitCode}. See the build output for details.`
   return trimmed.slice(-MAX_FAILURE_SUMMARY_CHARS)
+}
+
+/**
+ * Fire-and-forget resolution of a deferred callback bound to this build. Deliberately swallows
+ * errors: a waiting conversation failing to wake is a reporting problem, and must never turn a
+ * completed build into a failed one or reject inside a 'close' handler.
+ */
+function notifyDeferredWaiter(
+  buildId: string,
+  result: { status: 'success' | 'failure' | 'cancelled'; exitCode: number | null; detail: string },
+): void {
+  try {
+    void resolveDeferredCallback('build', buildId, result).catch(() => {
+      /* reporting failure must not affect the build outcome */
+    })
+  } catch {
+    /* nor may a synchronous throw from the resolver */
+  }
 }
 
 export function mapBuildRecord(row: Record<string, unknown>): BuildRecord {
@@ -169,6 +188,15 @@ export function runBuildProcess(options: RunBuildProcessOptions): ChildProcess {
         ...(status === 'failed' ? { error: summarizeBuildFailure(logTail, exitCode) } : {}),
       })
       onDone?.(status, exitCode)
+      // Wake any conversation that armed a deferred callback on this build. A turn that kicked off
+      // a long build can now honestly promise to report back: the follow-up turn is dispatched from
+      // here, in whatever session is alive at the time, rather than relying on the harness to
+      // deliver a completion notification into an already-ended session.
+      notifyDeferredWaiter(buildId, {
+        status: status === 'success' ? 'success' : 'failure',
+        exitCode,
+        detail: status === 'failed' ? summarizeBuildFailure(logTail, exitCode) : logTail.slice(-2000),
+      })
     })()
   })
 
@@ -225,5 +253,13 @@ export function cancelBuildProcess(options: CancelBuildProcessOptions): boolean 
   if (mobileDoneEvent) {
     broadcastToMobile({ event: mobileDoneEvent, data: { buildId, status: 'cancelled', exitCode: null } })
   }
+  // A cancelled build never reaches the close handler's resolution path (that path bails out on
+  // the 'cancelled' status), so without this the waiting conversation would stay armed until it
+  // expired hours later.
+  notifyDeferredWaiter(buildId, {
+    status: 'cancelled',
+    exitCode: null,
+    detail: 'The build was cancelled before it finished.',
+  })
   return true
 }
