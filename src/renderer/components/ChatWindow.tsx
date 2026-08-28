@@ -17,6 +17,7 @@ import { appendTranscriptToDraft } from '../lib/composer-draft'
 import { useAppStore } from '../store/app-store'
 import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from '../lib/context-token-estimate'
 import type { ContextInspectorSnapshot, ProjectConfig } from '../../shared/types'
+import type { MarkdownViewMode } from '../store/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
 import { ModelPicker } from './chat/ModelPicker'
@@ -84,6 +85,8 @@ export function ChatWindow() {
   const installedClis = useAppStore((state) => state.authState.clis ?? { claude: state.authState.cliInstalled, codex: false })
   const isReady = authenticated || cliInstalled
   const theme = useAppStore((state) => state.theme)
+  const markdownViewMode = useAppStore((state) => state.markdownViewMode)
+  const setMarkdownViewMode = useAppStore((state) => state.setMarkdownViewMode)
   const skills = useAppStore((state) => state.skills)
   const conversationCreated = useAppStore((state) => state.conversationCreated)
   const loadConversations = useAppStore((state) => state.loadConversations)
@@ -1382,6 +1385,23 @@ export function ChatWindow() {
             📁
           </span>
         )}
+        <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white/80 p-0.5 dark:border-gray-600 dark:bg-gray-800/80" role="radiogroup" aria-label="Markdown view">
+          {([['rendered', 'Rendered'], ['raw', 'Raw']] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={markdownViewMode === mode}
+              onClick={() => setMarkdownViewMode(mode as MarkdownViewMode)}
+              className={`rounded-full px-2 py-0.5 text-[11px] transition-colors ${markdownViewMode === mode
+                ? 'bg-gray-200 text-gray-900 dark:bg-gray-600 dark:text-white'
+                : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}`}
+              title={`${label} Markdown`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
     </div>
@@ -2033,6 +2053,7 @@ export function ChatWindow() {
             ])
           }}
           liveTurnState={chat.liveTurnState}
+          markdownViewMode={markdownViewMode}
         />
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

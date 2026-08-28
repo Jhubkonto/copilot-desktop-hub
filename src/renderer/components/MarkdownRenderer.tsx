@@ -113,6 +113,7 @@ function CodeBlockWrapper({ children, lang }: { children: ReactNode; lang: strin
 interface MarkdownRendererProps {
   content: string
   citations?: Citation[]
+  viewMode?: 'rendered' | 'raw'
 }
 
 function escapeRegExp(value: string): string {
@@ -167,7 +168,14 @@ function CitationSources({ citations }: { citations: Citation[] }) {
   )
 }
 
-function MarkdownRendererBase({ content, citations = [] }: MarkdownRendererProps) {
+function MarkdownRendererBase({ content, citations = [], viewMode = 'rendered' }: MarkdownRendererProps) {
+  if (viewMode === 'raw') {
+    return (
+      <pre className="my-0 whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-gray-900 dark:text-gray-100">
+        {content}
+      </pre>
+    )
+  }
   return (
     <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words
       prose-blockquote:border-l-2 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600

@@ -41,6 +41,15 @@ describe('MarkdownRenderer', () => {
     expect(links[1]).toHaveTextContent('Example source')
   })
 
+  it('preserves literal Markdown in raw mode', () => {
+    const source = '# Heading\n\n**bold**\n```ts\nconst value = 1\n```'
+    const { container } = render(<MarkdownRenderer content={source} viewMode="raw" citations={[{ id: 'CiteTurn1', url: 'https://example.com' }]} />)
+    expect(container.querySelector('h1')).not.toBeInTheDocument()
+    expect(container.querySelector('code')).not.toBeInTheDocument()
+    expect(container.querySelector('a')).not.toBeInTheDocument()
+    expect(container.querySelector('pre')?.textContent).toBe(source)
+  })
+
   it('hides unresolved provider citation markers instead of showing internal tokens', () => {
     render(<MarkdownRenderer content="A useful answer CiteTurn0search0【citeTurn1search2†turn1search2】 continues." />)
     expect(screen.getByText('A useful answer continues.')).toBeInTheDocument()

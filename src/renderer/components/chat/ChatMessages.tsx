@@ -15,6 +15,7 @@ import { getSupersededPendingArtifactMessageIds, parseArtifactReference } from '
 import type { ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
+import type { MarkdownViewMode } from '../../store/types'
 
 const TOKEN_USAGE_EXPLANATION = 'Usage for the most recently completed assistant turn. Provider-reported counts are authoritative after the request; input includes all context processed across tool calls and may exceed one context window. Counts marked estimate are local estimates of about 1 token per 4 characters.'
 
@@ -50,6 +51,7 @@ interface ChatMessagesProps {
   onPickModel: () => void
   onUseImageAsContext?: (dataUrl: string) => void
   liveTurnState?: ChatTurnState
+  markdownViewMode?: MarkdownViewMode
 }
 
 interface RequestReference {
@@ -199,6 +201,7 @@ export function ChatMessagesBase({
   onPickModel,
   onUseImageAsContext,
   liveTurnState,
+  markdownViewMode = 'rendered',
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const generationElapsedSec = useGenerationTimer(isGenerating, generationStartedAt)
@@ -592,7 +595,7 @@ export function ChatMessagesBase({
                       return (
                         <TimelineEntry key={item.block.blockId} colorClass="bg-gray-400 dark:bg-gray-500">
                           <div className="text-sm text-gray-900 dark:text-gray-100">
-                            <MarkdownRenderer content={item.block.content} />
+                            <MarkdownRenderer content={item.block.content} viewMode={markdownViewMode} />
                           </div>
                         </TimelineEntry>
                       )
@@ -641,6 +644,7 @@ export function ChatMessagesBase({
                 role={main.role as 'user' | 'assistant' | 'system'}
                 content={main.content}
                 displayContent={bubbleDisplayContent}
+                markdownViewMode={markdownViewMode}
                 isFrozenMidTurn={main.isFrozenMidTurn}
                 isEdited={main.isEdited}
                 modelLabel={
@@ -765,7 +769,7 @@ export function ChatMessagesBase({
                 if (!isGenerating) return null
                 return (
                   <div className="message-enter text-sm text-gray-900 dark:text-gray-100" key={item.id}>
-                    <MarkdownRenderer content={item.text} />
+                    <MarkdownRenderer content={item.text} viewMode={markdownViewMode} />
                   </div>
                 )
               }
@@ -777,7 +781,7 @@ export function ChatMessagesBase({
                 // item earlier in the timeline.
                 return (
                   <div className="text-sm text-gray-900 dark:text-gray-100" key={item.id}>
-                    <MarkdownRenderer content={throttledStreamingContent} />
+                    <MarkdownRenderer content={throttledStreamingContent} viewMode={markdownViewMode} />
                     <span className="text-gray-400">▊</span>
                   </div>
                 )
