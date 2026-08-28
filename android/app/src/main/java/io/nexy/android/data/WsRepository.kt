@@ -3076,6 +3076,9 @@ object WsRepository : WsClient {
                     "mcp" to profile.mcp.map { grant ->
                         mapOf("serverId" to grant.serverId, "trust" to grant.trust)
                     },
+                    "builtInTools" to profile.builtInTools.mapValues { (_, policy) ->
+                        mapOf("enabled" to policy.enabled, "approval" to policy.approval)
+                    },
                 ),
             ),
         )

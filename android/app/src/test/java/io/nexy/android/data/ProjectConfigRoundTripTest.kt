@@ -52,7 +52,8 @@ class ProjectConfigRoundTripTest {
                   "capabilityProfile": {
                     "version": 1,
                     "skillIds": ["skill-a"],
-                    "mcp": [{ "serverId": "browser", "trust": "always-ask" }]
+                    "mcp": [{ "serverId": "browser", "trust": "always-ask" }],
+                    "builtInTools": { "terminal": { "enabled": false, "approval": "disabled" } }
                   }
                 }
               }
@@ -81,6 +82,7 @@ class ProjectConfigRoundTripTest {
                 "version" to 1,
                 "skillIds" to listOf("skill-a"),
                 "mcp" to listOf(mapOf("serverId" to "browser", "trust" to "always-ask")),
+                "builtInTools" to mapOf("terminal" to mapOf("enabled" to false, "approval" to "disabled")),
             ),
             payload["capabilityProfile"],
         )
@@ -99,18 +101,21 @@ class ProjectConfigRoundTripTest {
         assertEquals(1, profile.mcp.size)
         assertEquals("browser", profile.mcp.single().serverId)
         assertEquals("always-ask", profile.mcp.single().trust)
+        assertTrue(profile.builtInTools.isEmpty())
     }
 
     @Test
     fun projectCapabilityProtocolEventsPreserveTheSecretFreeProfile() = runTest {
         val event = parseEvent(
-            """{"event":"project:capabilities-updated","data":{"projectId":"project-1","profile":{"version":1,"skillIds":["audit"],"mcp":[{"serverId":"browser","trust":"auto"}]}}}""",
+            """{"event":"project:capabilities-updated","data":{"projectId":"project-1","profile":{"version":1,"skillIds":["audit"],"mcp":[{"serverId":"browser","trust":"auto"}],"builtInTools":{"webFetch":{"enabled":false,"approval":"disabled"}}}}}""",
         ) as WsEvent.ProjectCapabilitiesUpdated
 
         assertEquals("project-1", event.projectId)
         assertEquals(listOf("audit"), event.profile.skillIds)
         assertEquals("browser", event.profile.mcp.single().serverId)
         assertEquals("auto", event.profile.mcp.single().trust)
+        assertEquals(false, event.profile.builtInTools["webFetch"]?.enabled)
+        assertEquals("disabled", event.profile.builtInTools["webFetch"]?.approval)
     }
 
     @Test

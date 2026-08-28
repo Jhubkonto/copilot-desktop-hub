@@ -25,5 +25,8 @@ internal fun buildProjectConfigPayload(id: String, config: ProjectSettingsConfig
             "mcp" to config.capabilityProfile.mcp.map { grant ->
                 mapOf("serverId" to grant.serverId, "trust" to grant.trust)
             },
+            "builtInTools" to config.capabilityProfile.builtInTools.mapValues { (_, policy) ->
+                mapOf("enabled" to policy.enabled, "approval" to policy.approval)
+            },
         ),
     )

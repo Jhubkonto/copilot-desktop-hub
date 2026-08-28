@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import io.nexy.android.ui.chat.MarkdownViewMode
 
 class PreferenceStore private constructor(context: Context) {
     companion object {
@@ -22,6 +23,7 @@ class PreferenceStore private constructor(context: Context) {
         private const val VOICE_DOCK_HINT_SHOWN = "voice_dock_hint_shown"
         private const val VOICE_DOCK_POSITION_PORTRAIT = "voice_dock_position_portrait"
         private const val VOICE_DOCK_POSITION_LANDSCAPE = "voice_dock_position_landscape"
+        private const val MARKDOWN_VIEW_MODE = "markdown_view_mode"
         private const val PREFS_NAME = "nexy_preferences"
     }
 
@@ -30,6 +32,9 @@ class PreferenceStore private constructor(context: Context) {
 
     private val _preferStandaloneMode = MutableStateFlow(prefs.getBoolean(PREFER_STANDALONE_MODE, false))
     private val _voiceDockV1 = MutableStateFlow(prefs.getBoolean(FEATURE_VOICE_DOCK_V1, true))
+    private val _markdownViewMode = MutableStateFlow(
+        MarkdownViewMode.fromStoredValue(prefs.getString(MARKDOWN_VIEW_MODE, null)),
+    )
 
     fun getPreferStandaloneMode(): Flow<Boolean> = _preferStandaloneMode
 
@@ -61,6 +66,13 @@ class PreferenceStore private constructor(context: Context) {
     fun setVoiceDockV1(value: Boolean) {
         prefs.edit().putBoolean(FEATURE_VOICE_DOCK_V1, value).apply()
         _voiceDockV1.value = value
+    }
+
+    fun getMarkdownViewMode(): Flow<MarkdownViewMode> = _markdownViewMode
+
+    fun setMarkdownViewMode(value: MarkdownViewMode) {
+        prefs.edit().putString(MARKDOWN_VIEW_MODE, value.storedValue).apply()
+        _markdownViewMode.value = value
     }
 
     fun isVoiceDockFloating(): Boolean = prefs.getBoolean(VOICE_DOCK_FLOATING, false)

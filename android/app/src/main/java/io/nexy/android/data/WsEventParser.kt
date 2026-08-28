@@ -3229,7 +3229,17 @@ internal fun parseCapabilityProfile(profile: JSONObject): CapabilityProfile {
             CapabilityMcpGrant(serverId, entry.optString("trust").takeIf { it in validTrust } ?: "always-ask")
         }.distinctBy(CapabilityMcpGrant::serverId)
     } ?: emptyList()
-    return CapabilityProfile(version = 1, skillIds = skillIds, mcp = mcp)
+    val validApproval = setOf("auto", "always-ask", "disabled")
+    val builtInToolsObject = profile.optJSONObject("builtInTools")
+    val builtInTools = listOf("fileEdit", "terminal", "webFetch").mapNotNull { key ->
+        val entry = builtInToolsObject?.optJSONObject(key) ?: return@mapNotNull null
+        if (!entry.has("enabled")) return@mapNotNull null
+        key to io.nexy.android.data.model.CapabilityBuiltInToolPolicy(
+            enabled = entry.optBoolean("enabled"),
+            approval = entry.optString("approval").takeIf { it in validApproval } ?: "always-ask",
+        )
+    }.toMap()
+    return CapabilityProfile(version = 1, skillIds = skillIds, mcp = mcp, builtInTools = builtInTools)
 }
 
 private fun parseManagedWorkflowBinding(obj: JSONObject) = ManagedWorkflowBindingRecord(

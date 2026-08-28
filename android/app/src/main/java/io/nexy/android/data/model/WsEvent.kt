@@ -1346,11 +1346,18 @@ data class CapabilityProfile(
     val version: Int = 1,
     val skillIds: List<String> = emptyList(),
     val mcp: List<CapabilityMcpGrant> = emptyList(),
+    val builtInTools: Map<String, CapabilityBuiltInToolPolicy> = emptyMap(),
 )
 
 data class CapabilityMcpGrant(
     val serverId: String,
     val trust: String = "always-ask",
+)
+
+/** Project/chat policy for Nexy's desktop-hosted built-in tools. */
+data class CapabilityBuiltInToolPolicy(
+    val enabled: Boolean,
+    val approval: String = "always-ask",
 )
 
 data class AgentGeneratorSpec(
