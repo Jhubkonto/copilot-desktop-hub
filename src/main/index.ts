@@ -16,6 +16,7 @@ import { initErrorLogCapture } from './error-log-handlers'
 import { autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 import { getSchedulerTraySummary, schedulerEngine, setSchedulerStatusChangeCallback } from './scheduler-engine'
+import { startDeferredCallbackEngine } from './deferred-callbacks'
 import { initializeActivityBadge, setUnseenCountChangeCallback } from './activity-badge'
 import { cancelAllPendingUserInputs } from './user-input'
 import { applyStoredAutoStartSetting, isRunInBackgroundEnabled } from './app-lifecycle-settings'
@@ -297,6 +298,11 @@ app.whenReady().then(() => {
 
   // Start scheduler after DB is ready
   schedulerEngine.start()
+
+  // Sweep deferred callbacks: expire stale bindings, and report any job that was still in flight
+  // when the app last closed so an interrupted build surfaces in its conversation instead of
+  // silently never being reported.
+  startDeferredCallbackEngine()
 
   registerAuthHandlers()
   registerUpdaterHandlers()
