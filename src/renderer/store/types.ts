@@ -84,6 +84,7 @@ export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
 export type UiStyle = 'classic' | '8bit'
+export type MarkdownViewMode = 'rendered' | 'raw'
 export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'pinned' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings' | null
 export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'wiki' | 'artifacts' | 'capabilities'
 

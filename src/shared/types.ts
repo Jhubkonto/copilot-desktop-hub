@@ -39,16 +39,25 @@ export interface Conversation {
 
 export type CapabilityScope = 'chat' | 'project' | 'agent'
 export type CapabilityTrust = 'auto' | 'always-ask' | 'block'
+export type BuiltInToolKey = 'fileEdit' | 'terminal' | 'webFetch'
+export type BuiltInToolApproval = 'auto' | 'always-ask' | 'disabled'
+
+/**
+ * A policy supplied by a capability scope. Omitted means that scope places no
+ * restriction on the tool; a false/disabled value can only restrict narrower
+ * scopes, never enable a tool an agent has not enabled for itself.
+ */
+export type BuiltInToolPolicy = {
+  enabled: boolean
+  approval: BuiltInToolApproval
+}
 
 /** Secret-free references to capabilities enabled for one conversation. */
 export interface ConversationCapabilityProfile {
   version: 1
   skillIds: string[]
   mcp: Array<{ serverId: string; trust: CapabilityTrust }>
-  builtInTools?: Partial<Record<'fileEdit' | 'terminal' | 'webFetch', {
-    enabled: boolean
-    approval: 'auto' | 'always-ask' | 'disabled'
-  }>>
+  builtInTools?: Partial<Record<BuiltInToolKey, BuiltInToolPolicy>>
 }
 
 export type CapabilityReadiness = 'ready' | 'missing' | 'invalid' | 'disconnected' | 'unsupported'

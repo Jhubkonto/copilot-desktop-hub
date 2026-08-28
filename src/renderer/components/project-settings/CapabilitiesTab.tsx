@@ -2,14 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../store/app-store'
 import { Button, SaveStatus, type SaveState } from '../ui/primitives'
 import { NexyIcon } from '../ui/icons/NexyIcon'
-import type { CapabilityTrust, ConversationCapabilityProfile, McpServerWithStatus } from '../../../shared/types'
+import type { BuiltInToolKey, CapabilityTrust, ConversationCapabilityProfile, McpServerWithStatus } from '../../../shared/types'
 
 const EMPTY_PROFILE: ConversationCapabilityProfile = { version: 1, skillIds: [], mcp: [] }
+const BUILT_IN_TOOLS: Array<{ key: BuiltInToolKey; label: string; description: string; icon: string }> = [
+  { key: 'fileEdit', label: 'File Edit', description: 'Read and edit files in the project workspace.', icon: '🗂' },
+  { key: 'terminal', label: 'Terminal', description: 'Run command-line commands for project work.', icon: '💻' },
+  { key: 'webFetch', label: 'Web Fetch', description: 'Fetch pages and search the web.', icon: '🌐' },
+]
 
 function sameProfile(a: ConversationCapabilityProfile, b: ConversationCapabilityProfile): boolean {
   const key = (profile: ConversationCapabilityProfile) => JSON.stringify({
     skillIds: [...profile.skillIds].sort(),
     mcp: [...profile.mcp].sort((x, y) => x.serverId.localeCompare(y.serverId)),
+    builtInTools: profile.builtInTools,
   })
   return key(a) === key(b)
 }
@@ -22,6 +28,7 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
   const [saved, setSaved] = useState<ConversationCapabilityProfile>(EMPTY_PROFILE)
   const [skillIds, setSkillIds] = useState<string[]>([])
   const [mcp, setMcp] = useState<Array<{ serverId: string; trust: CapabilityTrust }>>([])
+  const [builtInTools, setBuiltInTools] = useState<ConversationCapabilityProfile['builtInTools']>()
   const [servers, setServers] = useState<McpServerWithStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -46,6 +53,7 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
         setSaved(profile)
         setSkillIds(profile.skillIds)
         setMcp(profile.mcp)
+        setBuiltInTools(profile.builtInTools)
         setServers(mcpServers)
       })
       .catch(() => {
@@ -59,8 +67,8 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
   }, [addToast, projectId])
 
   const current: ConversationCapabilityProfile = useMemo(
-    () => ({ version: 1, skillIds, mcp }),
-    [mcp, skillIds],
+    () => ({ version: 1, skillIds, mcp, ...(builtInTools ? { builtInTools } : {}) }),
+    [builtInTools, mcp, skillIds],
   )
   const dirty = !sameProfile(current, saved)
 
@@ -106,6 +114,7 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
       setSaved(next)
       setSkillIds(next.skillIds)
       setMcp(next.mcp)
+      setBuiltInTools(next.builtInTools)
       setSaveState('saved')
       addToast('Project capabilities saved', 'success')
     } catch (cause) {
@@ -118,6 +127,7 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
   const handleRevert = useCallback(() => {
     setSkillIds(saved.skillIds)
     setMcp(saved.mcp)
+    setBuiltInTools(saved.builtInTools)
     setSaveState('idle')
     setConfirmRevokeServerId(null)
   }, [saved])
@@ -135,8 +145,8 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
       <div>
         <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Project capabilities</label>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Skills and MCP servers every chat in this project inherits. A chat or agent can add more on top, but it
-          cannot loosen an approval level set here.
+          Set the tools every chat may use in this project. Turning a built-in tool off blocks it even when an agent
+          has it enabled; turning it on still respects that agent’s own approval settings.
         </p>
       </div>
 
@@ -160,6 +170,39 @@ export function CapabilitiesTab({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
+
+      <section className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-3 shadow-nexy">
+        <div className="mb-2">
+          <p className="text-xs font-semibold text-nexy-text">Built-in tools</p>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">Project policy applies to every chat and agent in this project.</p>
+        </div>
+        <div className="space-y-1">
+          {BUILT_IN_TOOLS.map((tool) => {
+            // Legacy projects have no policy entry and remain permissive, preserving existing behaviour.
+            const enabled = builtInTools?.[tool.key]?.enabled !== false && builtInTools?.[tool.key]?.approval !== 'disabled'
+            return (
+              <label key={tool.key} className="flex cursor-pointer items-center gap-2 rounded-nexy-sm px-2 py-1.5 hover:bg-nexy-raised">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={() => setBuiltInTools((current) => ({
+                    ...current,
+                    // Project activation is a capability ceiling, not an approval override.
+                    [tool.key]: { enabled: !enabled, approval: !enabled ? 'auto' : 'disabled' },
+                  }))}
+                  aria-label={`${enabled ? 'Disable' : 'Enable'} ${tool.label} for this project`}
+                  className="accent-blue-600"
+                />
+                <span className="text-base leading-none">{tool.icon}</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-gray-700 dark:text-gray-200">{tool.label}</span>
+                  <span className="block text-[11px] text-gray-500 dark:text-gray-400">{tool.description}</span>
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      </section>
 
       <section className="rounded-nexy-sm border-2 border-nexy-border bg-nexy-recessed p-3 shadow-nexy">
         <div className="mb-2 flex items-center justify-between gap-2">

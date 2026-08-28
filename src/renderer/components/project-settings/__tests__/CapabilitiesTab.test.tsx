@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { CapabilitiesTab } from '../CapabilitiesTab'
 import { createMockAppStore, setupStoreMock } from '../../../../test/mocks/store'
 import { setupMockApi } from '../../../../test/mocks/api'
-import type { McpServerWithStatus, SkillConfig } from '../../../../shared/types'
+import type { ConversationCapabilityProfile, McpServerWithStatus, SkillConfig } from '../../../../shared/types'
 
 const { useAppStore } = vi.hoisted(() => ({ useAppStore: vi.fn() }))
 vi.mock('../../../store/app-store', () => ({ useAppStore }))
@@ -30,7 +30,7 @@ beforeEach(() => {
   setupStoreMock(useAppStore, mockStore)
 })
 
-async function renderTab(profile: { skillIds: string[]; mcp: Array<{ serverId: string; trust: string }> }) {
+async function renderTab(profile: Pick<ConversationCapabilityProfile, 'skillIds' | 'mcp' | 'builtInTools'>) {
   mockApi.getProjectCapabilities.mockResolvedValue({ version: 1, ...profile })
   const view = render(<CapabilitiesTab projectId="proj-1" />)
   await waitFor(() => expect(screen.getByText('Skills')).toBeInTheDocument())
@@ -95,6 +95,21 @@ describe('CapabilitiesTab', () => {
   it('keeps Save disabled until something actually changes', async () => {
     await renderTab({ skillIds: ['audit'], mcp: [] })
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled()
+  })
+
+  it('saves a project-wide disable for a built-in tool', async () => {
+    const user = userEvent.setup()
+    await renderTab({ skillIds: [], mcp: [] })
+
+    await user.click(screen.getByRole('checkbox', { name: /Disable Terminal for this project/ }))
+    await user.click(screen.getByRole('button', { name: /Save changes/ }))
+
+    await waitFor(() => expect(mockApi.setProjectCapabilities).toHaveBeenCalledWith('proj-1', {
+      version: 1,
+      skillIds: [],
+      mcp: [],
+      builtInTools: { terminal: { enabled: false, approval: 'disabled' } },
+    }))
   })
 
   it('reports a rejected save instead of showing it as applied', async () => {
