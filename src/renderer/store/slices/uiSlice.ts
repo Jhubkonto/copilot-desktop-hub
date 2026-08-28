@@ -6,6 +6,7 @@ import type {
   SectionBadgeKey,
   Theme,
   UiStyle,
+  MarkdownViewMode,
   Toast,
   ToolApprovalRequest
 } from '../types'
@@ -42,10 +43,12 @@ export interface UiSlice {
   globalDefaultModel: string
   debugLogging: boolean
   androidDebugLog: boolean
+  markdownViewMode: MarkdownViewMode
   setTheme: (theme: Theme) => void
   setUiStyle: (style: UiStyle, persist?: boolean) => void
   setDebugLogging: (enabled: boolean) => void
   setAndroidDebugLog: (enabled: boolean) => void
+  setMarkdownViewMode: (mode: MarkdownViewMode) => void
   toggleTheme: () => void
   toggleSidebar: () => void
   toggleAgentPanel: () => void
@@ -129,6 +132,7 @@ export const createUiSlice: StateCreator<
   globalDefaultModel: 'default',
   debugLogging: false,
   androidDebugLog: false,
+  markdownViewMode: 'rendered',
   viewingArtifactId: null,
   pendingKeyHandoffProvider: null,
   sectionNewCounts: { projects: 0, agents: 0, skills: 0, scheduled: 0, workflows: 0 },
@@ -365,6 +369,13 @@ export const createUiSlice: StateCreator<
     if (persist) {
       void window.api.setSetting('ui_style', style).catch(() => {})
     }
+  },
+
+  setMarkdownViewMode: (mode) => {
+    set((s) => {
+      s.markdownViewMode = mode
+    })
+    void window.api.setSetting('markdown_view_mode', mode).catch(() => {})
   },
 
   syncUnreadConversationIds: (ids) => {

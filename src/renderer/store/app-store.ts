@@ -52,6 +52,7 @@ export type {
   SkillConfig,
   Theme,
   UiStyle,
+  MarkdownViewMode,
   Toast,
   ToolApprovalRequest
 } from './types'
@@ -83,13 +84,15 @@ export const useAppStore = create<AppState>()(
 
     hydrate: async () => {
       try {
-        const [savedTheme, savedUiStyle] = await Promise.all([
+        const [savedTheme, savedUiStyle, savedMarkdownViewMode] = await Promise.all([
           window.api.getTheme(),
           window.api.getSetting('ui_style').catch(() => null),
+          window.api.getSetting('markdown_view_mode').catch(() => null),
         ])
         const t = savedTheme === 'light' ? 'light' : 'dark'
         get().setTheme(t)
         get().setUiStyle(savedUiStyle === '8bit' ? '8bit' : 'classic', false)
+        get().setMarkdownViewMode(savedMarkdownViewMode === 'raw' ? 'raw' : 'rendered')
       } catch {
         get().setUiStyle('classic', false)
       }

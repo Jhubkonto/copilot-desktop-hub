@@ -20,6 +20,15 @@ beforeEach(() => {
 })
 
 describe('Sidebar', () => {
+  it('allows the full sidebar to scroll when zoomed content exceeds the viewport', () => {
+    mockStore = createMockAppStore()
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<Sidebar />)
+
+    expect(screen.getByRole('complementary')).toHaveClass('overflow-auto')
+  })
+
   it('shows compact status dots for configured providers and available CLI tools', async () => {
     mockStore = createMockAppStore({ authState: { authenticated: true, mode: 'byok', user: null } })
     setupStoreMock(useAppStore, mockStore)

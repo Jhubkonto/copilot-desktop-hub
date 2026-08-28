@@ -180,7 +180,7 @@ export function Sidebar() {
   return (
     <aside
       ref={sidebarRef}
-      className="h-full flex flex-col shrink-0 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80 relative"
+      className="h-full flex flex-col shrink-0 overflow-auto bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80 relative"
       style={{ width }}
       role="complementary"
       aria-label="Sidebar navigation"
