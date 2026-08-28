@@ -3,7 +3,6 @@ import { X, Download, FolderDown, Trash2, Package, History, Info, FolderOpen, Se
 import type { ArtifactRow, ArtifactVersion } from '../../shared/types'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
-import { ArtifactGeneratorModal } from './ArtifactGeneratorModal'
 import { DeleteArtifactDialog } from './DeleteArtifactDialog'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ArtifactKindBadge, artifactDisplayTitle } from './artifacts/artifactDisplay'
@@ -65,13 +64,10 @@ function ArtifactStatusBadge({ status }: { status: string }) {
 // Details Tab
 // ---------------------------------------------------------------------------
 
-function DetailsTab({ artifact, projects, exporting, downloading, onRevise, onExportCurrent, onDownloadCurrent }: {
+function DetailsTab({ artifact, projects, downloading, onDownloadCurrent }: {
   artifact: ArtifactRow
   projects: { id: string; name: string }[]
-  exporting: boolean
   downloading: boolean
-  onRevise: () => void
-  onExportCurrent: () => void
   onDownloadCurrent: () => void
 }) {
   const project = artifact.projectId ? projects.find((p) => p.id === artifact.projectId) : null
@@ -134,15 +130,6 @@ function DetailsTab({ artifact, projects, exporting, downloading, onRevise, onEx
       )}
 
       <div className="flex items-center gap-2 pt-2 flex-wrap">
-        <Button variant="primary" onClick={onRevise}>
-          Generate new version
-        </Button>
-        {artifact.currentVersionId && (
-          <Button variant="secondary" onClick={onExportCurrent} disabled={exporting}>
-            <Download className="w-3.5 h-3.5" />
-            {exporting ? 'Exporting…' : 'Export current version'}
-          </Button>
-        )}
         {artifact.currentVersionId && (
           <Button variant="secondary" onClick={onDownloadCurrent} disabled={downloading}>
             <FolderDown className="w-3.5 h-3.5" />
@@ -420,9 +407,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'markdown' | 'details' | 'history'>('details')
   const [width, setWidth] = useState(440)
-  const [showReviseGenerator, setShowReviseGenerator] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [exportingCurrent, setExportingCurrent] = useState(false)
   const [downloadingCurrent, setDownloadingCurrent] = useState(false)
 
   const getMaxSize = useCallback(() => Math.min(PANEL_MAX, Math.floor(window.innerWidth * 0.45)), [])
@@ -449,19 +434,6 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
       closeArtifactPanel()
     } catch {
       addToast('Failed to delete artifact', 'error')
-    }
-  }
-
-  const handleExportCurrent = async () => {
-    if (!artifact?.currentVersionId) return
-    setExportingCurrent(true)
-    try {
-      const result = await window.api.artifactExport(artifact.currentVersionId, 'raw-files')
-      addToast(`Exported to: ${result.exportPath}`, 'success')
-    } catch {
-      addToast('Export failed', 'error')
-    } finally {
-      setExportingCurrent(false)
     }
   }
 
@@ -577,10 +549,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
               <DetailsTab
                 artifact={artifact}
                 projects={projects}
-                exporting={exportingCurrent}
                 downloading={downloadingCurrent}
-                onRevise={() => setShowReviseGenerator(true)}
-                onExportCurrent={() => void handleExportCurrent()}
                 onDownloadCurrent={() => void handleDownloadCurrent()}
               />
             )}
@@ -625,17 +594,6 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
         </div>
       )}
 
-      {/* Revise generator */}
-      {showReviseGenerator && artifact && (
-        <ArtifactGeneratorModal
-          projectId={artifact.projectId ?? undefined}
-          onClose={() => setShowReviseGenerator(false)}
-          onArtifactCreated={() => {
-            setShowReviseGenerator(false)
-            window.api.artifactGet(artifactId).then((a) => setArtifact(a)).catch(() => {})
-          }}
-        />
-      )}
       </div>
     </div>
   )

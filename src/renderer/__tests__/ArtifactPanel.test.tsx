@@ -11,10 +11,6 @@ vi.mock('../store/app-store', () => ({ useAppStore }))
 
 vi.mock('../components/ResizeHandle', () => ({ ResizeHandle: () => null }))
 
-vi.mock('../components/ArtifactGeneratorModal', () => ({
-  ArtifactGeneratorModal: () => <div data-testid="generator-modal" />,
-}))
-
 const ARTIFACT: ArtifactRow = {
   id: 'art-1',
   projectId: null,
@@ -122,10 +118,16 @@ describe('ArtifactPanel', () => {
     expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
   })
 
-  it('shows an export button for the current version in Details tab', async () => {
+  it('does not show an export button for the current version in Details tab', async () => {
     render(<ArtifactPanel artifactId="art-1" />)
     await waitFor(() => screen.getByText('Test Artifact'))
-    expect(screen.getByRole('button', { name: /export current version/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export current version/i })).not.toBeInTheDocument()
+  })
+
+  it('does not show a generate new version action', async () => {
+    render(<ArtifactPanel artifactId="art-1" />)
+    await waitFor(() => screen.getByText('Test Artifact'))
+    expect(screen.queryByRole('button', { name: /generate new version/i })).not.toBeInTheDocument()
   })
 
   it('downloads the current version to a user-selected directory', async () => {
