@@ -77,6 +77,7 @@ import io.nexy.android.data.model.ProjectSource
 import io.nexy.android.data.model.ProjectRepositoryBinding
 import io.nexy.android.data.model.CapabilityMcpGrant
 import io.nexy.android.data.model.CapabilityProfile
+import io.nexy.android.data.model.CapabilityBuiltInToolPolicy
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.WsEvent
@@ -1341,7 +1342,8 @@ private fun <T> MutableList<T>.move(from: Int, to: Int) {
 
 private fun sameCapabilityProfile(left: CapabilityProfile, right: CapabilityProfile): Boolean =
     left.skillIds.toSet() == right.skillIds.toSet() &&
-        left.mcp.associate { it.serverId to it.trust } == right.mcp.associate { it.serverId to it.trust }
+        left.mcp.associate { it.serverId to it.trust } == right.mcp.associate { it.serverId to it.trust } &&
+        left.builtInTools == right.builtInTools
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1395,6 +1397,39 @@ private fun ProjectCapabilitiesSection(
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.padding(12.dp),
                 )
+            }
+        }
+
+        Text("Built-in tools", style = MaterialTheme.typography.labelLarge)
+        Text(
+            "Turning a tool off blocks it in every project chat. Turning it on still uses each agent's own approval settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        listOf(
+            Triple("fileEdit", "File Edit", "Read and edit project files"),
+            Triple("terminal", "Terminal", "Run command-line commands"),
+            Triple("webFetch", "Web Fetch", "Fetch pages and search the web"),
+        ).forEach { (key, label, detail) ->
+            // Projects created before this policy are permissive until the user changes a toggle.
+            val enabled = profile.builtInTools[key]?.let { it.enabled && it.approval != "disabled" } ?: true
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = enabled,
+                    onCheckedChange = { checked ->
+                        onProfileChange(profile.copy(builtInTools = profile.builtInTools + (
+                            key to CapabilityBuiltInToolPolicy(
+                                enabled = checked,
+                                approval = if (checked) "auto" else "disabled",
+                            )
+                        )))
+                    },
+                    enabled = canEdit,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
 

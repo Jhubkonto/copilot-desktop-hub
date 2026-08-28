@@ -115,7 +115,6 @@ fun ArtifactsScreen(
     val deletingVersionId by vm.deletingVersionId.collectAsStateWithLifecycle()
     val deletingArtifactId by vm.deletingArtifactId.collectAsStateWithLifecycle()
     val listDeleteError by vm.listDeleteError.collectAsStateWithLifecycle()
-    val revisioning by vm.revisioning.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf<String?>(null) }
@@ -246,7 +245,6 @@ fun ArtifactsScreen(
             exporting = exporting,
             deleting = deleting,
             deletingVersionId = deletingVersionId,
-            revisioning = revisioning,
             exportError = exportError,
             onExport = { versionId ->
                 exportAction = ArtifactExportAction.SHARE
@@ -494,7 +492,6 @@ private fun ArtifactDetailScreen(
     exporting: Boolean,
     deleting: Boolean,
     deletingVersionId: String?,
-    revisioning: Boolean,
     exportError: String?,
     onExport: (versionId: String) -> Unit,
     onDownload: (versionId: String) -> Unit,
@@ -624,8 +621,6 @@ private fun ArtifactDetailScreen(
                     currentVersionId = artifact.currentVersionId,
                     exporting = exporting,
                     deleting = deleting,
-                    revisioning = revisioning,
-                    onExport = onExport,
                     onDownload = onDownload,
                     onDelete = { confirmDelete = true },
                 )
@@ -771,21 +766,12 @@ private fun ArtifactActionsCard(
     currentVersionId: String?,
     exporting: Boolean,
     deleting: Boolean,
-    revisioning: Boolean,
-    onExport: (versionId: String) -> Unit,
     onDownload: (versionId: String) -> Unit,
     onDelete: () -> Unit,
 ) {
     ArtifactDetailCard {
         Text("Actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         if (currentVersionId != null) {
-            NexySecondaryButton(
-                text = if (exporting) "Exporting..." else "Export current version",
-                onClick = { onExport(currentVersionId) },
-                enabled = !exporting && !deleting,
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = Icons.Default.Share,
-            )
             NexySecondaryButton(
                 text = if (exporting) "Preparing download..." else "Download",
                 onClick = { onDownload(currentVersionId) },
@@ -797,7 +783,7 @@ private fun ArtifactActionsCard(
         NexyDangerButton(
             text = if (deleting) "Deleting..." else "Delete artifact",
             onClick = onDelete,
-            enabled = !deleting && !revisioning,
+            enabled = !deleting,
             modifier = Modifier.fillMaxWidth(),
         )
     }

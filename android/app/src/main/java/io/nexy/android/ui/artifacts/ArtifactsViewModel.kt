@@ -7,9 +7,6 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactExportFile
-import io.nexy.android.data.model.ArtifactGeneratorSpec
-import io.nexy.android.data.model.ArtifactOutputFile
-import io.nexy.android.data.model.ArtifactSourceContext
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.ArtifactVersionSummary
 import io.nexy.android.data.model.WsEvent
@@ -57,9 +54,6 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
     private val _listDeleteError = MutableStateFlow<String?>(null)
     val listDeleteError: StateFlow<String?> = _listDeleteError.asStateFlow()
 
-    private val _revisioning = MutableStateFlow(false)
-    val revisioning: StateFlow<Boolean> = _revisioning.asStateFlow()
-
     private var timeoutJob: Job? = null
     private var pendingProjectId: String? = null
 
@@ -105,7 +99,6 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
                         _exportError.value = event.message
                     }
                     is WsEvent.ArtifactGeneratorCreated -> {
-                        _revisioning.value = false
                         _error.value = null
                         val selected = _selectedArtifact.value
                         refresh(pendingProjectId)
@@ -122,7 +115,6 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
                         _exportError.value = event.message
                     }
                     is WsEvent.ArtifactGeneratorError -> {
-                        _revisioning.value = false
                         _exportError.value = event.message
                     }
                     else -> {}
@@ -171,7 +163,6 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
         _exporting.value = false
         _deleting.value = false
         _deletingVersionId.value = null
-        _revisioning.value = false
     }
 
     fun exportVersion(versionId: String) {
@@ -201,49 +192,6 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
         _deletingVersionId.value = versionId
         _exportError.value = null
         WsRepository.deleteArtifactVersion(versionId)
-    }
-
-    fun generateNewVersion() {
-        val artifact = _selectedArtifact.value ?: return
-        if (_revisioning.value) return
-        val currentFiles = artifact.currentVersion?.files.orEmpty()
-        val outputFiles = currentFiles.map {
-            ArtifactOutputFile(
-                path = it.relativePath,
-                mediaType = it.mediaType,
-                role = it.role,
-                description = null,
-            )
-        }.ifEmpty {
-            listOf(
-                ArtifactOutputFile(
-                    path = "output.md",
-                    mediaType = "text/markdown",
-                    role = "primary",
-                    description = "Primary artifact output",
-                )
-            )
-        }
-        val spec = ArtifactGeneratorSpec(
-            title = artifact.title,
-            kind = artifact.kind,
-            scopeType = if (artifact.projectId != null) "project" else "global",
-            scopeProjectId = artifact.projectId,
-            intendedUse = artifact.description ?: "Generate a revised version of ${artifact.title}",
-            audience = null,
-            outputFiles = outputFiles,
-            acceptanceCriteria = listOf("Preserves the existing artifact intent", "Improves or refreshes the content for a new version"),
-            exportFormats = listOf("raw-files", "markdown"),
-            sourceContext = ArtifactSourceContext(
-                useProjectInstructions = artifact.projectId != null,
-                useProjectWiki = false,
-                useConversationContext = false,
-                referencedFiles = emptyList(),
-            ),
-        )
-        _revisioning.value = true
-        _error.value = null
-        WsRepository.generateArtifact("android-artifact-revise-${artifact.id}-${System.currentTimeMillis()}", spec)
     }
 
     fun clearExport() {
