@@ -18,10 +18,11 @@ import { activeCliAbortControllers } from './provider-stream-state'
 import { safeHandle } from './safe-handle'
 import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
-import { getConversationMcpServerIds, getEffectiveCapabilityProfile } from './capability-service'
+import { getConversationMcpServerIds, getEffectiveCapabilityProfile, isBuiltInToolAllowed } from './capability-service'
 import { requestApproval, denyPendingApprovalsForConversation } from './tools'
 import { cancelPendingUserInputsForConversation, requestUserInput, userInputQuestionsFromArgs } from './user-input'
 import { getAdapter } from './cli-adapters/registry'
+import { clarifyCliAuthError } from './cli-adapters/utils'
 import { getSkillConfig, getSkillConfigsForAgent } from './skills'
 import { bridgeSkillsForCliRun, releaseBridgedSkills, type BridgedSkill } from './cli-skill-bridge'
 import { requestsSkillCapture } from './skill-service'
@@ -358,11 +359,13 @@ function getClaudeCliAllowedBuiltInTools(
   agentConfig: Record<string, unknown> | null,
   agentId: string | null,
   autoApprove = false,
+  capabilityProfile?: import('../shared/types').ConversationCapabilityProfile,
 ): string[] {
   const tools = getClaudeCliToolPolicies(agentConfig)
   const allowedTools: string[] = []
 
   for (const tool of CLAUDE_CLI_BUILT_IN_TOOLS) {
+    if (capabilityProfile && !isBuiltInToolAllowed(capabilityProfile, tool.key)) continue
     const policy = tools[tool.key]
     if (policy?.enabled === false) continue
     if (autoApprove || (policy?.enabled === true && policy.approval === 'auto')) {
@@ -1406,7 +1409,7 @@ export async function dispatchChatSend(
           }
         })()
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
-          ? getClaudeCliAllowedBuiltInTools(agentCfg2, effectiveAgentId, effectiveFullAutoApprove)
+          ? getClaudeCliAllowedBuiltInTools(agentCfg2, effectiveAgentId, effectiveFullAutoApprove, getEffectiveCapabilityProfile(db, conversationId))
               .filter((toolName) => scheduledToolDecision(toolName) !== false)
           : []
         if (requestsSkillCapture(content) && scheduledToolDecision('save_skill') !== false) {
@@ -1805,7 +1808,8 @@ export async function dispatchChatSend(
         debugLog('chat', `cli-adapter error: ${effectiveBackend} failed — ${err instanceof Error ? err.message : String(err)}`)
         console.error(`[chat] cli-adapter ${effectiveBackend} failed:`, err)
         persistCompletedCliToolCalls()
-        const message = err instanceof Error ? err.message : 'CLI backend failed'
+        const rawMessage = err instanceof Error ? err.message : 'CLI backend failed'
+        const message = clarifyCliAuthError(rawMessage, effectiveBackend)
         for (const [blockId, block] of cliThinkingBuffer) {
           if (!block.done) {
             cliThinkingBuffer.set(blockId, { ...block, done: true })

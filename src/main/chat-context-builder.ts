@@ -15,7 +15,7 @@ import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './diff-utils'
 import { getSkillConfig, getSkillConfigsForAgent } from './skills'
-import { EMPTY_CAPABILITY_PROFILE, getEffectiveCapabilityProfile } from './capability-service'
+import { EMPTY_CAPABILITY_PROFILE, getEffectiveCapabilityProfile, isBuiltInToolAllowed } from './capability-service'
 import { persistSkillCapture, prepareSkillCapture, requestsSkillCapture } from './skill-service'
 import { portableSkillName, readSkillResource, skillEntryMarkdown } from './skill-packages'
 import type { ArtifactKind, SkillConfig } from '../shared/types'
@@ -378,6 +378,8 @@ export async function buildChatContext(
   const chatCapabilityProfile = convRow
     ? getEffectiveCapabilityProfile(db, conversationId)
     : EMPTY_CAPABILITY_PROFILE
+  const fileEditAllowed = isBuiltInToolAllowed(chatCapabilityProfile, 'fileEdit')
+  const terminalAllowed = isBuiltInToolAllowed(chatCapabilityProfile, 'terminal')
   const agentSkills = effectiveAgentId ? getSkillConfigsForAgent(effectiveAgentId) : []
   const chatSkills = chatCapabilityProfile.skillIds
     .map((skillId) => getSkillConfig(skillId))
@@ -892,7 +894,7 @@ export async function buildChatContext(
     const capturedFullAutoApprove = fullAutoApprove
     const capturedAgenticMode = agenticMode
 
-    fileToolDefs.push({
+    if (fileEditAllowed) fileToolDefs.push({
       type: 'function' as const,
       function: {
         name: 'read_project_file',
@@ -910,7 +912,7 @@ export async function buildChatContext(
 
     // In plan mode the chat is read-only: the mutating write tool is withheld so the model
     // researches and plans without editing, then presents its plan via exit_plan_mode.
-    if (!planMode) {
+    if (fileEditAllowed && !planMode) {
       fileToolDefs.push({
         type: 'function' as const,
         function: {
@@ -950,7 +952,7 @@ export async function buildChatContext(
       })
     }
 
-    fileInlineHandlers.set('read_project_file', async (args) => {
+    if (fileEditAllowed) fileInlineHandlers.set('read_project_file', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
       const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
@@ -965,7 +967,7 @@ export async function buildChatContext(
       }
     })
 
-    if (!planMode) fileInlineHandlers.set('write_project_file', async (args) => {
+    if (fileEditAllowed && !planMode) fileInlineHandlers.set('write_project_file', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
       const fileContent = typeof args.content === 'string' ? args.content : String(args.content ?? '')
       const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
@@ -1001,7 +1003,7 @@ export async function buildChatContext(
       }
     })
 
-    if (!planMode) fileInlineHandlers.set('copy_path_to_artifact', async (args) => {
+    if (fileEditAllowed && !planMode) fileInlineHandlers.set('copy_path_to_artifact', async (args) => {
       const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
       const resolvedPath = resolveWithinRoots(capturedRoots, requestedPath)
       if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
@@ -1041,7 +1043,7 @@ export async function buildChatContext(
     const terminalCfg = (effectiveAgentId ? getAgentConfig(effectiveAgentId) : null)?.tools as {
       terminal?: { enabled?: boolean; approval?: 'auto' | 'always-ask' | 'disabled' }
     } | null
-    if (!planMode && terminalCfg?.terminal?.enabled && terminalCfg.terminal.approval !== 'disabled') {
+    if (!planMode && terminalAllowed && terminalCfg?.terminal?.enabled && terminalCfg.terminal.approval !== 'disabled') {
       const capturedTerminalApprovalAuto = terminalCfg.terminal.approval === 'auto'
       const capturedTerminalSandboxBypass = terminalSandboxBypass === true
 
