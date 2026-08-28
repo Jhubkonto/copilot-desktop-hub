@@ -124,6 +124,37 @@ export function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, '')
 }
 
+// The Claude/Codex CLIs surface an expired OAuth session as a raw, developer-facing string
+// (typically "Failed to authenticate: OAuth session expired and could not be refreshed").
+// Nexy used to relay that verbatim into the chat, which reads like a Nexy-internal failure
+// rather than what it actually is: the CLI's *own* locally-stored login has expired and
+// must be renewed by running that CLI's login command directly in a terminal — Nexy cannot
+// do this on the user's behalf, since the CLI performs an interactive browser OAuth flow.
+const OAUTH_EXPIRED_PATTERN = /oauth session expired|could not be refreshed|token.*expired.*refresh/i
+
+const CLI_LOGIN_HINTS: Partial<Record<string, { cliName: string; loginCommand: string }>> = {
+  'claude-cli': { cliName: 'Claude CLI', loginCommand: 'claude login' },
+  'codex-cli': { cliName: 'Codex CLI', loginCommand: 'codex login' },
+  'hermes-cli': { cliName: 'Hermes CLI', loginCommand: 'hermes login' },
+}
+
+/**
+ * Rewrite a raw CLI error into a clearer message when it indicates an expired OAuth
+ * session, telling the user which CLI to re-authenticate and how. Non-matching errors are
+ * returned unchanged.
+ */
+export function clarifyCliAuthError(message: string, backend?: string): string {
+  if (!OAUTH_EXPIRED_PATTERN.test(message)) return message
+  const hint = backend ? CLI_LOGIN_HINTS[backend] : undefined
+  const cliName = hint?.cliName ?? 'the CLI'
+  const loginCommand = hint?.loginCommand ?? '<cli> login'
+  return (
+    `Your ${cliName} login has expired. Nexy can't renew it automatically — open a terminal ` +
+    `and run \`${loginCommand}\` to sign in again, then retry this message. ` +
+    `(Original error: ${message})`
+  )
+}
+
 /** Default cap for a single unterminated line in {@link createLineBuffer}. A JSONL line
  *  larger than this is pathological (a CLI streaming a huge unstructured blob with no
  *  newline); dropping the partial protects the main process from unbounded growth. */
