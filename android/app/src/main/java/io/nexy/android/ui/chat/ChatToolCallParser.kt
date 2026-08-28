@@ -69,6 +69,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             text = displayText,
             isUser = role == "user",
             isStreaming = false,
+            rawText = rawText,
             timestamp = timestamp,
             timelineOrder = timelineOrder,
             attachments = attachments,

@@ -59,6 +59,9 @@ data class ChatMessage(
     val text: String,
     val isUser: Boolean,
     val isStreaming: Boolean,
+    // Canonical visible source used by Raw Markdown mode. Android may transform display text
+    // (for example, wrapping bare JSON in a fence) for rendered mode.
+    val rawText: String? = null,
     // True for a text segment that finished streaming because a tool call interrupted it
     // (see freezeCurrentStreamingMessage) — the turn itself isn't done yet, more text or
     // tool calls may still follow. Distinct from isStreaming=false, which MessageBubble

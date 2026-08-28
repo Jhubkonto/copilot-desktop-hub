@@ -448,6 +448,7 @@ fun ChatScreen(
     }
     val preferenceStore = remember(context) { PreferenceStore.getInstance(context) }
     val voiceDockEnabled by preferenceStore.getVoiceDockV1().collectAsState(initial = true)
+    val markdownViewMode by preferenceStore.getMarkdownViewMode().collectAsState(initial = MarkdownViewMode.Rendered)
     var voiceDockFloating by remember {
         mutableStateOf(voiceDockEnabled && preferenceStore.isVoiceDockFloating())
     }
@@ -1149,6 +1150,8 @@ fun ChatScreen(
     if (showActionsSheet) {
         ConversationActionsSheet(
             conversationId = conversationId,
+            markdownViewMode = markdownViewMode,
+            onMarkdownViewModeChange = { preferenceStore.setMarkdownViewMode(it) },
             onDismiss = { showActionsSheet = false },
             onForkNavigate = { forkedId ->
                 onOpenFork?.invoke(forkedId)
@@ -1852,6 +1855,7 @@ fun ChatScreen(
                                         ExpandedResponseTextSegment(
                                             content = item.block.content,
                                             debugKey = item.key,
+                                            viewMode = markdownViewMode,
                                         )
                                     }
                                 }
@@ -1898,10 +1902,12 @@ fun ChatScreen(
                             }
                             is ChatRenderItem.UserMessage -> {
                                 val msg = item.message
+                                val sourceText = msg.rawText ?: msg.text
                                 val chatProjectId = conversation?.project_id ?: projectId
                                 MessageBubble(
                                     msg = msg,
-                                    onCopy = { copyMessage(clipboardManager, msg.text) },
+                                    markdownViewMode = markdownViewMode,
+                                    onCopy = { copyMessage(clipboardManager, sourceText) },
                                     onEdit = {
                                         editingMessageId = msg.id.takeIf { it.isNotBlank() }
                                         input = msg.text
@@ -1938,6 +1944,7 @@ fun ChatScreen(
                             }
                             is ChatRenderItem.AssistantMessage -> {
                                 val msg = item.message
+                                val sourceText = msg.rawText ?: msg.text
                                 val precedingUserMessage = item.precedingUserMessage
                                 val chatProjectId = conversation?.project_id ?: projectId
                                 androidx.compose.foundation.layout.Column {
@@ -1983,7 +1990,8 @@ fun ChatScreen(
                                     MessageBubble(
                                         msg = msg,
                                         displayText = item.displayText,
-                                        onCopy = { copyMessage(clipboardManager, msg.text) },
+                                        markdownViewMode = markdownViewMode,
+                                        onCopy = { copyMessage(clipboardManager, sourceText) },
                                         onEdit = null,
                                         onResend = null,
                                         onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
@@ -2034,7 +2042,7 @@ fun ChatScreen(
                                             {
                                                 val intent = Intent(Intent.ACTION_SEND).apply {
                                                     type = "text/plain"
-                                                    putExtra(Intent.EXTRA_TEXT, msg.text)
+                                                    putExtra(Intent.EXTRA_TEXT, sourceText)
                                                 }
                                                 context.startActivity(Intent.createChooser(intent, "Share message"))
                                             }

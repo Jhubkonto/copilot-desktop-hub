@@ -87,6 +87,8 @@ fun ForkProjectPickerDialog(
 @Composable
 fun ConversationActionsSheet(
     conversationId: String,
+    markdownViewMode: MarkdownViewMode = MarkdownViewMode.Rendered,
+    onMarkdownViewModeChange: (MarkdownViewMode) -> Unit = {},
     onDismiss: () -> Unit,
     onForkNavigate: (String) -> Unit,
     onImportNavigate: (String) -> Unit,
@@ -214,6 +216,36 @@ fun ConversationActionsSheet(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NexyIcon(NexyIconName.Prompt, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
+                        Text("Markdown view", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Choose how chat responses are displayed",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 36.dp, top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for ((mode, label) in listOf(
+                        MarkdownViewMode.Rendered to "Rendered",
+                        MarkdownViewMode.Raw to "Raw",
+                    )) {
+                        TextButton(onClick = { onMarkdownViewModeChange(mode); onDismiss() }) {
+                            Text(
+                                if (markdownViewMode == mode) "✓ $label" else label,
+                                color = if (markdownViewMode == mode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
 
             ActionRow(
                 icon = NexyIconName.Download,

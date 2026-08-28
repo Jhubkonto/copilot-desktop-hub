@@ -296,8 +296,13 @@ private fun ChatMarkdownText(
     markdown: String,
     streaming: Boolean,
     debugKey: String,
+    viewMode: MarkdownViewMode = MarkdownViewMode.Rendered,
     modifier: Modifier = Modifier,
 ) {
+    if (viewMode == MarkdownViewMode.Raw) {
+        RawMarkdownText(markdown, modifier)
+        return
+    }
     if (!streaming) {
         val markwon = LocalMarkwon.current
         val parsed = rememberParsedMarkdown(markwon, markdown)
@@ -762,8 +767,16 @@ private fun ThinkingFullscreenDialog(
  * expose expand/collapse controls.
  */
 @Composable
-fun ExpandedResponseTextSegment(content: String, debugKey: String = "response-text-segment") {
+fun ExpandedResponseTextSegment(
+    content: String,
+    debugKey: String = "response-text-segment",
+    viewMode: MarkdownViewMode = MarkdownViewMode.Rendered,
+) {
     if (content.isBlank()) return
+    if (viewMode == MarkdownViewMode.Raw) {
+        RawMarkdownText(content)
+        return
+    }
     val segments = remember(content) { splitCodeBlocks(content) }
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -811,12 +824,14 @@ fun MessageBubble(
     onSaveAsPrompt: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     isHighlighted: Boolean = false,
+    markdownViewMode: MarkdownViewMode = MarkdownViewMode.Rendered,
 ) {
     val isUser = msg.isUser
     val timeLabel = relativeTime(msg.timestamp)
     // What's actually rendered in the bubble body — msg.text (the full reply) unless a
     // tail-only override was supplied (see the `displayText` param doc above).
     val effectiveText = displayText ?: msg.text
+    val effectiveRawText = displayText ?: msg.rawText ?: effectiveText
     val layoutDebugKey = "message:${msg.id.ifBlank { msg.timestamp.toString() }}"
 
     if (!isUser) {
@@ -892,6 +907,9 @@ fun MessageBubble(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         if (effectiveText.isNotBlank()) {
+                            if (markdownViewMode == MarkdownViewMode.Raw) {
+                                RawMarkdownText(effectiveRawText)
+                            } else {
                             // Fenced code blocks are pulled out of the markdown before Markwon
                             // ever sees it and rendered by a dedicated composable (plain text
                             // while streaming, a syntax-highlighted WebView island once
@@ -949,6 +967,7 @@ fun MessageBubble(
                                         }
                                     }
                                 }
+                            }
                             }
                         }
                         if (!msg.isStreaming && !msg.isFrozenMidTurn && (!msg.model.isNullOrBlank() || msg.inputTokens > 0 || msg.outputTokens > 0)) {

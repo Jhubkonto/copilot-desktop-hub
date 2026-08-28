@@ -5,6 +5,12 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.text.style.URLSpan
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.Composable
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -13,6 +19,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.sp
 import io.noties.markwon.core.spans.CodeSpan
 import io.noties.markwon.core.spans.EmphasisSpan
 import io.noties.markwon.core.spans.LinkSpan
@@ -97,3 +104,19 @@ private fun linkAnnotation(url: String, color: Color) = LinkAnnotation.Url(
     url,
     TextLinkStyles(SpanStyle(color = color, textDecoration = TextDecoration.Underline)),
 )
+
+/** Literal Markdown source used by the chat's raw view. Selection is retained, while Compose
+ * preserves fences, markers, indentation, and line breaks without invoking Markwon. */
+@Composable
+fun RawMarkdownText(markdown: String, modifier: Modifier = Modifier) {
+    SelectionContainer(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = markdown,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            softWrap = true,
+        )
+    }
+}
