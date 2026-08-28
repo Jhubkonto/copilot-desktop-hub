@@ -8,6 +8,9 @@ import type {
   CapabilityPreflightItem,
   CapabilityTrust,
   ConversationCapabilityProfile,
+  BuiltInToolApproval,
+  BuiltInToolKey,
+  BuiltInToolPolicy,
 } from '../shared/types'
 
 export const EMPTY_CAPABILITY_PROFILE: ConversationCapabilityProfile = {
@@ -22,6 +25,29 @@ function isTrust(value: unknown): value is CapabilityTrust {
   return value === 'auto' || value === 'always-ask' || value === 'block'
 }
 
+const BUILT_IN_TOOL_KEYS: BuiltInToolKey[] = ['fileEdit', 'terminal', 'webFetch']
+
+function isBuiltInToolApproval(value: unknown): value is BuiltInToolApproval {
+  return value === 'auto' || value === 'always-ask' || value === 'disabled'
+}
+
+function normalizeBuiltInTools(value: unknown): ConversationCapabilityProfile['builtInTools'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Record<string, unknown>
+  const tools: Partial<Record<BuiltInToolKey, BuiltInToolPolicy>> = {}
+  for (const key of BUILT_IN_TOOL_KEYS) {
+    const entry = raw[key]
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const policy = entry as Record<string, unknown>
+    if (typeof policy.enabled !== 'boolean') continue
+    tools[key] = {
+      enabled: policy.enabled,
+      approval: isBuiltInToolApproval(policy.approval) ? policy.approval : 'always-ask',
+    }
+  }
+  return Object.keys(tools).length > 0 ? tools : undefined
+}
+
 export function normalizeCapabilityProfile(value: unknown): ConversationCapabilityProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...EMPTY_CAPABILITY_PROFILE }
   const raw = value as Record<string, unknown>
@@ -33,12 +59,14 @@ export function normalizeCapabilityProfile(value: unknown): ConversationCapabili
       return [{ serverId: row.serverId, trust: isTrust(row.trust) ? row.trust : 'always-ask' }]
     })
     : []
+  const builtInTools = normalizeBuiltInTools(raw.builtInTools)
   return {
     version: 1,
     skillIds: Array.isArray(raw.skillIds)
       ? [...new Set(raw.skillIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
       : [],
     mcp: [...new Map(mcp.map((entry) => [entry.serverId, entry])).values()],
+    ...(builtInTools ? { builtInTools } : {}),
   }
 }
 
@@ -87,7 +115,27 @@ export function mergeCapabilityProfiles(profiles: ConversationCapabilityProfile[
       })
     }
   }
-  return normalizeCapabilityProfile({ version: 1, skillIds, mcp: [...mcp.values()] })
+  const builtInTools: Partial<Record<BuiltInToolKey, BuiltInToolPolicy>> = {}
+  for (const key of BUILT_IN_TOOL_KEYS) {
+    const policies = profiles.map((profile) => profile.builtInTools?.[key]).filter((policy): policy is BuiltInToolPolicy => Boolean(policy))
+    if (policies.length === 0) continue
+    builtInTools[key] = policies.reduce((merged, policy) => ({
+      // An explicit project disable is a ceiling: neither an agent nor a chat can turn it back on.
+      enabled: merged.enabled && policy.enabled,
+      approval: merged.approval === 'disabled' || policy.approval === 'disabled'
+        ? 'disabled'
+        : merged.approval === 'always-ask' || policy.approval === 'always-ask'
+          ? 'always-ask'
+          : 'auto',
+    }))
+  }
+  return normalizeCapabilityProfile({ version: 1, skillIds, mcp: [...mcp.values()], builtInTools })
+}
+
+/** Whether the resolved capability profile permits the specified built-in tool. */
+export function isBuiltInToolAllowed(profile: ConversationCapabilityProfile, key: BuiltInToolKey): boolean {
+  const policy = profile.builtInTools?.[key]
+  return policy?.enabled !== false && policy?.approval !== 'disabled'
 }
 
 export function getProjectCapabilityProfile(db: Database.Database, projectId: string): ConversationCapabilityProfile {
@@ -128,6 +176,7 @@ function agentCapabilityProfile(db: Database.Database, agentId: string): Convers
     version: 1,
     skillIds: getSkillConfigsForAgent(agentId).map((skill) => skill.id),
     mcp: serverIds.map((serverId) => ({ serverId, trust: trustMap.get(serverId) ?? 'always-ask' })),
+    builtInTools: config.tools,
   })
 }
 

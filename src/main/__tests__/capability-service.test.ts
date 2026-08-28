@@ -3,6 +3,7 @@ import {
   activateConversationCapabilities,
   assertCapabilityProfileValid,
   getProjectCapabilityProfile,
+  isBuiltInToolAllowed,
   mergeCapabilityProfiles,
   normalizeCapabilityProfile,
   setProjectCapabilityProfile,
@@ -63,6 +64,17 @@ describe('conversation capability profiles', () => {
         { serverId: 'blocked', trust: 'block' },
       ],
     })
+  })
+
+  it('keeps a project built-in tool disable as the effective policy ceiling', () => {
+    const profile = mergeCapabilityProfiles([
+      { version: 1, skillIds: [], mcp: [], builtInTools: { terminal: { enabled: false, approval: 'disabled' } } },
+      { version: 1, skillIds: [], mcp: [], builtInTools: { terminal: { enabled: true, approval: 'auto' } } },
+    ])
+
+    expect(profile.builtInTools?.terminal).toEqual({ enabled: false, approval: 'disabled' })
+    expect(isBuiltInToolAllowed(profile, 'terminal')).toBe(false)
+    expect(isBuiltInToolAllowed(profile, 'webFetch')).toBe(true)
   })
 
   it('replaces the chat profile when activation submits an empty selection', () => {
