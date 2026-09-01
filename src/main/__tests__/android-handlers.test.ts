@@ -6,10 +6,11 @@ import { initializeBaseSchema, runMigrations } from '../database-migrations'
 // Hoist mocks for child_process so the vi.mock factory can reference them
 // ---------------------------------------------------------------------------
 
-const { spawnMock, execSyncMock, execFileMock } = vi.hoisted(() => ({
+const { spawnMock, execSyncMock, execFileMock, showOpenDialogMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   execSyncMock: vi.fn(),
   execFileMock: vi.fn(),
+  showOpenDialogMock: vi.fn(),
 }))
 
 vi.mock('child_process', () => ({
@@ -30,7 +31,8 @@ vi.mock('util', () => ({
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: vi.fn(() => require('os').tmpdir()) },
-  BrowserWindow: class {},
+  BrowserWindow: class { static getAllWindows() { return [] } },
+  dialog: { showOpenDialog: showOpenDialogMock },
   safeStorage: {
     isEncryptionAvailable: vi.fn(() => false),
     encryptString: vi.fn((value: string) => Buffer.from(value)),
@@ -83,6 +85,7 @@ afterEach(() => {
   spawnMock.mockReset()
   execSyncMock.mockReset()
   execFileMock.mockReset()
+  showOpenDialogMock.mockReset()
   vi.restoreAllMocks()
 })
 
@@ -268,6 +271,67 @@ describe('registerAndroidHandlers — android:start-command', () => {
     expect(row?.command).toBe('assembleDebug')
     expect(row?.status).toBe('running')
     expect(row?.platform).toBe('android')
+  })
+
+  it('imports and persists the Firebase Android client configuration from the UI', async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tempDir = mkdtempSync(join(require('os').tmpdir(), 'nexy-firebase-import-'))
+    const configPath = join(tempDir, 'google-services.json')
+    writeFileSync(configPath, JSON.stringify({
+      project_info: { project_id: 'nexy-project' },
+      client: [{ client_info: { android_client_info: { package_name: 'io.nexy.android' } } }],
+    }))
+    showOpenDialogMock.mockResolvedValue({ canceled: false, filePaths: [configPath] })
+
+    try {
+      const result = await handlers.get('android:import-firebase-client')?.({})
+      expect(result).toEqual(expect.objectContaining({
+        saved: true,
+        status: { configured: true, projectId: 'nexy-project', packageName: 'io.nexy.android' },
+      }))
+      const { getAndroidFirebaseClientStatus } = await import('../android-handlers')
+      expect(getAndroidFirebaseClientStatus(db)).toEqual({
+        configured: true,
+        projectId: 'nexy-project',
+        packageName: 'io.nexy.android',
+      })
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('stages the saved Firebase client config only for the Gradle process', async () => {
+    const { mkdtempSync, existsSync, mkdirSync, rmSync } = await import('fs')
+    const { join } = await import('path')
+    const workspace = mkdtempSync(join(require('os').tmpdir(), 'nexy-firebase-build-'))
+    const target = join(workspace, 'app', 'google-services.json')
+    mkdirSync(join(workspace, 'app'), { recursive: true })
+    const closeHandlers: Array<(code: number) => Promise<void>> = []
+    const config = JSON.stringify({
+      project_info: { project_id: 'nexy-project' },
+      client: [{ client_info: { android_client_info: { package_name: 'io.nexy.android' } } }],
+    })
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_firebase_client_config', ?)").run(config)
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(workspace)
+    execFileMock.mockRejectedValue(new Error('not a git repo'))
+    spawnMock.mockReturnValue({
+      stdout: { on: vi.fn() },
+      stderr: { on: vi.fn() },
+      on: vi.fn((event: string, handler: (code: number) => Promise<void>) => {
+        if (event === 'close') closeHandlers.push(handler)
+      }),
+      kill: vi.fn(),
+    })
+
+    try {
+      await handlers.get('android:start-command')?.({}, 'assembleDebug')
+      expect(existsSync(target)).toBe(true)
+      await closeHandlers[0]?.(0)
+      expect(existsSync(target)).toBe(false)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
   })
 
   it('spawns assembleDebug with correct args', async () => {

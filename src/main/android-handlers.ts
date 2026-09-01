@@ -3,11 +3,11 @@ import { execSync, spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import path from 'path'
 import { networkInterfaces } from 'os'
-import { app, BrowserWindow, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, safeStorage } from 'electron'
 import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
@@ -24,7 +24,7 @@ import type {
   AdbDevice,
   PreflightCheck,
 } from '../shared/types'
-import { saveFcmServiceAccount, getFcmConfigStatus } from './fcm-sender'
+import { saveFcmServiceAccount, getFcmConfigStatus, verifyFcmConfig } from './fcm-sender'
 
 // ---------------------------------------------------------------------------
 // In-flight process registry
@@ -44,6 +44,7 @@ const ANDROID_BUILD_ID_ENV = 'NEXY_ANDROID_BUILD_ID'
 const ANDROID_COMMIT_SHA_ENV = 'NEXY_ANDROID_COMMIT_SHA'
 const ANDROID_SOURCE_DIRTY_ENV = 'NEXY_ANDROID_SOURCE_DIRTY'
 const ANDROID_BUILD_TIMESTAMP_ENV = 'NEXY_ANDROID_BUILD_TIMESTAMP'
+const ANDROID_FIREBASE_REQUIRED_ENV = 'NEXY_FIREBASE_REQUIRED'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -221,26 +222,112 @@ function resolveAndroidSdkRoot(): string | null {
   return candidates.find((candidate) => existsSync(path.join(candidate, 'platforms'))) ?? null
 }
 
+const ANDROID_FIREBASE_CLIENT_KEY = 'android_firebase_client_config'
+const ANDROID_FIREBASE_CLIENT_ENCRYPTED_KEY = 'android_firebase_client_config_encrypted'
+const ANDROID_FIREBASE_PACKAGE_NAME = 'io.nexy.android'
+
+export interface AndroidFirebaseClientStatus {
+  configured: boolean
+  projectId?: string
+  packageName?: string
+}
+
+function parseAndroidFirebaseClientConfig(json: string): AndroidFirebaseClientStatus {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(json) as Record<string, unknown>
+  } catch {
+    throw new Error('Invalid google-services.json — select the complete Firebase Android client configuration.')
+  }
+
+  const projectInfo = parsed.project_info
+  const projectId = projectInfo && typeof projectInfo === 'object'
+    ? (projectInfo as Record<string, unknown>).project_id
+    : undefined
+  const clients = parsed.client
+  const matchingClient = Array.isArray(clients)
+    ? clients.find((client) => {
+      if (!client || typeof client !== 'object') return false
+      const clientInfo = (client as Record<string, unknown>).client_info
+      if (!clientInfo || typeof clientInfo !== 'object') return false
+      const androidInfo = (clientInfo as Record<string, unknown>).android_client_info
+      return androidInfo && typeof androidInfo === 'object' &&
+        (androidInfo as Record<string, unknown>).package_name === ANDROID_FIREBASE_PACKAGE_NAME
+    })
+    : undefined
+
+  if (typeof projectId !== 'string' || !projectId.trim() || !matchingClient) {
+    throw new Error(`Invalid google-services.json — it must contain a Firebase Android client for package ${ANDROID_FIREBASE_PACKAGE_NAME}.`)
+  }
+
+  return { configured: true, projectId, packageName: ANDROID_FIREBASE_PACKAGE_NAME }
+}
+
+function loadAndroidFirebaseClientJson(db: Database.Database): string | null {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(ANDROID_FIREBASE_CLIENT_KEY) as { value: string } | undefined
+  if (!row?.value) return null
+  const encryptedRow = db.prepare('SELECT value FROM settings WHERE key = ?').get(ANDROID_FIREBASE_CLIENT_ENCRYPTED_KEY) as { value: string } | undefined
+  if (encryptedRow?.value === 'true' && safeStorage.isEncryptionAvailable()) {
+    return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
+  }
+  return row.value
+}
+
+function saveAndroidFirebaseClientJson(db: Database.Database, json: string): AndroidFirebaseClientStatus {
+  const status = parseAndroidFirebaseClientConfig(json)
+  if (safeStorage.isEncryptionAvailable()) {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ANDROID_FIREBASE_CLIENT_KEY, safeStorage.encryptString(json).toString('base64'))
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ANDROID_FIREBASE_CLIENT_ENCRYPTED_KEY, 'true')
+  } else {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ANDROID_FIREBASE_CLIENT_KEY, json)
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ANDROID_FIREBASE_CLIENT_ENCRYPTED_KEY, 'false')
+  }
+  return status
+}
+
+export function getAndroidFirebaseClientStatus(db: Database.Database): AndroidFirebaseClientStatus {
+  const json = loadAndroidFirebaseClientJson(db)
+  if (!json) return { configured: false }
+  try {
+    return parseAndroidFirebaseClientConfig(json)
+  } catch {
+    return { configured: false }
+  }
+}
+
 /**
- * Stage the protected Firebase file only for this Gradle process. The source
- * path is supplied outside the repository through the environment so it can
- * never be added accidentally by a normal Git operation.
+ * Stage the protected Firebase file only for this Gradle process. The normal
+ * source is the encrypted setting imported from the desktop UI. The
+ * environment variable remains as a CLI/automation fallback.
  */
-function prepareFirebaseConfig(workspacePath: string): () => void {
-  const sourceValue = process.env.NEXY_FIREBASE_GOOGLE_SERVICES_PATH?.trim()
-  if (!sourceValue) return () => {}
-
+function prepareFirebaseConfig(workspacePath: string, db: Database.Database): () => void {
   const target = path.join(workspacePath, 'app', 'google-services.json')
+  const storedJson = loadAndroidFirebaseClientJson(db)
+  const sourceValue = process.env.NEXY_FIREBASE_GOOGLE_SERVICES_PATH?.trim()
+  const sourcePath = sourceValue ? path.resolve(sourceValue) : null
+  const sourceJson = storedJson ?? (sourcePath && existsSync(sourcePath) && statSync(sourcePath).isFile()
+    ? readFileSync(sourcePath, 'utf8')
+    : null)
+
+  if (!sourceJson) {
+    if (sourceValue) {
+      throw new Error('NEXY_FIREBASE_GOOGLE_SERVICES_PATH does not point to a readable Firebase configuration file.')
+    }
+    return () => {}
+  }
+
+  parseAndroidFirebaseClientConfig(sourceJson)
+
   if (existsSync(target)) {
-    throw new Error('android/app/google-services.json already exists. Remove the local Firebase file before starting a protected build.')
+    const existingJson = readFileSync(target, 'utf8')
+    parseAndroidFirebaseClientConfig(existingJson)
+    if (existingJson !== sourceJson) {
+      throw new Error('android/app/google-services.json already exists with different Firebase settings. Remove it or import the matching file.')
+    }
+    return () => {}
   }
 
-  const source = path.resolve(sourceValue)
-  if (!existsSync(source) || !statSync(source).isFile()) {
-    throw new Error('NEXY_FIREBASE_GOOGLE_SERVICES_PATH does not point to a readable Firebase configuration file.')
-  }
-
-  copyFileSync(source, target)
+  writeFileSync(target, sourceJson, 'utf8')
   let cleaned = false
   return () => {
     if (cleaned) return
@@ -573,6 +660,7 @@ function buildAndroidBuildEnv(
   buildId: string,
   workspaceInfo: AndroidWorkspaceInfo,
   buildTimestamp: number,
+  requireFirebase: boolean,
 ): NodeJS.ProcessEnv {
   const env = signingConfig ? buildSigningEnv(signingConfig) : { ...process.env }
   const withJdk = withVerifiedAndroidJdk(env)
@@ -585,6 +673,7 @@ function buildAndroidBuildEnv(
     [ANDROID_COMMIT_SHA_ENV]: workspaceInfo.commitSha ?? 'unknown',
     [ANDROID_SOURCE_DIRTY_ENV]: String(workspaceInfo.dirty),
     [ANDROID_BUILD_TIMESTAMP_ENV]: String(buildTimestamp),
+    [ANDROID_FIREBASE_REQUIRED_ENV]: String(requireFirebase),
   }
 }
 
@@ -695,8 +784,9 @@ export async function startAndroidBuildFromMobile(
     buildId,
     workspaceInfo,
     now,
+    SIGNING_COMMANDS.has(command),
   )
-  const firebaseCleanup = prepareFirebaseConfig(workspacePath)
+  const firebaseCleanup = prepareFirebaseConfig(workspacePath, db)
   androidBuildCleanups.set(buildId, firebaseCleanup)
 
   db.prepare(
@@ -790,8 +880,9 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       buildId,
       workspaceInfo,
       now,
+      SIGNING_COMMANDS.has(command),
     )
-    const firebaseCleanup = prepareFirebaseConfig(workspacePath)
+    const firebaseCleanup = prepareFirebaseConfig(workspacePath, db)
     androidBuildCleanups.set(buildId, firebaseCleanup)
 
     db.prepare(
@@ -976,6 +1067,8 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     return r
   })
 
+  safeHandle('android:verify-fcm-config', () => verifyFcmConfig(db))
+
   safeHandle('android:get-publish-history', async () => {
     debugTime('android:get-publish-history')
     const androidFeedDir = getAndroidFeedDir(db)
@@ -985,4 +1078,25 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:restore-version', (_event, versionCode: number) => restoreAndroidVersion(db, versionCode))
+
+  safeHandle('android:get-firebase-client-status', () => getAndroidFirebaseClientStatus(db))
+
+  safeHandle('android:import-firebase-client', async () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Firebase Android configuration', extensions: ['json'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    })
+    if (result.canceled || result.filePaths.length === 0) return { saved: false, canceled: true }
+
+    try {
+      const status = saveAndroidFirebaseClientJson(db, readFileSync(result.filePaths[0], 'utf8'))
+      return { saved: true, canceled: false, status }
+    } catch (error) {
+      return { saved: false, canceled: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
 }

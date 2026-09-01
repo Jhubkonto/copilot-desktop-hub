@@ -15,7 +15,7 @@ import {
   resolveConversationCapabilities,
   setProjectCapabilityProfile,
 } from './capability-service'
-import { applyLifecycleSetting, setAutoStartEnabled } from './app-lifecycle-settings'
+import { applyLifecycleSetting, isAutoStartEnabled, setAutoStartEnabled } from './app-lifecycle-settings'
 import { abortActiveStream, PROVIDERS, getProviderModelIds, isProviderConfigured } from './providers'
 import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
 import { activateEmergencyStop, getEmergencyStopStatus, resumeConversations } from './emergency-stop'
@@ -411,8 +411,7 @@ export function registerWsHandlers(): void {
           'INSERT OR REPLACE INTO mobile_clients (device_id, fcm_token, registered_at) VALUES (?, ?, ?)'
         ).run(deviceId, token, Date.now())
         // Enable auto-start on first successful pairing if not already set
-        const settings = app.getLoginItemSettings()
-        if (!settings.openAtLogin) {
+        if (!isAutoStartEnabled()) {
           setAutoStartEnabled(true)
         }
       }
@@ -4112,11 +4111,11 @@ export function registerWsHandlers(): void {
   })
 
   safeHandle('ws:auto-start-enabled', () => {
-    return app.getLoginItemSettings().openAtLogin
+    return isAutoStartEnabled()
   })
 
   safeHandle('ws:set-auto-start-enabled', (_event, enabled: boolean) => {
     setAutoStartEnabled(enabled)
-    return app.getLoginItemSettings().openAtLogin
+    return isAutoStartEnabled()
   })
 }
