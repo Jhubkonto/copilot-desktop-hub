@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { NexyIcon, type NexyIconName } from './ui/icons/NexyIcon'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds } from '../../shared/models'
-import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
+import type { AdbDevice, AndroidBuildCommandName, AndroidFirebaseClientStatus, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
 import { isApiError } from '../../shared/types'
 import { ModalShell } from './ui/primitives'
@@ -167,6 +167,10 @@ export function SettingsPanel() {
   const [fcmJsonDraft, setFcmJsonDraft] = useState('')
   const [fcmSaving, setFcmSaving] = useState(false)
   const [fcmError, setFcmError] = useState<string | null>(null)
+  const [fcmVerification, setFcmVerification] = useState<{ state: 'unknown' | 'checking' | 'verified' | 'failed'; error?: string }>({ state: 'unknown' })
+  const [androidFirebaseStatus, setAndroidFirebaseStatus] = useState<AndroidFirebaseClientStatus | null>(null)
+  const [androidFirebaseImporting, setAndroidFirebaseImporting] = useState(false)
+  const [androidFirebaseError, setAndroidFirebaseError] = useState<string | null>(null)
 
   // Key handoff consent state — lifted to the store so TitleBar can surface a badge for it
   const pendingKeyHandoffProvider = useAppStore((s) => s.pendingKeyHandoffProvider)
@@ -406,7 +410,13 @@ export function SettingsPanel() {
   useEffect(() => {
     if (!visible || category !== 'mobile') return
     void refreshMobileStatus()
-    void window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {})
+    void Promise.all([
+      window.api.androidGetFcmConfigStatus().then((status) => {
+        setFcmStatus(status)
+        setFcmVerification({ state: 'unknown' })
+      }),
+      window.api.androidGetFirebaseClientStatus().then(setAndroidFirebaseStatus),
+    ]).catch(() => {})
     void window.api.wsGetAutoStartEnabled().then(setAutoStartEnabled).catch(() => {})
   }, [visible, category, refreshMobileStatus])
 
@@ -1048,17 +1058,54 @@ export function SettingsPanel() {
             onRegenerateToken={() => void handleRegenerateToken()}
             onRefreshStatus={() => void refreshMobileStatus()}
             fcmStatus={fcmStatus}
+            fcmVerification={fcmVerification}
             fcmJsonDraft={fcmJsonDraft}
             fcmSaving={fcmSaving}
+            onVerifyFcmConfig={() => {
+              setFcmVerification({ state: 'checking' })
+              setFcmError(null)
+              void window.api.androidVerifyFcmConfig()
+                .then((result) => {
+                  setFcmVerification({ state: result.authenticated ? 'verified' : 'failed', error: result.error })
+                  if (!result.authenticated && result.error) setFcmError(result.error)
+                })
+                .catch((err: unknown) => {
+                  const message = err instanceof Error ? err.message : 'Unable to verify Firebase configuration'
+                  setFcmVerification({ state: 'failed', error: message })
+                  setFcmError(message)
+                })
+            }}
             onSetFcmJsonDraft={setFcmJsonDraft}
             fcmError={fcmError}
+            androidFirebaseStatus={androidFirebaseStatus}
+            androidFirebaseImporting={androidFirebaseImporting}
+            androidFirebaseError={androidFirebaseError}
+            onImportAndroidFirebaseClient={() => {
+              setAndroidFirebaseImporting(true)
+              setAndroidFirebaseError(null)
+              void window.api.androidImportFirebaseClient()
+                .then((result) => {
+                  if (result.saved && result.status) {
+                    setAndroidFirebaseStatus(result.status)
+                  } else if (!result.canceled) {
+                    setAndroidFirebaseError(result.error ?? 'Unable to import google-services.json')
+                  }
+                })
+                .catch((err: unknown) => {
+                  setAndroidFirebaseError(err instanceof Error ? err.message : 'Unable to import google-services.json')
+                })
+                .finally(() => setAndroidFirebaseImporting(false))
+            }}
             onSaveFcmServiceAccount={() => {
               setFcmSaving(true)
               setFcmError(null)
               void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
                 .then((result) => {
                   if (result.saved) {
-                    void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
+                    void window.api.androidGetFcmConfigStatus().then((status) => {
+                      setFcmStatus(status)
+                      setFcmVerification({ state: 'unknown' })
+                    })
                     setFcmJsonDraft('')
                   } else {
                     setFcmError(result.error ?? 'Failed to save configuration')
@@ -1072,7 +1119,15 @@ export function SettingsPanel() {
             autoStartEnabled={autoStartEnabled}
             onToggleAutoStart={() => {
               const next = !autoStartEnabled
-              void window.api.wsSetAutoStartEnabled(next).then(setAutoStartEnabled)
+              void window.api.wsSetAutoStartEnabled(next)
+                .then((result) => {
+                  if (typeof result === 'boolean') {
+                    setAutoStartEnabled(result)
+                  } else {
+                    addToast('Failed to update mobile auto-start setting', 'error')
+                  }
+                })
+                .catch(() => addToast('Failed to update mobile auto-start setting', 'error'))
             }}
             androidDebugLog={androidDebugLog}
             onToggleAndroidDebugLog={() => setAndroidDebugLog(!androidDebugLog)}

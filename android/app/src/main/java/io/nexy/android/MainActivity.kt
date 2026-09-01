@@ -27,6 +27,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private companion object {
+        const val NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -73,6 +77,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Ask once for every installation, not only after the first pairing. Existing
+        // installations can be paired already, and Android 13+ otherwise drops FCM
+        // notifications without ever showing the permission prompt.
+        requestNotificationPermissionIfNeeded()
         io.nexy.android.ui.settings.UpdateInstallVerification.verifyPendingInstall(this)
         val state = WsRepository.connectionState.value
         if (state != ConnectionState.CONNECTED && state != ConnectionState.CONNECTING) {
@@ -85,6 +93,9 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
         ) return
+        val preferences = getSharedPreferences("nexy_preferences", MODE_PRIVATE)
+        if (preferences.getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)) return
+        preferences.edit().putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true).apply()
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 

@@ -1,7 +1,7 @@
 import { ToggleSwitch } from '../ui/primitives'
 import { NexyIcon } from '../ui/icons'
 import { useState, useRef, useEffect } from 'react'
-import type { ConnectedAndroidDevice, WsUrlProfile } from '@shared/types'
+import type { AndroidFirebaseClientStatus, ConnectedAndroidDevice, WsUrlProfile } from '@shared/types'
 import { TabHeader } from './TabHeader'
 
 const IS_MAC = navigator.userAgent.includes('Macintosh')
@@ -19,12 +19,18 @@ interface Props {
   onToggle: () => void
   onRegenerateToken: () => void
   onRefreshStatus: () => void
-  fcmStatus: { configured: boolean; projectId?: string } | null
+  fcmStatus: { configured: boolean; projectId?: string; clientEmail?: string } | null
+  fcmVerification: { state: 'unknown' | 'checking' | 'verified' | 'failed'; error?: string }
   fcmJsonDraft: string
   fcmSaving: boolean
   fcmError: string | null
   onSetFcmJsonDraft: (v: string) => void
   onSaveFcmServiceAccount: () => void
+  onVerifyFcmConfig: () => void
+  androidFirebaseStatus: AndroidFirebaseClientStatus | null
+  androidFirebaseImporting: boolean
+  androidFirebaseError: string | null
+  onImportAndroidFirebaseClient: () => void
   autoStartEnabled: boolean
   onToggleAutoStart: () => void
   androidDebugLog: boolean
@@ -195,7 +201,8 @@ export function MobileTab({
   mobileEnabled, mobileQr, mobileClients, mobileLoading,
   mobileLocalIp, mobilePairingUrl, urlProfiles,
   onSaveProfiles, onToggle, onRegenerateToken, onRefreshStatus,
-  fcmStatus, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount,
+  fcmStatus, fcmVerification, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount, onVerifyFcmConfig,
+  androidFirebaseStatus, androidFirebaseImporting, androidFirebaseError, onImportAndroidFirebaseClient,
   autoStartEnabled, onToggleAutoStart,
   androidDebugLog, onToggleAndroidDebugLog,
 }: Props) {
@@ -419,13 +426,13 @@ export function MobileTab({
               <div>
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
                   Firebase Cloud Messaging
-                  {fcmStatus?.configured && (
+                  {fcmStatus?.configured && fcmVerification.state === 'verified' && (
                     <NexyIcon name="check" size={16} className="text-nexy-success" />
                   )}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {fcmStatus?.configured
-                    ? `Active — project: ${fcmStatus.projectId}`
+                    ? `Saved securely — project: ${fcmStatus.projectId}`
                     : 'Not configured — push notifications disabled'}
                 </p>
               </div>
@@ -437,10 +444,42 @@ export function MobileTab({
                 <p className="text-xs text-gray-500">
                   Sends push notifications to offline devices when tool approvals are requested or a response is ready. Paste your Firebase service account JSON key below — get it from Firebase Console → Project Settings → Service accounts → Generate new private key.
                 </p>
+                {fcmStatus?.configured && (
+                  <div className="rounded bg-gray-50 dark:bg-gray-800/60 px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                    <p className="font-medium text-gray-700 dark:text-gray-200">Saved configuration</p>
+                    <p className="mt-0.5">Project: <span className="font-mono">{fcmStatus.projectId}</span></p>
+                    {fcmStatus.clientEmail && <p>Account: <span className="font-mono break-all">{fcmStatus.clientEmail}</span></p>}
+                    <p className="mt-0.5 text-gray-500">The private key is encrypted and is not shown again.</p>
+                    {fcmVerification.state === 'verified' && <p className="mt-1 text-nexy-success">Firebase authentication verified.</p>}
+                    {fcmVerification.state === 'failed' && <p className="mt-1 text-red-600 dark:text-red-400">Firebase authentication failed.</p>}
+                  </div>
+                )}
+                <div className="rounded bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                  <p className="font-medium text-gray-700 dark:text-gray-200">Android app configuration</p>
+                  <p className="mt-0.5">
+                    {androidFirebaseStatus?.configured
+                      ? <>Ready for Firebase-enabled APK builds — project: <span className="font-mono">{androidFirebaseStatus.projectId}</span></>
+                      : 'Required to build an APK that can receive push notifications.'}
+                  </p>
+                  <p className="mt-1 text-gray-500">Import the Firebase Console file for the Android app package <span className="font-mono">io.nexy.android</span>. Nexy stores it securely and injects it only while Gradle runs.</p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={onImportAndroidFirebaseClient}
+                      disabled={androidFirebaseImporting}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-40"
+                    >
+                      {androidFirebaseImporting ? 'Importing…' : androidFirebaseStatus?.configured ? 'Replace google-services.json' : 'Import google-services.json'}
+                    </button>
+                    {androidFirebaseError && <p className="text-xs text-red-600 dark:text-red-400">{androidFirebaseError}</p>}
+                  </div>
+                </div>
                 <textarea
                   value={fcmJsonDraft}
                   onChange={(e) => onSetFcmJsonDraft(e.target.value)}
-                  placeholder={'{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
+                  placeholder={fcmStatus?.configured
+                    ? 'Paste a new service-account JSON to replace the saved configuration.'
+                    : '{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
                   rows={4}
                   className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
                 />
@@ -452,6 +491,16 @@ export function MobileTab({
                   >
                     {fcmSaving ? 'Saving…' : 'Save configuration'}
                   </button>
+                  {fcmStatus?.configured && (
+                    <button
+                      type="button"
+                      onClick={onVerifyFcmConfig}
+                      disabled={fcmVerification.state === 'checking'}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40"
+                    >
+                      {fcmVerification.state === 'checking' ? 'Verifying…' : 'Verify credentials'}
+                    </button>
+                  )}
                   {fcmError && (
                     <p className="text-xs text-red-600 dark:text-red-400">{fcmError}</p>
                   )}
