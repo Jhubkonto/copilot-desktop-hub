@@ -6,10 +6,18 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// google-services.json is intentionally never committed. Android builds
-// without it remain valid builds with FCM disabled; CI may copy a protected
-// file into this location for a Firebase-enabled release.
+// google-services.json is intentionally never committed. Debug/standalone
+// Android builds can run without it, but desktop-triggered release builds set
+// NEXY_FIREBASE_REQUIRED so a release cannot silently ship without FCM.
 val hasFirebaseConfig = file("google-services.json").isFile
+val firebaseRequired = System.getenv("NEXY_FIREBASE_REQUIRED") == "true"
+if (firebaseRequired && !hasFirebaseConfig) {
+    throw GradleException(
+        "Firebase configuration is required for a desktop release build. " +
+            "Import google-services.json in Nexy Settings > Mobile > Push Notifications, " +
+            "or provide NEXY_FIREBASE_GOOGLE_SERVICES_PATH for CLI builds."
+    )
+}
 if (hasFirebaseConfig) {
     apply(plugin = "com.google.gms.google-services")
 }
