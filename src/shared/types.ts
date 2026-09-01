@@ -1739,6 +1739,12 @@ export interface AndroidSigningConfig {
   generated?: boolean
 }
 
+export interface AndroidFirebaseClientStatus {
+  configured: boolean
+  projectId?: string
+  packageName?: string
+}
+
 export interface AdbDevice {
   serial: string
   state: 'device' | 'offline' | 'unauthorized' | 'unknown'
@@ -2529,7 +2535,10 @@ export type IpcReturnMap = {
   'android:get-publish-history': AndroidUpdateManifest[]
   'android:restore-version': { restored: boolean; manifest?: AndroidUpdateManifest; error?: string }
   'android:save-fcm-service-account': { saved: boolean; error?: string }
-  'android:get-fcm-config-status': { configured: boolean; projectId?: string }
+  'android:get-fcm-config-status': { configured: boolean; projectId?: string; clientEmail?: string }
+  'android:verify-fcm-config': { configured: boolean; authenticated: boolean; projectId?: string; clientEmail?: string; error?: string }
+  'android:get-firebase-client-status': AndroidFirebaseClientStatus
+  'android:import-firebase-client': { saved: boolean; canceled: boolean; status?: AndroidFirebaseClientStatus; error?: string }
   'android:log-chunk': void
   'android:command-done': void
   // WebSocket mobile companion
@@ -3028,6 +3037,9 @@ export type IpcChannels =
   | 'android:restore-version'
   | 'android:save-fcm-service-account'
   | 'android:get-fcm-config-status'
+  | 'android:verify-fcm-config'
+  | 'android:get-firebase-client-status'
+  | 'android:import-firebase-client'
   | 'android:log-chunk'
   | 'android:command-done'
   | 'ws:start'

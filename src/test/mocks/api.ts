@@ -516,7 +516,10 @@ export function createMockApi() {
     androidGetPublishHistory: vi.fn().mockResolvedValue([]),
     androidRestoreVersion: vi.fn().mockResolvedValue({ restored: true, manifest: null }),
     androidGetFcmConfigStatus: vi.fn().mockResolvedValue({ configured: false }),
+    androidVerifyFcmConfig: vi.fn().mockResolvedValue({ configured: false, authenticated: false }),
     androidSaveFcmServiceAccount: vi.fn().mockResolvedValue({ saved: true }),
+    androidGetFirebaseClientStatus: vi.fn().mockResolvedValue({ configured: false }),
+    androidImportFirebaseClient: vi.fn().mockResolvedValue({ saved: false, canceled: true }),
     onAndroidLogChunk: vi.fn().mockReturnValue(() => {}),
     onAndroidCommandDone: vi.fn().mockReturnValue(() => {}),
 
