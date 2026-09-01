@@ -14,8 +14,10 @@ only and contains no usable project credentials.
 For a Firebase-enabled build, CI must expose the protected file through
 `NEXY_FIREBASE_GOOGLE_SERVICES_PATH`, copy it to
 `android/app/google-services.json` for the duration of the Gradle invocation,
-and remove it in a cleanup step that runs on success and failure. The file must
-never be placed in a source archive, desktop package, or release artifact.
+and remove it in a cleanup step that runs on success and failure. Desktop
+release builds require this input; debug/standalone builds may intentionally
+remain FCM-disabled. The file must never be placed in a source archive, desktop
+package, or release artifact.
 
 The Android Build Dashboard uses the same contract when the desktop process is
 started with `NEXY_FIREBASE_GOOGLE_SERVICES_PATH` set. It also discovers the
