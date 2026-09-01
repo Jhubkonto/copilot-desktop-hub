@@ -3,6 +3,7 @@ import type { ChatTurnEvent, UserInputAnswer } from '../shared/chat-turn-types'
 import type {
   AndroidBuildCommandName,
   AndroidSigningConfig,
+  AndroidFirebaseClientStatus,
   AndroidWorkspaceInfo,
   BuildCommandName,
   BuildRecord,
@@ -818,6 +819,9 @@ const api = {
   androidRestoreVersion: (versionCode: number) => typedInvoke('android:restore-version', versionCode),
   androidSaveFcmServiceAccount: (json: string) => typedInvoke('android:save-fcm-service-account', json),
   androidGetFcmConfigStatus: () => typedInvoke('android:get-fcm-config-status'),
+  androidVerifyFcmConfig: () => typedInvoke('android:verify-fcm-config'),
+  androidGetFirebaseClientStatus: () => typedInvoke('android:get-firebase-client-status') as Promise<AndroidFirebaseClientStatus>,
+  androidImportFirebaseClient: () => typedInvoke('android:import-firebase-client'),
   onAndroidLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr'; replace?: boolean }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr'; replace?: boolean }) => callback(data)
     typedOn('android:log-chunk', handler)
