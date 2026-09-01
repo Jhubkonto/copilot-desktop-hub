@@ -4,10 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => ({
   db: null as Database.Database | null,
   setLoginItemSettings: vi.fn(),
+  getLoginItemSettings: vi.fn(() => ({ openAtLogin: false })),
 }))
 
 vi.mock('electron', () => ({
-  app: { setLoginItemSettings: state.setLoginItemSettings },
+  app: {
+    setLoginItemSettings: state.setLoginItemSettings,
+    getLoginItemSettings: state.getLoginItemSettings,
+  },
 }))
 
 vi.mock('../database', () => ({
@@ -21,6 +25,7 @@ import { initializeBaseSchema } from '../database-migrations'
 import {
   applyLifecycleSetting,
   isRunInBackgroundEnabled,
+  isAutoStartEnabled,
   setAutoStartEnabled,
 } from '../app-lifecycle-settings'
 
@@ -29,6 +34,8 @@ describe('app lifecycle settings', () => {
     state.db = new Database(':memory:')
     initializeBaseSchema(state.db)
     state.setLoginItemSettings.mockReset()
+    state.getLoginItemSettings.mockReset()
+    state.getLoginItemSettings.mockReturnValue({ openAtLogin: false })
   })
 
   afterEach(() => {
@@ -58,5 +65,12 @@ describe('app lifecycle settings', () => {
       openAsHidden: true,
       args: [],
     })
+  })
+
+  it('reads auto-start with the same hidden-launch arguments used when enabling it', () => {
+    state.getLoginItemSettings.mockReturnValue({ openAtLogin: true })
+
+    expect(isAutoStartEnabled()).toBe(true)
+    expect(state.getLoginItemSettings).toHaveBeenCalledWith({ args: ['--hidden'] })
   })
 })

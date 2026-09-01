@@ -3,6 +3,7 @@ import { getDatabase } from './database'
 
 export const AUTO_START_SETTING = 'autoStart'
 export const RUN_IN_BACKGROUND_SETTING = 'runInBackground'
+const AUTO_START_ARGS = ['--hidden']
 
 export function isBooleanSettingEnabled(key: string): boolean {
   const row = getDatabase()
@@ -25,8 +26,13 @@ export function setAutoStartEnabled(enabled: boolean): void {
   app.setLoginItemSettings({
     openAtLogin: enabled,
     openAsHidden: true,
-    args: enabled ? ['--hidden'] : [],
+    args: enabled ? AUTO_START_ARGS : [],
   })
+}
+
+/** Electron matches login-item state by arguments, so reads must use the same args as writes. */
+export function isAutoStartEnabled(): boolean {
+  return app.getLoginItemSettings({ args: AUTO_START_ARGS }).openAtLogin
 }
 
 export function applyStoredAutoStartSetting(): void {
